@@ -1,6 +1,6 @@
 #!/bin/sh
 # Export a small window from an RRD into a hee/v1 Measure metric.series YAML (stdout).
-# Usage: hee-rrd-sample-xport /path/to/file.rrd CF RRA_INDEX DS
+# Usage: hee-rrd-sample-xport /path/to/file.rrd [CF] [RRA_INDEX] [DS]
 # Defaults: CF=AVERAGE RRA_INDEX=0 DS=1
 set -u
 
@@ -9,7 +9,10 @@ CF="${2:-AVERAGE}"
 RRA_INDEX="${3:-0}"
 DS="${4:-1}"
 
-[ -n "$RRD" ] || { echo "missing rrd path" >&2; exit 1; }
+if [ -z "$RRD" ]; then
+  echo "missing rrd path" >&2
+  exit 1
+fi
 command -v rrdtool >/dev/null 2>&1 || { echo "rrdtool not found" >&2; exit 1; }
 
 STEP="$(rrdtool info "$RRD" | awk -F' = ' '$1=="step"{gsub(/ /,"",$2);print $2;exit}')"
@@ -27,11 +30,13 @@ LAST_RFC="$(date -u -d "@$LAST" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo null)"
 START_RFC="$(date -u -d "@$START" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo null)"
 END_RFC="$(date -u -d "@$END" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo null)"
 
-VALUES="$(rrdtool fetch "$RRD" "$CF" --start "$START" --end "$END" \
-  | awk 'NF==2 && $1 ~ /^[0-9]+:/ {v=$2; if (v ~ /nan/i) {print "null"} else {print "\""v"\""} }' \
-  | paste -sd, -)"
+VALUES="$(
+  rrdtool fetch "$RRD" "$CF" --start "$START" --end "$END" \
+  | awk 'NF==2 && $1 ~ /^[0-9]+:/ { v=$2; if (v ~ /nan/i) print "null"; else print "\"" v "\"" }' \
+  | paste -sd, -
+)"
 
-cat <<EOF
+cat <<__YAML__
 apiVersion: hee/v1
 kind: Measure
 metadata:
@@ -56,6 +61,7 @@ spec:
     rrd:
       file_ref: "$RRD"
       ds: "$DS"
+      ds_type: "GAUGE"
       cf: "$CF"
       rra_index: $RRA_INDEX
       step_sec: $STEP
@@ -63,3 +69,4 @@ spec:
   series:
     unit: null
     values_dec: [ $VALUES ]
+__YAML__
