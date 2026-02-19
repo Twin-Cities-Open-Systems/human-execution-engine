@@ -1,0 +1,115 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: tcos-project-index
+  description: "TCOS project index snapshot (original+current sidebar_name only; intermediates ignored by default; tallies kept)."
+  labels:
+    hee.object: "true"
+    hee.state: candidate
+    hee.intent: indexing
+    hee.audience: ops
+    domain: tcos
+    artifact: card
+  annotations:
+    inuid: "699431a0-9598-8331-be9e-f8cf59cf8912"
+    sidebar_name: "INDEX 699431a0-9598-8331-be9e-f8cf59cf8912"
+    generated_at: "2026-02-18T20:11:57-06:00"
+    ts_human: "2026-02-18_2011"
+spec:
+  policy:
+    sidebar_name:
+      keep_original: true
+      keep_current: true
+      ignore_intermediates_by_default: true
+      archive_intermediates_by_default: false
+      tallies:
+        names_seen_total: true
+        names_seen_unique: true
+      track_content_not_name_deltas: true
+  completeness:
+    measure: partial
+    basis: "only inuid/sidebar_name observations currently available in this INDEX chat context"
+  entries:
+    - inuid: "699431a0-9598-8331-be9e-f8cf59cf8912"
+      sidebar_name_original: "INDEX 699431a0-9598-8331-be9e-f8cf59cf8912"
+      sidebar_name_current: "INDEX 699431a0-9598-8331-be9e-f8cf59cf8912"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "6994307f-9a7c-832b-a6d1-5bbf8cc0c29c"
+      sidebar_name_original: "TCOS Commodities Price Tracker 6994307f-9a7c-832b-a6d1-5bbf8cc0c29c"
+      sidebar_name_current: "TCOS Commodities Price Tracker 6994307f-9a7c-832b-a6d1-5bbf8cc0c29c"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "6996598b-9668-8326-986d-f7e0945ce3fc"
+      sidebar_name_original: "Food Reg 6996598b-9668-8326-986d-f7e0945ce3fc"
+      sidebar_name_current: "Food Reg 6996598b-9668-8326-986d-f7e0945ce3fc"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "699341ba-de5c-8332-a007-68c76d109d6d"
+      sidebar_name_original: "Jeff Sorensen Primary Contractor 699341ba-de5c-8332-a007-68c76d109d6d"
+      sidebar_name_current: "Contacts 699341ba-de5c-8332-a007-68c76d109d6d"
+      sidebar_name_names_seen_total: 3
+      sidebar_name_names_seen_unique: 3
+
+    - inuid: "699426d3-1200-832f-bcc3-c09d2581491c"
+      sidebar_name_original: "banking 699426d3-1200-832f-bcc3-c09d2581491c"
+      sidebar_name_current: "banking 699426d3-1200-832f-bcc3-c09d2581491c"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "6995e9cd-d470-8328-92bd-81afdc2682ba"
+      sidebar_name_original: "MIB 6995e9cd-d470-8328-92bd-81afdc2682ba"
+      sidebar_name_current: "MIB 6995e9cd-d470-8328-92bd-81afdc2682ba"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "6995ed11-21c4-832e-884a-931c10e38caf"
+      sidebar_name_original: "Silver 6995ed11-21c4-832e-884a-931c10e38caf"
+      sidebar_name_current: "Silver 6995ed11-21c4-832e-884a-931c10e38caf"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "69936ac4-5810-8327-9a8a-c44beacbd4b3"
+      sidebar_name_original: "HEE-Codex-Repo-Cartography 69936ac4-5810-8327-9a8a-c44beacbd4b3"
+      sidebar_name_current: "HEE Codex Repo Cartography 69936ac4-5810-8327-9a8a-c44beacbd4b3"
+      sidebar_name_names_seen_total: 2
+      sidebar_name_names_seen_unique: 2
+
+    - inuid: "6993457e-e0c0-8332-a22b-c04bdb4d0432"
+      sidebar_name_original: "Codex vs GPT for Projects 6993457e-e0c0-8332-a22b-c04bdb4d0432"
+      sidebar_name_current: "codex 6993457e-e0c0-8332-a22b-c04bdb4d0432"
+      sidebar_name_names_seen_total: 2
+      sidebar_name_names_seen_unique: 2
+
+    - inuid: "69933a46-1398-8327-a45a-9b716e6b9eca"
+      sidebar_name_original: "Peter Steinberger Overview 69933a46-1398-8327-a45a-9b716e6b9eca"
+      sidebar_name_current: "Peter Steinberger Overview 69933a46-1398-8327-a45a-9b716e6b9eca"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "699350e0-f498-832e-a413-d98b9b6ab8f7"
+      sidebar_name_original: "Brain Dump Assistance 699350e0-f498-832e-a413-d98b9b6ab8f7"
+      sidebar_name_current: "Brain Dump Assistance 699350e0-f498-832e-a413-d98b9b6ab8f7"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "6993643e-2b00-832e-aae5-2e47237855ad"
+      sidebar_name_original: "Disk Usage Report 6993643e-2b00-832e-aae5-2e47237855ad"
+      sidebar_name_current: "Disk Usage Report 6993643e-2b00-832e-aae5-2e47237855ad"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "6993e089-f4ec-832a-a7c6-65f068ce44fc"
+      sidebar_name_original: "SSS 6993e089-f4ec-832a-a7c6-65f068ce44fc"
+      sidebar_name_current: "SSS 6993e089-f4ec-832a-a7c6-65f068ce44fc"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1
+
+    - inuid: "698e8ee0-9d80-8325-b394-ee3978c75ea2"
+      sidebar_name_original: "Cheap Hosting for K8s 698e8ee0-9d80-8325-b394-ee3978c75ea2"
+      sidebar_name_current: "Cheap Hosting for K8s 698e8ee0-9d80-8325-b394-ee3978c75ea2"
+      sidebar_name_names_seen_total: 1
+      sidebar_name_names_seen_unique: 1

@@ -1,0 +1,37 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: hee-indexing-candidate
+  description: "Candidate: general indexing of stuff and things (inuid ↔ sidebar_name volatility rules; tallies; relaxed-now/strict-later posture)."
+  labels:
+    hee.object: "true"
+    hee.state: candidate
+    hee.intent: indexing
+    hee.audience: docs
+    artifact: card
+  annotations:
+    inuid: null
+    inuid_reason: "candidate card; awaiting assignment"
+    candidate_for: "hee-indexing.contract.v1 + hee-indexing.schema.v1"
+    generated_at: "2026-02-18T20:11:44-06:00"
+    ts_human: "2026-02-18_2011"
+spec:
+  policy:
+    validation_mode: relaxed
+    sidebar_name:
+      volatile: true
+      keep_original: true
+      keep_current: true
+      ignore_intermediates_by_default: true
+      archive_intermediates_by_default: false
+      tallies:
+        names_seen_total: true
+        names_seen_unique: true
+      track_content_not_name_deltas: true
+  entry_shape:
+    required_fields:
+      - inuid
+      - sidebar_name_original
+      - sidebar_name_current
+      - sidebar_name_names_seen_total
+      - sidebar_name_names_seen_unique
