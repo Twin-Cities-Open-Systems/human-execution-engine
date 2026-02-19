@@ -1,115 +1,121 @@
 #!/bin/sh
 # hee-gh-pr-codex-list.sh
-# List Codex review comments + unresolved review threads for a PR.
-# Usage:
-#   hee-gh-pr-codex-list.sh --repo owner/repo --pr N [--workdir /tmp/x]
-#
-# Outputs:
-#   $WORKDIR/codex.comments.tsv           (comment_id \t path \t line \t snippet)
-#   $WORKDIR/codex.unresolved-threads.tsv (thread_id \t comment_dbid \t snippet)
-
-set -eu
+# Purpose: list Codex PR review comments (REST, paginated) + unresolved Codex review threads (GraphQL, cursor-paginated)
+# Outputs (in --outdir, default .):
+#   codex.comments.tsv
+#   codex.unresolved-threads.tsv
 
 REPO=""
 PR=""
-WORKDIR=""
+OUTDIR="."
+CODEX_LOGIN_PREFIX="chatgpt-codex-connector"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
     --pr) PR="$2"; shift 2 ;;
-    --workdir) WORKDIR="$2"; shift 2 ;;
-    *) echo "🔴 unknown arg: $1" >&2; exit 2 ;;
+    --outdir) OUTDIR="$2"; shift 2 ;;
+    --codex-login-prefix) CODEX_LOGIN_PREFIX="$2"; shift 2 ;;
+    -h|--help)
+      echo "usage: $0 --repo owner/name --pr <num> [--outdir dir] [--codex-login-prefix prefix]"
+      break
+      ;;
+    *) echo "unknown arg: $1"; break ;;
   esac
 done
 
-test -n "$REPO" || { echo "🔴 missing --repo" >&2; exit 2; }
-test -n "$PR"   || { echo "🔴 missing --pr" >&2; exit 2; }
+if [ -z "$REPO" ] || [ -z "$PR" ]; then
+  echo "missing --repo or --pr"
+else
+  command -v gh >/dev/null 2>&1 || echo "missing gh"
+  command -v jq >/dev/null 2>&1 || echo "missing jq"
 
-command -v gh >/dev/null 2>&1 || { echo "🔴 gh missing" >&2; exit 2; }
-command -v jq >/dev/null 2>&1 || { echo "🔴 jq missing" >&2; exit 2; }
+  mkdir -p "$OUTDIR" 2>/dev/null || true
 
-if [ -z "$WORKDIR" ]; then WORKDIR="$(mktemp -d)"; fi
+  OWNER="$(printf '%s' "$REPO" | awk -F/ '{print $1}')"
+  NAME="$(printf '%s' "$REPO" | awk -F/ '{print $2}')"
 
-COMMENTS_JSON="$WORKDIR/review-comments.json"
-THREADS_JSON="$WORKDIR/threads.json"
-OUT_COMMENTS="$WORKDIR/codex.comments.tsv"
-OUT_THREADS="$WORKDIR/codex.unresolved-threads.tsv"
+  COMMENTS_TSV="$OUTDIR/codex.comments.tsv"
+  THREADS_TSV="$OUTDIR/codex.unresolved-threads.tsv"
 
-echo '# STATUS'
-echo "🟦 repo=$REPO"
-echo "🟦 pr=$PR"
-echo "🟦 workdir=$WORKDIR"
+  : > "$COMMENTS_TSV"
+  : > "$THREADS_TSV"
 
-echo
-echo '# ACTION (pull review comments)'
-gh api -H 'Accept: application/vnd.github+json' "repos/$REPO/pulls/$PR/comments" >"$COMMENTS_JSON"
+  # REST: PR review comments (paginated)
+  gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+    | jq -r --arg p "$CODEX_LOGIN_PREFIX" '
+      .[]
+      | select((.user.login|tostring|ascii_downcase|startswith($p)) or (.user.login|tostring|ascii_downcase|contains("codex")))
+      | [
+          (.id|tostring),
+          (.user.login|tostring),
+          (.path|tostring),
+          ((.line // .original_line // .position // 0)|tostring),
+          (.created_at|tostring),
+          (.html_url|tostring)
+        ]
+      | @tsv
+    ' > "$COMMENTS_TSV"
 
-jq -r '
-  .[]
-  | select(.user.login=="chatgpt-codex-connector")
-  | [
-      (.id|tostring),
-      (.path // ""),
-      ((.line // 0)|tostring),
-      ((.body|gsub("[\r\n]+";" ")|.[0:90]) // "")
-    ] | @tsv
-' "$COMMENTS_JSON" >"$OUT_COMMENTS" || true
-
-echo "🟦 codex_comment_count=$(wc -l <"$OUT_COMMENTS" | tr -d " ")"
-sed -n '1,10p' "$OUT_COMMENTS" || true
-
-echo
-echo '# ACTION (pull unresolved review threads via graphql)'
-cat >"$WORKDIR/q.graphql" <<'Q'
-query($owner:String!, $name:String!, $pr:Int!) {
-  repository(owner:$owner, name:$name) {
-    pullRequest(number:$pr) {
-      reviewThreads(first:100) {
-        nodes {
-          id
-          isResolved
-          comments(first:50) {
+  # GraphQL: reviewThreads(first:100, after:$after) cursor-pagination
+  QUERY='
+    query($owner:String!, $name:String!, $pr:Int!, $after:String) {
+      repository(owner:$owner, name:$name) {
+        pullRequest(number:$pr) {
+          reviewThreads(first: 100, after: $after) {
+            pageInfo { hasNextPage endCursor }
             nodes {
-              databaseId
-              author { login }
-              body
+              id
+              isResolved
+              comments(first: 50) {
+                nodes {
+                  databaseId
+                  author { login }
+                  path
+                  originalLine
+                  createdAt
+                  body
+                }
+              }
             }
           }
         }
       }
     }
-  }
-}
-Q
+  '
 
-OWNER="$(echo "$REPO" | cut -d/ -f1)"
-NAME="$(echo "$REPO" | cut -d/ -f2)"
+  AFTER=""
+  HAS_NEXT="true"
 
-gh api graphql \
-  -F owner="$OWNER" \
-  -F name="$NAME" \
-  -F pr="$PR" \
-  -f query="$(cat "$WORKDIR/q.graphql")" \
-  >"$THREADS_JSON"
+  while [ "$HAS_NEXT" = "true" ]; do
+    if [ -n "$AFTER" ]; then
+      RESP="$(gh api graphql -f query="$QUERY" -F owner="$OWNER" -F name="$NAME" -F pr="$PR" -F after="$AFTER")"
+    else
+      RESP="$(gh api graphql -f query="$QUERY" -F owner="$OWNER" -F name="$NAME" -F pr="$PR")"
+    fi
 
-jq -r '
-  .data.repository.pullRequest.reviewThreads.nodes[]
-  | select(.isResolved==false)
-  | . as $t
-  | ($t.comments.nodes | map(select(.author.login=="chatgpt-codex-connector")) | .[0]) as $c
-  | select($c != null)
-  | [
-      $t.id,
-      ($c.databaseId|tostring),
-      (($c.body|gsub("[\r\n]+";" ")|.[0:90]) // "")
-    ] | @tsv
-' "$THREADS_JSON" >"$OUT_THREADS" || true
+    # append unresolved codex-ish threads to TSV:
+    printf '%s\n' "$RESP" | jq -r --arg p "$CODEX_LOGIN_PREFIX" '
+      .data.repository.pullRequest.reviewThreads.nodes[]
+      | select(.isResolved == false)
+      | . as $t
+      | ($t.comments.nodes // []) as $cs
+      | ($cs | map(select((.author.login|tostring|ascii_downcase|startswith($p)) or (.author.login|tostring|ascii_downcase|contains("codex")) or (.body|tostring|ascii_downcase|contains("p2 badge")))) ) as $codex
+      | select(($codex|length) > 0)
+      | ($codex[0]) as $c
+      | [
+          ($t.id|tostring),
+          ($c.databaseId|tostring),
+          ($c.author.login|tostring),
+          ($c.path|tostring),
+          ($c.originalLine|tostring),
+          ($c.createdAt|tostring)
+        ]
+      | @tsv
+    ' >> "$THREADS_TSV"
 
-echo "🟦 codex_unresolved_thread_count=$(wc -l <"$OUT_THREADS" | tr -d " ")"
-sed -n '1,10p' "$OUT_THREADS" || true
-
-echo
-echo '# NEXT'
-echo "🟦 comments=$OUT_COMMENTS"
-echo "🟦 threads=$OUT_THREADS"
+    HAS_NEXT="$(printf '%s\n' "$RESP" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')"
+    AFTER="$(printf '%s\n' "$RESP" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // ""')"
+    [ "$AFTER" = "null" ] && AFTER=""
+  done
+fi
