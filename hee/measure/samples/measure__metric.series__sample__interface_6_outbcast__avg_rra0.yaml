@@ -1,0 +1,41 @@
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: rrd-series-i6-outbcast-avg-r0-20220331t1530z
+  description: "SAMPLE: metric.series exported from RRD (real points, small window)"
+  labels:
+    hee.object: "true"
+    hee.tcos/env: test
+    hee.tcos/topic: ops
+  annotations:
+    hee.sample: "true"
+    hee.sample.note: "sample-only; extracted from local RRD, small window"
+    hee.tcos/inuid: "699426d3-1200-832f-bcc3-c09d2581491c"
+    hee.tcos/inuid.sidebar_name: "Banking 699426d3-1200-832f-bcc3-c09d2581491c"
+    hee.tcos/src: "in-take/rrd/Interface_6_outbcast.rrd"
+spec:
+  measure: metric.series
+  flow: { type: snapshot }
+  ts:
+    start: "2022-03-31T15:21:00Z"
+    end: "2022-03-31T15:31:00Z"
+    step_sec: 60
+    last_update: "2022-03-31T15:31:30Z"
+  context:
+    rrd:
+      file_ref: "in-take/rrd/Interface_6_outbcast.rrd"
+      ds: "1"
+      ds_type: "GAUGE"
+      cf: "AVERAGE"
+      rra_index: 0
+      step_sec: 60
+      pdp_per_row: 1
+      resolution_sec: 60
+      rows: 2880
+      xff_dec: "0.5"
+      last_update_epoch: 1648740690
+    metric_hint: "outbcast"
+    iface_hint: "Interface_6"
+  series:
+    unit: null
+    values_dec: [ null,null,null,null,null,null,null,null,null,null,"-nan" ]
