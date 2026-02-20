@@ -16,3 +16,7 @@ Notes:
   - *_raw: verbatim strings from source
   - *_dec: numeric as string (avoid float rounding)
   - *_cents / *_micros: fixed-point ints when safe
+
+## Translator (in-take -> out-take)
+
+Tool: `hee/tools/hee-measure-translate` (skeleton v1: quarantine+report; deterministic naming).

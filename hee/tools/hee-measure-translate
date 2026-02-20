@@ -1,0 +1,113 @@
+#!/bin/sh
+# hee-measure-translate: skeleton translator
+# Contract goals (v1):
+# - in-take -> out-take (real, non-sample)
+# - deterministic naming (content hash)
+# - quarantine + reporting (never silently drop)
+# - unknown stays unknown: unsupported inputs -> quarantine (no coercion)
+
+set -eu
+
+DRY_RUN=0
+IN_ROOT="${HOME}/.hee/in-take"
+OUT_ROOT="${HOME}/.hee/out-take"
+
+usage() {
+  echo "usage: hee-measure-translate [--dry-run] [--in-root PATH] [--out-root PATH]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --in-root) IN_ROOT="${2:-}"; shift 2 ;;
+    --out-root) OUT_ROOT="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+if [ ! -d "$IN_ROOT" ]; then
+  echo "missing in-root: $IN_ROOT" >&2
+  exit 2
+fi
+
+if [ ! -d "$OUT_ROOT" ]; then
+  echo "missing out-root: $OUT_ROOT" >&2
+  exit 2
+fi
+
+TS_UTC="$(date -u +%Y%m%dT%H%M%SZ)"
+REPORT_DIR="${OUT_ROOT}/_report"
+REPORT="${REPORT_DIR}/${TS_UTC}__hee-measure-translate.report.txt"
+
+mkdir -p "$REPORT_DIR"
+
+log() {
+  echo "$*" >>"$REPORT"
+}
+
+emit_file() {
+  src="$1"  # full path
+  domain="$2"  # bank/books/fred/tos/trades/rrd
+  action="$3"  # translate|quarantine
+  kind="$4"    # metric.series|bank.transaction|unknown
+
+  # content hash naming => deterministic
+  if command -v sha256sum >/dev/null 2>&1; then
+    h="$(sha256sum "$src" | awk '{print $1}')"
+  else
+    # fallback: size+mtime (still stable enough for skeleton)
+    h="$(wc -c <"$src" | tr -d ' ')_$(ls -ln "$src" | awk '{print $6}')"
+  fi
+
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/${domain}/${action}/${kind}"
+  out="${out_dir}/${h}__${base}.note.txt"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=$domain action=$action kind=$kind src=$src out=$out"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY domain=$domain action=$action kind=$kind src=$src -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+  {
+    echo "ts_utc=$TS_UTC"
+    echo "domain=$domain"
+    echo "action=$action"
+    echo "kind=$kind"
+    echo "src=$src"
+    echo "note=skeleton translator; real parsing/measure emit comes next"
+  } >"$out"
+
+  log "WRITE domain=$domain action=$action kind=$kind src=$src out=$out"
+}
+
+# Walk domain dirs (only existing ones; do not create)
+for domain in bank books fred tos trades rrd; do
+  d="${IN_ROOT}/${domain}"
+  [ -d "$d" ] || continue
+
+  # files only, top-level (v1)
+  # shellcheck disable=SC2039
+  for f in "$d"/*; do
+    [ -f "$f" ] || continue
+
+    case "$domain" in
+      rrd)
+        # v1: quarantine with kind hint; commit #2 will wire real metric.series via rrdtool info/xport
+        emit_file "$f" "$domain" "quarantine" "metric.series"
+        ;;
+      *)
+        # v1: quarantine everything else (no silent drop)
+        emit_file "$f" "$domain" "quarantine" "unknown"
+        ;;
+    esac
+  done
+done
+
+echo "ok: report=$REPORT"
