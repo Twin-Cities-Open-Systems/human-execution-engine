@@ -1,0 +1,277 @@
+#!/bin/sh
+# hee-measure-translate
+# v1 goals:
+# - in-take -> out-take
+# - deterministic naming (src content hash)
+# - quarantine + reporting (never silently drop)
+# - RRD: step_sec/DS/RRA identity from rrdtool info
+# - RRD: unknown stays unknown (NaN -> YAML null)
+# - Prefer metric.series exports (chunked time series)
+
+set -eu
+
+DRY_RUN=0
+IN_ROOT="${HOME}/.hee/in-take"
+OUT_ROOT="${HOME}/.hee/out-take"
+
+RRD_CF="AVERAGE"
+RRD_WINDOW_SEC="86400"   # last 24h
+RRD_MAXROWS="2000"       # cap output size
+
+usage() {
+  echo "usage: hee-measure-translate [--dry-run] [--in-root PATH] [--out-root PATH] [--rrd-cf CF] [--rrd-window-sec N] [--rrd-maxrows N]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --in-root) IN_ROOT="${2:-}"; shift 2 ;;
+    --out-root) OUT_ROOT="${2:-}"; shift 2 ;;
+    --rrd-cf) RRD_CF="${2:-}"; shift 2 ;;
+    --rrd-window-sec) RRD_WINDOW_SEC="${2:-}"; shift 2 ;;
+    --rrd-maxrows) RRD_MAXROWS="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+TS_UTC="$(date -u +%Y%m%dT%H%M%SZ)"
+REPORT_DIR="${OUT_ROOT}/_report"
+REPORT="${REPORT_DIR}/${TS_UTC}__hee-measure-translate.report.txt"
+mkdir -p "$REPORT_DIR"
+
+log() { echo "$*" >>"$REPORT"; }
+
+sha_src() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    wc -c <"$1" | tr -d ' '
+  fi
+}
+
+emit_quarantine_note() {
+  src="$1"
+  domain="$2"
+  kind="$3"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/${domain}/quarantine/${kind}"
+  out="${out_dir}/${h}__${base}.note.txt"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=$domain action=quarantine kind=$kind src=$src out=$out"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY quarantine domain=$domain kind=$kind src=$src -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+  {
+    echo "ts_utc=$TS_UTC"
+    echo "domain=$domain"
+    echo "action=quarantine"
+    echo "kind=$kind"
+    echo "src=$src"
+    echo "note=quarantined (unsupported or error); unknown stays unknown; never silently dropped"
+  } >"$out"
+  log "WRITE quarantine domain=$domain kind=$kind src=$src out=$out"
+}
+
+rrd_info_extract() {
+  rrd="$1"
+
+  step="$(rrdtool info "$rrd" | awk -F' = ' '/^step = /{gsub(/"/,"",$2); print $2; exit}')"
+  [ -n "${step:-}" ] || step=""
+
+  # DS names from rrdtool info: ds[NAME].type = ...
+  ds_list="$(rrdtool info "$rrd" | awk -F'[][]' '/^ds\[/{print $2}' | sort -u)"
+
+  # Raw identity blocks (kept as text for now; schema tightening later)
+  ds_id="$(rrdtool info "$rrd" | awk '/^ds\[/{print}')"
+  rra_id="$(rrdtool info "$rrd" | awk '/^rra\[/{print}')"
+
+  printf '%s\n' "STEP=$step"
+  printf '%s\n' "DS_LIST_BEGIN"
+  printf '%s\n' "$ds_list"
+  printf '%s\n' "DS_LIST_END"
+  printf '%s\n' "DS_ID_BEGIN"
+  printf '%s\n' "$ds_id"
+  printf '%s\n' "DS_ID_END"
+  printf '%s\n' "RRA_ID_BEGIN"
+  printf '%s\n' "$rra_id"
+  printf '%s\n' "RRA_ID_END"
+}
+
+rrd_xport_points_tsv() {
+  rrd="$1"
+  ds="$2"
+  cf="$3"
+  start="$4"
+  end="$5"
+  maxrows="$6"
+
+  # XML output; parse with perl (single DS => single <v>)
+  rrdtool xport --start "$start" --end "$end" --maxrows "$maxrows" \
+    "DEF:v=${rrd}:${ds}:${cf}" \
+    "XPORT:v:${ds}" \
+  | perl -0777 -ne '
+      while (m{<row>\s*<t>(\d+)</t>\s*<v>([^<]*)</v>\s*</row>}sg) {
+        my ($t,$v)=($1,$2);
+        $v =~ s/^\s+|\s+$//g;
+        print "$t\t$v\n";
+      }
+    '
+}
+
+emit_rrd_metric_series_yaml() {
+  src="$1"
+  ds="$2"
+  cf="$3"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/rrd/translate/metric.series"
+  out="${out_dir}/${h}__${base}__${cf}__${ds}.yaml"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=rrd action=translate kind=metric.series src=$src out=$out"
+    return 0
+  fi
+
+  # Identify time window from last()
+  last="$(rrdtool last "$src" 2>/dev/null || true)"
+  if [ -z "$last" ]; then
+    emit_quarantine_note "$src" "rrd" "metric.series"
+    log "ERR rrd_last_failed src=$src"
+    return 0
+  fi
+
+  # start = last - window (floor at 0)
+  start=$(( last - RRD_WINDOW_SEC ))
+  if [ "$start" -lt 0 ]; then start=0; fi
+
+  info="$(rrd_info_extract "$src")"
+  step="$(printf '%s\n' "$info" | awk -F= '/^STEP=/{print $2; exit}')"
+
+  ds_id="$(printf '%s\n' "$info" | awk '
+    $0=="DS_ID_BEGIN"{p=1;next}
+    $0=="DS_ID_END"{p=0}
+    p{print}
+  ')"
+  rra_id="$(printf '%s\n' "$info" | awk '
+    $0=="RRA_ID_BEGIN"{p=1;next}
+    $0=="RRA_ID_END"{p=0}
+    p{print}
+  ')"
+
+  points="$(rrd_xport_points_tsv "$src" "$ds" "$cf" "$start" "$last" "$RRD_MAXROWS" 2>/dev/null || true)"
+  if [ -z "$points" ]; then
+    emit_quarantine_note "$src" "rrd" "metric.series"
+    log "ERR rrd_xport_failed src=$src ds=$ds cf=$cf"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY translate domain=rrd kind=metric.series src=$src ds=$ds cf=$cf -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+  {
+    echo "apiVersion: hee/v1"
+    echo "kind: Measure"
+    echo "metadata:"
+    echo "  labels:"
+    echo "    hee.object: \"true\""
+    echo "    hee.tcos/env: \"prod\""
+    echo "    hee.tcos/topic: \"finance\""
+    echo "spec:"
+    echo "  type: \"metric.series\""
+    echo "  source:"
+    echo "    domain: \"rrd\""
+    echo "    path: \"$src\""
+    echo "    basename: \"$base\""
+    echo "  rrd:"
+    echo "    cf: \"$cf\""
+    echo "    ds: \"$ds\""
+    if [ -n "${step:-}" ]; then
+      echo "    step_sec: $step"
+    else
+      echo "    step_sec: null"
+    fi
+    echo "    start_epoch: $start"
+    echo "    end_epoch: $last"
+    echo "    ds_identity_raw: |-"
+    printf '%s\n' "$ds_id" | sed 's/^/      /'
+    echo "    rra_identity_raw: |-"
+    printf '%s\n' "$rra_id" | sed 's/^/      /'
+    echo "  series:"
+    # tsv: t \t v
+    printf '%s\n' "$points" | awk -F'\t' '
+      BEGIN{OFS=""}
+      {
+        t=$1; v=$2;
+        # unknown stays unknown: NaN -> null
+        if (v=="NaN" || v=="nan" || v=="-nan" || v=="NAN" || v=="") {
+          print "    - t: ", t;
+          print "      value_raw: \"", v, "\"";
+          print "      value_dec: null";
+        } else {
+          print "    - t: ", t;
+          print "      value_raw: \"", v, "\"";
+          print "      value_dec: \"", v, "\"";
+        }
+      }
+    '
+  } >"$out"
+
+  log "WRITE translate domain=rrd kind=metric.series src=$src ds=$ds cf=$cf out=$out"
+}
+
+main() {
+  if [ ! -d "$IN_ROOT" ]; then echo "missing in-root: $IN_ROOT" >&2; exit 2; fi
+  if [ ! -d "$OUT_ROOT" ]; then echo "missing out-root: $OUT_ROOT" >&2; exit 2; fi
+
+  # RRD domain
+  d="${IN_ROOT}/rrd"
+  if [ -d "$d" ]; then
+    for f in "$d"/*; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        *.rrd) : ;;
+        *) emit_quarantine_note "$f" "rrd" "metric.series"; continue ;;
+      esac
+
+      # DS list from rrdtool info
+      ds_list="$(rrdtool info "$f" | awk -F'[][]' '/^ds\[/{print $2}' | sort -u)"
+      if [ -z "$ds_list" ]; then
+        emit_quarantine_note "$f" "rrd" "metric.series"
+        log "ERR no_ds_found src=$f"
+        continue
+      fi
+
+      for ds in $ds_list; do
+        emit_rrd_metric_series_yaml "$f" "$ds" "$RRD_CF"
+      done
+    done
+  fi
+
+  # Other domains: quarantine all (still skeleton)
+  for domain in bank books fred tos trades; do
+    dd="${IN_ROOT}/${domain}"
+    [ -d "$dd" ] || continue
+    for f in "$dd"/*; do
+      [ -f "$f" ] || continue
+      emit_quarantine_note "$f" "$domain" "unknown"
+    done
+  done
+
+  echo "ok: report=$REPORT"
+}
+
+main

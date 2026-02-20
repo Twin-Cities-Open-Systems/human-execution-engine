@@ -1,0 +1,132 @@
+#!/bin/sh
+# hee-measure-gates: status.gates stub (prints checks; no schema coupling)
+# Gates (v0):
+# - series.monotonic (timestamps strictly increasing)
+# - rrd.step_alignment (mode delta vs step_sec, if step_sec known)
+# - unknown_preservation (NaN/raw empty => value_dec must be null)
+#
+# Exit:
+# - default: always 0 unless usage/parse error
+# - --fail: exit 1 if any gate fails
+
+set -eu
+
+FAIL=0
+
+usage() {
+  echo "usage: hee-measure-gates [--fail] <measure_yaml>" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --fail) FAIL=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) break ;;
+  esac
+done
+
+F="${1:-}"
+[ -n "$F" ] || { usage; exit 2; }
+[ -f "$F" ] || { echo "missing file: $F" >&2; exit 2; }
+
+awk -v FAIL="$FAIL" '
+function icon(ok, unk) {
+  if (unk) return "🟦";
+  return ok ? "🟩" : "🔴";
+}
+function stripq(s) { gsub(/^"/,"",s); gsub(/"$/,"",s); return s; }
+
+BEGIN{
+  mono_ok=1; mono_unk=1;
+  step_known=0; step=0;
+
+  nan_total=0; nan_bad=0;
+
+  ts_n=0; prev="";
+}
+
+# step_sec: <num|null>
+/^    step_sec: /{
+  s=$2;
+  if (s=="null") { step_known=0; }
+  else { step_known=1; step=s+0; }
+}
+
+# timestamps
+/^    - t: /{
+  t=$3+0;
+  ts[++ts_n]=t;
+  if (prev!="") {
+    d=t-prev;
+    if (d<=0) mono_ok=0;
+    else { delta_count[d]++; delta_total++; }
+    mono_unk=0;
+  }
+  prev=t;
+}
+
+# value_raw / value_dec pair parsing (assumes emitter writes raw then dec)
+/^      value_raw: /{
+  raw=$0;
+  sub(/^      value_raw: "/,"",raw);
+  sub(/".*$/,"",raw);
+  next;
+}
+/^      value_dec: /{
+  dec=$2;
+  dec=stripq(dec);
+
+  is_nan = (raw=="" || raw=="NaN" || raw=="nan" || raw=="-nan" || raw=="NAN");
+  if (is_nan) {
+    nan_total++;
+    if (dec!="null") nan_bad++;
+  } else {
+    # for now, only enforce the NaN->null direction
+  }
+  next;
+}
+
+END{
+  print "# GATES";
+  print "file: " FILENAME;
+
+  # series.monotonic
+  mono_icon=icon(mono_ok, mono_unk);
+  printf "%s gate=series.monotonic ok=%s count=%d\n", mono_icon, (mono_unk? "null" : (mono_ok? "true":"false")), ts_n;
+
+  # rrd.step_alignment (mode delta)
+  mode_d=0; mode_c=0;
+  for (d in delta_count) {
+    if (delta_count[d] > mode_c) { mode_c=delta_count[d]; mode_d=d+0; }
+  }
+  step_ok=1; step_unk=1;
+  if (ts_n < 2) { step_unk=1; }
+  else if (!step_known) { step_unk=1; }
+  else {
+    step_unk=0;
+    step_ok = (mode_d == step);
+  }
+
+  step_icon=icon(step_ok, step_unk);
+  printf "%s gate=rrd.step_alignment ok=%s step_sec=%s observed_mode_delta=%s\n",
+    step_icon,
+    (step_unk? "null" : (step_ok? "true":"false")),
+    (step_known? step : "null"),
+    (mode_c>0? mode_d : "null");
+
+  # unknown_preservation
+  unk_ok = (nan_bad==0);
+  unk_unk = 0;
+  unk_icon=icon(unk_ok, unk_unk);
+  printf "%s gate=unknown_preservation ok=%s nan_total=%d nan_bad=%d\n",
+    unk_icon,
+    (unk_ok? "true":"false"),
+    nan_total, nan_bad;
+
+  # exit code only if FAIL requested
+  if (FAIL==1) {
+    if ((!mono_unk && !mono_ok) || (!step_unk && !step_ok) || (!unk_ok)) exit 1;
+  }
+  exit 0;
+}
+' "$F"

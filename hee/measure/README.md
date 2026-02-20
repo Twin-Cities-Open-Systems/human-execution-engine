@@ -16,3 +16,19 @@ Notes:
   - *_raw: verbatim strings from source
   - *_dec: numeric as string (avoid float rounding)
   - *_cents / *_micros: fixed-point ints when safe
+
+## Translator (in-take -> out-take)
+
+Tool: `hee/tools/hee-measure-translate` (skeleton v1: quarantine+report; deterministic naming).
+
+## Gates (status.gates stub)
+
+Tool: `hee/tools/hee-measure-gates` (prints step alignment / unknown preservation / series integrity checks).
+
+## One-command check
+
+Tool: `hee/tools/hee-measure-check` (translate + gates summary).
+
+Example:
+
+`hee/tools/hee-measure-check --fail`
