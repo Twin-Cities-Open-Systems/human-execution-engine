@@ -1,0 +1,89 @@
+#!/bin/sh
+# hee-measure-check: one-command loop runner
+# - runs hee-measure-translate
+# - then runs hee-measure-gates across translated metric.series YAML
+# - prints a short summary; optional --fail to return non-zero if any gate fails
+
+set -eu
+
+FAIL=0
+DRY_RUN=0
+IN_ROOT="${HOME}/.hee/in-take"
+OUT_ROOT="${HOME}/.hee/out-take"
+
+usage() {
+  echo "usage: hee-measure-check [--fail] [--dry-run] [--in-root PATH] [--out-root PATH]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --fail) FAIL=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --in-root) IN_ROOT="${2:-}"; shift 2 ;;
+    --out-root) OUT_ROOT="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+ME_TRANSLATE="$(dirname "$0")/hee-measure-translate"
+ME_GATES="$(dirname "$0")/hee-measure-gates"
+
+[ -x "$ME_TRANSLATE" ] || { echo "missing tool: $ME_TRANSLATE" >&2; exit 2; }
+[ -x "$ME_GATES" ] || { echo "missing tool: $ME_GATES" >&2; exit 2; }
+
+TS_UTC="$(date -u +%Y%m%dT%H%M%SZ)"
+echo "🟦 ts_utc=$TS_UTC"
+echo "🟦 in_root=$IN_ROOT"
+echo "🟦 out_root=$OUT_ROOT"
+
+# 1) translate
+if [ "$DRY_RUN" -eq 1 ]; then
+  "$ME_TRANSLATE" --dry-run --in-root "$IN_ROOT" --out-root "$OUT_ROOT"
+  exit 0
+fi
+
+TRANSLATE_OUT="$("$ME_TRANSLATE" --in-root "$IN_ROOT" --out-root "$OUT_ROOT" || true)"
+echo "$TRANSLATE_OUT"
+
+# 2) gates over translated YAML (rrd/translate/metric.series/*.yaml)
+SER_DIR="${OUT_ROOT}/rrd/translate/metric.series"
+if [ ! -d "$SER_DIR" ]; then
+  echo "🟡 no translated series dir: $SER_DIR"
+  exit 0
+fi
+
+# Collect files (avoid glob failure)
+set +e
+FILES="$(ls -1 "$SER_DIR"/*.yaml 2>/dev/null)"
+set -e
+
+if [ -z "$FILES" ]; then
+  echo "🟡 no metric.series yaml files under $SER_DIR"
+  exit 0
+fi
+
+echo "# GATES (summary)"
+TOTAL=0
+FAILS=0
+
+for f in $FILES; do
+  TOTAL=$((TOTAL+1))
+  if "$ME_GATES" --fail "$f" >/dev/null 2>&1; then
+    :
+  else
+    FAILS=$((FAILS+1))
+    echo "🔴 fail: $f"
+    # show first lines for context
+    "$ME_GATES" "$f" | sed -n '1,12p'
+  fi
+done
+
+echo "🟦 total_files=$TOTAL"
+echo "🟦 gate_failures=$FAILS"
+
+if [ "$FAIL" -eq 1 ] && [ "$FAILS" -gt 0 ]; then
+  exit 1
+fi
+
+exit 0

@@ -24,3 +24,11 @@ Tool: `hee/tools/hee-measure-translate` (skeleton v1: quarantine+report; determi
 ## Gates (status.gates stub)
 
 Tool: `hee/tools/hee-measure-gates` (prints step alignment / unknown preservation / series integrity checks).
+
+## One-command check
+
+Tool: `hee/tools/hee-measure-check` (translate + gates summary).
+
+Example:
+
+`hee/tools/hee-measure-check --fail`
