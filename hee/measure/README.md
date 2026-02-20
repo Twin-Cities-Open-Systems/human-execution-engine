@@ -20,3 +20,7 @@ Notes:
 ## Translator (in-take -> out-take)
 
 Tool: `hee/tools/hee-measure-translate` (skeleton v1: quarantine+report; deterministic naming).
+
+## Gates (status.gates stub)
+
+Tool: `hee/tools/hee-measure-gates` (prints step alignment / unknown preservation / series integrity checks).
