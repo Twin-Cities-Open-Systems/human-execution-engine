@@ -1,8 +1,9 @@
 #!/bin/sh
 # hee-measure-check: one-command loop runner
 # - runs hee-measure-translate
-# - then runs hee-measure-gates across translated metric.series YAML
-# - prints a short summary; optional --fail to return non-zero if any gate fails
+# - prints translate/quarantine counts (from report)
+# - runs hee-measure-gates across translated metric.series YAML
+# - actionable messaging when there are no RRD inputs
 
 set -eu
 
@@ -37,6 +38,16 @@ echo "🟦 ts_utc=$TS_UTC"
 echo "🟦 in_root=$IN_ROOT"
 echo "🟦 out_root=$OUT_ROOT"
 
+# Count RRD inputs (pre-translate) to drive actionable messaging
+RRD_IN_DIR="${IN_ROOT}/rrd"
+RRD_IN_COUNT=0
+if [ -d "$RRD_IN_DIR" ]; then
+  # count *.rrd files only
+  set +e
+  RRD_IN_COUNT="$(ls -1 "$RRD_IN_DIR"/*.rrd 2>/dev/null | wc -l | tr -d " ")"
+  set -e
+fi
+
 # 1) translate
 if [ "$DRY_RUN" -eq 1 ]; then
   "$ME_TRANSLATE" --dry-run --in-root "$IN_ROOT" --out-root "$OUT_ROOT"
@@ -46,10 +57,32 @@ fi
 TRANSLATE_OUT="$("$ME_TRANSLATE" --in-root "$IN_ROOT" --out-root "$OUT_ROOT" || true)"
 echo "$TRANSLATE_OUT"
 
+# Parse report path from translate output: "ok: report=/path"
+REPORT="$(printf '%s\n' "$TRANSLATE_OUT" | awk -F'report=' '/^ok: report=/{print $2; exit}')"
+if [ -n "${REPORT:-}" ] && [ -f "$REPORT" ]; then
+  W_TRANSLATE="$(grep -c '^WRITE translate ' "$REPORT" 2>/dev/null || true)"
+  W_QUARANTINE="$(grep -c '^WRITE quarantine ' "$REPORT" 2>/dev/null || true)"
+  W_SKIP="$(grep -c '^SKIP ' "$REPORT" 2>/dev/null || true)"
+  echo "🟦 translate_writes=$W_TRANSLATE quarantine_writes=$W_QUARANTINE skips=$W_SKIP report=$REPORT"
+else
+  echo "🟡 report not found/parsed (ok in Q0)"
+fi
+
 # 2) gates over translated YAML (rrd/translate/metric.series/*.yaml)
 SER_DIR="${OUT_ROOT}/rrd/translate/metric.series"
+
 if [ ! -d "$SER_DIR" ]; then
-  echo "🟡 no translated series dir: $SER_DIR"
+  if [ "$RRD_IN_COUNT" -eq 0 ]; then
+    echo "🟡 no RRD inputs found (expected *.rrd): $RRD_IN_DIR"
+    echo "🟦 skipping series gates (nothing to translate)"
+    exit 0
+  fi
+
+  echo "🟡 RRD inputs exist ($RRD_IN_COUNT) but no translated series dir: $SER_DIR"
+  echo "🟦 check report above (translate/quarantine/skips) for root cause"
+  if [ "$FAIL" -eq 1 ]; then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -59,7 +92,16 @@ FILES="$(ls -1 "$SER_DIR"/*.yaml 2>/dev/null)"
 set -e
 
 if [ -z "$FILES" ]; then
-  echo "🟡 no metric.series yaml files under $SER_DIR"
+  if [ "$RRD_IN_COUNT" -eq 0 ]; then
+    echo "🟡 no RRD inputs found (expected *.rrd): $RRD_IN_DIR"
+    echo "🟦 no metric.series yaml expected"
+    exit 0
+  fi
+
+  echo "🟡 translated series dir exists but contains no YAML: $SER_DIR"
+  if [ "$FAIL" -eq 1 ]; then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -74,7 +116,6 @@ for f in $FILES; do
   else
     FAILS=$((FAILS+1))
     echo "🔴 fail: $f"
-    # show first lines for context
     "$ME_GATES" "$f" | sed -n '1,12p'
   fi
 done
