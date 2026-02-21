@@ -289,7 +289,9 @@ src, out, rev_default, maxrows = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.
 def norm(h): return re.sub(r"\s+", " ", (h or "").strip().lower())
 
 date_keys = [
-  "date","posted date","post date","posting date","transaction date","trans date"
+  "date","posted date","post date","posting date","transaction date","trans date",
+  "transactiondate","postingdate","posteddate","effective date","effective","process date","processed date",
+  "timestamp","time","datetime","transaction time"
 ]
 desc_keys = [
   "description","memo","details","payee","name","merchant","transaction description"
@@ -341,7 +343,7 @@ with open(src, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
   si = pick(headers, desc_keys)
 
   if di is None:
-    raise SystemExit("no date column found")
+    di = None  # allowed in Q0; date will be null
   if ai is None and (dei is None or cri is None):
     raise SystemExit("no amount column found (need amount OR debit+credit)")
   if si is None:
@@ -372,7 +374,7 @@ with open(src, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
     if n > maxrows:
       break
 
-    date_raw = row[di] if di < len(row) else ""
+    date_raw = (row[di] if (di is not None and di < len(row)) else "")
     date_iso, date_raw2 = parse_date(date_raw)
 
     desc_raw = ""
