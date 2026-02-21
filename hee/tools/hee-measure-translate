@@ -14,6 +14,9 @@ DRY_RUN=0
 IN_ROOT="${HEE_IN_ROOT:-${HOME}/.hee/in-take}"
 OUT_ROOT="${HEE_OUT_ROOT:-${HOME}/.hee/out-take}"
 
+REV_STREAM_DEFAULT="${HEE_REVENUE_STREAM_ID_DEFAULT:-tbd:bank}"
+BANK_MAXROWS="${HEE_BANK_MAXROWS:-5000}"
+
 RRD_CF="AVERAGE"
 RRD_WINDOW_SEC="86400"   # last 24h
 RRD_MAXROWS="2000"       # cap output size
@@ -257,6 +260,161 @@ emit_rrd_metric_series_yaml() {
   log "WRITE translate domain=rrd kind=metric.series src=$src ds=$ds cf=$cf out=$out"
 }
 
+emit_bank_transactions_yaml() {
+  src="$1"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/bank/translate/bank.transaction.batch"
+  out="${out_dir}/${h}__${base}.yaml"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=bank action=translate kind=bank.transaction.batch src=$src out=$out"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY translate domain=bank kind=bank.transaction.batch src=$src -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+
+  # Parse CSV robustly using python csv (MVP). On error -> quarantine.
+  if python3 - "$src" "$out" "$REV_STREAM_DEFAULT" "$BANK_MAXROWS" <<'PYBANK'
+import csv, sys, datetime, re
+
+src, out, rev_default, maxrows = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+
+def norm(h): return re.sub(r"\s+", " ", (h or "").strip().lower())
+
+date_keys = [
+  "date","posted date","post date","posting date","transaction date","trans date"
+]
+desc_keys = [
+  "description","memo","details","payee","name","merchant","transaction description"
+]
+amount_keys = ["amount","transaction amount","amt"]
+debit_keys = ["debit","withdrawal","withdrawals","charge","charges","money out","debits"]
+credit_keys = ["credit","deposit","deposits","payment","payments","money in","credits"]
+
+def pick(headers, keys):
+  m = {norm(h): i for i,h in enumerate(headers)}
+  for k in keys:
+    if k in m: return m[k]
+  return None
+
+def parse_date(raw):
+  raw = (raw or "").strip()
+  if not raw:
+    return None, ""
+  fmts = ["%Y-%m-%d","%m/%d/%Y","%m/%d/%y","%d/%m/%Y","%d-%m-%Y","%m-%d-%Y"]
+  for f in fmts:
+    try:
+      d = datetime.datetime.strptime(raw, f).date()
+      return d.isoformat(), raw
+    except Exception:
+      pass
+  return None, raw
+
+def clean_amt(x):
+  x = (x or "").strip()
+  if not x:
+    return "", None
+  # remove currency symbols/commas
+  y = re.sub(r"[^0-9\.\-\+]", "", x.replace(",",""))
+  if y in ("", "-", "+", ".", "-.", "+."):
+    return x, None
+  return x, y
+
+with open(src, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
+  reader = csv.reader(f)
+  try:
+    headers = next(reader)
+  except StopIteration:
+    raise SystemExit("empty csv")
+
+  di = pick(headers, date_keys)
+  ai = pick(headers, amount_keys)
+  dei = pick(headers, debit_keys)
+  cri = pick(headers, credit_keys)
+  si = pick(headers, desc_keys)
+
+  if di is None:
+    raise SystemExit("no date column found")
+  if ai is None and (dei is None or cri is None):
+    raise SystemExit("no amount column found (need amount OR debit+credit)")
+  if si is None:
+    # allow missing description, but keep raw empty
+    si = None
+
+  out_lines = []
+  out_lines.append("apiVersion: hee/v1")
+  out_lines.append("kind: Measure")
+  out_lines.append("metadata:")
+  out_lines.append("  labels:")
+  out_lines.append('    hee.object: "true"')
+  out_lines.append('    hee.tcos/topic: "finance"')
+  out_lines.append("spec:")
+  out_lines.append('  type: "bank.transaction.batch"')
+  out_lines.append("  source:")
+  out_lines.append('    domain: "bank"')
+  out_lines.append(f'    path: "{src}"')
+  out_lines.append(f'    basename: "{src.split("/")[-1]}"')
+  out_lines.append(f'  revenue_stream_id_default: "{rev_default}"')
+  out_lines.append("  entries:")
+
+  n = 0
+  for row in reader:
+    if not row or all((c or "").strip()=="" for c in row):
+      continue
+    n += 1
+    if n > maxrows:
+      break
+
+    date_raw = row[di] if di < len(row) else ""
+    date_iso, date_raw2 = parse_date(date_raw)
+
+    desc_raw = ""
+    if si is not None and si < len(row):
+      desc_raw = (row[si] or "").strip()
+
+    amt_raw = ""
+    amt_dec = None
+
+    if ai is not None:
+      amt_raw, amt_dec = clean_amt(row[ai] if ai < len(row) else "")
+    else:
+      deb_raw, deb_dec = clean_amt(row[dei] if dei < len(row) else "")
+      cre_raw, cre_dec = clean_amt(row[cri] if cri < len(row) else "")
+      # compute amount = credit - debit when possible
+      if cre_dec is not None or deb_dec is not None:
+        c = float(cre_dec) if cre_dec is not None else 0.0
+        d = float(deb_dec) if deb_dec is not None else 0.0
+        amt_dec = f"{c - d:.2f}".rstrip("0").rstrip(".")
+      amt_raw = (cre_raw or "") + (" / " if (cre_raw and deb_raw) else "") + (deb_raw or "")
+
+    out_lines.append(f"    - row: {n}")
+    out_lines.append(f'      revenue_stream_id: "{rev_default}"')
+    out_lines.append(f'      date_raw: "{date_raw2.replace(chr(34), chr(39))}"')
+    out_lines.append(f"      date: {date_iso if date_iso is not None else 'null'}")
+    out_lines.append(f'      amount_raw: "{amt_raw.replace(chr(34), chr(39))}"')
+    out_lines.append(f"      amount_dec: {('\"'+amt_dec+'\"') if amt_dec is not None else 'null'}")
+    out_lines.append(f'      description_raw: "{desc_raw.replace(chr(34), chr(39))}"')
+
+with open(out, "w", encoding="utf-8") as w:
+  w.write("\n".join(out_lines) + "\n")
+PYBANK
+  then
+    log "WRITE translate domain=bank kind=bank.transaction.batch src=$src out=$out"
+    return 0
+  else
+    emit_quarantine_note "$src" "bank" "bank.transaction.batch"
+    log "ERR bank_csv_parse_failed src=$src (quarantined)"
+    return 0
+  fi
+}
+
 main() {
   if [ ! -d "$IN_ROOT" ]; then echo "missing in-root: $IN_ROOT" >&2; exit 2; fi
   if [ ! -d "$OUT_ROOT" ]; then echo "missing out-root: $OUT_ROOT" >&2; exit 2; fi
@@ -285,8 +443,20 @@ main() {
     done
   fi
 
-  # Other domains: quarantine all (still skeleton)
-  for domain in bank books fred tos trades; do
+  # Bank domain: translate CSV -> bank.transaction.batch (MVP)
+  b="${IN_ROOT}/bank"
+  if [ -d "$b" ]; then
+    for f in "$b"/*; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        *.csv|*.CSV) emit_bank_transactions_yaml "$f" ;;
+        *) emit_quarantine_note "$f" "bank" "unknown" ;;
+      esac
+    done
+  fi
+
+# Other domains: quarantine all (still skeleton)
+  for domain in books fred tos trades; do
     dd="${IN_ROOT}/${domain}"
     [ -d "$dd" ] || continue
     for f in "$dd"/*; do
