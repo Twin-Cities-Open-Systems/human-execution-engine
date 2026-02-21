@@ -399,7 +399,8 @@ with open(src, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
     out_lines.append(f'      date_raw: "{date_raw2.replace(chr(34), chr(39))}"')
     out_lines.append(f"      date: {date_iso if date_iso is not None else 'null'}")
     out_lines.append(f'      amount_raw: "{amt_raw.replace(chr(34), chr(39))}"')
-    out_lines.append(f"      amount_dec: {('\"'+amt_dec+'\"') if amt_dec is not None else 'null'}")
+    amt_dec_yaml = f'"{amt_dec}"' if amt_dec is not None else 'null'
+    out_lines.append(f"      amount_dec: {amt_dec_yaml}")
     out_lines.append(f'      description_raw: "{desc_raw.replace(chr(34), chr(39))}"')
 
 with open(out, "w", encoding="utf-8") as w:
