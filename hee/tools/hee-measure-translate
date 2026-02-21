@@ -16,6 +16,7 @@ OUT_ROOT="${HEE_OUT_ROOT:-${HOME}/.hee/out-take}"
 
 REV_STREAM_DEFAULT="${HEE_REVENUE_STREAM_ID_DEFAULT:-tbd:bank}"
 BANK_MAXROWS="${HEE_BANK_MAXROWS:-5000}"
+BOOKS_MAXROWS="${HEE_BOOKS_MAXROWS:-5000}"
 
 RRD_CF="AVERAGE"
 RRD_WINDOW_SEC="86400"   # last 24h
@@ -418,6 +419,90 @@ PYBANK
   fi
 }
 
+emit_books_ledger_batch_yaml() {
+  src="$1"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/books/translate/ledger.transaction.batch"
+  out="${out_dir}/${h}__${base}.yaml"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=books action=translate kind=ledger.transaction.batch src=$src out=$out"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY translate domain=books kind=ledger.transaction.batch src=$src -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+
+  if python3 - "$src" "$out" "$REV_STREAM_DEFAULT" "$BOOKS_MAXROWS" <<'PYBOOK'
+import csv, sys, re
+src, out, rev_default, maxrows = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+
+def clean(x):
+  x = (x or "").strip()
+  return x.replace('"', "'")
+
+with open(src, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
+  reader = csv.reader(f)
+  try:
+    headers = next(reader)
+  except StopIteration:
+    raise SystemExit("empty csv")
+
+  headers = [clean(h) for h in headers]
+
+  lines = []
+  lines.append("apiVersion: hee/v1")
+  lines.append("kind: Measure")
+  lines.append("metadata:")
+  lines.append("  labels:")
+  lines.append('    hee.object: "true"')
+  lines.append('    hee.tcos/topic: "finance"')
+  lines.append("spec:")
+  lines.append('  type: "ledger.transaction.batch"')
+  lines.append("  source:")
+  lines.append('    domain: "books"')
+  lines.append(f'    path: "{src}"')
+  lines.append(f'    basename: "{src.split("/")[-1]}"')
+  lines.append(f'  revenue_stream_id_default: "{rev_default}"')
+  lines.append("  entries:")
+
+  n = 0
+  for row in reader:
+    if not row or all((c or "").strip()=="" for c in row):
+      continue
+    n += 1
+    if n > maxrows:
+      break
+
+    row = [clean(c) for c in row]
+    lines.append(f"    - row: {n}")
+    lines.append(f'      revenue_stream_id: "{rev_default}"')
+    lines.append("      fields_raw:")
+
+    for i, h in enumerate(headers):
+      v = row[i] if i < len(row) else ""
+      lines.append(f'        - k: "{h}"')
+      lines.append(f'          v: "{v}"')
+
+with open(out, "w", encoding="utf-8") as w:
+  w.write("\n".join(lines) + "\n")
+PYBOOK
+  then
+    log "WRITE translate domain=books kind=ledger.transaction.batch src=$src out=$out"
+    return 0
+  else
+    emit_quarantine_note "$src" "books" "ledger.transaction.batch"
+    log "ERR books_csv_parse_failed src=$src (quarantined)"
+    return 0
+  fi
+}
+
 main() {
   if [ ! -d "$IN_ROOT" ]; then echo "missing in-root: $IN_ROOT" >&2; exit 2; fi
   if [ ! -d "$OUT_ROOT" ]; then echo "missing out-root: $OUT_ROOT" >&2; exit 2; fi
@@ -458,8 +543,20 @@ main() {
     done
   fi
 
+# Books domain: translate CSV -> ledger.transaction.batch (MVP)
+  bb="${IN_ROOT}/books"
+  if [ -d "$bb" ]; then
+    for f in "$bb"/*; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        *.csv|*.CSV) emit_books_ledger_batch_yaml "$f" ;;
+        *) emit_quarantine_note "$f" "books" "unknown" ;;
+      esac
+    done
+  fi
+
 # Other domains: quarantine all (still skeleton)
-  for domain in books fred tos trades; do
+  for domain in fred tos trades; do
     dd="${IN_ROOT}/${domain}"
     [ -d "$dd" ] || continue
     for f in "$dd"/*; do
