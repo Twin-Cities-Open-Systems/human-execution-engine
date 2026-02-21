@@ -9,8 +9,8 @@ set -eu
 
 FAIL=0
 DRY_RUN=0
-IN_ROOT="${HOME}/.hee/in-take"
-OUT_ROOT="${HOME}/.hee/out-take"
+IN_ROOT="${HEE_IN_ROOT:-${HOME}/.hee/in-take}"
+OUT_ROOT="${HEE_OUT_ROOT:-${HOME}/.hee/out-take}"
 
 usage() {
   echo "usage: hee-measure-check [--fail] [--dry-run] [--in-root PATH] [--out-root PATH]" >&2

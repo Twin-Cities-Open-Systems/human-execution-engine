@@ -11,8 +11,8 @@
 set -eu
 
 DRY_RUN=0
-IN_ROOT="${HOME}/.hee/in-take"
-OUT_ROOT="${HOME}/.hee/out-take"
+IN_ROOT="${HEE_IN_ROOT:-${HOME}/.hee/in-take}"
+OUT_ROOT="${HEE_OUT_ROOT:-${HOME}/.hee/out-take}"
 
 RRD_CF="AVERAGE"
 RRD_WINDOW_SEC="86400"   # last 24h
