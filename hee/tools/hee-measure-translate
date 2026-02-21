@@ -107,6 +107,7 @@ rrd_info_extract() {
   printf '%s\n' "RRA_ID_END"
 }
 
+
 rrd_xport_points_tsv() {
   rrd="$1"
   ds="$2"
@@ -115,20 +116,74 @@ rrd_xport_points_tsv() {
   end="$5"
   maxrows="$6"
 
-  # XML output; parse with perl (single DS => single <v>)
+  tmp_base="${TMPDIR:-/tmp}/hee-rrd.$$"
+  tmp_out="${tmp_base}.out"
+  tmp_err="${tmp_base}.err"
+
+  # Try xport first (xml)
+  : >"$tmp_out"
+  : >"$tmp_err"
   rrdtool xport --start "$start" --end "$end" --maxrows "$maxrows" \
     "DEF:v=${rrd}:${ds}:${cf}" \
     "XPORT:v:${ds}" \
-  | perl -0777 -ne '
-      while (m{<row>\s*<t>(\d+)</t>\s*<v>([^<]*)</v>\s*</row>}sg) {
-        my ($t,$v)=($1,$2);
-        $v =~ s/^\s+|\s+$//g;
-        print "$t\t$v\n";
+    >"$tmp_out" 2>"$tmp_err" || true
+
+  if [ -s "$tmp_out" ]; then
+    # Parse XML -> tsv (t \t v)
+    perl -0777 -ne q{while (m{<row>\s*<t>(\d+)</t>\s*<v>([^<]*)</v>\s*</row>}sg){my($t,$v)=($1,$2);$v=~s/^\s+|\s+$//g;print "$t\t$v\n";}} "$tmp_out"
+    rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+    return 0
+  fi
+
+  if [ -s "$tmp_err" ]; then
+    log "ERR rrd_xport_stderr src=$rrd ds=$ds cf=$cf"
+    sed "s/^/  /" "$tmp_err" | sed -n "1,30p" | while IFS= read -r line; do log "$line"; done
+  fi
+
+  # Fallback: fetch (text)
+  : >"$tmp_out"
+  : >"$tmp_err"
+  rrdtool fetch "$rrd" "$cf" --start "$start" --end "$end" >"$tmp_out" 2>"$tmp_err" || true
+
+  if [ -s "$tmp_out" ]; then
+    # Parse fetch output:
+    # header: "<ds1> <ds2> ..."
+    # rows: "epoch: v1 v2 ..."
+    perl -ne q{
+      our @h; our $idx; our $have_hdr;
+      BEGIN { $idx = -1; $have_hdr = 0; }
+      chomp;
+      next if $_ =~ /^\s*$/;
+
+      if (!$have_hdr && $_ !~ /:\s/) {
+        @h = split(/\s+/, $_);
+        for (my $i=0; $i<@h; $i++) { if ($h[$i] eq $ENV{DS}) { $idx=$i; last; } }
+        $have_hdr = 1;
+        next;
       }
-    '
+
+      if ($_ =~ /^(\d+):\s+(.*)$/) {
+        my $t = $1;
+        my @v = split(/\s+/, $2);
+        my $val = ($idx>=0 && $idx<@v) ? $v[$idx] : "";
+        print "$t\t$val\n";
+      }
+    } "$tmp_out"
+    rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+    return 0
+  fi
+
+  if [ -s "$tmp_err" ]; then
+    log "ERR rrd_fetch_stderr src=$rrd cf=$cf"
+    sed "s/^/  /" "$tmp_err" | sed -n "1,30p" | while IFS= read -r line; do log "$line"; done
+  fi
+
+  rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+  return 1
 }
 
-emit_rrd_metric_series_yaml() {
+
+emit_rrd_metric_series_yaml( {
   src="$1"
   ds="$2"
   cf="$3"
@@ -169,7 +224,7 @@ emit_rrd_metric_series_yaml() {
     p{print}
   ')"
 
-  points="$(rrd_xport_points_tsv "$src" "$ds" "$cf" "$start" "$last" "$RRD_MAXROWS" 2>/dev/null || true)"
+  DS="" points="1000 4 20 24 25 27 29 30 44 46 116 999 1000(DS="" rrd_xport_points_tsv "$src" "$ds" "$cf" "$start" "$last" "$RRD_MAXROWS") 2>/dev/null || true)"
   if [ -z "$points" ]; then
     emit_quarantine_note "$src" "rrd" "metric.series"
     log "ERR rrd_xport_failed src=$src ds=$ds cf=$cf"
