@@ -107,27 +107,51 @@ rrd_info_extract() {
   printf '%s\n' "RRA_ID_END"
 }
 
+
 rrd_xport_points_tsv() {
   rrd="$1"
   ds="$2"
   cf="$3"
   start="$4"
   end="$5"
-  maxrows="$6"
+  maxrows="$6"  # unused for fetch (kept for signature stability)
 
-  # XML output; parse with perl (single DS => single <v>)
-  rrdtool xport --start "$start" --end "$end" --maxrows "$maxrows" \
-    "DEF:v=${rrd}:${ds}:${cf}" \
-    "XPORT:v:${ds}" \
-  | perl -0777 -ne '
-      while (m{<row>\s*<t>(\d+)</t>\s*<v>([^<]*)</v>\s*</row>}sg) {
-        my ($t,$v)=($1,$2);
-        $v =~ s/^\s+|\s+$//g;
-        print "$t\t$v\n";
-      }
-    '
+  tmp_base="${TMPDIR:-/tmp}/hee-rrd.$$"
+  tmp_out="${tmp_base}.out"
+  tmp_err="${tmp_base}.err"
+
+  : >"$tmp_out"
+  : >"$tmp_err"
+  rrdtool fetch "$rrd" "$cf" --start "$start" --end "$end" >"$tmp_out" 2>"$tmp_err" || true
+
+  if [ -s "$tmp_err" ]; then
+    log "ERR rrd_fetch_stderr src=$rrd cf=$cf"
+    sed "s/^/  /" "$tmp_err" | sed -n "1,80p" | while IFS= read -r line; do log "$line"; done
+  fi
+
+  if [ ! -s "$tmp_out" ]; then
+    rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+    return 1
+  fi
+
+  # Output TSV: epoch<TAB>value_for_ds
+  awk -v DS="$ds" '
+    NR==1 {
+      col=0;
+      for (i=1;i<=NF;i++) if ($i==DS) { col=i; break; }
+      next
+    }
+    /^[0-9]+:/ {
+      t=$1; sub(/:$/,"",t);
+      v="";
+      if (col>0 && col<=NF) v=$col;
+      print t "\t" v;
+    }
+  ' "$tmp_out"
+
+  rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+  return 0
 }
-
 emit_rrd_metric_series_yaml() {
   src="$1"
   ds="$2"
@@ -169,7 +193,7 @@ emit_rrd_metric_series_yaml() {
     p{print}
   ')"
 
-  points="$(rrd_xport_points_tsv "$src" "$ds" "$cf" "$start" "$last" "$RRD_MAXROWS" 2>/dev/null || true)"
+  DS="" points="1000 4 20 24 25 27 29 30 44 46 116 999 1000(DS="" rrd_xport_points_tsv "$src" "$ds" "$cf" "$start" "$last" "$RRD_MAXROWS") 2>/dev/null || true)"
   if [ -z "$points" ]; then
     emit_quarantine_note "$src" "rrd" "metric.series"
     log "ERR rrd_xport_failed src=$src ds=$ds cf=$cf"
