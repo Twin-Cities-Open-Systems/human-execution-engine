@@ -1,0 +1,34 @@
+# hee/v1 Measure
+
+Measure is a hee-object used to represent:
+- finance: bank transactions, ledger transactions, fills, positions, balances, derived measures
+- ops: monitoring metrics (nagios/perfdata), time series (rrd), gauges/counters, derived ops measures
+
+Universal labels (required on all hee objects):
+- metadata.labels.hee.object: "true"
+- metadata.labels.hee.tcos/env: test|prod
+- metadata.labels.hee.tcos/topic: finance|ops|...
+
+Notes:
+- spec is payload/content.
+- status is reserved for gate/validation summaries.
+- prefer raw-first normalization:
+  - *_raw: verbatim strings from source
+  - *_dec: numeric as string (avoid float rounding)
+  - *_cents / *_micros: fixed-point ints when safe
+
+## Translator (in-take -> out-take)
+
+Tool: `hee/tools/hee-measure-translate` (skeleton v1: quarantine+report; deterministic naming).
+
+## Gates (status.gates stub)
+
+Tool: `hee/tools/hee-measure-gates` (prints step alignment / unknown preservation / series integrity checks).
+
+## One-command check
+
+Tool: `hee/tools/hee-measure-check` (translate + gates summary).
+
+Example:
+
+`hee/tools/hee-measure-check --fail`

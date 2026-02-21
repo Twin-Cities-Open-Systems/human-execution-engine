@@ -1,0 +1,474 @@
+#!/bin/sh
+# hee-measure-translate
+# v1 goals:
+# - in-take -> out-take
+# - deterministic naming (src content hash)
+# - quarantine + reporting (never silently drop)
+# - RRD: step_sec/DS/RRA identity from rrdtool info
+# - RRD: unknown stays unknown (NaN -> YAML null)
+# - Prefer metric.series exports (chunked time series)
+
+set -eu
+
+DRY_RUN=0
+IN_ROOT="${HEE_IN_ROOT:-${HOME}/.hee/in-take}"
+OUT_ROOT="${HEE_OUT_ROOT:-${HOME}/.hee/out-take}"
+
+REV_STREAM_DEFAULT="${HEE_REVENUE_STREAM_ID_DEFAULT:-tbd:bank}"
+BANK_MAXROWS="${HEE_BANK_MAXROWS:-5000}"
+
+RRD_CF="AVERAGE"
+RRD_WINDOW_SEC="86400"   # last 24h
+RRD_MAXROWS="2000"       # cap output size
+
+usage() {
+  echo "usage: hee-measure-translate [--dry-run] [--in-root PATH] [--out-root PATH] [--rrd-cf CF] [--rrd-window-sec N] [--rrd-maxrows N]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --in-root) IN_ROOT="${2:-}"; shift 2 ;;
+    --out-root) OUT_ROOT="${2:-}"; shift 2 ;;
+    --rrd-cf) RRD_CF="${2:-}"; shift 2 ;;
+    --rrd-window-sec) RRD_WINDOW_SEC="${2:-}"; shift 2 ;;
+    --rrd-maxrows) RRD_MAXROWS="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+TS_UTC="$(date -u +%Y%m%dT%H%M%SZ)"
+REPORT_DIR="${OUT_ROOT}/_report"
+REPORT="${REPORT_DIR}/${TS_UTC}__hee-measure-translate.report.txt"
+mkdir -p "$REPORT_DIR"
+
+log() { echo "$*" >>"$REPORT"; }
+
+sha_src() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    wc -c <"$1" | tr -d ' '
+  fi
+}
+
+emit_quarantine_note() {
+  src="$1"
+  domain="$2"
+  kind="$3"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/${domain}/quarantine/${kind}"
+  out="${out_dir}/${h}__${base}.note.txt"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=$domain action=quarantine kind=$kind src=$src out=$out"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY quarantine domain=$domain kind=$kind src=$src -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+  {
+    echo "ts_utc=$TS_UTC"
+    echo "domain=$domain"
+    echo "action=quarantine"
+    echo "kind=$kind"
+    echo "src=$src"
+    echo "note=quarantined (unsupported or error); unknown stays unknown; never silently dropped"
+  } >"$out"
+  log "WRITE quarantine domain=$domain kind=$kind src=$src out=$out"
+}
+
+rrd_info_extract() {
+  rrd="$1"
+
+  step="$(rrdtool info "$rrd" | awk -F' = ' '/^step = /{gsub(/"/,"",$2); print $2; exit}')"
+  [ -n "${step:-}" ] || step=""
+
+  # DS names from rrdtool info: ds[NAME].type = ...
+  ds_list="$(rrdtool info "$rrd" | awk -F'[][]' '/^ds\[/{print $2}' | sort -u)"
+
+  # Raw identity blocks (kept as text for now; schema tightening later)
+  ds_id="$(rrdtool info "$rrd" | awk '/^ds\[/{print}')"
+  rra_id="$(rrdtool info "$rrd" | awk '/^rra\[/{print}')"
+
+  printf '%s\n' "STEP=$step"
+  printf '%s\n' "DS_LIST_BEGIN"
+  printf '%s\n' "$ds_list"
+  printf '%s\n' "DS_LIST_END"
+  printf '%s\n' "DS_ID_BEGIN"
+  printf '%s\n' "$ds_id"
+  printf '%s\n' "DS_ID_END"
+  printf '%s\n' "RRA_ID_BEGIN"
+  printf '%s\n' "$rra_id"
+  printf '%s\n' "RRA_ID_END"
+}
+
+
+rrd_xport_points_tsv() {
+  rrd="$1"
+  ds="$2"
+  cf="$3"
+  start="$4"
+  end="$5"
+  maxrows="$6"  # unused for fetch (kept for signature stability)
+
+  tmp_base="${TMPDIR:-/tmp}/hee-rrd.$$"
+  tmp_out="${tmp_base}.out"
+  tmp_err="${tmp_base}.err"
+
+  : >"$tmp_out"
+  : >"$tmp_err"
+  rrdtool fetch "$rrd" "$cf" --start "$start" --end "$end" >"$tmp_out" 2>"$tmp_err" || true
+
+  if [ -s "$tmp_err" ]; then
+    log "ERR rrd_fetch_stderr src=$rrd cf=$cf"
+    sed "s/^/  /" "$tmp_err" | sed -n "1,80p" | while IFS= read -r line; do log "$line"; done
+  fi
+
+  if [ ! -s "$tmp_out" ]; then
+    rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+    return 1
+  fi
+
+  # Output TSV: epoch<TAB>value_for_ds
+  awk -v DS="$ds" '
+    NR==1 {
+      col=0;
+      for (i=1;i<=NF;i++) if ($i==DS) { col=i; break; }
+      next
+    }
+    /^[0-9]+:/ {
+      t=$1; sub(/:$/,"",t);
+      v="";
+      if (col>0 && col<=NF) v=$col;
+      print t "\t" v;
+    }
+  ' "$tmp_out"
+
+  rm -f "$tmp_out" "$tmp_err" 2>/dev/null || true
+  return 0
+}
+emit_rrd_metric_series_yaml() {
+  src="$1"
+  ds="$2"
+  cf="$3"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/rrd/translate/metric.series"
+  out="${out_dir}/${h}__${base}__${cf}__${ds}.yaml"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=rrd action=translate kind=metric.series src=$src out=$out"
+    return 0
+  fi
+
+  # Identify time window from last()
+  last="$(rrdtool last "$src" 2>/dev/null || true)"
+  if [ -z "$last" ]; then
+    emit_quarantine_note "$src" "rrd" "metric.series"
+    log "ERR rrd_last_failed src=$src"
+    return 0
+  fi
+
+  # start = last - window (floor at 0)
+  start=$(( last - RRD_WINDOW_SEC ))
+  if [ "$start" -lt 0 ]; then start=0; fi
+
+  info="$(rrd_info_extract "$src")"
+  step="$(printf '%s\n' "$info" | awk -F= '/^STEP=/{print $2; exit}')"
+
+  ds_id="$(printf '%s\n' "$info" | awk '
+    $0=="DS_ID_BEGIN"{p=1;next}
+    $0=="DS_ID_END"{p=0}
+    p{print}
+  ')"
+  rra_id="$(printf '%s\n' "$info" | awk '
+    $0=="RRA_ID_BEGIN"{p=1;next}
+    $0=="RRA_ID_END"{p=0}
+    p{print}
+  ')"
+
+  DS="" points="1000 4 20 24 25 27 29 30 44 46 116 999 1000(DS="" rrd_xport_points_tsv "$src" "$ds" "$cf" "$start" "$last" "$RRD_MAXROWS") 2>/dev/null || true)"
+  if [ -z "$points" ]; then
+    emit_quarantine_note "$src" "rrd" "metric.series"
+    log "ERR rrd_xport_failed src=$src ds=$ds cf=$cf"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY translate domain=rrd kind=metric.series src=$src ds=$ds cf=$cf -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+  {
+    echo "apiVersion: hee/v1"
+    echo "kind: Measure"
+    echo "metadata:"
+    echo "  labels:"
+    echo "    hee.object: \"true\""
+    echo "    hee.tcos/env: \"prod\""
+    echo "    hee.tcos/topic: \"finance\""
+    echo "spec:"
+    echo "  type: \"metric.series\""
+    echo "  source:"
+    echo "    domain: \"rrd\""
+    echo "    path: \"$src\""
+    echo "    basename: \"$base\""
+    echo "  rrd:"
+    echo "    cf: \"$cf\""
+    echo "    ds: \"$ds\""
+    if [ -n "${step:-}" ]; then
+      echo "    step_sec: $step"
+    else
+      echo "    step_sec: null"
+    fi
+    echo "    start_epoch: $start"
+    echo "    end_epoch: $last"
+    echo "    ds_identity_raw: |-"
+    printf '%s\n' "$ds_id" | sed 's/^/      /'
+    echo "    rra_identity_raw: |-"
+    printf '%s\n' "$rra_id" | sed 's/^/      /'
+    echo "  series:"
+    # tsv: t \t v
+    printf '%s\n' "$points" | awk -F'\t' '
+      BEGIN{OFS=""}
+      {
+        t=$1; v=$2;
+        # unknown stays unknown: NaN -> null
+        if (v=="NaN" || v=="nan" || v=="-nan" || v=="NAN" || v=="") {
+          print "    - t: ", t;
+          print "      value_raw: \"", v, "\"";
+          print "      value_dec: null";
+        } else {
+          print "    - t: ", t;
+          print "      value_raw: \"", v, "\"";
+          print "      value_dec: \"", v, "\"";
+        }
+      }
+    '
+  } >"$out"
+
+  log "WRITE translate domain=rrd kind=metric.series src=$src ds=$ds cf=$cf out=$out"
+}
+
+emit_bank_transactions_yaml() {
+  src="$1"
+
+  h="$(sha_src "$src")"
+  base="$(basename "$src")"
+  out_dir="${OUT_ROOT}/bank/translate/bank.transaction.batch"
+  out="${out_dir}/${h}__${base}.yaml"
+
+  if [ -e "$out" ]; then
+    log "SKIP exists domain=bank action=translate kind=bank.transaction.batch src=$src out=$out"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY translate domain=bank kind=bank.transaction.batch src=$src -> $out"
+    return 0
+  fi
+
+  mkdir -p "$out_dir"
+
+  # Parse CSV robustly using python csv (MVP). On error -> quarantine.
+  if python3 - "$src" "$out" "$REV_STREAM_DEFAULT" "$BANK_MAXROWS" <<'PYBANK'
+import csv, sys, datetime, re
+
+src, out, rev_default, maxrows = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+
+def norm(h): return re.sub(r"\s+", " ", (h or "").strip().lower())
+
+date_keys = [
+  "date","posted date","post date","posting date","transaction date","trans date",
+  "transactiondate","postingdate","posteddate","effective date","effective","process date","processed date",
+  "timestamp","time","datetime","transaction time"
+]
+desc_keys = [
+  "description","memo","details","payee","name","merchant","transaction description"
+]
+amount_keys = ["amount","transaction amount","amt"]
+debit_keys = ["debit","withdrawal","withdrawals","charge","charges","money out","debits"]
+credit_keys = ["credit","deposit","deposits","payment","payments","money in","credits"]
+
+def pick(headers, keys):
+  m = {norm(h): i for i,h in enumerate(headers)}
+  for k in keys:
+    if k in m: return m[k]
+  return None
+
+def parse_date(raw):
+  raw = (raw or "").strip()
+  if not raw:
+    return None, ""
+  fmts = ["%Y-%m-%d","%m/%d/%Y","%m/%d/%y","%d/%m/%Y","%d-%m-%Y","%m-%d-%Y"]
+  for f in fmts:
+    try:
+      d = datetime.datetime.strptime(raw, f).date()
+      return d.isoformat(), raw
+    except Exception:
+      pass
+  return None, raw
+
+def clean_amt(x):
+  x = (x or "").strip()
+  if not x:
+    return "", None
+  # remove currency symbols/commas
+  y = re.sub(r"[^0-9\.\-\+]", "", x.replace(",",""))
+  if y in ("", "-", "+", ".", "-.", "+."):
+    return x, None
+  return x, y
+
+with open(src, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
+  reader = csv.reader(f)
+  try:
+    headers = next(reader)
+  except StopIteration:
+    raise SystemExit("empty csv")
+
+  di = pick(headers, date_keys)
+  ai = pick(headers, amount_keys)
+  dei = pick(headers, debit_keys)
+  cri = pick(headers, credit_keys)
+  si = pick(headers, desc_keys)
+
+  if di is None:
+    di = None  # allowed in Q0; date will be null
+  if ai is None and (dei is None or cri is None):
+    raise SystemExit("no amount column found (need amount OR debit+credit)")
+  if si is None:
+    # allow missing description, but keep raw empty
+    si = None
+
+  out_lines = []
+  out_lines.append("apiVersion: hee/v1")
+  out_lines.append("kind: Measure")
+  out_lines.append("metadata:")
+  out_lines.append("  labels:")
+  out_lines.append('    hee.object: "true"')
+  out_lines.append('    hee.tcos/topic: "finance"')
+  out_lines.append("spec:")
+  out_lines.append('  type: "bank.transaction.batch"')
+  out_lines.append("  source:")
+  out_lines.append('    domain: "bank"')
+  out_lines.append(f'    path: "{src}"')
+  out_lines.append(f'    basename: "{src.split("/")[-1]}"')
+  out_lines.append(f'  revenue_stream_id_default: "{rev_default}"')
+  out_lines.append("  entries:")
+
+  n = 0
+  for row in reader:
+    if not row or all((c or "").strip()=="" for c in row):
+      continue
+    n += 1
+    if n > maxrows:
+      break
+
+    date_raw = (row[di] if (di is not None and di < len(row)) else "")
+    date_iso, date_raw2 = parse_date(date_raw)
+
+    desc_raw = ""
+    if si is not None and si < len(row):
+      desc_raw = (row[si] or "").strip()
+
+    amt_raw = ""
+    amt_dec = None
+
+    if ai is not None:
+      amt_raw, amt_dec = clean_amt(row[ai] if ai < len(row) else "")
+    else:
+      deb_raw, deb_dec = clean_amt(row[dei] if dei < len(row) else "")
+      cre_raw, cre_dec = clean_amt(row[cri] if cri < len(row) else "")
+      # compute amount = credit - debit when possible
+      if cre_dec is not None or deb_dec is not None:
+        c = float(cre_dec) if cre_dec is not None else 0.0
+        d = float(deb_dec) if deb_dec is not None else 0.0
+        amt_dec = f"{c - d:.2f}".rstrip("0").rstrip(".")
+      amt_raw = (cre_raw or "") + (" / " if (cre_raw and deb_raw) else "") + (deb_raw or "")
+
+    out_lines.append(f"    - row: {n}")
+    out_lines.append(f'      revenue_stream_id: "{rev_default}"')
+    out_lines.append(f'      date_raw: "{date_raw2.replace(chr(34), chr(39))}"')
+    out_lines.append(f"      date: {date_iso if date_iso is not None else 'null'}")
+    out_lines.append(f'      amount_raw: "{amt_raw.replace(chr(34), chr(39))}"')
+    amt_dec_yaml = f'"{amt_dec}"' if amt_dec is not None else 'null'
+    out_lines.append(f"      amount_dec: {amt_dec_yaml}")
+    out_lines.append(f'      description_raw: "{desc_raw.replace(chr(34), chr(39))}"')
+
+with open(out, "w", encoding="utf-8") as w:
+  w.write("\n".join(out_lines) + "\n")
+PYBANK
+  then
+    log "WRITE translate domain=bank kind=bank.transaction.batch src=$src out=$out"
+    return 0
+  else
+    emit_quarantine_note "$src" "bank" "bank.transaction.batch"
+    log "ERR bank_csv_parse_failed src=$src (quarantined)"
+    return 0
+  fi
+}
+
+main() {
+  if [ ! -d "$IN_ROOT" ]; then echo "missing in-root: $IN_ROOT" >&2; exit 2; fi
+  if [ ! -d "$OUT_ROOT" ]; then echo "missing out-root: $OUT_ROOT" >&2; exit 2; fi
+
+  # RRD domain
+  d="${IN_ROOT}/rrd"
+  if [ -d "$d" ]; then
+    for f in "$d"/*; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        *.rrd) : ;;
+        *) emit_quarantine_note "$f" "rrd" "metric.series"; continue ;;
+      esac
+
+      # DS list from rrdtool info
+      ds_list="$(rrdtool info "$f" | awk -F'[][]' '/^ds\[/{print $2}' | sort -u)"
+      if [ -z "$ds_list" ]; then
+        emit_quarantine_note "$f" "rrd" "metric.series"
+        log "ERR no_ds_found src=$f"
+        continue
+      fi
+
+      for ds in $ds_list; do
+        emit_rrd_metric_series_yaml "$f" "$ds" "$RRD_CF"
+      done
+    done
+  fi
+
+  # Bank domain: translate CSV -> bank.transaction.batch (MVP)
+  b="${IN_ROOT}/bank"
+  if [ -d "$b" ]; then
+    for f in "$b"/*; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        *.csv|*.CSV) emit_bank_transactions_yaml "$f" ;;
+        *) emit_quarantine_note "$f" "bank" "unknown" ;;
+      esac
+    done
+  fi
+
+# Other domains: quarantine all (still skeleton)
+  for domain in books fred tos trades; do
+    dd="${IN_ROOT}/${domain}"
+    [ -d "$dd" ] || continue
+    for f in "$dd"/*; do
+      [ -f "$f" ] || continue
+      emit_quarantine_note "$f" "$domain" "unknown"
+    done
+  done
+
+  echo "ok: report=$REPORT"
+}
+
+main

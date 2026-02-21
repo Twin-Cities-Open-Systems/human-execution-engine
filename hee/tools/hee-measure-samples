@@ -1,0 +1,26 @@
+#!/bin/sh
+# Writes repo sample Measure YAMLs into ~/.hee/out-take (SAMPLES ONLY).
+# No remote ops. No interactive prompts.
+
+set -u
+
+HOME_DIR="${HOME:?}"
+OUT="$HOME_DIR/.hee/out-take"
+SRC_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../measure/samples" 2>/dev/null && pwd -P)"
+
+mkdir -p "$OUT"/{bank,books,fred,tos,trades,rrd}
+
+# This is intentionally simple: bucket is inferred from filename prefix.
+for f in "$SRC_DIR"/*.yaml; do
+  base="$(basename "$f")"
+  case "$base" in
+    measure__bank.*)  dst="$OUT/bank/$base" ;;
+    measure__ledger.*|measure__payment.*) dst="$OUT/books/$base" ;;
+    measure__trade.*|measure__position.*) dst="$OUT/tos/$base" ;;
+    measure__metric.*) dst="$OUT/rrd/$base" ;;
+    *) dst="$OUT/$base" ;;
+  esac
+  cp -f "$f" "$dst"
+done
+
+echo "wrote samples into: $OUT"

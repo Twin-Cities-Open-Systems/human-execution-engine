@@ -1,0 +1,96 @@
+#!/bin/sh
+# Install repo tools into a user bin dir (default: ~/.hee/bin)
+# Safe by default: refuses to clobber non-symlink files unless --force.
+
+set -eu
+
+BIN_DIR="${HOME}/.hee/bin"
+FORCE=0
+DRY_RUN=0
+
+usage() {
+  echo "usage: hee-tools-install [--bin-dir PATH] [--force] [--dry-run]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --bin-dir) BIN_DIR="${2:-}"; shift 2 ;;
+    --force) FORCE=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+SELF="$0"
+if command -v readlink >/dev/null 2>&1; then
+  R="$(readlink -f "$0" 2>/dev/null || true)"
+  [ -n "${R:-}" ] && SELF="$R"
+fi
+
+TOOLS_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+
+mkdir -p "$BIN_DIR"
+
+echo "🟦 tools_dir=$TOOLS_DIR"
+echo "🟦 bin_dir=$BIN_DIR"
+echo "🟦 force=$FORCE dry_run=$DRY_RUN"
+
+conflicts=0
+installed=0
+skipped=0
+
+for src in "$TOOLS_DIR"/hee-*; do
+  [ -f "$src" ] || continue
+  [ -x "$src" ] || continue
+
+  base="$(basename "$src")"
+  dst="${BIN_DIR}/${base}"
+
+  # already correct?
+  if [ -L "$dst" ] && command -v readlink >/dev/null 2>&1; then
+    cur="$(readlink -f "$dst" 2>/dev/null || true)"
+    if [ "$cur" = "$src" ]; then
+      echo "🟦 skip ok: $dst -> $cur"
+      skipped=$((skipped+1))
+      continue
+    fi
+  fi
+
+  if [ -e "$dst" ] && [ ! -L "$dst" ] && [ "$FORCE" -ne 1 ]; then
+    echo "🔴 conflict (exists, not symlink): $dst"
+    conflicts=$((conflicts+1))
+    continue
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY ln -sf '$src' '$dst'"
+    installed=$((installed+1))
+    continue
+  fi
+
+  if [ "$FORCE" -eq 1 ]; then
+    rm -f "$dst"
+  fi
+
+  ln -s "$src" "$dst"
+  echo "🟩 install: $dst -> $src"
+  installed=$((installed+1))
+done
+
+echo "🟦 installed=$installed skipped=$skipped conflicts=$conflicts"
+
+# PATH/hash sanity (best-effort)
+hash -r 2>/dev/null || true
+for cmd in hee-measure-check hee-measure-translate hee-measure-gates; do
+  if command -v "$cmd" >/dev/null 2>&1; then
+    echo "🟩 type -a $cmd:"
+    type -a "$cmd" || true
+  else
+    echo "🟡 $cmd not on PATH (yet)"
+  fi
+done
+
+if [ "$conflicts" -gt 0 ] && [ "$FORCE" -ne 1 ]; then
+  exit 1
+fi

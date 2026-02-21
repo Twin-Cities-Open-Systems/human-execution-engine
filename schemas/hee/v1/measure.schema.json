@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/hee/v1/measure.schema.json",
+  "title": "hee/v1 Measure (alpha)",
+  "type": "object",
+  "allOf": [
+    { "$ref": "./hee-object.schema.json" },
+    {
+      "properties": {
+        "apiVersion": { "const": "hee/v1" },
+        "kind": { "const": "Measure" },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "measure": { "type": "string", "minLength": 1 },
+            "flow": {
+              "type": "object",
+              "properties": {
+                "type": { "enum": ["snapshot", "delta"] },
+                "direction": { "enum": ["neutral", "in", "out"] }
+              },
+              "additionalProperties": true
+            },
+            "ts": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "context": {
+              "type": "object",
+              "properties": {
+                "rrd": {
+                  "type": "object",
+                  "properties": {
+                    "file_ref": { "type": "string" },
+                    "ds": { "type": "string" },
+                    "ds_type": { "type": "string" },
+                    "cf": { "type": "string" },
+                    "rra_index": { "type": "integer" },
+                    "step_sec": { "type": "integer" },
+                    "pdp_per_row": { "type": "integer" },
+                    "resolution_sec": { "type": "integer" },
+                    "rows": { "type": "integer" },
+                    "xff_dec": { "type": "string" }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": ["measure"],
+          "additionalProperties": true
+        }
+      },
+      "required": ["spec"],
+      "additionalProperties": true
+    }
+  ]
+}
