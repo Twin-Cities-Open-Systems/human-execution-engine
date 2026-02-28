@@ -1,0 +1,24 @@
+#!/bin/sh
+# hee-inv (stub) — inventory tool (ingest/ls/get/set/unknown/exif)
+# Contract: hee/contracts/inventory.contract.v1.md
+#
+# NOTE: This is a stub skeleton. Implementation will:
+# - preflight SOA anchor (~/.hee/index/_.yaml)
+# - repo-proof before writes (tcos-plan-private)
+# - ingest incoming evidence -> content-addressed store
+# - create inventory.* Measure YAML stubs
+# - write XMP pointers (hee:ObjectRef, hee:Name, hee:Measure)
+
+set -u
+
+cmd="${1:-}"
+case "$cmd" in
+  ingest|ls|get|set|unknown|exif)
+    echo "TODO: implement hee inv $cmd"
+    exit 2
+    ;;
+  *)
+    echo "usage: hee inv {ingest|ls|get|set|unknown|exif} ..."
+    exit 2
+    ;;
+esac
