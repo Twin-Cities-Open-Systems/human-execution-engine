@@ -1,0 +1,28 @@
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: inv-stock-costco-20260224t181600z-l01-unknown
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.vendor: costco
+    inv.bucket: unknown
+    inv.sub: unknown
+    inv.loc0: basement
+    inv.loc1: inbox-n-01
+spec:
+  measure: inventory.stock
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence:
+      - file_ref: "inventory/evidence/by-sha256/EXAMPLE/EXAMPLE/EXAMPLE_item.jpg"
+  ts:
+    observed: "2026-02-24T18:20:00Z"
+  location:
+    path: ["basement","inbox","n","01"]
+  stock:
+    name: "unknown"
+    qty: 1
+    unit: ea
+    merge_key: "unknown"

@@ -1,0 +1,26 @@
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: inv-asset-vehicle-vinlast6-xxxxxx
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.bucket: durable
+    inv.sub: vehicle
+    inv.loc0: basement
+    inv.loc1: parking-n-01
+spec:
+  measure: inventory.asset
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence:
+      - file_ref: "inventory/evidence/by-sha256/EXAMPLE/EXAMPLE/EXAMPLE_vehicle.jpg"
+  ts:
+    observed: "2026-02-25T00:10:00Z"
+  location:
+    path: ["parking","n","01"]
+  asset:
+    asset_type: vehicle
+    identity:
+      vin: "EXAMPLE"

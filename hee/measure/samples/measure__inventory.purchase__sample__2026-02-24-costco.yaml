@@ -1,0 +1,20 @@
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: inv-purchase-costco-20260224t181600z
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.vendor: costco
+spec:
+  measure: inventory.purchase
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence:
+      - file_ref: "inventory/evidence/by-sha256/EXAMPLE/EXAMPLE/EXAMPLE_receipt.jpg"
+  ts:
+    observed: "2026-02-24T18:16:00Z"
+  purchase:
+    currency: USD
+    total: 611.00
