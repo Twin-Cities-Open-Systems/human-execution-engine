@@ -1,30 +1,38 @@
 #!/bin/sh
-# hee-inv — inventory tool (v1)
+# hee-inv — inventory tool (v1.1)
 # Contract: hee/contracts/inventory.contract.v1.md
 #
 # Subcommands:
 #   ingest <incoming_dir> [--tcos-repo <path>]
 #   unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
 #
-# V1 principles:
+# Principles:
 # - canonical truth is YAML in git
 # - evidence is content-addressed (sha256)
-# - write XMP sidecar (.xmp) pointers; attempt embedded XMP if supported
+# - write XMP sidecar (.xmp) pointers; attempt embedded XMP if supported (best-effort)
 # - fail closed if SOA anchor missing or repo invariants missing
+#
+# Zip support:
+# - zip is preserved as evidence
+# - extracted files are ingested as individual evidence objects
+# - created objects record archive provenance via spec.source.archive_ref
+#
+# Junk ignore:
+# - macOS junk: __MACOSX, .DS_Store, Thumbs.db, .AppleDouble, dotfiles
+# - Windows ADS junk: *:Zone.Identifier, *:OECustomProperty
 
 set -u
 
 say(){ printf "%s\n" "$*"; }
 die(){ say "ERROR: $*"; exit 2; }
-
 need(){ command -v "$1" >/dev/null 2>&1 || die "missing cmd: $1"; }
 
-# tools
 need git
 need rg
 need yq
 need sha256sum
 need exiftool
+need unzip
 need date
 
 SOA_ANCHOR="$HOME/.hee/index/_.yaml"
@@ -41,11 +49,13 @@ defaults:
   --tcos-repo \$HOME/git/tcos-plan-private
   --warn-days 7
   --crit-days 14
+
+notes:
+  - ingest supports .zip in incoming: archive is preserved as evidence and contents are ingested.
 USAGE
 }
 
 is_dir(){ [ -d "$1" ]; }
-is_file(){ [ -f "$1" ]; }
 
 repo_guard_tcos(){
   repo="$1"
@@ -58,14 +68,11 @@ repo_guard_tcos(){
   printf "%s" "$origin" | rg -q "$slug" || die "origin does not contain expected slug ($slug): $origin"
 }
 
-# Best-effort EXIF datetime -> RFC3339Z.
-# Falls back to file mtime if no EXIF timestamp is present.
+# Best-effort EXIF datetime -> RFC3339Z; fallback to file mtime; else now.
 observed_time_utc(){
   f="$1"
-  # exiftool prints e.g. "2026:02:24 18:20:00"
   exif_dt="$(exiftool -s -s -s -DateTimeOriginal "$f" 2>/dev/null | head -n1 || true)"
   if [ -n "$exif_dt" ]; then
-    # Convert "YYYY:MM:DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM:SSZ"
     y="$(printf "%s" "$exif_dt" | cut -c1-4)"
     mo="$(printf "%s" "$exif_dt" | cut -c6-7)"
     d="$(printf "%s" "$exif_dt" | cut -c9-10)"
@@ -74,8 +81,6 @@ observed_time_utc(){
     return 0
   fi
 
-  # mtime (utc)
-  # GNU stat:
   if command -v stat >/dev/null 2>&1; then
     mt="$(stat -c %Y "$f" 2>/dev/null || true)"
     if [ -n "$mt" ]; then
@@ -88,11 +93,8 @@ observed_time_utc(){
 }
 
 tsz_compact_lower(){
-  # input: RFC3339Z -> output: yyyymmddthhmmssz
   in="$1"
-  # 2026-02-24T18:20:00Z -> 20260224T182000Z -> 20260224t182000z
   up="$(printf "%s" "$in" | tr -d '-' | tr -d ':' )"
-  # up is 20260224T182000Z already
   printf "%s" "$up" | tr 'TZ' 'tz'
 }
 
@@ -107,8 +109,8 @@ mkdir_sha_path(){
 }
 
 write_xmp_sidecar(){
-  evidence_path="$1"      # absolute or repo-relative is ok
-  object_ref="$2"         # repo-relative YAML path
+  evidence_path="$1"
+  object_ref="$2"
   obj_name="$3"
   measure="$4"
 
@@ -134,8 +136,7 @@ try_embed_xmp(){
   obj_name="$3"
   measure="$4"
 
-  # Best-effort: many setups require an ExifTool config to define XMP-hee namespace.
-  # We do not fail if embedding fails; sidecar is canonical for v1.
+  # Best-effort: embedding may require ExifTool config for XMP-hee namespace.
   exiftool -overwrite_original \
     "-XMP-hee:ObjectRef=$object_ref" \
     "-XMP-hee:Name=$obj_name" \
@@ -143,60 +144,57 @@ try_embed_xmp(){
     "$evidence_path" >/dev/null 2>&1 || true
 }
 
-cmd_ingest(){
-  incoming="$1"
-  tcos_repo="$2"
+is_junk_path(){
+  p="$1"
+  # macOS / windows ADS / hidden files
+  printf "%s" "$p" | rg -q '(^|/)(__MACOSX/|\.DS_Store$|Thumbs\.db$|\.AppleDouble/|:Zone\.Identifier$|:OECustomProperty$)' && return 0
+  b="$(basename "$p")"
+  printf "%s" "$b" | rg -q '^\.' && return 0
+  return 1
+}
 
-  is_dir "$incoming" || die "incoming dir not found: $incoming"
-  repo_guard_tcos "$tcos_repo"
+ingest_one_file(){
+  src_abs="$1"      # absolute path to file
+  incoming_abs="$2" # absolute incoming root
+  tcos_repo="$3"
+  archive_ref_rel="${4:-}" # optional repo-relative ref to zip evidence
+
+  base="$(basename "$src_abs")"
+
+  ext="${base##*.}"
+  [ "$ext" != "$base" ] || ext="bin"
+  ext="$(printf "%s" "$ext" | tr 'A-Z' 'a-z')"
+
+  sha="$(sha256sum "$src_abs" | awk '{print $1}')"
+  sha12="$(printf "%s" "$sha" | cut -c1-12)"
+
+  obs="$(observed_time_utc "$src_abs")"
+  tsz="$(tsz_compact_lower "$obs")"
+
+  name="inv-stock-unknown-$tsz-sha12-$sha12"
 
   inv_root="$tcos_repo/inventory"
   obj_root="$inv_root/objects/stock"
   evid_root="$inv_root/evidence/by-sha256"
-
   mkdir -p "$obj_root" "$evid_root"
 
-  # find regular files only (no recursion by default; incoming should be flat)
-  # if you want recursion later, extend safely.
-  found_any="0"
-  for f in "$incoming"/*; do
-    [ -e "$f" ] || continue
-    [ -f "$f" ] || continue
-    found_any="1"
+  sha_dir="$(mkdir_sha_path "$evid_root" "$sha")"
+  evid_rel="inventory/evidence/by-sha256/$(printf "%s/%s" "$(printf "%s" "$sha_dir" | sed "s|^$evid_root/||")" "$sha").$ext"
+  evid_abs="$tcos_repo/$evid_rel"
 
-    base="$(basename "$f")"
-    ext="${base##*.}"
-    [ "$ext" != "$base" ] || ext="bin"
+  # place evidence
+  if [ ! -f "$evid_abs" ]; then
+    case "$src_abs" in
+      "$incoming_abs"/*) mv "$src_abs" "$evid_abs" ;;
+      *) cp -f "$src_abs" "$evid_abs" ;;
+    esac
+  fi
 
-    sha="$(sha256sum "$f" | awk '{print $1}')"
-    sha12="$(printf "%s" "$sha" | cut -c1-12)"
+  obj_file_rel="inventory/objects/stock/${tsz}__${name}.yaml"
+  obj_file_abs="$tcos_repo/$obj_file_rel"
 
-    obs="$(observed_time_utc "$f")"
-    tsz="$(tsz_compact_lower "$obs")"
-
-    # name: inv-stock-unknown-<tsz>-sha12-<sha12>
-    name="inv-stock-unknown-$tsz-sha12-$sha12"
-
-    # evidence destination
-    sha_dir="$(mkdir_sha_path "$evid_root" "$sha")"
-    evid_rel="inventory/evidence/by-sha256/$(printf "%s/%s" "$(printf "%s" "$sha_dir" | sed "s|^$evid_root/||")" "$sha").$ext"
-    evid_abs="$tcos_repo/$evid_rel"
-
-    # move file into evidence store (idempotent)
-    if [ -f "$evid_abs" ]; then
-      # already exists; remove incoming copy
-      rm -f "$f"
-    else
-      mv "$f" "$evid_abs"
-    fi
-
-    # object path (repo-relative)
-    obj_file_rel="inventory/objects/stock/${tsz}__${name}.yaml"
-    obj_file_abs="$tcos_repo/$obj_file_rel"
-
-    # write object if it doesn't exist
-    if [ ! -f "$obj_file_abs" ]; then
-      cat >"$obj_file_abs" <<YAML
+  if [ ! -f "$obj_file_abs" ]; then
+    cat >"$obj_file_abs" <<YAML
 apiVersion: hee/v1
 kind: Measure
 metadata:
@@ -219,28 +217,98 @@ spec:
     observed: "${obs}"
   location:
     path: ["basement","inbox","n","01"]
+  source:
+    archive_ref: ${archive_ref_rel:-null}
   stock:
     name: "unknown"
     qty: 1
     unit: ea
     merge_key: "unknown"
 YAML
+  fi
+
+  write_xmp_sidecar "$evid_abs" "$obj_file_rel" "$name" "inventory.stock"
+  try_embed_xmp "$evid_abs" "$obj_file_rel" "$name" "inventory.stock"
+
+  say "OK ingest: $base"
+  say "  evidence: $evid_rel"
+  say "  object:   $obj_file_rel"
+  if [ -n "${archive_ref_rel:-}" ]; then
+    say "  archive:  $archive_ref_rel"
+  fi
+}
+
+ingest_zip(){
+  zip_abs="$1"
+  incoming_abs="$2"
+  tcos_repo="$3"
+
+  base="$(basename "$zip_abs")"
+  sha="$(sha256sum "$zip_abs" | awk '{print $1}')"
+
+  inv_root="$tcos_repo/inventory"
+  evid_root="$inv_root/evidence/by-sha256"
+  mkdir -p "$evid_root"
+
+  sha_dir="$(mkdir_sha_path "$evid_root" "$sha")"
+  zip_evid_rel="inventory/evidence/by-sha256/$(printf "%s/%s" "$(printf "%s" "$sha_dir" | sed "s|^$evid_root/||")" "$sha").zip"
+  zip_evid_abs="$tcos_repo/$zip_evid_rel"
+
+  if [ -f "$zip_evid_abs" ]; then
+    rm -f "$zip_abs" 2>/dev/null || true
+  else
+    mv "$zip_abs" "$zip_evid_abs"
+  fi
+
+  tmpd="${TMPDIR:-/tmp}/hee-inv.$$/$sha"
+  mkdir -p "$tmpd" || die "failed to create temp dir: $tmpd"
+
+  unzip -qq "$zip_evid_abs" -d "$tmpd" || die "unzip failed: $zip_evid_abs"
+
+  say "OK unzip: $base"
+  say "  zip_evidence: $zip_evid_rel"
+  say "  tmp: $tmpd"
+
+  find "$tmpd" -type f -print | LC_ALL=C sort | while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if is_junk_path "$p"; then
+      continue
+    fi
+    ingest_one_file "$p" "$incoming_abs" "$tcos_repo" "$zip_evid_rel"
+  done
+
+  rm -rf "${TMPDIR:-/tmp}/hee-inv.$$" >/dev/null 2>&1 || true
+}
+
+cmd_ingest(){
+  incoming="$1"
+  tcos_repo="$2"
+
+  is_dir "$incoming" || die "incoming dir not found: $incoming"
+  repo_guard_tcos "$tcos_repo"
+
+  incoming_abs="$(cd "$incoming" && pwd -P)"
+  found_any="0"
+
+  for f in "$incoming_abs"/*; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] || continue
+    found_any="1"
+
+    if is_junk_path "$f"; then
+      continue
     fi
 
-    # XMP pointers (sidecar canonical)
-    write_xmp_sidecar "$evid_abs" "$obj_file_rel" "$name" "inventory.stock"
-    try_embed_xmp "$evid_abs" "$obj_file_rel" "$name" "inventory.stock"
-
-    say "OK ingest: $base"
-    say "  evidence: $evid_rel"
-    say "  object:   $obj_file_rel"
+    case "$(printf "%s" "$f" | tr 'A-Z' 'a-z')" in
+      *.zip) ingest_zip "$f" "$incoming_abs" "$tcos_repo" ;;
+      *) ingest_one_file "$f" "$incoming_abs" "$tcos_repo" ;;
+    esac
   done
 
   [ "$found_any" = "1" ] || say "OK ingest: no files in incoming"
 }
 
 days_since(){
-  # input: RFC3339Z
   obs="$1"
   now_s="$(date -u +%s)"
   obs_s="$(date -u -d "$obs" +%s 2>/dev/null || echo 0)"
@@ -263,42 +331,28 @@ cmd_unknown_report(){
   root="$tcos_repo/inventory/objects"
   is_dir "$root" || die "inventory objects dir not found: $root"
 
-  # collect candidate files quickly
-  # note: this matches inv.bucket/sub unknown in YAML text for speed
   files="$(rg -l 'inv\.bucket:\s*unknown|inv\.sub:\s*unknown' "$root" 2>/dev/null || true)"
 
-  total=0
-  warn=0
-  crit=0
-
-  # Print lists in severity order (CRIT then WARN then OK-unknown)
-  # We'll build temp lists.
   tmpd="${TMPDIR:-/tmp}/hee-inv.$$"
   mkdir -p "$tmpd" || die "failed to create temp dir"
-  critf="$tmpd/crit"
-  warnf="$tmpd/warn"
-  okf="$tmpd/ok"
+  critf="$tmpd/crit"; warnf="$tmpd/warn"; okf="$tmpd/ok"
   : >"$critf"; : >"$warnf"; : >"$okf"
 
   if [ -n "$files" ]; then
     printf "%s\n" "$files" | while IFS= read -r f; do
       [ -n "$f" ] || continue
-      total=$((total+1))
 
       name="$(yq -r '.metadata.name // ""' "$f" 2>/dev/null || echo "")"
       obs="$(yq -r '.spec.ts.observed // ""' "$f" 2>/dev/null || echo "")"
-
       [ -n "$name" ] || name="(missing-name)"
       [ -n "$obs" ] || obs="1970-01-01T00:00:00Z"
 
       age="$(days_since "$obs")"
-
       line="$(printf "%s\t%s\t%s\t%s\n" "$age" "$name" "$obs" "$f")"
+
       if [ "$age" -ge "$crit_days" ]; then
-        crit=$((crit+1))
         printf "%s" "$line" >>"$critf"
       elif [ "$age" -ge "$warn_days" ]; then
-        warn=$((warn+1))
         printf "%s" "$line" >>"$warnf"
       else
         printf "%s" "$line" >>"$okf"
@@ -306,7 +360,6 @@ cmd_unknown_report(){
     done
   fi
 
-  # The while loop above ran in a subshell due to pipe; re-count via wc
   crit="$(wc -l <"$critf" | tr -d ' ')"
   warn="$(wc -l <"$warnf" | tr -d ' ')"
   ok="$(wc -l <"$okf" | tr -d ' ')"
@@ -321,24 +374,24 @@ cmd_unknown_report(){
   if [ "$crit" -gt 0 ]; then
     say ""
     say "CRIT (oldest first):"
-    sort -n "$critf" | while IFS="$(printf '\t')" read -r age name obs f; do
-      say "  CRIT age=${age}d name=$name observed=$obs file=$f"
+    sort -n "$critf" | while IFS="$(printf '\t')" read -r age nm ob ff; do
+      say "  CRIT age=${age}d name=$nm observed=$ob file=$ff"
     done
   fi
 
   if [ "$warn" -gt 0 ]; then
     say ""
     say "WARN (oldest first):"
-    sort -n "$warnf" | while IFS="$(printf '\t')" read -r age name obs f; do
-      say "  WARN age=${age}d name=$name observed=$obs file=$f"
+    sort -n "$warnf" | while IFS="$(printf '\t')" read -r age nm ob ff; do
+      say "  WARN age=${age}d name=$nm observed=$ob file=$ff"
     done
   fi
 
   if [ "$ok" -gt 0 ]; then
     say ""
     say "OK (unknown but <WARN):"
-    sort -n "$okf" | while IFS="$(printf '\t')" read -r age name obs f; do
-      say "  OK   age=${age}d name=$name observed=$obs file=$f"
+    sort -n "$okf" | while IFS="$(printf '\t')" read -r age nm ob ff; do
+      say "  OK   age=${age}d name=$nm observed=$ob file=$ff"
     done
   fi
 
