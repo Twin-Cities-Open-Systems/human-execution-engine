@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="stylesheet" href="/assets/uiboss.css" />
+    <script defer src="/assets/uiboss.js"></script>
+
+    <!-- KaTeX (math) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+    <!-- Mermaid (diagrams) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+    <script defer src="/assets/uiboss-view.js"></script>
+    <title>UIBoss · View</title>
+  </head>
+  <body>
+    <div class="header">
+      <div class="brand"><a href="/">UIBoss</a></div>
+      <div class="controls">
+        <a class="btn" data-tab="home" href="/">home</a>
+        <a class="btn" data-tab="runs" href="/runs/">runs</a>
+        <a class="btn" data-tab="repos" href="/repos/">repos</a>
+        <a class="btn" data-tab="fs" href="/fs/">fs</a>
+        <a class="btn" data-tab="view" href="/view/">view</a>
+        <a class="btn" id="openRaw" href="#" rel="noreferrer">open raw</a>
+        <a class="btn" id="modeRender" href="#">render</a>
+        <a class="btn" id="modeCode" href="#">code</a>
+        <a class="btn" id="modeUnsafe" href="#">unsafe</a>
+        <button class="btn" id="themeToggle" type="button">theme</button>
+      </div>
+    </div>
+    <div class="wrap">
+      <div class="card">
+        <div class="h1" id="title">View</div>
+        <div class="small" id="meta"></div>
+        <div id="content" style="margin-top:10px"></div>
+        <div class="footer">md: render + mermaid + math · yaml/json: code · html: render (safe) or unsafe</div>
+      </div>
+    </div>
+  </body>
+</html>

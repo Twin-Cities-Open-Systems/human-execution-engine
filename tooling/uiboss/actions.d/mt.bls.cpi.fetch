@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+#@ns ?
+#@name (unset)
+#@desc (unset)
+#@inputs (unset)
+#@outputs (unset)
+
+#
+# mt.bls.cpi.fetch
+#
+# **Market Thesis fetcher**
+#
+# Market thesis → Bureau of Labor Statistics (BLS) → CPI → fetch.
+#
+# mt
+# mt.bls.cpi.fetch
+# Fetch CPI figures from BLS archive and write OUT_* artifacts
+# (network) + local OUT_* paths
+# OUT_* files (see script)
+#
+# uiboss action: mt.fetch.bls.cpi
+# runs CPI capture (vers) then renders OUT_MD + pretty prints OUT_YAML if available
+
+: "${HOME:=/home/$USER}"
+export HOME
+PATH="$HOME/.local/bin:$HOME/.hee/bin:$HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
+export PATH
+
+# default behavior: both vis+vers if no args
+# but for uiboss we prefer: vers, then render the md file
+out="$(mt-fetch bls cpi --vers "${@}" 2>&1)"
+printf '%s\n' "$out"
+
+# pull artifact paths (use /usr/bin tools to survive weird PATH)
+out_md="$(printf '%s\n' "$out" | /usr/bin/awk -F= '/^OUT_MD=/{print $2}' | /usr/bin/tail -n 1)"
+out_yaml="$(printf '%s\n' "$out" | /usr/bin/awk -F= '/^OUT_YAML=/{print $2}' | /usr/bin/tail -n 1)"
+
+if [ -n "$out_md" ] && command -v hee-render >/dev/null 2>&1; then
+  echo ""
+  echo "# VIS (render): $out_md"
+  hee-render "$out_md"
+fi
+
+if [ -n "$out_yaml" ] && command -v yq >/dev/null 2>&1; then
+  echo ""
+  echo "# VERS (yq -P): $out_yaml"
+  yq -P "$out_yaml"
+fi

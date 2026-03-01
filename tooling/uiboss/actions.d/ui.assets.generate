@@ -1,0 +1,102 @@
+#!/usr/bin/env sh
+#@ns ?
+#@name (unset)
+#@desc (unset)
+#@inputs (unset)
+#@outputs (unset)
+
+: "${HOME:=/home/$USER}"
+export HOME
+PATH="$HOME/.local/bin:$HOME/.hee/bin:$HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
+export PATH
+
+docroot="${UIBOSS_DOCROOT:-$HOME/git/human-execution-engine/generated/html}"
+
+mkdir -p \
+  "$docroot/stylesheets" \
+  "$docroot/javascripts" \
+  "$docroot/images" \
+  "$docroot/images/buttons" \
+  "$docroot/images/icons" \
+  "$docroot/assets/bootstrap/latest"
+
+# --- CSS (battlecenter-ish skin; also satisfies BLS raw HTML includes) ---
+cat >"$docroot/stylesheets/bls_combined.css" <<'CSS'
+/* battlecenter skin: local minimal, stable */
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  background: #f6f6f6;
+  color: #111;
+  line-height: 1.35;
+}
+a { color: #0645ad; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1 { font-size: 32px; margin: 16px 16px 8px; }
+h2 { font-size: 20px; margin: 14px 0 8px; }
+pre { white-space: pre-wrap; word-wrap: break-word; }
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+  margin: 12px 16px;
+}
+.muted { color: #666; }
+ul { margin: 6px 0; padding-left: 20px; }
+li { margin: 6px 0; }
+CSS
+
+cat >"$docroot/stylesheets/bls_content.css" <<'CSS'
+/* content helpers */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: 6px 8px; }
+th { background: #f0f0f0; text-align: left; }
+code { background: #f2f2f2; padding: 1px 4px; border-radius: 4px; }
+CSS
+
+# optional BLS includes; keep minimal but present
+: >"$docroot/stylesheets/bls_tables.css"
+: >"$docroot/stylesheets/bls_nr.css"
+: >"$docroot/stylesheets/jquery-tools.css"
+: >"$docroot/stylesheets/touchpointsForms.css"
+
+# --- “bootstrap” placeholders (we only need files to exist) ---
+cat >"$docroot/assets/bootstrap/latest/bootstrap.min.css" <<'CSS'
+/* placeholder bootstrap: present so links don't 404 */
+CSS
+: >"$docroot/assets/bootstrap/latest/bootstrap.min.js"
+: >"$docroot/assets/bootstrap/latest/popper.min.js"
+
+# --- JS placeholders ---
+: >"$docroot/javascripts/bls-latest.js"
+: >"$docroot/javascripts/jquery-latest.js"
+: >"$docroot/javascripts/jquery-tools.js"
+: >"$docroot/javascripts/jquery-migrate-1.2.1.min.js"
+: >"$docroot/javascripts/touchpointsForms.js"
+
+# --- minimal manifest + favicon to silence noise ---
+cat >"$docroot/manifest.json" <<'JSON'
+{"name":"battlecenter","short_name":"battlecenter","start_url":"/","display":"standalone"}
+JSON
+: >"$docroot/favicon.ico"
+
+# --- 1x1 transparent PNG for common missing image ---
+# (base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=)
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
+  | /usr/bin/base64 -d >"$docroot/images/bls_emblem_trans.png" 2>/dev/null || true
+
+# older BLS button/icon paths (stubs)
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/buttons/search_button_blue_16.png" 2>/dev/null || true
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/buttons/search_button_blue_20.png" 2>/dev/null || true
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/icons/twitter.png" 2>/dev/null || true
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/icons/facebook.png" 2>/dev/null || true
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/icons/linkedin.png" 2>/dev/null || true
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/icons/icon_small_link.gif" 2>/dev/null || true
+cp -a "$docroot/images/bls_emblem_trans.png" "$docroot/images/icons/icon_small_printer.gif" 2>/dev/null || true
+
+echo "OUTDIR=$docroot"
+echo "OUT_RAW=$docroot/stylesheets/bls_content.css"

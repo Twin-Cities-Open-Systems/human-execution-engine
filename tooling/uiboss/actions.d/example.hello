@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+#@ns ?
+#@name (unset)
+#@desc (unset)
+#@inputs (unset)
+#@outputs (unset)
+
+echo "Hello from uiboss action"
+echo "OUTDIR=$HOME/.hee/tmp/example"
+mkdir -p "$HOME/.hee/tmp/example"
+echo "hi" > "$HOME/.hee/tmp/example/hello.txt"
+echo "OUT_RAW=$HOME/.hee/tmp/example/hello.txt"

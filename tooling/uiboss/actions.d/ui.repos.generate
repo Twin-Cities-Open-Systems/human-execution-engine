@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+#@ns ?
+#@name (unset)
+#@desc (unset)
+#@inputs (unset)
+#@outputs (unset)
+
+import os
+from pathlib import Path
+from datetime import datetime
+
+HOME = Path(os.environ.get("HOME", "/home/"+os.environ.get("USER","spencer")))
+GITROOT = Path(os.environ.get("UIBOSS_GITROOT", str(HOME / "git")))
+DOCROOT = Path(os.environ.get("UIBOSS_DOCROOT", str(HOME / "git" / "human-execution-engine" / "generated" / "html")))
+OUTDIR  = DOCROOT / "repos"
+
+def esc(s: str) -> str:
+    return (s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+             .replace('"',"&quot;").replace("'","&#39;"))
+
+def repo_group(name: str) -> str:
+    n = name.lower()
+    if n in ("human-execution-engine", "hee"): return "core"
+    if "market" in n or n.startswith("mt"):   return "markets"
+    if n.startswith("tcos") or "tcos" in n:   return "tcos"
+    return "other"
+
+def main():
+    OUTDIR.mkdir(parents=True, exist_ok=True)
+
+    repos = []
+    for p in sorted(GITROOT.iterdir()):
+        if not p.is_dir(): continue
+        if p.name.startswith("."): continue
+
+        # Heuristic: treat as “tracked repo” if it has a .git dir OR looks like one
+        if not (p / ".git").exists():
+            continue
+
+        has_hee = (p / "hee").is_dir()
+        gen_html = p / "generated" / "html"
+
+        repos.append({
+            "name": p.name,
+            "path": str(p),
+            "has_hee": has_hee,
+            "has_gen": gen_html.is_dir(),
+            "gen": str(gen_html),
+            "group": repo_group(p.name),
+        })
+
+    # Create symlinks under DOCROOT/repos/<repo> -> <repo>/generated/html (if present)
+    for r in repos:
+        link = OUTDIR / r["name"]
+        target = Path(r["gen"])
+        if r["has_gen"]:
+            try:
+                if link.is_symlink() or link.exists():
+                    link.unlink()
+                link.symlink_to(target)
+            except Exception:
+                # if symlink fails, leave it; index will still list it
+                pass
+
+    groups = {"core": [], "markets": [], "tcos": [], "other": []}
+    for r in repos:
+        groups[r["group"]].append(r)
+
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    def render_group(title: str, items):
+        if not items:
+            return f"<div class='card'><h2>{esc(title)}</h2><p>(none)</p></div>"
+        lis = []
+        for r in items:
+            name = esc(r["name"])
+            flags = []
+            if r["has_hee"]: flags.append("hee/")
+            if r["has_gen"]: flags.append("generated/html")
+            badge = " · ".join(flags) if flags else "repo"
+            # If generated/html exists, link to /repos/<repo>/ ; else link to nowhere but show path
+            if r["has_gen"]:
+                href = f"/repos/{r['name']}/"
+                lis.append(f"<li><a href='{href}'>{name}</a><span class='muted'> — {esc(badge)}</span></li>")
+            else:
+                lis.append(f"<li>{name}<span class='muted'> — {esc(badge)} — {esc(r['path'])}</span></li>")
+        return f"<div class='card'><h2>{esc(title)}</h2><ul>{''.join(lis)}</ul></div>"
+
+    html = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Repos</title>
+  <link rel="stylesheet" href="/assets/bootstrap/latest/bootstrap.min.css">
+  <link rel="stylesheet" href="/stylesheets/bls_combined.css">
+  <link rel="stylesheet" href="/stylesheets/bls_content.css">
+  <style>
+    body {{ margin: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }}
+    .grid {{ display: grid; grid-template-columns: 1fr; gap: 12px; }}
+    @media (min-width: 980px) {{ .grid {{ grid-template-columns: 1fr 1fr; }} }}
+    .card {{ border: 1px solid #ddd; border-radius: 10px; padding: 12px; background: #fff; }}
+    .muted {{ color: #666; font-size: 0.95em; }}
+    ul {{ margin: 0; padding-left: 18px; }}
+    li {{ margin: 6px 0; }}
+  </style>
+</head>
+<body>
+  <h1>Repos</h1>
+  <p class="muted">Generated: {esc(now)} · gitroot: {esc(str(GITROOT))}</p>
+  <div class="grid">
+    {render_group("Core", groups["core"])}
+    {render_group("Markets", groups["markets"])}
+    {render_group("TCOS", groups["tcos"])}
+    {render_group("Other", groups["other"])}
+  </div>
+</body>
+</html>
+"""
+    (OUTDIR / "index.html").write_text(html, encoding="utf-8")
+
+    # Emit for uiboss capture
+    print(f"OUTDIR={OUTDIR}")
+    print(f"OUT_MD={OUTDIR / 'index.html'}")
+
+if __name__ == "__main__":
+    main()

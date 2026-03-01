@@ -1,0 +1,95 @@
+#!/bin/sh
+# ui.site.generate
+#
+# Aggregates `generated/` surfaces across repos under:
+#   <docroot>/gen/<repo>/...
+#
+#@ns ui
+#@name ui.site.generate
+#@desc Aggregate generated surfaces across repos and generate /gen index
+#@inputs UIBOSS_GITROOT UIBOSS_DOCROOT
+#@outputs <docroot>/gen/ (symlink mounts + index.html)
+
+UIBOSS_GITROOT="${UIBOSS_GITROOT:-${GITROOT:-$HOME/git}}"
+UIBOSS_DOCROOT="${UIBOSS_DOCROOT:-${DOCROOT:-$HOME/.hee/uiboss/site}}"
+
+GITROOT="$UIBOSS_GITROOT"
+DOCROOT="$UIBOSS_DOCROOT"
+
+OUTROOT="$DOCROOT/gen"
+NEWROOT="$DOCROOT/.gen.new.$$"
+OLDROOT="$DOCROOT/.gen.old"
+
+rc=0
+
+echo "# ui.site.generate"
+echo "# GITROOT=$GITROOT"
+echo "# DOCROOT=$DOCROOT"
+echo "# OUTROOT=$OUTROOT"
+
+case "$DOCROOT" in
+  ""|"/")
+    echo "# 🔴 REFUSE: unsafe DOCROOT=$DOCROOT"
+    exit 0
+    ;;
+esac
+
+if [ ! -d "$GITROOT" ]; then echo "# 🔴 MISSING: $GITROOT"; exit 0; fi
+
+mkdir -p "$DOCROOT" 2>/dev/null || true
+rm -rf "$NEWROOT" 2>/dev/null
+mkdir -p "$NEWROOT" || exit 0
+
+# Find every directory named "generated" under GITROOT, pruning obvious junk.
+find "$GITROOT" \
+  \( -name .git -o -name node_modules -o -name vendor -o -name .venv -o -name venv -o -name dist -o -name build -o -name target -o -name .cache -o -name __pycache__ \) -prune -o \
+  -type d -name generated -print \
+| while IFS= read -r gen; do
+    d="$gen"
+    gitroot=""
+    while :; do
+      if [ -d "$d/.git" ]; then gitroot="$d"; break; fi
+      if [ "$d" = "$GITROOT" ] || [ "$d" = "/" ]; then break; fi
+      d=$(dirname "$d")
+    done
+    [ -n "$gitroot" ] || continue
+
+    repo=$(basename "$gitroot")
+    repodst="$NEWROOT/$repo"
+    mkdir -p "$repodst" || continue
+
+    ln -snf "$gen" "$repodst/_generated"
+
+    for child in "$gen"/*; do
+      [ -d "$child" ] || continue
+      name=$(basename "$child")
+      ln -snf "$child" "$repodst/$name"
+    done
+done
+
+# Index
+idx="$NEWROOT/index.html"
+{
+  echo '<!doctype html><meta charset="utf-8">'
+  echo '<h1>gen</h1>'
+  echo '<ul>'
+  for d in "$NEWROOT"/*; do
+    [ -d "$d" ] || continue
+    b=$(basename "$d")
+    [ "$b" = "index.html" ] && continue
+    echo "  <li><a href=\"$b/\">$b</a></li>"
+  done
+  echo '</ul>'
+} >"$idx" 2>/dev/null || true
+
+rm -rf "$OLDROOT" 2>/dev/null
+if [ -d "$OUTROOT" ] && [ ! -L "$OUTROOT" ]; then
+  mv "$OUTROOT" "$OLDROOT" 2>/dev/null || true
+fi
+mv "$NEWROOT" "$OUTROOT" 2>/dev/null || {
+  # fallback: ensure it exists
+  mkdir -p "$OUTROOT" 2>/dev/null || true
+}
+
+echo "# OK: $OUTROOT"
+exit 0
