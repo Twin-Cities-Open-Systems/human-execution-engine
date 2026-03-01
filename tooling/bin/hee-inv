@@ -1,24 +1,461 @@
 #!/bin/sh
-# hee-inv (stub) — inventory tool (ingest/ls/get/set/unknown/exif)
+# hee-inv — inventory tool (v1.1)
 # Contract: hee/contracts/inventory.contract.v1.md
 #
-# NOTE: This is a stub skeleton. Implementation will:
-# - preflight SOA anchor (~/.hee/index/_.yaml)
-# - repo-proof before writes (tcos-plan-private)
-# - ingest incoming evidence -> content-addressed store
-# - create inventory.* Measure YAML stubs
-# - write XMP pointers (hee:ObjectRef, hee:Name, hee:Measure)
+# Subcommands:
+#   ingest <incoming_dir> [--tcos-repo <path>]
+#   unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+#
+# V1 principles:
+# - canonical truth is YAML in git
+# - evidence is content-addressed (sha256)
+# - write XMP sidecar (.xmp) pointers; attempt embedded XMP if supported
+# - fail closed if SOA anchor missing or repo invariants missing
+#
+# Zip support:
+# - zip is preserved as evidence
+# - extracted files are ingested as individual evidence objects
+# - created objects record archive provenance via spec.source.archive_ref
 
 set -u
 
+say(){ printf "%s\n" "$*"; }
+die(){ say "ERROR: $*"; exit 2; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "missing cmd: $1"; }
+
+need git
+need rg
+need yq
+need sha256sum
+need exiftool
+need unzip
+need date
+
+SOA_ANCHOR="$HOME/.hee/index/_.yaml"
+[ -f "$SOA_ANCHOR" ] || die "missing SOA anchor: $SOA_ANCHOR"
+
+usage(){
+  cat <<USAGE
+usage:
+  hee inv ingest <incoming_dir> [--tcos-repo <path>]
+
+  hee inv unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+
+defaults:
+  --tcos-repo \$HOME/git/tcos-plan-private
+  --warn-days 7
+  --crit-days 14
+
+notes:
+  - ingest supports .zip in incoming: archive is preserved as evidence and contents are ingested.
+USAGE
+}
+
+is_dir(){ [ -d "$1" ]; }
+is_file(){ [ -f "$1" ]; }
+
+repo_guard_tcos(){
+  repo="$1"
+  slug="Twin-Cities-Open-Systems/tcos-plan-private"
+
+  [ -d "$repo/.git" ] || die "tcos repo is not a git repo: $repo"
+  top="$(cd "$repo" && git rev-parse --show-toplevel 2>/dev/null)" || die "git rev-parse failed in $repo"
+  [ "$top" = "$repo" ] || die "repo top mismatch: got=$top want=$repo"
+  origin="$(cd "$repo" && git remote get-url origin 2>/dev/null)" || die "missing origin remote in $repo"
+  printf "%s" "$origin" | rg -q "$slug" || die "origin does not contain expected slug ($slug): $origin"
+}
+
+observed_time_utc(){
+  f="$1"
+  exif_dt="$(exiftool -s -s -s -DateTimeOriginal "$f" 2>/dev/null | head -n1 || true)"
+  if [ -n "$exif_dt" ]; then
+    y="$(printf "%s" "$exif_dt" | cut -c1-4)"
+    mo="$(printf "%s" "$exif_dt" | cut -c6-7)"
+    d="$(printf "%s" "$exif_dt" | cut -c9-10)"
+    t="$(printf "%s" "$exif_dt" | cut -c12-19)"
+    printf "%s-%s-%sT%sZ" "$y" "$mo" "$d" "$t"
+    return 0
+  fi
+
+  if command -v stat >/dev/null 2>&1; then
+    mt="$(stat -c %Y "$f" 2>/dev/null || true)"
+    if [ -n "$mt" ]; then
+      date -u -d "@$mt" +%Y-%m-%dT%H:%M:%SZ
+      return 0
+    fi
+  fi
+
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+tsz_compact_lower(){
+  in="$1"
+  up="$(printf "%s" "$in" | tr -d '-' | tr -d ':' )"
+  printf "%s" "$up" | tr 'TZ' 'tz'
+}
+
+mkdir_sha_path(){
+  base="$1"
+  sha="$2"
+  a="$(printf "%s" "$sha" | cut -c1-2)"
+  b="$(printf "%s" "$sha" | cut -c3-4)"
+  d="$base/$a/$b"
+  mkdir -p "$d"
+  printf "%s" "$d"
+}
+
+write_xmp_sidecar(){
+  evidence_path="$1"
+  object_ref="$2"
+  obj_name="$3"
+  measure="$4"
+
+  sidecar="${evidence_path}.xmp"
+
+  cat >"$sidecar" <<XMP
+<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:hee="https://tcos.dev/ns/hee"
+      hee:ObjectRef="${object_ref}"
+      hee:Name="${obj_name}"
+      hee:Measure="${measure}" />
+  </rdf:RDF>
+</x:xmpmeta>
+XMP
+}
+
+try_embed_xmp(){
+  evidence_path="$1"
+  object_ref="$2"
+  obj_name="$3"
+  measure="$4"
+
+  exiftool -overwrite_original \
+    "-XMP-hee:ObjectRef=$object_ref" \
+    "-XMP-hee:Name=$obj_name" \
+    "-XMP-hee:Measure=$measure" \
+    "$evidence_path" >/dev/null 2>&1 || true
+}
+
+is_junk_path(){
+  p="$1"
+  # ignore mac junk / hidden files / thumbnails
+  printf "%s" "$p" | rg -q '(^|/)(__MACOSX/|\.DS_Store$|Thumbs\.db$|\.AppleDouble/)' && return 0
+  b="$(basename "$p")"
+  printf "%s" "$b" | rg -q '^\.' && return 0
+  return 1
+}
+
+ingest_one_file(){
+  src_abs="$1"      # absolute path to file
+  incoming_abs="$2" # absolute incoming root (for logging only)
+  tcos_repo="$3"
+  archive_ref_rel="${4:-}" # optional repo-relative ref to zip evidence
+
+  base="$(basename "$src_abs")"
+
+  # extension
+  ext="${base##*.}"
+  [ "$ext" != "$base" ] || ext="bin"
+  ext="$(printf "%s" "$ext" | tr 'A-Z' 'a-z')"
+
+  sha="$(sha256sum "$src_abs" | awk '{print $1}')"
+  sha12="$(printf "%s" "$sha" | cut -c1-12)"
+
+  obs="$(observed_time_utc "$src_abs")"
+  tsz="$(tsz_compact_lower "$obs")"
+
+  # object name (v1): inv-stock-unknown-<tsz>-sha12-<sha12>
+  name="inv-stock-unknown-$tsz-sha12-$sha12"
+
+  inv_root="$tcos_repo/inventory"
+  obj_root="$inv_root/objects/stock"
+  evid_root="$inv_root/evidence/by-sha256"
+  mkdir -p "$obj_root" "$evid_root"
+
+  sha_dir="$(mkdir_sha_path "$evid_root" "$sha")"
+  evid_rel="inventory/evidence/by-sha256/$(printf "%s/%s" "$(printf "%s" "$sha_dir" | sed "s|^$evid_root/||")" "$sha").$ext"
+  evid_abs="$tcos_repo/$evid_rel"
+
+  # move/copy into evidence store
+  if [ -f "$evid_abs" ]; then
+    : # already exists
+  else
+    # if source is inside incoming, move; else copy (from temp extract)
+    case "$src_abs" in
+      "$incoming_abs"/*) mv "$src_abs" "$evid_abs" ;;
+      *) cp -f "$src_abs" "$evid_abs" ;;
+    esac
+  fi
+
+  obj_file_rel="inventory/objects/stock/${tsz}__${name}.yaml"
+  obj_file_abs="$tcos_repo/$obj_file_rel"
+
+  if [ ! -f "$obj_file_abs" ]; then
+    cat >"$obj_file_abs" <<YAML
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: ${name}
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.bucket: unknown
+    inv.sub: unknown
+    inv.loc0: basement
+    inv.loc1: inbox-n-01
+spec:
+  measure: inventory.stock
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence:
+      - file_ref: "${evid_rel}"
+  ts:
+    observed: "${obs}"
+  location:
+    path: ["basement","inbox","n","01"]
+  source:
+    archive_ref: ${archive_ref_rel:-null}
+  stock:
+    name: "unknown"
+    qty: 1
+    unit: ea
+    merge_key: "unknown"
+YAML
+  fi
+
+  write_xmp_sidecar "$evid_abs" "$obj_file_rel" "$name" "inventory.stock"
+  try_embed_xmp "$evid_abs" "$obj_file_rel" "$name" "inventory.stock"
+
+  say "OK ingest: $base"
+  say "  evidence: $evid_rel"
+  say "  object:   $obj_file_rel"
+  if [ -n "${archive_ref_rel:-}" ]; then
+    say "  archive:  $archive_ref_rel"
+  fi
+}
+
+ingest_zip(){
+  zip_abs="$1"
+  incoming_abs="$2"
+  tcos_repo="$3"
+
+  base="$(basename "$zip_abs")"
+  sha="$(sha256sum "$zip_abs" | awk '{print $1}')"
+  ext="zip"
+
+  inv_root="$tcos_repo/inventory"
+  evid_root="$inv_root/evidence/by-sha256"
+  mkdir -p "$evid_root"
+
+  sha_dir="$(mkdir_sha_path "$evid_root" "$sha")"
+  zip_evid_rel="inventory/evidence/by-sha256/$(printf "%s/%s" "$(printf "%s" "$sha_dir" | sed "s|^$evid_root/||")" "$sha").$ext"
+  zip_evid_abs="$tcos_repo/$zip_evid_rel"
+
+  # Preserve zip as evidence (move if from incoming, else copy)
+  if [ -f "$zip_evid_abs" ]; then
+    # already exists
+    rm -f "$zip_abs" 2>/dev/null || true
+  else
+    mv "$zip_abs" "$zip_evid_abs"
+  fi
+
+  tmpd="${TMPDIR:-/tmp}/hee-inv.$$/$sha"
+  mkdir -p "$tmpd" || die "failed to create temp dir: $tmpd"
+
+  # Extract quietly into temp dir
+  unzip -qq "$zip_evid_abs" -d "$tmpd" || die "unzip failed: $zip_evid_abs"
+
+  say "OK unzip: $base"
+  say "  zip_evidence: $zip_evid_rel"
+  say "  tmp: $tmpd"
+
+  # Walk extracted files deterministically (sorted)
+  # shellcheck disable=SC2016
+  find "$tmpd" -type f -print | LC_ALL=C sort | while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if is_junk_path "$p"; then
+      continue
+    fi
+    ingest_one_file "$p" "$incoming_abs" "$tcos_repo" "$zip_evid_rel"
+  done
+
+  rm -rf "${TMPDIR:-/tmp}/hee-inv.$$" >/dev/null 2>&1 || true
+}
+
+cmd_ingest(){
+  incoming="$1"
+  tcos_repo="$2"
+
+  is_dir "$incoming" || die "incoming dir not found: $incoming"
+  repo_guard_tcos "$tcos_repo"
+
+  incoming_abs="$(cd "$incoming" && pwd -P)"
+  found_any="0"
+
+  for f in "$incoming_abs"/*; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] || continue
+    found_any="1"
+
+    # zip fan-out
+    case "$(printf "%s" "$f" | tr 'A-Z' 'a-z')" in
+      *.zip)
+        ingest_zip "$f" "$incoming_abs" "$tcos_repo"
+        ;;
+      *)
+        if is_junk_path "$f"; then
+          # junk sitting in incoming; ignore
+          continue
+        fi
+        ingest_one_file "$f" "$incoming_abs" "$tcos_repo"
+        ;;
+    esac
+  done
+
+  [ "$found_any" = "1" ] || say "OK ingest: no files in incoming"
+}
+
+days_since(){
+  obs="$1"
+  now_s="$(date -u +%s)"
+  obs_s="$(date -u -d "$obs" +%s 2>/dev/null || echo 0)"
+  if [ "$obs_s" -le 0 ]; then
+    printf "%s" "999999"
+    return 0
+  fi
+  diff="$(( (now_s - obs_s) / 86400 ))"
+  if [ "$diff" -lt 0 ]; then diff="0"; fi
+  printf "%s" "$diff"
+}
+
+cmd_unknown_report(){
+  tcos_repo="$1"
+  warn_days="$2"
+  crit_days="$3"
+
+  repo_guard_tcos "$tcos_repo"
+
+  root="$tcos_repo/inventory/objects"
+  is_dir "$root" || die "inventory objects dir not found: $root"
+
+  files="$(rg -l 'inv\.bucket:\s*unknown|inv\.sub:\s*unknown' "$root" 2>/dev/null || true)"
+
+  tmpd="${TMPDIR:-/tmp}/hee-inv.$$"
+  mkdir -p "$tmpd" || die "failed to create temp dir"
+  critf="$tmpd/crit"; warnf="$tmpd/warn"; okf="$tmpd/ok"
+  : >"$critf"; : >"$warnf"; : >"$okf"
+
+  if [ -n "$files" ]; then
+    printf "%s\n" "$files" | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+
+      name="$(yq -r '.metadata.name // ""' "$f" 2>/dev/null || echo "")"
+      obs="$(yq -r '.spec.ts.observed // ""' "$f" 2>/dev/null || echo "")"
+      [ -n "$name" ] || name="(missing-name)"
+      [ -n "$obs" ] || obs="1970-01-01T00:00:00Z"
+
+      age="$(days_since "$obs")"
+      line="$(printf "%s\t%s\t%s\t%s\n" "$age" "$name" "$obs" "$f")"
+
+      if [ "$age" -ge "$crit_days" ]; then
+        printf "%s" "$line" >>"$critf"
+      elif [ "$age" -ge "$warn_days" ]; then
+        printf "%s" "$line" >>"$warnf"
+      else
+        printf "%s" "$line" >>"$okf"
+      fi
+    done
+  fi
+
+  crit="$(wc -l <"$critf" | tr -d ' ')"
+  warn="$(wc -l <"$warnf" | tr -d ' ')"
+  ok="$(wc -l <"$okf" | tr -d ' ')"
+  total="$((crit + warn + ok))"
+
+  say "== inventory unknown report =="
+  say "🟦 tcos_repo=$tcos_repo"
+  say "🟦 objects_root=$root"
+  say "🟦 thresholds: WARN>=$warn_days d  CRIT>=$crit_days d"
+  say "🟦 totals: total_unknown=$total  WARN=$warn  CRIT=$crit  OK(<WARN)=$ok"
+
+  if [ "$crit" -gt 0 ]; then
+    say ""
+    say "CRIT (oldest first):"
+    sort -n "$critf" | while IFS="$(printf '\t')" read -r age name obs f; do
+      say "  CRIT age=${age}d name=$name observed=$obs file=$f"
+    done
+  fi
+
+  if [ "$warn" -gt 0 ]; then
+    say ""
+    say "WARN (oldest first):"
+    sort -n "$warnf" | while IFS="$(printf '\t')" read -r age name obs f; do
+      say "  WARN age=${age}d name=$name observed=$obs file=$f"
+    done
+  fi
+
+  if [ "$ok" -gt 0 ]; then
+    say ""
+    say "OK (unknown but <WARN):"
+    sort -n "$okf" | while IFS="$(printf '\t')" read -r age name obs f; do
+      say "  OK   age=${age}d name=$name observed=$obs file=$f"
+    done
+  fi
+
+  rm -rf "$tmpd" >/dev/null 2>&1 || true
+
+  # CI-ready exit code: 2 if CRIT exists
+  if [ "$crit" -gt 0 ]; then
+    exit 2
+  fi
+  exit 0
+}
+
+# --- main dispatch ---
+if [ "${1:-}" = "inv" ]; then shift; fi
+
 cmd="${1:-}"
 case "$cmd" in
-  ingest|ls|get|set|unknown|exif)
-    echo "TODO: implement hee inv $cmd"
-    exit 2
+  ""|-h|--help|help) usage; exit 0 ;;
+  ingest)
+    shift
+    incoming="${1:-}"
+    [ -n "$incoming" ] || die "missing <incoming_dir>"
+    shift || true
+    tcos_repo="${TCOS_REPO:-$HOME/git/tcos-plan-private}"
+    while [ "${1:-}" != "" ]; do
+      case "$1" in
+        --tcos-repo) shift; tcos_repo="${1:-}";;
+        *) die "unknown arg: $1";;
+      esac
+      shift || true
+    done
+    cmd_ingest "$incoming" "$tcos_repo"
+    ;;
+  unknown)
+    shift
+    sub="${1:-}"
+    [ "$sub" = "report" ] || die "usage: hee inv unknown report ..."
+    shift || true
+    tcos_repo="${TCOS_REPO:-$HOME/git/tcos-plan-private}"
+    warn_days="${WARN_DAYS:-7}"
+    crit_days="${CRIT_DAYS:-14}"
+    while [ "${1:-}" != "" ]; do
+      case "$1" in
+        --tcos-repo) shift; tcos_repo="${1:-}";;
+        --warn-days) shift; warn_days="${1:-}";;
+        --crit-days) shift; crit_days="${1:-}";;
+        *) die "unknown arg: $1";;
+      esac
+      shift || true
+    done
+    cmd_unknown_report "$tcos_repo" "$warn_days" "$crit_days"
     ;;
   *)
-    echo "usage: hee inv {ingest|ls|get|set|unknown|exif} ..."
-    exit 2
+    die "unknown command: $cmd (try --help)"
     ;;
 esac
