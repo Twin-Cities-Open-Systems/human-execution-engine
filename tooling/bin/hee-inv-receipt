@@ -1,0 +1,276 @@
+#!/bin/sh
+# hee-inv-receipt — receipt ingest (v1)
+#
+# Goal: convert a receipt image into:
+# - inventory.purchase object
+# - inventory.purchase_line objects (best-effort parse)
+# - OCR text stored as evidence
+#
+# Usage:
+#   hee-inv-receipt ingest <receipt_image> [--tcos-repo <path>] [--vendor <token>] [--store <token>]
+#
+# Defaults:
+#   --tcos-repo $HOME/git/tcos-plan-private
+#   --vendor unknown
+#   --store unknown
+
+set -u
+say(){ printf "%s\n" "$*"; }
+die(){ say "ERROR: $*"; exit 2; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "missing cmd: $1"; }
+
+need sha256sum
+need rg
+need perl
+need tesseract
+need date
+need exiftool
+
+repo_guard_tcos(){
+  repo="$1"
+  slug="Twin-Cities-Open-Systems/tcos-plan-private"
+  [ -d "$repo/.git" ] || die "tcos repo is not a git repo: $repo"
+  top="$(cd "$repo" && git rev-parse --show-toplevel 2>/dev/null)" || die "git rev-parse failed in $repo"
+  [ "$top" = "$repo" ] || die "repo top mismatch: got=$top want=$repo"
+  origin="$(cd "$repo" && git remote get-url origin 2>/dev/null)" || die "missing origin remote in $repo"
+  printf "%s" "$origin" | rg --no-config -q "$slug" || die "origin does not contain expected slug ($slug): $origin"
+}
+
+observed_time_utc(){
+  f="$1"
+  exif_dt="$(exiftool -s -s -s -DateTimeOriginal "$f" 2>/dev/null | head -n1 || true)"
+  if [ -n "$exif_dt" ]; then
+    y="$(printf "%s" "$exif_dt" | cut -c1-4)"
+    mo="$(printf "%s" "$exif_dt" | cut -c6-7)"
+    d="$(printf "%s" "$exif_dt" | cut -c9-10)"
+    t="$(printf "%s" "$exif_dt" | cut -c12-19)"
+    printf "%s-%s-%sT%sZ" "$y" "$mo" "$d" "$t"
+    return 0
+  fi
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+tsz_compact_lower(){
+  in="$1"
+  up="$(printf "%s" "$in" | tr -d '-' | tr -d ':' )"
+  printf "%s" "$up" | tr 'TZ' 'tz'
+}
+
+mkdir_sha_path(){
+  base="$1"
+  sha="$2"
+  a="$(printf "%s" "$sha" | cut -c1-2)"
+  b="$(printf "%s" "$sha" | cut -c3-4)"
+  d="$base/$a/$b"
+  mkdir -p "$d"
+  printf "%s" "$d"
+}
+
+ingest_evidence(){
+  src="$1"
+  tcos_repo="$2"
+
+  [ -f "$src" ] || die "receipt file not found: $src"
+
+  base="$(basename "$src")"
+  ext="${base##*.}"
+  [ "$ext" != "$base" ] || ext="bin"
+  ext="$(printf "%s" "$ext" | tr 'A-Z' 'a-z')"
+
+  sha="$(sha256sum "$src" | awk '{print $1}')"
+
+  inv_root="$tcos_repo/inventory"
+  evid_root="$inv_root/evidence/by-sha256"
+  mkdir -p "$evid_root"
+
+  sha_dir="$(mkdir_sha_path "$evid_root" "$sha")"
+  evid_rel="inventory/evidence/by-sha256/$(printf "%s/%s" "$(printf "%s" "$sha_dir" | sed "s|^$evid_root/||")" "$sha").$ext"
+  evid_abs="$tcos_repo/$evid_rel"
+
+  if [ ! -f "$evid_abs" ]; then
+    cp -f "$src" "$evid_abs"
+  fi
+
+  printf "%s\t%s\t%s\n" "$sha" "$evid_rel" "$evid_abs"
+}
+
+ocr_to_text(){
+  evid_abs="$1"
+  tcos_repo="$2"
+  sha="$3"
+
+  out_rel="inventory/evidence/ocr/${sha}.txt"
+  out_abs="$tcos_repo/$out_rel"
+  mkdir -p "$(dirname "$out_abs")"
+
+  # OCR (stdout). PSM 6 = assume a block of text; good baseline for receipts.
+  tesseract "$evid_abs" stdout -l eng --psm 6 2>/dev/null >"$out_abs" || die "tesseract failed"
+
+  printf "%s\t%s\n" "$out_rel" "$out_abs"
+}
+
+# Very simple receipt line parser:
+# Extract lines that end in a price like 12.34, keep description part.
+# This is intentionally conservative; we can refine once we see your real receipts.
+emit_line_items(){
+  ocr_abs="$1"
+  out_tsv="$2"
+  # Normalize whitespace a bit first; keep original lines mostly intact.
+  perl -ne '
+    s/\r?\n$//;
+    my $line=$_;
+    $line =~ s/\s+/ /g;
+    $line =~ s/^\s+|\s+$//g;
+    # Match "DESC ... 12.34" at end
+    if ($line =~ /^(.*\S)\s+(\d+\.\d{2})$/) {
+      my ($desc,$price)=($1,$2);
+      # Drop obvious non-item lines
+      next if $desc =~ /^(TOTAL|SUBTOTAL|TAX|CHANGE|VISA|MASTERCARD|CREDIT|SALE|TRANSACTION|MEMBERS|THANK)/i;
+      print "$desc\t$price\n";
+    }
+  ' "$ocr_abs" >"$out_tsv"
+}
+
+usage(){
+  cat <<USAGE
+usage:
+  hee-inv-receipt ingest <receipt_image> [--tcos-repo <path>] [--vendor <token>] [--store <token>]
+USAGE
+}
+
+cmd="${1:-}"
+[ "$cmd" = "ingest" ] || { usage; exit 2; }
+shift
+
+img="${1:-}"
+[ -n "$img" ] || die "missing <receipt_image>"
+shift || true
+
+tcos_repo="${TCOS_REPO:-$HOME/git/tcos-plan-private}"
+vendor="unknown"
+store="unknown"
+
+while [ "${1:-}" != "" ]; do
+  case "$1" in
+    --tcos-repo) shift; tcos_repo="${1:-}";;
+    --vendor) shift; vendor="${1:-}";;
+    --store) shift; store="${1:-}";;
+    *) die "unknown arg: $1";;
+  esac
+  shift || true
+done
+
+repo_guard_tcos "$tcos_repo"
+
+# 1) Evidence ingest (content-address into repo)
+tab="$(ingest_evidence "$img" "$tcos_repo")"
+sha="$(printf "%s" "$tab" | awk -F'\t' '{print $1}')"
+evid_rel="$(printf "%s" "$tab" | awk -F'\t' '{print $2}')"
+evid_abs="$(printf "%s" "$tab" | awk -F'\t' '{print $3}')"
+
+obs="$(observed_time_utc "$evid_abs")"
+tsz="$(tsz_compact_lower "$obs")"
+sha12="$(printf "%s" "$sha" | cut -c1-12)"
+
+# 2) OCR evidence
+tab2="$(ocr_to_text "$evid_abs" "$tcos_repo" "$sha")"
+ocr_rel="$(printf "%s" "$tab2" | awk -F'\t' '{print $1}')"
+ocr_abs="$(printf "%s" "$tab2" | awk -F'\t' '{print $2}')"
+
+# 3) Parse line items into TSV
+tmpd="${TMPDIR:-/tmp}/hee-inv-receipt.$$"
+mkdir -p "$tmpd" || die "tmpdir failed"
+tsv="$tmpd/lines.tsv"
+emit_line_items "$ocr_abs" "$tsv"
+
+# 4) Write objects
+inv_root="$tcos_repo/inventory"
+pdir="$inv_root/objects/purchase"
+ldir="$inv_root/objects/purchase_line"
+mkdir -p "$pdir" "$ldir"
+
+purchase_name="inv-purchase-${vendor}-${store}-${tsz}-sha12-${sha12}"
+purchase_rel="inventory/objects/purchase/${tsz}__${purchase_name}.yaml"
+purchase_abs="$tcos_repo/$purchase_rel"
+
+if [ ! -f "$purchase_abs" ]; then
+  cat >"$purchase_abs" <<YAML
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: ${purchase_name}
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.bucket: purchase
+    inv.vendor: ${vendor}
+    inv.store: ${store}
+spec:
+  measure: inventory.purchase
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence:
+      - file_ref: "${evid_rel}"
+      - file_ref: "${ocr_rel}"
+  ts:
+    observed: "${obs}"
+  purchase:
+    vendor: "${vendor}"
+    store: "${store}"
+    total: null
+    tax: null
+    currency: "USD"
+    note: "v1 OCR parse; totals may be null until parser is refined"
+YAML
+fi
+
+# Purchase lines (one per TSV line)
+i=0
+while IFS="$(printf '\t')" read -r desc price; do
+  [ -n "${desc:-}" ] || continue
+  [ -n "${price:-}" ] || continue
+  i=$((i+1))
+  line_name="inv-purchase-line-${tsz}-n${i}-sha12-${sha12}"
+  line_rel="inventory/objects/purchase_line/${tsz}__${line_name}.yaml"
+  line_abs="$tcos_repo/$line_rel"
+
+  if [ ! -f "$line_abs" ]; then
+    cat >"$line_abs" <<YAML
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: ${line_name}
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.bucket: purchase_line
+    inv.vendor: ${vendor}
+    inv.store: ${store}
+spec:
+  measure: inventory.purchase_line
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence:
+      - file_ref: "${evid_rel}"
+      - file_ref: "${ocr_rel}"
+  ts:
+    observed: "${obs}"
+  refs:
+    purchase_ref: "${purchase_rel}"
+  line:
+    desc: "${desc}"
+    price: ${price}
+    currency: "USD"
+YAML
+  fi
+done <"$tsv"
+
+rm -rf "$tmpd" >/dev/null 2>&1 || true
+
+say "OK receipt ingest"
+say "  purchase: ${purchase_rel}"
+say "  evidence: ${evid_rel}"
+say "  ocr:      ${ocr_rel}"
+say "  lines:    ${i}"
