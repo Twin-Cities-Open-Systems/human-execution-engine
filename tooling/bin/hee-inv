@@ -65,7 +65,7 @@ repo_guard_tcos(){
   top="$(cd "$repo" && git rev-parse --show-toplevel 2>/dev/null)" || die "git rev-parse failed in $repo"
   [ "$top" = "$repo" ] || die "repo top mismatch: got=$top want=$repo"
   origin="$(cd "$repo" && git remote get-url origin 2>/dev/null)" || die "missing origin remote in $repo"
-  printf "%s" "$origin" | rg -q "$slug" || die "origin does not contain expected slug ($slug): $origin"
+  printf "%s" "$origin" | rg --no-config -q "$slug" || die "origin does not contain expected slug ($slug): $origin"
 }
 
 # Best-effort EXIF datetime -> RFC3339Z; fallback to file mtime; else now.
@@ -121,7 +121,7 @@ write_xmp_sidecar(){
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description
-      xmlns:hee="https://tcos.dev/ns/hee"
+      xmlns:hee="https://tcos.us/ns/hee"
       hee:ObjectRef="${object_ref}"
       hee:Name="${obj_name}"
       hee:Measure="${measure}" />
@@ -147,9 +147,9 @@ try_embed_xmp(){
 is_junk_path(){
   p="$1"
   # macOS / windows ADS / hidden files
-  printf "%s" "$p" | rg -q '(^|/)(__MACOSX/|\.DS_Store$|Thumbs\.db$|\.AppleDouble/|:Zone\.Identifier$|:OECustomProperty$)' && return 0
+  printf "%s" "$p" | rg --no-config -q '(^|/)(__MACOSX/|\.DS_Store$|Thumbs\.db$|\.AppleDouble/|:Zone\.Identifier$|:OECustomProperty$)' && return 0
   b="$(basename "$p")"
-  printf "%s" "$b" | rg -q '^\.' && return 0
+  printf "%s" "$b" | rg --no-config -q '^\.' && return 0
   return 1
 }
 
@@ -331,7 +331,7 @@ cmd_unknown_report(){
   root="$tcos_repo/inventory/objects"
   is_dir "$root" || die "inventory objects dir not found: $root"
 
-  files="$(rg -l 'inv\.bucket:\s*unknown|inv\.sub:\s*unknown' "$root" 2>/dev/null || true)"
+  files="$(rg --no-config -l 'inv\.bucket:\s*unknown|inv\.sub:\s*unknown' "$root" 2>/dev/null || true)"
 
   tmpd="${TMPDIR:-/tmp}/hee-inv.$$"
   mkdir -p "$tmpd" || die "failed to create temp dir"
