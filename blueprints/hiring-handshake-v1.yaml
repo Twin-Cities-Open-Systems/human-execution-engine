@@ -1,0 +1,56 @@
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: hiring-handshake-v1
+  description: "Reusable onboarding ceremony for bringing a new fleet hire into authenticated, contracted relationship with its senior. Consent-based (not unilateral assignment) and third-party-witnessed key exchange, closing the delivery-verification gap found in the touchy incident (2026-08-13): a relayed claim of authority is never sufficient on its own."
+  author: spencer
+  transcriber: nuc-1-claude
+  timestamp: 2026-08-13T00:00:00Z
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    updated-at: "2026-08-13T00:00:00Z"
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  actors:
+    boss: "the senior in the relationship (e.g. nuc-1-claude for its own hires)"
+    new: "the incoming hire"
+    witness: "trusted third party who can vouch for both sides (spencer, in the current fleet)"
+
+  ceremony:
+    - step: connection
+      description: "boss and new establish a live communication channel"
+      exit_condition: "both sides can send and receive"
+    - step: offer
+      actor: boss
+      description: "boss asks whether new wants the role -- consent sought before terms are presented, not assumed"
+      exit_condition: "new responds accept or decline"
+    - step: preliminary_accept
+      actor: new
+      description: "new agrees in principle to proceed, before seeing full contract terms"
+    - step: contract_presented
+      actor: boss
+      description: "boss presents the actual governing HEE Contract (role, may/must_not, boundaries) -- not a verbal summary, the real document"
+    - step: key_party_initiated
+      actor: new
+      description: "new, satisfied with contract terms, proposes the key-signing step. witness is the one who actually initiates the signing request/session, not boss or new alone -- this is what makes it a party and not a two-party exchange"
+    - step: key_negotiation
+      actors: [boss, new]
+      description: "boss and new exchange public keys and attempt mutual verification, witnessed by witness. explicitly allows for 'if we can here' -- not every context supports full verification, and the ceremony must say so rather than pretend"
+    - step: all_agreed
+      actors: [boss, new, witness]
+      description: "all three parties confirm -- relationship is codified, keys are exchanged, contract is signed, work begins immediately. no step before this one authorizes any actual task execution"
+
+  invariants:
+    - "no_work_before_all_agreed: a hire does not execute tasks under this relationship until the ceremony's final step completes"
+    - "contract_precedes_keys: terms are agreed before cryptographic trust is established, not after"
+    - "witness_initiates_signing: the key-signing step is proposed by new but actually initiated by the witness, not a bilateral action between boss and new alone"
+    - "consent_not_assumed: the offer step requires an actual accept/decline from new, not silent compliance"
+
+  prerequisites_not_yet_built:
+    - "each party needs an actual GPG keypair before key_negotiation can happen for real -- none of the current fleet accounts (nuc-1-claude, claude-sec, claude-ops) have one yet"
+    - "a verification mechanism for key_negotiation's 'if we can here' clause -- what does mutual verification actually consist of in this fleet's context (see fleet.dir-layout.contract.v1.yaml's provenance_chain, and the SOA/stool-hash mechanism found in library/py/hee_hash/soa.py, which may be the right verification primitive rather than inventing a new one)"
+    - "this ceremony itself needs a Contract instance (not just this Blueprint) to actually govern a real hire -- this file is the reusable pattern, not a binding instance"
