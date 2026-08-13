@@ -1,0 +1,86 @@
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: fleet-dir-layout
+  description: "Binding directory-layout contract for the TCOS Claude sysadmin fleet, instantiating blueprints/dir-layout-v1.yaml against the actual current fleet (nuc-1, touchy, future hosts)."
+  labels:
+    hee.object: "true"
+    hee.contract.type: dir-layout
+    hee.contract.phase: foundation
+    domain: hee
+    scope: fleet-ops
+    topic: dir-layout
+    artifact: contract
+  annotations:
+    inuid: "a3f1c8e2-6b4d-4f19-9c7a-2e5d8b1f4a6c"
+    updated-at: "2026-08-13T00:00:00Z"
+    implements: "blueprints/dir-layout-v1.yaml"
+
+spec:
+  invariants:
+    - "Code (scripts, tooling, HEE doctrine/contracts) lives in git repos, never duplicated onto shared storage."
+    - "Narrative documentation and inter-agent artifacts live on shared network storage (NFS), not in a repo."
+    - "Every piece of content has exactly one canonical location; no duplication."
+    - "Host-scoped content is a plain file under that host's directory, no indirection."
+    - "Cross-agent-shared content is classified by topic, classifiers created on demand."
+    - "Project-scoped content is portable, independent of originating host."
+
+  layout:
+    repos:
+      code_and_tooling: "github.com/Twin-Cities-Open-Systems/claude-fleet-ops"
+      hee_doctrine: "github.com/Twin-Cities-Open-Systems/human-execution-engine"
+      media_stack_config: "github.com/Twin-Cities-Open-Systems/managed-media-stack"
+
+    shared_storage_root: "/mnt/pool/storage/docs"
+
+    host_scoped:
+      pattern: "{shared_storage_root}/hosts/{hostname}/"
+      known_hosts: ["nuc-1", "touchy"]
+
+    agent_scoped:
+      pattern: "{shared_storage_root}/hosts/{hostname}/{agent-username}/"
+      note: "one subdirectory per role account (claude, claude-sec, claude-ops, claude-boss) under its host"
+
+    shared_classified:
+      pattern: "{shared_storage_root}/shared/{classifier}/"
+      known_classifiers: ["fleet-ops", "homelab", "hee"]
+
+    project_scoped:
+      pattern: "{shared_storage_root}/projects/{project-name}/"
+      known_projects: ["fleet-organization", "kiosk"]
+
+  inbox_instances:
+    - project: kiosk
+      incoming:
+        - "{shared_storage_root}/projects/kiosk/screenshot-inbox/"
+        - "{shared_storage_root}/projects/kiosk/csv-inbox/"
+      archive: "not yet created -- deferred until inter-agent file-based comms (this contract's motivating use case) is confirmed working"
+      rejected: "not yet created -- same deferral"
+      processing_latency_seconds: 90
+      processor: "touchy's existing auto-import tooling (source location: pending, requested from touchy)"
+
+  provenance_chain:
+    description: "Defense-in-depth authenticity layers for content under this contract, ordered weakest-but-free to strongest-but-costly."
+    layers:
+      - order: 1
+        name: filesystem_ownership
+        description: "user:group ownership on shared storage -- unforgeable without real system access, zero marginal cost"
+        status: partially_implemented
+        note: "labadmins group exists; a narrower lab-boss-equivalent group for the highest-authority role is proposed, not yet created"
+      - order: 2
+        name: gpg_signature
+        description: "detached GPG signature on the file itself"
+        status: not_implemented
+      - order: 3
+        name: encrypted_delivery
+        description: "message encrypted to recipient's key -- decryption success is itself evidence of legitimate origin"
+        status: not_implemented
+      - order: 4
+        name: hee_contract_authority
+        description: "the relationship/authority itself is defined by a signed HEE contract, not asserted in conversation"
+        status: in_progress
+        note: "this contract is part of that effort; the touchy relationship contract specifically is a separate, not-yet-drafted instance"
+
+  known_gaps:
+    - "Remote Control / SendMessage cross-session delivery found unverifiable in practice (2026-08-13): a message can render as delivered in one view without reaching the receiving agent's actual context, with no built-in way to prove which occurred after the fact. Motivates this contract's inbox/provenance-chain approach as an alternative for anything that matters."
+    - "hee/contracts/hee.kind-registry.contract.v1.yaml lists active_kinds as including \"Blueprint\", but schemas/hee/v1/blueprint-doctrine.schema.json requires kind: \"BlueprintDoctrine\" (const). This contract's own blueprint (dir-layout-v1.yaml) uses BlueprintDoctrine to match the enforced schema; the naming mismatch in the kind registry is unresolved, flagged here rather than silently picked one way."

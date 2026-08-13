@@ -5,6 +5,9 @@ metadata:
   description: "Canonical doctrine for where files live across a multi-host HEE fleet: repos vs. shared storage, host-scoped vs. cross-agent-shared vs. project-scoped, and the incoming/archive/rejected inbox pattern for inter-agent file-based exchange."
   author: nuc-1-claude
   timestamp: 2026-08-13T00:00:00Z
+  annotations:
+    inuid: "fd6bddc7-9650-458e-af8d-e6d040f2bc6a"
+    updated-at: "2026-08-13T00:00:00Z"
 spec:
   result: false
   schema-version: 1
