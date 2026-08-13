@@ -18,7 +18,12 @@ spec:
   actors:
     boss: "the senior in the relationship (e.g. nuc-1-claude for its own hires)"
     new: "the incoming hire"
-    witness: "trusted third party who can vouch for both sides (spencer, in the current fleet)"
+    witness:
+      description: "trusted third party who can vouch for both sides -- a role, not a fixed identity. Designed so a real-world notary can fill it for future higher-stakes contracts, not just spencer."
+      types:
+        ai_peer: "another agent in the fleet, verification limited to what's technically available (SOA/stool-hash, GPG, etc.)"
+        human_principal: "spencer, in the current fleet -- direct authority plus whatever technical verification is available"
+        irl_notary: "a real-world notary public, not yet used but the role is built to accommodate one -- verification is legal/physical (government ID, notary seal/signature, commission record), not cryptographic, and its attestation is captured as evidence per witness_attestation_evidence below rather than a key exchange"
 
   ceremony:
     - step: connection
@@ -49,6 +54,18 @@ spec:
     - "contract_precedes_keys: terms are agreed before cryptographic trust is established, not after"
     - "witness_initiates_signing: the key-signing step is proposed by new but actually initiated by the witness, not a bilateral action between boss and new alone"
     - "consent_not_assumed: the offer step requires an actual accept/decline from new, not silent compliance"
+
+  witness_attestation_evidence:
+    description: "How a witness's participation gets recorded as durable evidence, regardless of witness type. Storage reuses the existing evidence-pointer pattern (schemas/hee/v1/evidence-pointer.schema.json -- a raw GitHub URL under hee/evidence/) rather than a new mechanism; only the record's internal structure differs by witness type."
+    ai_peer_or_human_principal_record:
+      - "GPG signature or equivalent cryptographic proof"
+      - "timestamp"
+      - "what was attested (contract inuid/seed reference)"
+    irl_notary_record:
+      - "notary name, commission number, jurisdiction"
+      - "date and location of notarization"
+      - "what was attested, in plain language (not just a contract inuid -- must be independently readable by someone without HEE context)"
+      - "reference to the physical/scanned document -- the evidence-pointer URL points at a description/transcription plus scan reference, not the raw legal document itself. Storage/handling of the actual physical or scanned document is a separate, not-yet-decided question -- likely NOT a public GitHub repo, given real personal/legal information would be involved"
 
   prerequisites_not_yet_built:
     - "each party needs an actual GPG keypair before key_negotiation can happen for real -- none of the current fleet accounts (nuc-1-claude, claude-sec, claude-ops) have one yet"
