@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "HEE Object (strict)",
-  "description": "Strict overlay: enforces inuid + null-reason contract.",
+  "description": "Strict overlay: requires metadata.annotations.inuid to be present. Well-formedness of inuid itself (string vs. null, and the null+inuid_null_reason coupling) is governed by hee-object.schema.json (base) so there is exactly one place that rule lives -- strict only adds the presence requirement on top.",
   "allOf": [
     { "$ref": "hee-object.schema.json" },
     {
@@ -14,15 +14,7 @@
           "properties": {
             "annotations": {
               "type": "object",
-              "required": ["inuid"],
-              "properties": {
-                "inuid": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "null" } ] },
-                "inuid_null_reason": { "type": "string", "enum": ["bootstrap", "test", "fixture"] }
-              },
-              "oneOf": [
-                { "properties": { "inuid": { "type": "string", "minLength": 1 } }, "required": ["inuid"] },
-                { "properties": { "inuid": { "type": "null" } }, "required": ["inuid", "inuid_null_reason"] }
-              ]
+              "required": ["inuid"]
             }
           }
         }

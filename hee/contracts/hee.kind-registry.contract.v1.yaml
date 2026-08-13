@@ -4,13 +4,16 @@ metadata:
   name: hee-kind-registry
   description: "Authoritative registry of HEE object kinds. Kind is tiny + stable. Case follows Kubernetes canon."
   labels:
+    hee.object: "true"
+    hee.contract.type: kind-registry
+    hee.contract.phase: foundation
     domain: hee
     scope: governance
     topic: kind-registry
     artifact: contract
   annotations:
     inuid: "698e3412-47e8-832f-ad2d-25fb3c63f0af"
-    updated-at: "2026-02-12T20:42:56-06:00"
+    updated-at: "2026-08-13T00:00:00Z"
 
 spec:
   invariants:
@@ -21,7 +24,9 @@ spec:
     - "metadata.annotations.inuid is required for all HEE-object YAML."
     - "inuid may be null ONLY with a very good reason; reason must be recorded."
 
-  active_kinds: ["Card","Pill","Delta","Contract","Blueprint","Plan"]
+  active_kinds: ["Card","Pill","Delta","Contract","Blueprint","Plan","Registry"]
+
+  promotion_note_2026_08_13: "Registry promoted from observed to active: hee/registries/dir-groups.registry.v1.yaml already used kind=Registry in production before this registry recognized it -- a pre-existing gap, not a new proposal. This file itself also failed its own envelope schema (missing required metadata.labels.hee.object) until this same edit; fixed together rather than left inconsistent while depending on it."
 
   plan_sub_structs_not_kinds: ["WU","Step","StepUnordered"]
 

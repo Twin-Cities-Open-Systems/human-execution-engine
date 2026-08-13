@@ -1,0 +1,50 @@
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: dir-layout-v1
+  description: "Canonical doctrine for where files live across a multi-host HEE fleet: repos vs. shared storage, host-scoped vs. cross-agent-shared vs. project-scoped, and the incoming/archive/rejected inbox pattern for inter-agent file-based exchange."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: dir-layout
+    artifact: blueprint
+  annotations:
+    inuid: "fd6bddc7-9650-458e-af8d-e6d040f2bc6a"
+    updated-at: "2026-08-13T00:00:00Z"
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+  problem:
+    - "docs and inter-agent artifacts duplicated across git repos and shared storage, no single source of truth"
+    - "inter-agent messaging (Remote Control/SendMessage) found unverifiable -- a message can appear delivered without reaching the receiving agent's actual context, with no way to prove it after the fact"
+  non_goals:
+    - not_a_git_replacement
+    - not_a_transport_spec
+  rules:
+    - repos_hold_code
+    - shared_storage_holds_documentation
+    - no_duplication
+    - host_scoped_files_are_plain
+    - shared_scoped_files_are_classified
+    - project_scoped_files_are_portable
+    - ownership_is_first_proof
+  rule_definitions:
+    repos_hold_code: "scripts, tooling, and HEE doctrine/contracts live in git, never duplicated onto shared storage"
+    shared_storage_holds_documentation: "narrative docs, runbooks, inter-agent artifacts live on shared network storage, not in a repo"
+    no_duplication: "every piece of content has exactly one canonical location; cross-references link (raw repo URLs for code), never copy"
+    host_scoped_files_are_plain: "content relevant to exactly one host lives directly under that host's directory, no symlink/repo indirection -- most-specific layer, no inheritance needed"
+    shared_scoped_files_are_classified: "content relevant across multiple agents/hosts lives under a shared directory organized by topic classifier, classifiers created on demand"
+    project_scoped_files_are_portable: "content tied to a piece of work rather than a machine lives under a project directory, independent of originating host"
+    ownership_is_first_proof: "file ownership (user:group) on shared storage is zero-cost, unforgeable-without-real-access provenance evidence -- a dedicated, narrowly-membered group for the highest-authority role is a security control, not just organization"
+  inbox_pattern:
+    description: "standard structure for inter-agent file-based exchange, adapted from an existing working implementation (touchy's csv/screenshot auto-import tooling), not invented from scratch"
+    directories:
+      incoming: "files dropped here by the sending party, named for their own content/annotation"
+      archive: "files moved here after successful processing"
+      rejected: "files moved here on processing failure, with the failure reason recorded alongside"
+    processing_latency_seconds: 90
+  evidence_guardrails:
+    - directory_creation_requires_recorded_rationale
+    - no_silent_migration
