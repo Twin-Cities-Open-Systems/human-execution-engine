@@ -1,0 +1,51 @@
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: party-kind
+  description: "Authoritative registry of party-kind values -- the taxonomy for classifying WHO or WHAT is acting/attesting/participating anywhere in HEE, across all projects, not scoped to one blueprint or contract. Supersedes ad hoc, per-object vocabulary (e.g. the earlier ai_peer/irl_notary naming in blueprints/hiring-handshake-v1.yaml, renamed 2026-08-13 to witness_machine/witness_court before this registry existed to govern it)."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: governance
+    topic: party-kind-registry
+    artifact: registry
+  annotations:
+    inuid: "5c2a9e7f4b1d8630a7e2f9c4d1b8e6a3f0c5d2b9e7a4f1c8d5b2e9f6a3c0d7b4"
+    inuid_seed: "hee-registry://core/party-kind/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-08-13T00:00:00Z"
+
+spec:
+  ts_human: 2026-08-13_1900
+
+  invariants:
+    - "party-kind is tiny and stable, mirroring hee.kind-registry's treatment of Kind."
+    - "This registry is authoritative for the term set; no object may invent a fourth term inline without going through promotion."
+    - "Observed party-kinds do not automatically become active party-kinds -- same rule as hee.kind-registry.contract.v1.yaml's kind promotion."
+    - "'ai' is not a valid party-kind term anywhere in HEE. Every actor/party/witness/reporter field that classifies a participant must use human, machine, or court (or a future promoted term) instead."
+
+  active_party_kinds:
+    human:
+      description: "a person -- spencer, or any other human principal. Direct authority, no cryptographic proxy required, but may still hold keys (e.g. spencer's own GPG key)."
+    machine:
+      description: "an agent/process acting as a party -- a Claude fleet account, a service account, a bot. Verification is technical: GPG signature, SOA/stool-hash, SSH key, or equivalent. This is the term that replaces the earlier ad hoc 'ai' usage."
+    court:
+      description: "a real-world, legally-recognized third party -- notary public, arbitrator, court of record. Verification is legal/physical (government ID, notary seal, commission record), not cryptographic. Not yet used in an actual ceremony as of 2026-08-13; the role is built to accommodate one."
+
+  observed_not_active: []
+
+  promotion_process:
+    description: "How a new party-kind term (beyond human/machine/court) gets added. Mirrors hee.kind-registry's kind-promotion invariant, made concrete here since that file only stated the principle."
+    steps:
+      - "propose: term + description + verification method added to observed_not_active in this file, with a dated note of who proposed it and why"
+      - "use: at least one real object (contract/blueprint/evidence) uses the term in practice -- HEE favors real usage over speculative vocabulary (disk_over_memory)"
+      - "promote: term moves from observed_not_active to active_party_kinds in a dedicated edit to this file, with an inline promotion_note (see hee.kind-registry.contract.v1.yaml's promotion_note_2026_08_13 for the pattern) explaining what changed and why"
+      - "no term is active until this file says so -- a term appearing in another object's prose does not itself promote it"
+
+  usage:
+    - "blueprints/hiring-handshake-v1.yaml's spec.actors.witness.types (witness_human, witness_machine, witness_court) is the first consumer: each witness_<X> name is 'witness' + a party-kind value from this registry, not an independently-invented vocabulary."
+    - "future actor/party/reporter fields anywhere in HEE (contracts, evidence records, signal taxonomy) should reference this registry the same way rather than re-deriving human/machine/court locally."
+
+  known_gaps:
+    - "hee.kind-registry.contract.v1.yaml's active_kinds did not include 'Registry' until this same work session (2026-08-13) -- hee/registries/dir-groups.registry.v1.yaml had already used kind=Registry in production, and hee.kind-registry.contract.v1.yaml itself failed its own envelope schema (missing required metadata.labels.hee.object) until fixed alongside this file. Both fixed together rather than building a new Registry object on top of an inconsistent foundation."
+    - "not yet wired into CI (ci/doctrine/validate_doctrine.py doesn't currently check party-kind usage against this registry, same gap as the kind-registry enforcement noted in fleet.dir-layout.contract.v1.yaml)."

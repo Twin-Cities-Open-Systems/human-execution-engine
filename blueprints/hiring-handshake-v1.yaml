@@ -3,12 +3,18 @@ kind: BlueprintDoctrine
 metadata:
   name: hiring-handshake-v1
   description: "Reusable onboarding ceremony for bringing a new fleet hire into authenticated, contracted relationship with its senior. Consent-based (not unilateral assignment) and third-party-witnessed key exchange, closing the delivery-verification gap found in the touchy incident (2026-08-13): a relayed claim of authority is never sufficient on its own."
-  author: spencer
-  transcriber: nuc-1-claude
-  timestamp: 2026-08-13T00:00:00Z
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: hiring-handshake
+    artifact: blueprint
   annotations:
-    inuid: null
-    inuid_null_reason: bootstrap
+    inuid: "2c9fe0131ad12b0c6f82e2dd8feef985510d486616ec5321f3503aa821476146"
+    inuid_seed: "hee-blueprint://tcos-fleet/hiring-handshake/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencer
+    transcriber: nuc-1-claude
     updated-at: "2026-08-13T00:00:00Z"
 spec:
   result: false
@@ -20,6 +26,10 @@ spec:
     new: "the incoming hire"
     witness:
       description: "trusted third party who can vouch for both sides -- a role, not a fixed identity. Designed so a real-world notary can fill it for future higher-stakes contracts, not just spencer."
+      types_governed_by:
+        registry: hee/registries/party-kind.registry.v1.yaml
+        registry_inuid: "5c2a9e7f4b1d8630a7e2f9c4d1b8e6a3f0c5d2b9e7a4f1c8d5b2e9f6a3c0d7b4"
+        note: "each witness_<X> name below is 'witness' + an active party-kind value from that registry, not vocabulary invented locally. Adding a fourth witness type means promoting a new party-kind there first, not editing this list directly."
       types:
         witness_machine: "another agent in the fleet, verification limited to what's technically available (SOA/stool-hash, GPG, etc.)"
         witness_human: "spencer, in the current fleet -- direct authority plus whatever technical verification is available"
