@@ -62,9 +62,23 @@
         },
         "annotations": {
           "type": "object",
-          "description": "Annotations for the HEE object (k8s-qualified key syntax: optional prefix/name).",
+          "description": "Annotations for the HEE object (k8s-qualified key syntax: optional prefix/name). inuid is special-cased below: it is the one annotation permitted to be null, and only when paired with inuid_null_reason. See hee/contracts/hee.kind-registry.contract.v1.yaml for the governing invariant.",
+          "properties": {
+            "inuid": {
+              "description": "Deterministic identity (sha256 of a documented seed string) for this HEE object. May be null only for a genuine bootstrap/test/fixture case -- see inuid_null_reason, required whenever inuid is null (enforced below, applies in base mode too, not strict-only).",
+              "oneOf": [
+                { "type": "string", "minLength": 1 },
+                { "type": "null" }
+              ]
+            },
+            "inuid_null_reason": {
+              "type": "string",
+              "enum": ["bootstrap", "test", "fixture"],
+              "description": "Required if and only if inuid is null. No other reason is valid."
+            }
+          },
           "patternProperties": {
-            "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$": {
+            "^(?!inuid$)(?!inuid_null_reason$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$": {
               "type": "string"
             }
           },
@@ -91,6 +105,35 @@
             "properties": {
               "labels": {
                 "required": ["hee.object", "hee.contract.type", "hee.contract.phase"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "If annotations.inuid is present and null, inuid_null_reason must also be present. Applies whenever inuid appears at all (base mode included) -- inuid presence itself is not required here, only well-formedness when present. Strict mode (hee-object.strict.schema.json) additionally requires inuid to be present.",
+      "if": {
+        "properties": {
+          "metadata": {
+            "required": ["annotations"],
+            "properties": {
+              "annotations": {
+                "required": ["inuid"],
+                "properties": {
+                  "inuid": { "type": "null" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "annotations": {
+                "required": ["inuid", "inuid_null_reason"]
               }
             }
           }
