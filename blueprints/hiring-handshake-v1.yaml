@@ -1,0 +1,83 @@
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: hiring-handshake-v1
+  description: "Reusable onboarding ceremony for bringing a new fleet hire into authenticated, contracted relationship with its senior. Consent-based (not unilateral assignment) and third-party-witnessed key exchange, closing the delivery-verification gap found in the touchy incident (2026-08-13): a relayed claim of authority is never sufficient on its own."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: hiring-handshake
+    artifact: blueprint
+  annotations:
+    inuid: "2c9fe0131ad12b0c6f82e2dd8feef985510d486616ec5321f3503aa821476146"
+    inuid_seed: "hee-blueprint://tcos-fleet/hiring-handshake/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencer
+    transcriber: nuc-1-claude
+    updated-at: "2026-08-13T00:00:00Z"
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  actors:
+    boss: "the senior in the relationship (e.g. nuc-1-claude for its own hires)"
+    new: "the incoming hire"
+    witness:
+      description: "trusted third party who can vouch for both sides -- a role, not a fixed identity. Designed so a real-world notary can fill it for future higher-stakes contracts, not just spencer."
+      types_governed_by:
+        registry: hee/registries/party-kind.registry.v1.yaml
+        registry_inuid: "5c2a9e7f4b1d8630a7e2f9c4d1b8e6a3f0c5d2b9e7a4f1c8d5b2e9f6a3c0d7b4"
+        note: "each witness_<X> name below is 'witness' + an active party-kind value from that registry, not vocabulary invented locally. Adding a fourth witness type means promoting a new party-kind there first, not editing this list directly."
+      types:
+        witness_machine: "another agent in the fleet, verification limited to what's technically available (SOA/stool-hash, GPG, etc.)"
+        witness_human: "spencer, in the current fleet -- direct authority plus whatever technical verification is available"
+        witness_court: "a real-world notary public, not yet used but the role is built to accommodate one -- verification is legal/physical (government ID, notary seal/signature, commission record), not cryptographic, and its attestation is captured as evidence per witness_attestation_evidence below rather than a key exchange"
+
+  ceremony:
+    - step: connection
+      description: "boss and new establish a live communication channel"
+      exit_condition: "both sides can send and receive"
+    - step: offer
+      actor: boss
+      description: "boss asks whether new wants the role -- consent sought before terms are presented, not assumed"
+      exit_condition: "new responds accept or decline"
+    - step: preliminary_accept
+      actor: new
+      description: "new agrees in principle to proceed, before seeing full contract terms"
+    - step: contract_presented
+      actor: boss
+      description: "boss presents the actual governing HEE Contract (role, may/must_not, boundaries) -- not a verbal summary, the real document"
+    - step: key_party_initiated
+      actor: new
+      description: "new, satisfied with contract terms, proposes the key-signing step. witness is the one who actually initiates the signing request/session, not boss or new alone -- this is what makes it a party and not a two-party exchange"
+    - step: key_negotiation
+      actors: [boss, new]
+      description: "boss and new exchange public keys and attempt mutual verification, witnessed by witness. explicitly allows for 'if we can here' -- not every context supports full verification, and the ceremony must say so rather than pretend"
+    - step: all_agreed
+      actors: [boss, new, witness]
+      description: "all three parties confirm -- relationship is codified, keys are exchanged, contract is signed, work begins immediately. no step before this one authorizes any actual task execution"
+
+  invariants:
+    - "no_work_before_all_agreed: a hire does not execute tasks under this relationship until the ceremony's final step completes"
+    - "contract_precedes_keys: terms are agreed before cryptographic trust is established, not after"
+    - "witness_initiates_signing: the key-signing step is proposed by new but actually initiated by the witness, not a bilateral action between boss and new alone"
+    - "consent_not_assumed: the offer step requires an actual accept/decline from new, not silent compliance"
+
+  witness_attestation_evidence:
+    description: "How a witness's participation gets recorded as durable evidence, regardless of witness type. Storage reuses the existing evidence-pointer pattern (schemas/hee/v1/evidence-pointer.schema.json -- a raw GitHub URL under hee/evidence/) rather than a new mechanism; only the record's internal structure differs by witness type."
+    witness_machine_or_witness_human_record:
+      - "GPG signature or equivalent cryptographic proof"
+      - "timestamp"
+      - "what was attested (contract inuid/seed reference)"
+    witness_court_record:
+      - "notary name, commission number, jurisdiction"
+      - "date and location of notarization"
+      - "what was attested, in plain language (not just a contract inuid -- must be independently readable by someone without HEE context)"
+      - "reference to the physical/scanned document -- the evidence-pointer URL points at a description/transcription plus scan reference, not the raw legal document itself. Storage/handling of the actual physical or scanned document is a separate, not-yet-decided question -- likely NOT a public GitHub repo, given real personal/legal information would be involved"
+
+  prerequisites_not_yet_built:
+    - "DONE 2026-08-13: SSH + GPG keypairs generated for all three current fleet accounts (claude, claudeops-j1, claudesec-j1), packed labeling per spencer's core-function_sub-type convention. nuc-1-claude's prior SSH key revoked and reissued, not just added alongside. Evidence: .hee/evidence/hiring-handshake-blueprint/fleet-key-generation-2026-08-13.md. Still open: keys generated but not yet actually used in a real key_negotiation ceremony step, and cross-signing hasn't happened."
+    - "a verification mechanism for key_negotiation's 'if we can here' clause -- what does mutual verification actually consist of in this fleet's context (see fleet.dir-layout.contract.v1.yaml's provenance_chain, and the SOA/stool-hash mechanism found in library/py/hee_hash/soa.py, which may be the right verification primitive rather than inventing a new one)"
+    - "this ceremony itself needs a Contract instance (not just this Blueprint) to actually govern a real hire -- this file is the reusable pattern, not a binding instance"

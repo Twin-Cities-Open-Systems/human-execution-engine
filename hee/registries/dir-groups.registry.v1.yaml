@@ -2,8 +2,19 @@ apiVersion: hee/v1
 kind: Registry
 metadata:
   name: dir-groups
-  ts_human: 2026-02-10_1851
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: repo-layout
+    topic: dir-groups
+    artifact: registry
+  annotations:
+    inuid: "93cae073a6ba7cc1bb95012514682199664a6ebc30e004d60cfeb64bb59926d4"
+    inuid_seed: "hee-registry://core/dir-groups/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-02-10T18:51:00-06:00"
 spec:
+  ts_human: 2026-02-10_1851
   managed_by:
     runner: shellboss
     command: registrar
