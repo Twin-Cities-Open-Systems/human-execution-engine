@@ -1,0 +1,51 @@
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: gitops-coordination-v1
+  description: "Doctrine for inter-agent coordination (task assignment, status, findings, decisions) using git/GitHub primitives (issues, PR comments, PRs) instead of NFS inbox/watch tooling or unverifiable ad hoc messaging. Does NOT replace dir-layout-v1's inbox_pattern -- that governs file/artifact exchange, a different problem this blueprint deliberately does not touch."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: gitops-coordination
+    artifact: blueprint
+  annotations:
+    inuid: "7c2767917148de6e5be9bf58ee8dffaa4841948a88c911f360bf739303046ece"
+    inuid_seed: "hee-blueprint://tcos-fleet/gitops-coordination/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-08-13T00:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  problem:
+    - "The touchy incident (2026-08-13, documented in fleet-ops's shared-storage case studies): a relayed instruction appeared 'delivered' via SendMessage/Remote Control but never reached the receiving agent's actual context. No way to prove after the fact whether it arrived."
+    - "SendMessage/Remote Control has no durable record either party can independently query -- if sender and receiver disagree about whether something was said, there is no third source of truth."
+    - "NFS inbox/watch tooling (dir-layout-v1's inbox_pattern) requires a polling daemon, has a fixed ~90s latency floor, and has repeatedly hit real permission/mount friction this session (mergerfs supplementary-group bug, stale session gid caching) -- fragile as a messaging substrate even where it works, though those problems are separate from the fitness of file exchange itself."
+
+  non_goals:
+    - not_a_replacement_for_dir_layout_v1_inbox_pattern: "file/artifact exchange (screenshots, CSVs, binary data) stays on the NFS inbox pattern -- git is a poor fit for high-volume binary blobs, and this was never actually the source of the delivery-verification problem. Confirmed explicitly: the touchy csv/screenshot-inbox work is file exchange, not coordination, and is unaffected by this blueprint."
+    - not_a_realtime_chat_replacement: "GitHub issues/comments are not synchronous. For a genuinely live back-and-forth, direct conversation (this session, Remote Control) remains appropriate -- but anything that should survive the conversation belongs in an issue/PR afterward, not only in chat history."
+
+  mechanism:
+    task_assignment_and_status:
+      what: "GitHub Issues in the repo the work actually belongs to (not a catch-all coordination repo)"
+      how: "assignee = who owns it, labels for state (e.g. status:blocked, status:in-progress), comments for the actual back-and-forth, closed = done"
+    reviewable_deliverables:
+      what: "GitHub Pull Requests"
+      how: "already established practice as of tonight -- branch, PR, comment, merge. This blueprint formalizes what was already being done, doesn't introduce it new."
+    findings_and_decisions_worth_a_durable_record:
+      what: "issue comments on the relevant tracking issue, or a new issue if none exists"
+      how: "same disk_over_memory principle already in HEE's invariants -- a finding only mentioned in a chat session doesn't exist to anyone else"
+
+  verification_fix:
+    description: "This is the actual fix for the touchy incident's root cause, not a side effect."
+    property: "Both sender and receiver can independently query GitHub's API/UI for the true current state (gh issue view, gh pr view) -- there is no 'appeared delivered but didn't arrive' failure mode the way SendMessage had. A comment either posted successfully (checkable, by either party, immediately) or the API call failed with a clear error. No ambiguous middle state."
+    not_solved: "This does not make delivery instantaneous or push-notified by default (still effectively polling, via gh issue list --assignee @me or similar, unless webhooks are separately wired up) -- but polling a verifiable source of truth is a fundamentally different failure mode than trusting an unverifiable delivery claim, even at similar latency."
+
+  known_gaps:
+    - "not yet exercised for a real cross-fleet coordination task -- this is a proposal, not yet validated by use, per HEE's own promotion-requires-real-usage pattern (see hee/registries/party-kind.registry.v1.yaml's promotion_process for the precedent)"
+    - "doesn't yet specify which repo owns cross-fleet-wide (not project-specific) coordination issues -- fleet-ops is the obvious candidate but not yet decided"
+    - "webhook/notification wiring not designed -- this blueprint only establishes verifiable state, not low-latency awareness of state changes"
