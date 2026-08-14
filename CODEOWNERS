@@ -1,0 +1,8 @@
+# Governance-sensitive paths -- changes here need spencer's review,
+# not a self-merge. This is the "who can verify what" gate: an
+# approval here is the actual stamp, not a chat back-and-forth.
+
+/hee/contracts/    @spencerbutler
+/blueprints/       @spencerbutler
+/schemas/          @spencerbutler
+/hee/registries/   @spencerbutler
