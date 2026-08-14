@@ -18,8 +18,9 @@ metadata:
     updated-at: "2026-08-13T00:00:00Z"
 
 spec:
-  status: proposed
+  status: ratified
   ratification_required_from: [spencer]
+  ratification_evidence: "hee/contracts/nuc1-claude.claudesec-j1.hire-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), verified 2026-08-13"
 
   problem:
     - "Same gap as claudeops-j1's contract (nuc1-claude.claudeops-j1.hire-authority.contract.v1.yaml): claudesec-j1 has real system access -- account, sudoers, nmap capability, GPG key cross-signed into the fleet trust mesh -- but no ratified Contract, only CLAUDE.md prose."
@@ -51,6 +52,6 @@ spec:
       must_not: [ack_only]
 
   known_gaps:
-    - "not yet ratified -- spencer has not reviewed or agreed to this specific draft"
+    - "RATIFIED 2026-08-13 -- see spec.ratification_evidence"
     - "does not yet cover the actual hiring-handshake-v1 ceremony's full step sequence -- formalizes existing scope retroactively, same framing as fleet.gpg-cross-signing.contract.v1.yaml"
     - "the conflict-of-interest concern this contract's independence_guarantee is meant to protect against has not actually been tested in practice yet -- worth revisiting once it has been"
