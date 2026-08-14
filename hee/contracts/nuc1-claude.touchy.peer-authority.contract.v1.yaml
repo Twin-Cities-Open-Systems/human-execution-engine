@@ -20,7 +20,7 @@ metadata:
 spec:
   status: ratified
   ratification_required_from: [touchy, spencer]
-  ratification_evidence: "touchy: independent review, 'no changes needed, ready for ratification', posted human-execution-engine#187 2026-08-14. spencer: hee/contracts/nuc1-claude.touchy.peer-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), verified 2026-08-13"
+  ratification_evidence: "nuc1-claude.touchy.peer-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), covers the exact ratified content in this file"
 
   problem:
     - "the generic fleet-hire chain-of-command model (report to nuc-1-claude, never spencer directly) does not fit touchy -- touchy predates the nuc-1 fleet, has full independent bare-metal control of its own host, and spencer has an explicit standing exception allowing him to talk to touchy directly"
