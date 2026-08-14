@@ -50,5 +50,5 @@ spec:
 
   known_gaps:
     - "not yet ratified -- spencer has not reviewed or agreed to this specific draft"
-    - "not yet provisioned as a real system account -- blocked on a stale sudoers path (fleet-ops repo rename broke the provisioning grant), fix needed before bootstrap-agent-hire.sh can run for this account"
-    - "no GitHub identity yet -- same signup/verification process as the other four accounts tonight, not yet started"
+    - "system account, GPG key, and fleet cross-signing are DONE as of 2026-08-14 -- key DD6BB941BD79099F5ABEC13509BD4B2D40780CF4, cross-signed with nuc1-claude/claudeops-j1/claudesec-j1, see fleet-ops/fleet-accounts.txt"
+    - "no GitHub identity yet -- same signup/verification process as the other four accounts, not yet started (needs a human browser session)"
