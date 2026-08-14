@@ -1,0 +1,12 @@
+{
+  "_comment": "Placeholder hostname — real machine identity not yet known, per direct instruction ('you can make the hostname anything you want... don't know don't care'). Real value: compositor (Sway) and role (all-in-one Dell touchscreen kiosk) are confirmed; slots/identities below are placeholders to be corrected once there's real access.",
+  "host": "dell-kiosk-1",
+  "backend": "wayland-sway",
+  "slots": {
+    "0": { "label": "Primary kiosk app", "windowMatch": "TBD" }
+  },
+  "identities": {
+    "touchy-claude": { "allowedSlots": ["0"], "note": "placeholder — cross-host identity, scope to be defined once real access exists" },
+    "spencer": { "allowedSlots": ["0"], "note": "full access" }
+  }
+}

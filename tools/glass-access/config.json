@@ -1,0 +1,14 @@
+{
+  "_comment": "identity -> which glass 'slots' (workspaces) it may control. Slot definitions are per-host; this file describes touchy's glass. A future host (Wayland) gets its own config with the same shape, once nuc-1 confirms the target machine/compositor.",
+  "host": "touchy",
+  "backend": "x11",
+  "slots": {
+    "0": { "label": "TCOS Dashboard", "windowMatch": "TCOS — AI Buildout Thesis" },
+    "1": { "label": "Home Assistant", "windowMatch": "Home Assistant" },
+    "2": { "label": "Playwright / Claude glass", "windowMatch": "Chromium" }
+  },
+  "identities": {
+    "claude-touchy": { "allowedSlots": ["2"], "note": "touchy's own Claude session — its own verification glass only, not the dashboard/HA slots a human normally drives" },
+    "spencer": { "allowedSlots": ["0", "1", "2"], "note": "full access, all slots" }
+  }
+}
