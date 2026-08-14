@@ -1,0 +1,41 @@
+apiVersion: hee/v1
+kind: Skill
+metadata:
+  name: ratify-contract-v1
+  description: "GPG-ratify a HEE Contract with correct sign-then-commit ordering. First real Skill object -- captures a workflow that only exists because a real bug (signing content, then editing it, invalidating the signature) got caught and fixed the same night, twice."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: contract-ratification
+    artifact: skill
+  annotations:
+    inuid: "a16334aed7f83c483ff9db88e5726785c70ecc927e55c8398e506ffc27fdca05"
+    inuid_seed: "hee-skill://ratify-contract/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-08-14T00:00:00Z"
+
+spec:
+  trigger: "A Contract object exists with status: proposed and needs real, verifiable ratification -- not a GitHub approve-click (self-approval can't be enforced when proposer and approver share an account, discovered directly this session), an actual OPER GPG signature."
+
+  prerequisites:
+    - "The signer (OPER) has a GPG secret key, and its public key is importable by whoever will verify (this repo's account, at minimum)"
+    - "The contract passes tools/schema/validate-hee-object.py --strict as status:proposed before starting"
+
+  procedure:
+    script: "tools/hee/ratify-contract.sh"
+    steps:
+      - "Run the script against the proposed contract -- it flips status to ratified and inserts a generic (not-yet-signature-specific) ratification_evidence field FIRST, before anything is signed"
+      - "OPER signs the now-final file: gpg --detach-sign --armor <contract.yaml>"
+      - "Verify before committing anything: sha256sum the signed file against what's about to be committed (must match exactly), then gpg --verify the .asc against that exact file"
+      - "Only then commit both the contract and its .asc together"
+      - "Do not edit the contract again after signing -- any further edit invalidates the signature, which is the entire bug this skill exists to prevent"
+
+  verification: "gpg --verify <contract>.asc <contract> returns 'Good signature' when run against the exact committed file on main -- not a local copy, not an assumption. Re-check after every commit that touches the file, since the failure mode is silent (a stale signature still parses as valid armor, it just won't verify against changed content)."
+
+  evidence: "human-execution-engine PRs #189 (first attempt, wrong order, caught via BAD signature), #190 (fix), #191/#192 (used correctly for nuc1-claude's own contract, caught a second real bug -- signature committed without its content) -- four real PRs, two real bugs caught by this exact verification discipline, not zero."
+
+  known_gaps:
+    - "kind: Skill is itself only 'observed', not yet promoted to active_kinds in hee.kind-registry.contract.v1.yaml -- this object is the real-usage evidence that promotion needs, not proof promotion has already happened"
+    - "script assumes a single OPER signer -- doesn't yet handle N-of-M multi-party signature requirements, even though that was discussed as a future direction earlier the same session"
+    - "no automated CI check runs this skill's verification step -- it's still a manually-invoked discipline, not enforced"

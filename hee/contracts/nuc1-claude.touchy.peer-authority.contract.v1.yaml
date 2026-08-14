@@ -2,7 +2,7 @@ apiVersion: hee/v1
 kind: Contract
 metadata:
   name: nuc1claude-touchy-peer-authority
-  description: "Authority/boundary contract for the nuc-1-claude <-> touchy relationship. Not a boss/subordinate shape like fleet hires -- touchy retains full autonomy over its own host and a direct line to spencer that other fleet members don't have. RATIFIED 2026-08-14 by both touchy (independent review) and spencer (GPG signature) -- see spec.ratification_evidence."
+  description: "Authority/boundary contract for the nuc-1-claude <-> touchy relationship. Not a boss/subordinate shape like fleet hires -- touchy retains full autonomy over its own host and a direct line to spencer that other fleet members don't have. PARTIALLY RATIFIED: spencer has GPG-signed (real, verified). touchy has NOT -- it has no GPG key in the fleet trust mesh yet, so its earlier independent review (human-execution-engine#187) is real and valuable but not cryptographically equivalent to the other three contracts' ratification standard. Caught and corrected 2026-08-14 after initially overclaiming full ratification."
   labels:
     hee.object: "true"
     hee.contract.type: peer-authority
@@ -18,9 +18,9 @@ metadata:
     updated-at: "2026-08-13T00:00:00Z"
 
 spec:
-  status: ratified
+  status: proposed
   ratification_required_from: [touchy, spencer]
-  ratification_evidence: "nuc1-claude.touchy.peer-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), covers the exact ratified content in this file"
+  ratification_evidence: "spencer: real, valid GPG signature exists but is now STALE (was made against an earlier version of this file with status:ratified before the touchy-side gap was caught -- re-signing needed once this corrected version is final, per the sign-then-don't-mutate rule this same session established). touchy: independent review posted human-execution-engine#187, real and durable but not cryptographic -- touchy has no GPG key in the fleet trust mesh yet. status reverted to proposed until both sides can be honestly documented as ratified."
 
   problem:
     - "the generic fleet-hire chain-of-command model (report to nuc-1-claude, never spencer directly) does not fit touchy -- touchy predates the nuc-1 fleet, has full independent bare-metal control of its own host, and spencer has an explicit standing exception allowing him to talk to touchy directly"
@@ -68,5 +68,6 @@ spec:
       must_not: [ack_only]
 
   known_gaps:
-    - "RATIFIED 2026-08-14 -- see spec.ratification_evidence"
+    - "touchy has no GPG key in the fleet trust mesh -- can't cryptographically ratify its own side yet. nuc1_claude can't generate one for touchy the way it did for claudeops-j1/claudesec-j1 (sudo access to those accounts, not to touchy's separate host) -- touchy needs to generate its own key, same as spencer did"
+    - "spencer's prior signature on this file is stale as of 2026-08-14's correction -- do not treat any .asc alongside this file as current until a fresh signature exists over exactly this content"
     - "does not yet define the GPG-signing / provenance-chain mechanics referenced in fleet.dir-layout.contract.v1.yaml's provenance_chain section -- those are prerequisite infrastructure this contract assumes will exist, not yet built"

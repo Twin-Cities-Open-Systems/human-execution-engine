@@ -26,6 +26,9 @@ spec:
 
   active_kinds: ["Card","Pill","Delta","Contract","Blueprint","Plan","Registry"]
 
+  observed_kinds:
+    Skill: "proposed 2026-08-14 -- a reusable, invokable PROCEDURE (narrower/more operational than a Blueprint, which is doctrine/principle-level). First real usage: hee/skills/ratify-contract-v1.skill.yaml, capturing the contract-ratification workflow that emerged from actually fixing a real sign-then-mutate ordering bug the same night. Pending promotion to active_kinds once reviewed -- same bar as Registry's promotion below, not skipped."
+
   promotion_note_2026_08_13: "Registry promoted from observed to active: hee/registries/dir-groups.registry.v1.yaml already used kind=Registry in production before this registry recognized it -- a pre-existing gap, not a new proposal. This file itself also failed its own envelope schema (missing required metadata.labels.hee.object) until this same edit; fixed together rather than left inconsistent while depending on it."
 
   plan_sub_structs_not_kinds: ["WU","Step","StepUnordered"]
