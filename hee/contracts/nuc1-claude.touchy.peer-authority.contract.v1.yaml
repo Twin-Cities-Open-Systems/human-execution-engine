@@ -2,7 +2,7 @@ apiVersion: hee/v1
 kind: Contract
 metadata:
   name: nuc1claude-touchy-peer-authority
-  description: "Authority/boundary contract for the nuc-1-claude <-> touchy relationship. Not a boss/subordinate shape like fleet hires -- touchy retains full autonomy over its own host and a direct line to spencer that other fleet members don't have. DRAFT: proposed, not yet ratified by touchy or spencer -- per spencer's own instruction, this is the planning step, not execution."
+  description: "Authority/boundary contract for the nuc-1-claude <-> touchy relationship. Not a boss/subordinate shape like fleet hires -- touchy retains full autonomy over its own host and a direct line to spencer that other fleet members don't have. RATIFIED 2026-08-14 by both touchy (independent review) and spencer (GPG signature) -- see spec.ratification_evidence."
   labels:
     hee.object: "true"
     hee.contract.type: peer-authority
@@ -18,8 +18,9 @@ metadata:
     updated-at: "2026-08-13T00:00:00Z"
 
 spec:
-  status: proposed
+  status: ratified
   ratification_required_from: [touchy, spencer]
+  ratification_evidence: "touchy: independent review, 'no changes needed, ready for ratification', posted human-execution-engine#187 2026-08-14. spencer: hee/contracts/nuc1-claude.touchy.peer-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), verified 2026-08-13"
 
   problem:
     - "the generic fleet-hire chain-of-command model (report to nuc-1-claude, never spencer directly) does not fit touchy -- touchy predates the nuc-1 fleet, has full independent bare-metal control of its own host, and spencer has an explicit standing exception allowing him to talk to touchy directly"
@@ -67,5 +68,5 @@ spec:
       must_not: [ack_only]
 
   known_gaps:
-    - "not yet ratified -- touchy and spencer have not reviewed or agreed to this specific draft"
+    - "RATIFIED 2026-08-14 -- see spec.ratification_evidence"
     - "does not yet define the GPG-signing / provenance-chain mechanics referenced in fleet.dir-layout.contract.v1.yaml's provenance_chain section -- those are prerequisite infrastructure this contract assumes will exist, not yet built"

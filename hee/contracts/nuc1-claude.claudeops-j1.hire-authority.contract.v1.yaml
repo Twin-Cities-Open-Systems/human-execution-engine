@@ -18,8 +18,9 @@ metadata:
     updated-at: "2026-08-13T00:00:00Z"
 
 spec:
-  status: proposed
+  status: ratified
   ratification_required_from: [spencer]
+  ratification_evidence: "hee/contracts/nuc1-claude.claudeops-j1.hire-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), verified 2026-08-13"
 
   problem:
     - "claudeops-j1 was provisioned (2026-08-13) with real system access -- an actual account, sudoers grant, GPG key, cross-signed into the fleet's trust mesh -- but never a real HEE Contract defining scope. The only 'authority' document is CLAUDE.md prose baked in at provisioning time, which is not a schema-validated, ratified object."
@@ -49,6 +50,6 @@ spec:
       must_not: [ack_only]
 
   known_gaps:
-    - "not yet ratified -- spencer has not reviewed or agreed to this specific draft"
+    - "RATIFIED 2026-08-13 -- see spec.ratification_evidence"
     - "does not yet cover the actual hiring-handshake-v1 ceremony's full step sequence (connection through all_agreed) -- this contract formalizes existing scope retroactively, same honest framing as fleet.gpg-cross-signing.contract.v1.yaml"
     - "the pve/Proxmox scope grant referenced in the problem statement is not yet formally added here -- this contract establishes the general hire-authority shape; a scope amendment (or a separate host-specific contract) is still needed before claudeops-j1's pve work can proceed"
