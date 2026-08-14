@@ -18,8 +18,9 @@ metadata:
     updated-at: "2026-08-13T00:00:00Z"
 
 spec:
-  status: proposed
+  status: ratified
   ratification_required_from: [spencer]
+  ratification_evidence: "spencer.nuc1-claude.senior-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), covers the exact ratified content in this file"
 
   problem:
     - "nuc1_claude has been operating with real, broad execution authority (infrastructure changes, DNS/email routing, fleet provisioning, GitHub org administration) across this entire session based on spencer's verbal instructions -- 'you are the sysadmin of this box, you own it,' 'configure yourself to work without asking,' 'you are boss, I am god' -- none of which was ever formalized as a ratified object, unlike the accounts it in turn governs."
@@ -49,6 +50,6 @@ spec:
       must_not: [ack_only]
 
   known_gaps:
-    - "not yet ratified -- spencer has not reviewed or agreed to this specific draft, same as the other contracts awaiting his signature"
+    - "RATIFIED 2026-08-14 -- see spec.ratification_evidence"
     - "written by nuc1_claude about its own authority -- worth spencer reading with extra scrutiny for that reason specifically, not rubber-stamping because the other contracts in this batch were fine"
     - "does not attempt to enumerate every specific permission nuc1_claude has been granted (GitHub org access, specific sudoers entries, etc.) -- those live in their own concrete artifacts (sudoers files, gh auth scopes); this contract is about the authority pattern, not a permissions inventory"
