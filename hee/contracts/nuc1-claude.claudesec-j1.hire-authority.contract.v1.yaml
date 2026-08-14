@@ -20,7 +20,7 @@ metadata:
 spec:
   status: ratified
   ratification_required_from: [spencer]
-  ratification_evidence: "hee/contracts/nuc1-claude.claudesec-j1.hire-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), verified 2026-08-13"
+  ratification_evidence: "nuc1-claude.claudesec-j1.hire-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), covers the exact ratified content in this file"
 
   problem:
     - "Same gap as claudeops-j1's contract (nuc1-claude.claudeops-j1.hire-authority.contract.v1.yaml): claudesec-j1 has real system access -- account, sudoers, nmap capability, GPG key cross-signed into the fleet trust mesh -- but no ratified Contract, only CLAUDE.md prose."

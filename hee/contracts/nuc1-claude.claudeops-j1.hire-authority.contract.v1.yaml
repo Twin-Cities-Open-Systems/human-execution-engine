@@ -20,7 +20,7 @@ metadata:
 spec:
   status: ratified
   ratification_required_from: [spencer]
-  ratification_evidence: "hee/contracts/nuc1-claude.claudeops-j1.hire-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), verified 2026-08-13"
+  ratification_evidence: "nuc1-claude.claudeops-j1.hire-authority.contract.v1.yaml.asc -- detached GPG signature, key 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B (Spencer Butler <inspector@tcos.us>), covers the exact ratified content in this file"
 
   problem:
     - "claudeops-j1 was provisioned (2026-08-13) with real system access -- an actual account, sudoers grant, GPG key, cross-signed into the fleet's trust mesh -- but never a real HEE Contract defining scope. The only 'authority' document is CLAUDE.md prose baked in at provisioning time, which is not a schema-validated, ratified object."
