@@ -1,6 +1,6 @@
 # Human Execution Engine (HEE)
 
-[![CI/CD Pipeline](https://github.com/spencerbutler/human-execution-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/spencerbutler/human-execution-engine/actions/workflows/ci.yaml)
+[![CI/CD Pipeline](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 HEE is a **doctrine-first execution framework** for coordinating human reasoning, machine assistance, and automation **without ambiguity**.

@@ -1,7 +1,7 @@
 {
   "name": "human-execution-engine",
   "version": "1.0.0",
-  "description": "[![CI/CD Pipeline](https://github.com/spencerbutler/human-execution-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/spencerbutler/human-execution-engine/actions/workflows/ci.yaml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)",
+  "description": "[![CI/CD Pipeline](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/actions/workflows/ci.yaml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)",
   "main": "index.js",
   "directories": {
     "doc": "docs"
