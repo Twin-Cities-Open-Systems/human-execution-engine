@@ -13,6 +13,14 @@ FROZEN=(
 MANIFEST="docs/governance/operations/INTEGRITY_SHA256SUMS"
 CHANGES_DIR="docs/governance/operations/changes"
 
+# SRO approver pattern is org-supplied, never hardcoded here -- HEE
+# itself stays human/org-agnostic. Set HEE_SRO_APPROVER_PATTERN in the
+# consuming org's CI env (TCOS reads this from
+# tcos-audit/policy/approvers.yaml's approved_by_pattern). With nothing
+# set, fall back to accepting any named approver rather than baking in
+# one specific identity.
+SRO_APPROVER_PATTERN="${HEE_SRO_APPROVER_PATTERN:-.+}"
+
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 # Determine diff base
@@ -64,7 +72,7 @@ if [[ "$FROZEN_TOUCHED" -eq 1 ]]; then
     [[ -f "$rec" ]] || continue
     grep -qE '^## Trigger' "$rec" || die "Change record $rec missing '## Trigger'."
     grep -qE '^## Evidence' "$rec" || die "Change record $rec missing '## Evidence'."
-    grep -qE 'Approved-by:\s*Spencer Butler' "$rec" || die "Change record $rec missing SRO approval line."
+    grep -qE "Approved-by:\s*${SRO_APPROVER_PATTERN}" "$rec" || die "Change record $rec missing SRO approval line."
   done <<< "$TOUCHED_RECORDS"
 fi
 

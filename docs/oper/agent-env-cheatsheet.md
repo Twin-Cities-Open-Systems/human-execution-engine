@@ -44,7 +44,7 @@ HEE_PLAN_ONLY="false"  # true for PLAN mode
 ## Minimum Required Environment
 
 ```bash
-export HEE_REPO_ROOT="/home/spencer/git/human-execution-engine"
+export HEE_REPO_ROOT="/home/<user>/git/human-execution-engine"
 export HEE_WORKING_DIR="${HEE_REPO_ROOT}"
 export HEE_MODE="ACT"
 export HEE_STEP_ID="step-$(date +%s)"
@@ -55,7 +55,7 @@ export HEE_RUN_ID="run-$(date +%Y%m%d-%H%M%S)"
 
 ```bash
 # Core environment
-export HEE_REPO_ROOT="/home/spencer/git/human-execution-engine"
+export HEE_REPO_ROOT="/home/<user>/git/human-execution-engine"
 export HEE_WORKING_DIR="${HEE_REPO_ROOT}"
 export HEE_MODE="ACT"
 export HEE_STEP_ID="step-$(date +%s)"
