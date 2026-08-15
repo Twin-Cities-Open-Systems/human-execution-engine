@@ -12,8 +12,8 @@ Paste these into **Windows Explorer** to browse Linux files and drag/drop into C
 
 ## Helper
 
-- `hee pathwin /home/spencer/.hee`
-- `hee pathwin --dir /home/spencer/.hee/evidence/.../file.txt`
+- `hee pathwin /home/<user>/.hee`
+- `hee pathwin --dir /home/<user>/.hee/evidence/.../file.txt`
 
 Notes:
 - Under WSL, `<DistroName>` is usually `$WSL_DISTRO_NAME` (ex: `Ubuntu`).
