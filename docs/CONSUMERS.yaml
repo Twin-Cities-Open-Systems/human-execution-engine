@@ -13,3 +13,7 @@ consumers:
     mode: vendored
     policy_version_path: docs/hee/VERSION.md
     vendor_tool: tooling/bin/hee-vendor
+  - repo: Twin-Cities-Open-Systems/tick-task
+    mode: vendored
+    policy_version_path: docs/hee/VERSION.md
+    vendor_tool: tooling/bin/hee-vendor
