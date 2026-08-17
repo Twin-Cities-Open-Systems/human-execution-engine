@@ -81,7 +81,7 @@ jobs:
       run: |
         echo "🔍 Testing fixture: ok-minimal (expected: PASS)...TODO(spencer) convert to script"
         set +e
-        output="$(bash ci/governance/check.sh --path governance/fixtures/ok-minimal 2>&1)"
+        output="$(bash ci/governance/check.sh --path hee/governance/fixtures/ok-minimal 2>&1)"
         exit_code=$?
         set -e
 
@@ -119,7 +119,7 @@ jobs:
       run: |
         echo "🔍 Testing fixture: bad-missing-doctrine-doc (expected: FAIL with GOV-STRUCT-001, GOV-DOC-001)...TODO(spencer) convert to script"
         set +e
-        output="$(bash ci/governance/check.sh --path governance/fixtures/bad-missing-doctrine-doc 2>&1)"
+        output="$(bash ci/governance/check.sh --path hee/governance/fixtures/bad-missing-doctrine-doc 2>&1)"
         exit_code=$?
         set -e
 
