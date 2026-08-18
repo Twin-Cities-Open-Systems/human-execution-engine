@@ -317,6 +317,33 @@ already exist — not everywhere.
   is marked incomplete/missing for that field — never backfilled with a
   guess
 
+### 12. Label Governance Policy
+
+**Requirement**: labels are a single, shared, org-wide vocabulary with
+real descriptions — not a per-repo free-for-all
+
+**Rationale**: a GitHub label is a very cheap, persistent key:value
+store — name is the key, description is the value, and it's queryable
+via the API from every repo in the org for free. That's worth exploiting
+deliberately wherever it already exists, not just tolerating as a side
+effect of issue triage.
+
+**Enforcement**:
+
+- Prefer one canonical label set (name + description, identical across
+  every repo that uses it) over repo-local one-offs. One-offs are the
+  rare, justified exception, not the default
+- New labels go through the process §10 already establishes: file a
+  ticket, assign it to `@spencerbutler`, don't add ad hoc
+- **Real inconsistency found and worth fixing as the first case**: the
+  `mib` label's description differs between `human-execution-engine`
+  ("MIB/OID work under TCOS's PEN") and `fleet-ops` ("Custom MIB
+  definition/OID work under TCOS's PEN") — same name, different value.
+  Exactly the drift this policy exists to catch
+- Cross-repo consistency should eventually be monitored automatically
+  (diff label name+description across the org's repos, flag mismatches)
+  — not built yet, tracked as an open item, not asserted as done
+
 ### HEE Rule Violation Documentation
 
 **Process**:
