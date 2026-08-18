@@ -137,6 +137,33 @@ git push origin --delete feature/merged-branch  # Remote
 - Rationale: bare shorthand only auto-links inside GitHub's own
   same-org rendering — it renders as dead text everywhere else (chat
   transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+- A bare relative path (`docs/doctrine/HEE_POLICY.md`) is not a link
+  either — it is not resolvable outside a checkout of this repo. Any
+  reference to a repo file must be a full `https://github.com/...` URL
+- When the reference is to a *specific version* of a file under live
+  discussion (e.g. "see the section I just added"), link to the exact
+  commit SHA, not the branch name: `blob/<sha>/path`, not
+  `blob/<branch-name>/path`. Branch-name links silently drift as new
+  commits land on that branch, and 404 once the branch is deleted post-
+  merge — a commit SHA is permanent
+  (`https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/07b4acd/docs/doctrine/HEE_POLICY.md`,
+  not `.../blob/docs/real-links-policy/docs/doctrine/HEE_POLICY.md`)
+- **Scope note**: this requirement covers GitHub content and chat/agent
+  output — prose meant for a human or a general renderer. Structured
+  work files (contracts, blueprints, doctrine YAML) use the compact
+  `tick:`/`pr:` notation from §13 instead, not markdown links — see §13
+  for why
+
+**Ordered-Steps Requirement**:
+
+- Any field representing a sequence of steps (a ceremony, a procedure, a
+  checklist where order matters) MUST be a YAML sequence (a list), never
+  a map/object — a map has no defined iteration order, a list does.
+  Confirmed as existing practice (every `ceremony:`/`order:` field in
+  `blueprints/` and `contracts/` already uses list form) and made
+  explicit here per Spencer's review on
+  pr:223@human-execution-engine, rather than left as an unstated
+  convention
 
 ### 6. Command Safety Policy
 
@@ -263,13 +290,111 @@ reason it doesn't
 - Apply correct labels from the repo's existing label set — never create
   a new label; if one is genuinely needed, file a ticket for it, assign
   that ticket to `@spencerbutler`, and report the request in chat
+- Every label in this repo carries a real `description` field (`gh api
+  .../labels`) — read it before applying the label, don't pick one off
+  the name alone. Two repos can use the same label name for different
+  scopes (e.g. `mib` reads differently in HEE vs. fleet-ops); the
+  description is the actual definition, the name is just a handle
 - Unassigned tickets/PRs must be the rare exception, not the default —
   each one needs a label that denotes why no owner is assigned (e.g.
   blocked on a decision, needs triage)
 - Close tickets as soon as their work is actually done — don't let
   finished or stale work sit open
 
+### 11. Quant-Ready Contract Metrics Policy
 
+**Requirement**: a contract that governs periodic or repeating activity
+(shifts, recurring ceremonies — anything with a real cadence) must define
+its recorded metrics with enough structure to build a standard OHLC+V
+(Open/High/Low/Close/Volume) bar per period, so the activity it governs
+can be monitored/charted the same way any other time series is
+
+**Scope — this is not a blanket requirement on every contract**: a
+one-time ceremony (e.g. `hiring-handshake-v1`) or a pure behavioral/
+boundary contract (e.g. `roles-trilateral-v1`) has no natural period and
+no price-like quantity to bar-chart. Forcing an OHLCV shape onto those
+would mean fabricating a number that reflects nothing real, which
+violates this same document's spirit of never inventing evidence. This
+policy applies where a real period and a real countable/gauge quantity
+already exist — not everywhere.
+
+**Enforcement, for contracts this does apply to**:
+
+- Name at least one **volume** quantity: a real countable unit of work
+  in the period (e.g. commits + PR/issue actions taken)
+- Name at least one **gauge** quantity: something real that can
+  meaningfully have an open/high/low/close within the period (e.g. an
+  open-backlog count sampled at period start/end, with high/low from any
+  additional samples taken during the period)
+- For each quantity, define: its unit, the period one bar covers, and
+  the concrete source of truth it's read from (a real API/log/file, not
+  invented)
+- If a quantity can't actually be measured for a given period, the bar
+  is marked incomplete/missing for that field — never backfilled with a
+  guess
+
+### 12. Label Governance Policy
+
+**Requirement**: labels are a single, shared, org-wide vocabulary with
+real descriptions — not a per-repo free-for-all
+
+**Rationale**: a GitHub label is a very cheap, persistent key:value
+store — name is the key, description is the value, and it's queryable
+via the API from every repo in the org for free. That's worth exploiting
+deliberately wherever it already exists, not just tolerating as a side
+effect of issue triage.
+
+**Enforcement**:
+
+- Prefer one canonical label set (name + description, identical across
+  every repo that uses it) over repo-local one-offs. One-offs are the
+  rare, justified exception, not the default
+- New labels go through the process §10 already establishes: file a
+  ticket, assign it to `@spencerbutler`, don't add ad hoc
+- **Real inconsistency found and worth fixing as the first case**: the
+  `mib` label's description differs between `human-execution-engine`
+  ("MIB/OID work under TCOS's PEN") and `fleet-ops` ("Custom MIB
+  definition/OID work under TCOS's PEN") — same name, different value.
+  Exactly the drift this policy exists to catch
+- Cross-repo consistency should eventually be monitored automatically
+  (diff label name+description across the org's repos, flag mismatches)
+  — not built yet, tracked as an open item, not asserted as done
+
+### 13. Compact Reference Notation (structured work files)
+
+**Requirement**: contracts, blueprints, and doctrine YAML reference other
+issues/PRs with a compact `tick:`/`pr:` token, not a markdown link
+
+**Rationale**, per Spencer's review on pr:223@human-execution-engine: a full
+`[text](url)` markdown link is the right shape for prose meant for a human
+or a renderer (§5 already requires it there) — but embedded inside a
+structured YAML value it's just bloat: a long string competing with the
+actual content for a reader's attention, and not meaningfully more useful
+to tooling than a short token would be. Work files want a real k:v pair,
+not a link.
+
+**Notation**:
+
+- In-org issue: `tick:<N>@<repo>` — e.g. `tick:225@human-execution-engine`
+- In-org PR: `pr:<N>@<repo>` — e.g. `pr:223@human-execution-engine`
+- Cross-org: `tick:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
+  segment is present specifically when it isn't
+  `Twin-Cities-Open-Systems`
+- Commit: `commit:<sha>@<repo>`
+
+**Enforcement**:
+
+- Applies to `contracts/`, `blueprints/`, `hee/contracts/`, and any other
+  machine-parsed doctrine YAML — not to prose docs (`docs/`, `README.md`)
+  or chat/agent output, which stay under §5's real-link rule
+- The token is mechanically expandable to a full URL
+  (`tick:N@repo` → `https://github.com/Twin-Cities-Open-Systems/repo/issues/N`)
+  by any tooling that wants one — nothing is lost by using the short form
+  in the source file
+- This is a new convention as of 2026-08-18, applied first in
+  `blueprints/shift-init-v1.yaml` and its companion contracts — not yet
+  retrofitted across the rest of the repo, tracked as future cleanup, not
+  claimed as done everywhere
 
 ### HEE Rule Violation Documentation
 
@@ -350,7 +475,14 @@ reason it doesn't
 ## References
 
 - [HEE Definition](HEE.md)
-- [Prompting Rules](../prompts/PROMPTING_RULES.md)
+- ~~Prompting Rules (`../prompts/PROMPTING_RULES.md`)~~ — **deprecated**,
+  per Spencer 2026-08-18: the relative path resolves to `docs/prompts/`,
+  which 404s. A same-named file exists at the true repo root
+  (`prompts/PROMPTING_RULES.md`) but is an intentionally-empty CI
+  placeholder ("exists to satisfy CI documentation invariants... keep
+  CI green"), no real content either way. The ceremony this reference
+  would have covered is superseded by the `shift-init-v1` blueprint
+  instead. Removed rather than backfilled.
 - [State Capsule Guide](STATE_CAPSULE_GUIDE.md)
 - [Troubleshooting Guide](TROUBLESHOOTING.md)
 
