@@ -84,6 +84,20 @@ lot more work to define what's even being measured).
 it now, I know" — a real recognition moment, not summarized further
 here since it's his to characterize, not this doc's.
 
+**Top 10, in progress**: Wu-Tang (RZA's numerology, already covered
+above), Norman Rockwell (painting — everyday American scenes rendered
+with exacting, deliberate structural composition), Dr. Octagon,
+John Coltrane, Thelonious Monk. Coltrane is worth flagging as the
+strongest example on this list so far, not just a good one: "Coltrane
+changes" are a real, literal mathematical structure — an equal,
+three-way division of the octave by major thirds, used as substitute
+harmony (most famously on "Giant Steps") — genuinely provable, not just
+structurally-*feeling* music, the same "counting fact, not a search
+problem" property as everything else this RFC keeps returning to. Monk
+fits the same shape differently: angular, deliberately "wrong"-sounding
+voicings that are internally consistent by his own harmonic logic, not
+random dissonance.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
