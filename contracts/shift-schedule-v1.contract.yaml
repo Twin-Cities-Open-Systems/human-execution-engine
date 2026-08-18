@@ -17,9 +17,14 @@ actors:
       - run shift_open before doing any task work
       - run shift_close before ending a work session
       - check in and check out for every shift, no exceptions
+      - open one shift ticket at shift_open and run the shift_ticket_lifecycle
+        below against it
+      - report to oper in chat when the shift ticket lifecycle reaches
+        report_to_oper, so oper knows it can disengage
     must_not:
       - execute task work with no open shift
       - leave a shift open indefinitely with no shift_close
+      - close a shift ticket before work is verified
 
   orchestrator:
     does:
@@ -28,6 +33,13 @@ actors:
       - is the one who defines the actual working-hours schedule, once one
         exists (see open_items)
 
+  oper:
+    role: "per contracts/roles-trilateral-v1.contract.yaml's oper role --
+      executes locally, verifies changes on disk, provides disk evidence"
+    does:
+      - receives the identity's shift-over report
+      - may disengage once that report lands, no earlier
+
 boundaries:
   schedule_source: "not yet defined -- specific hours/days per identity are
     TBD, see open_items below, not fabricated here"
@@ -35,11 +47,46 @@ boundaries:
   metrics: "see the companion shift-metrics-v1 contract for what gets
     recorded per shift"
 
+shift_ticket_lifecycle:
+  description: "one ticket per shift, per Spencer 2026-08-18 -- 'new
+    shift, ticket 1,2,3 if no blockers go home early.' The ticket is
+    opened at shift_open and closed at shift_close; if step 5 (verify)
+    finds no blockers, the identity may close and report early rather
+    than padding the shift"
+  order:
+    - step: 1
+      what: "ticket opened, assigned to the identity running the shift,
+        with proper labels -- reuses HEE Policy §10's ownership/labeling
+        rule, no new labels invented"
+    - step: 2
+      what: "the shift's tasks detailed in the ticket as a checklist"
+    - step: 3
+      what: "sub-tasks used when logical and hee-shaped -- not forced
+        onto every checklist item"
+    - step: 4
+      what: "steps executed in the order defined by
+        docs/guides/GIT_GH_WORKFLOW.md -- that guide is authoritative
+        for git/gh operation sequencing (branch -> stage -> commit ->
+        push -> PR, all mutations through scripts/hee_git_ops.sh), this
+        contract does not redefine it"
+    - step: 5
+      what: "work verified before closing -- not just marked done"
+    - step: 6
+      what: "ticket closed"
+    - step: 7
+      what: "report_to_oper: identity reports to oper in chat that the
+        shift is over and oper can disengage"
+
 open_items:
   - "concrete working-hours schedule per identity -- #217's CORE section
     calls this out directly ('yet to be defined, will need contract') --
     this contract defines the check-in/check-out boundary, not the actual
     hours, which remain undecided"
+  - "contracts/README.md's own 'what belongs here' list says step-by-step
+    execution procedures belong in plans/, not contracts/ -- shift_ticket_lifecycle
+    above is a boundary (an ordered MUST list), not a command-level
+    procedure, so it's kept here per Spencer's direct instruction, but
+    the classification is noted rather than silently overridden"
 
 blocked_behavior:
   when_blocked:

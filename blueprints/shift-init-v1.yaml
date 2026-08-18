@@ -41,8 +41,11 @@ spec:
   ceremony:
     - step: shift_open
       actor: identity
-      description: "identity checks in for a new shift"
-      exit_condition: "check-in recorded"
+      description: "identity checks in for a new shift and opens the
+        shift ticket (shift_ticket_lifecycle step 1-3, see
+        contracts/shift-schedule-v1.contract.yaml)"
+      exit_condition: "check-in recorded; shift ticket opened, assigned,
+        labeled, checklist populated"
     - step: history_recap
       actor: identity
       description: "summarize the prior history_depth_n shifts before the last work day"
@@ -58,8 +61,14 @@ spec:
       exit_condition: "projection stated"
     - step: shift_close
       actor: identity
-      description: "identity checks out at the end of the shift"
-      exit_condition: "check-out recorded; metrics for the shift captured (schema: see prerequisites_not_yet_built)"
+      description: "identity checks out at the end of the shift, running
+        shift_ticket_lifecycle steps 4-7 (execute in GIT_GH_WORKFLOW.md
+        order, verify, close ticket, report to oper). If step 5 (verify)
+        finds no blockers, the identity may close and report early
+        rather than padding the shift"
+      exit_condition: "check-out recorded; shift ticket closed; metrics
+        for the shift captured (schema: see prerequisites_not_yet_built);
+        oper explicitly told in chat it can disengage"
 
   invariants:
     - "capsules_are_advisory: state_capsules/status_capsules content used in history_recap is optional, best-effort context per docs/STATE_CAPSULE_GUIDE.md ('NON-AUTHORITATIVE HISTORY... no workflow may REQUIRE reading anything in this directory') -- this ceremony must complete fully even with zero capsules present, and must never treat their absence as a blocking failure"
