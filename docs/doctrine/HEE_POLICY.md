@@ -148,6 +148,22 @@ git push origin --delete feature/merged-branch  # Remote
   merge — a commit SHA is permanent
   (`https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/07b4acd/docs/doctrine/HEE_POLICY.md`,
   not `.../blob/docs/real-links-policy/docs/doctrine/HEE_POLICY.md`)
+- **Scope note**: this requirement covers GitHub content and chat/agent
+  output — prose meant for a human or a general renderer. Structured
+  work files (contracts, blueprints, doctrine YAML) use the compact
+  `tick:`/`pr:` notation from §13 instead, not markdown links — see §13
+  for why
+
+**Ordered-Steps Requirement**:
+
+- Any field representing a sequence of steps (a ceremony, a procedure, a
+  checklist where order matters) MUST be a YAML sequence (a list), never
+  a map/object — a map has no defined iteration order, a list does.
+  Confirmed as existing practice (every `ceremony:`/`order:` field in
+  `blueprints/` and `contracts/` already uses list form) and made
+  explicit here per Spencer's review on
+  pr:223@human-execution-engine, rather than left as an unstated
+  convention
 
 ### 6. Command Safety Policy
 
@@ -343,6 +359,42 @@ effect of issue triage.
 - Cross-repo consistency should eventually be monitored automatically
   (diff label name+description across the org's repos, flag mismatches)
   — not built yet, tracked as an open item, not asserted as done
+
+### 13. Compact Reference Notation (structured work files)
+
+**Requirement**: contracts, blueprints, and doctrine YAML reference other
+issues/PRs with a compact `tick:`/`pr:` token, not a markdown link
+
+**Rationale**, per Spencer's review on pr:223@human-execution-engine: a full
+`[text](url)` markdown link is the right shape for prose meant for a human
+or a renderer (§5 already requires it there) — but embedded inside a
+structured YAML value it's just bloat: a long string competing with the
+actual content for a reader's attention, and not meaningfully more useful
+to tooling than a short token would be. Work files want a real k:v pair,
+not a link.
+
+**Notation**:
+
+- In-org issue: `tick:<N>@<repo>` — e.g. `tick:225@human-execution-engine`
+- In-org PR: `pr:<N>@<repo>` — e.g. `pr:223@human-execution-engine`
+- Cross-org: `tick:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
+  segment is present specifically when it isn't
+  `Twin-Cities-Open-Systems`
+- Commit: `commit:<sha>@<repo>`
+
+**Enforcement**:
+
+- Applies to `contracts/`, `blueprints/`, `hee/contracts/`, and any other
+  machine-parsed doctrine YAML — not to prose docs (`docs/`, `README.md`)
+  or chat/agent output, which stay under §5's real-link rule
+- The token is mechanically expandable to a full URL
+  (`tick:N@repo` → `https://github.com/Twin-Cities-Open-Systems/repo/issues/N`)
+  by any tooling that wants one — nothing is lost by using the short form
+  in the source file
+- This is a new convention as of 2026-08-18, applied first in
+  `blueprints/shift-init-v1.yaml` and its companion contracts — not yet
+  retrofitted across the rest of the repo, tracked as future cleanup, not
+  claimed as done everywhere
 
 ### HEE Rule Violation Documentation
 
