@@ -280,7 +280,37 @@ reason it doesn't
 - Close tickets as soon as their work is actually done — don't let
   finished or stale work sit open
 
+### 11. Quant-Ready Contract Metrics Policy
 
+**Requirement**: a contract that governs periodic or repeating activity
+(shifts, recurring ceremonies — anything with a real cadence) must define
+its recorded metrics with enough structure to build a standard OHLC+V
+(Open/High/Low/Close/Volume) bar per period, so the activity it governs
+can be monitored/charted the same way any other time series is
+
+**Scope — this is not a blanket requirement on every contract**: a
+one-time ceremony (e.g. `hiring-handshake-v1`) or a pure behavioral/
+boundary contract (e.g. `roles-trilateral-v1`) has no natural period and
+no price-like quantity to bar-chart. Forcing an OHLCV shape onto those
+would mean fabricating a number that reflects nothing real, which
+violates this same document's spirit of never inventing evidence. This
+policy applies where a real period and a real countable/gauge quantity
+already exist — not everywhere.
+
+**Enforcement, for contracts this does apply to**:
+
+- Name at least one **volume** quantity: a real countable unit of work
+  in the period (e.g. commits + PR/issue actions taken)
+- Name at least one **gauge** quantity: something real that can
+  meaningfully have an open/high/low/close within the period (e.g. an
+  open-backlog count sampled at period start/end, with high/low from any
+  additional samples taken during the period)
+- For each quantity, define: its unit, the period one bar covers, and
+  the concrete source of truth it's read from (a real API/log/file, not
+  invented)
+- If a quantity can't actually be measured for a given period, the bar
+  is marked incomplete/missing for that field — never backfilled with a
+  guess
 
 ### HEE Rule Violation Documentation
 
@@ -362,9 +392,13 @@ reason it doesn't
 
 - [HEE Definition](HEE.md)
 - ~~Prompting Rules (`../prompts/PROMPTING_RULES.md`)~~ — **deprecated**,
-  per Spencer 2026-08-18: never existed (`docs/prompts/` 404s), and the
-  ceremony it would have covered is being superseded by the
-  `shift-init-v1` blueprint instead. Removed rather than backfilled.
+  per Spencer 2026-08-18: the relative path resolves to `docs/prompts/`,
+  which 404s. A same-named file exists at the true repo root
+  (`prompts/PROMPTING_RULES.md`) but is an intentionally-empty CI
+  placeholder ("exists to satisfy CI documentation invariants... keep
+  CI green"), no real content either way. The ceremony this reference
+  would have covered is superseded by the `shift-init-v1` blueprint
+  instead. Removed rather than backfilled.
 - [State Capsule Guide](STATE_CAPSULE_GUIDE.md)
 - [Troubleshooting Guide](TROUBLESHOOTING.md)
 
