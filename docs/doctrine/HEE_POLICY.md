@@ -274,6 +274,11 @@ reason it doesn't
 - Apply correct labels from the repo's existing label set — never create
   a new label; if one is genuinely needed, file a ticket for it, assign
   that ticket to `@spencerbutler`, and report the request in chat
+- Every label in this repo carries a real `description` field (`gh api
+  .../labels`) — read it before applying the label, don't pick one off
+  the name alone. Two repos can use the same label name for different
+  scopes (e.g. `mib` reads differently in HEE vs. fleet-ops); the
+  description is the actual definition, the name is just a handle
 - Unassigned tickets/PRs must be the rare exception, not the default —
   each one needs a label that denotes why no owner is assigned (e.g.
   blocked on a decision, needs triage)
