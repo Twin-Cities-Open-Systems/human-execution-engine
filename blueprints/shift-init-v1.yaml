@@ -1,0 +1,74 @@
+# path: blueprints/shift-init-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: shift-init-v1
+  description: "Reusable per-shift bootstrap ceremony for a fleet identity: check in, recap the prior N shifts, ground in the current shift's context, project the next N shifts -- then check out. Formalizes the ad hoc 'INIT' prompting sequence from human-execution-engine#217 into a real blueprint, sourced from HEE's existing capsule primitives instead of inventing a new history mechanism."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: shift-init
+    artifact: blueprint
+  annotations:
+    inuid: "06f179c27f059151cc8f0d88c85fb0df444f9e610c5a5b8d379cc4b3ddc1896f"
+    inuid_seed: "hee-blueprint://tcos-fleet/shift-init/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencerbutler
+    transcriber: touchy-claude
+    updated-at: "2026-08-18T07:30:00Z"
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  actors:
+    identity: "the fleet identity running the shift (e.g. touchy-claude)"
+    orchestrator: "whoever/whatever starts the shift -- human or machine -- and supplies the ceremony's two params"
+
+  params:
+    history_depth_n:
+      description: "how many prior shifts to recap in the history step"
+      supplied_by: orchestrator
+    current_context_length:
+      description: "how much detail to produce in the current-context step"
+      supplied_by: orchestrator
+
+  ceremony:
+    - step: shift_open
+      actor: identity
+      description: "identity checks in for a new shift"
+      exit_condition: "check-in recorded"
+    - step: history_recap
+      actor: identity
+      description: "summarize the prior history_depth_n shifts before the last work day"
+      source: "docs/history/state_capsules/ and docs/history/status_capsules/, read best-effort"
+      exit_condition: "a recap is produced, or the identity explicitly states none was available -- never fabricated"
+    - step: current_context
+      actor: identity
+      description: "given the history recap, state what's relevant and germane to the current shift, at current_context_length"
+      exit_condition: "current context stated"
+    - step: future_projection
+      actor: identity
+      description: "using the history recap and current context, reason about where the next history_depth_n shifts are headed and how to prepare for it"
+      exit_condition: "projection stated"
+    - step: shift_close
+      actor: identity
+      description: "identity checks out at the end of the shift"
+      exit_condition: "check-out recorded; metrics for the shift captured (schema: see prerequisites_not_yet_built)"
+
+  invariants:
+    - "capsules_are_advisory: state_capsules/status_capsules content used in history_recap is optional, best-effort context per docs/STATE_CAPSULE_GUIDE.md ('NON-AUTHORITATIVE HISTORY... no workflow may REQUIRE reading anything in this directory') -- this ceremony must complete fully even with zero capsules present, and must never treat their absence as a blocking failure"
+    - "checkin_checkout_both_required: shift_open and shift_close are both mandatory -- a shift that opens without a matching close is incomplete, not just informally untidy"
+    - "params_supplied_externally: history_depth_n and current_context_length come from the orchestrator, not invented by the identity running the ceremony"
+    - "no_epoch_anchor_yet: this fleet is pre-hee-epoch as of this blueprint's authoring -- there is no fixed epoch-0 anchor to calculate a delta against yet (blocked on the root-key ceremony, fleet-ops#102/#154). history_recap must say so explicitly rather than fabricate an anchor"
+    - "no_fabrication: if no capsule, prior comment, or other real evidence exists for a given shift, the recap says so -- it does not invent plausible-sounding history"
+
+  open_design_tension:
+    description: "human-execution-engine#217's original INIT text frames history/current/future recaps as mandatory first-task content every shift -- close to authoritative. docs/STATE_CAPSULE_GUIDE.md is explicit that capsule content specifically must stay non-authoritative and optional. This blueprint resolves the tension by making the *ceremony steps* (shift_open, recap, current, projection, shift_close) mandatory, while treating capsule *content* as one optional input among several (git log, issue/PR history, memory) the identity draws on to fill those steps -- never a required gate. Flagged here rather than silently picking a side."
+
+  prerequisites_not_yet_built:
+    - "regular working hours contract -- CORE section of #217 calls this 'yet to be defined, will need contract'"
+    - "shift metrics schema -- CORE section calls this 'tbd'"
+    - "hee-epoch anchor itself -- blocked on epoch-0 (root-key ceremony), see fleet-ops#102 and fleet-ops#154"
+    - "this blueprint has not been run end-to-end yet -- status: proposed, same as hiring-handshake-v1 was before its first real use"
