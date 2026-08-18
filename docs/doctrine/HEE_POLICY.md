@@ -251,7 +251,25 @@ git push origin feature/work
 - Token efficiency should not compromise code quality
 - Process integrity takes precedence over token optimization
 
-## Violation Reporting
+### 10. Ticket & PR Ownership Policy
+
+**Requirement**: every issue and PR must have a clear owner or a labeled
+reason it doesn't
+
+**Enforcement**:
+
+- Self-assign any ticket or PR you create, unless explicitly directed
+  otherwise
+- Apply correct labels from the repo's existing label set — never create
+  a new label; if one is genuinely needed, file a ticket for it, assign
+  that ticket to `@spencerbutler`, and report the request in chat
+- Unassigned tickets/PRs must be the rare exception, not the default —
+  each one needs a label that denotes why no owner is assigned (e.g.
+  blocked on a decision, needs triage)
+- Close tickets as soon as their work is actually done — don't let
+  finished or stale work sit open
+
+
 
 ### HEE Rule Violation Documentation
 
