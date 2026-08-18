@@ -156,6 +156,18 @@ Braille (spatial/tactile), ASCII (visual/textual) — same underlying
 property (discrete, low-abstraction, pencil-or-hand-producible) across
 three different sensory channels.
 
+**QWERTY, proposed as a fourth — flagged as a real category difference,
+not just added to the pile**: Morse/Braille/ASCII are all encodings
+*of* information (a symbol represents a letter). QWERTY is a physical
+*input* layout (a key position maps to a letter) — closer to a cipher
+than a code, and its actual durability reason is historical inertia
+(mechanical typebar-jam avoidance in the 1870s, long since irrelevant,
+kept anyway) rather than the same "survives because it needs nothing
+but a person and a pencil" property the other three share. Real and
+worth including, but the honest version is: same *family*, different
+*mechanism* — not identical to the other three, and saying so is more
+useful than smoothing over the difference to keep the set clean.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
