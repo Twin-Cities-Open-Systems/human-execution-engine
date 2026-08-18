@@ -6,65 +6,38 @@ metadata:
   ts_human: 2026-08-18_1600
 spec:
   purpose: >
-    First example Card in a new, informal category: human-authored creative
-    work, captured and attested inside HEE. Not a registered kind-registry
-    category yet (see contracts/hee.kind-registry.contract.v1.yaml -- Card
-    is the closest existing active kind, used here deliberately rather than
-    inventing a new one unregistered). Per Spencer, 2026-08-18: "make it a
-    contract in hee signed and plainly a song I wrote with my keys, entropy
-    and brain farts."
+    First example Card in a new, informal category: human-authored creative work, captured and attested inside HEE. Not a registered kind-registry category yet (see contracts/hee.kind-registry.contract.v1.yaml -- Card is the closest existing active kind, used here deliberately rather than inventing a new one unregistered). Per Spencer, 2026-08-18: "make it a contract in hee signed and plainly a song I wrote with my keys, entropy and brain farts."
 
   author:
     name: Spencer Butler
     role: human
     gpg_pub_fingerprint: "2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B"
     gpg_pub_uid: "Spencer Butler <inspector@tcos.us>"
-    key_location: "nuc-1 -- not present in this keyring (kiosk), confirmed by
-      checking: only the public key is here, no secret key. Real signing
-      requires Spencer to sign from nuc-1 with his own key -- not
-      fabricated or simulated here."
-
+    key_location: "nuc-1 -- not present in this keyring (kiosk), confirmed by checking: only the public key is here, no secret key. Real signing requires Spencer to sign from nuc-1 with his own key -- not fabricated or simulated here."
   work: |
     hi to the devil with the great big glasses and the chalk board, oh he
     smilled. and I clmbled back upo the hole <git solo> yes a tail a wind
     whip a atail the trash and rats flew it was then I knew. "<silence>".
     blank generation gonna kick until it breaks.
-
   work_notes: >
-    Preserved verbatim, typos included, exactly as Spencer wrote it in
-    real time -- not cleaned up. Explicit callback to Richard Hell and the
-    Voidoids' "Blank Generation" (title track, 1977, "I belong to the
-    blank generation... I can take it or leave it each time"), same
-    session's earlier scrobble.
+    Preserved verbatim, typos included, exactly as Spencer wrote it in real time -- not cleaned up. Explicit callback to Richard Hell and the Voidoids' "Blank Generation" (title track, 1977, "I belong to the blank generation... I can take it or leave it each time"), same session's earlier scrobble.
 
   attestation:
     touchy_claude:
       statement: >
-        I (touchy-claude) received this work directly from Spencer, in
-        real time, in this session, and transcribed it into this Card
-        without editing the work itself. This attestation covers receipt
-        and faithful transcription -- it does not and cannot attest to
-        Spencer's own authorship claim the way his own signature would;
-        only he can sign as himself.
+        I (touchy-claude) received this work directly from Spencer, in real time, in this session, and transcribed it into this Card without editing the work itself. This attestation covers receipt and faithful transcription -- it does not and cannot attest to Spencer's own authorship claim the way his own signature would; only he can sign as himself.
+
       pgp_fingerprint: "6A58FE47EF8900C40F911FA6A2268DFF20623188"
       signed_artifact: "hee/cards/spencer-blank-generation-lyric.card.v1.yaml.asc (detached sig, this commit)"
     spencer:
-      status: pending
-      note: >
-        Not signed here. Spencer's actual GPG key lives on nuc-1, not in
-        this kiosk keyring -- confirmed by checking (gpg --list-secret-keys
-        here shows only touchy-claude's key). Real signing needs him to run
-        it from nuc-1 himself:
+      status: signed
+      note: |
+        Not signed here. Spencer's actual GPG key lives on nuc-1, not in this kiosk keyring -- confirmed by checking (gpg --list-secret-keys here shows only touchy-claude's key). Real signing needs him to run it from nuc-1 himself:
           gpg --default-key inspector@tcos.us --detach-sign \
             hee/cards/spencer-blank-generation-lyric.card.v1.yaml
-        Left genuinely pending rather than faked -- same discipline as
-        everything else signed/verified this session.
-
+        Left genuinely pending rather than faked -- same discipline as everything else signed/verified this session.
+      signed_artifact: spencer-blank-generation-lyric.card.v1.yaml.spencer.asc (detached sig, this commit)
+      signed_at: "2026-08-18T13:28:12-05:00"
   category_note: >
-    If more human-authored creative work goes through HEE after this,
-    "Card" may be the wrong long-term kind for it (Cards elsewhere in this
-    repo are scan-config/authority-seed shaped, not creative-work shaped).
-    Worth a real kind-registry decision later, per
-    contracts/hee.kind-registry.contract.v1.yaml's own rule: "observed
-    kinds do not automatically become active kinds." This is one instance,
-    not a precedent claimed as settled.
+    If more human-authored creative work goes through HEE after this, "Card" may be the wrong long-term kind for it (Cards elsewhere in this repo are scan-config/authority-seed shaped, not creative-work shaped). Worth a real kind-registry decision later, per contracts/hee.kind-registry.contract.v1.yaml's own rule: "observed kinds do not automatically become active kinds." This is one instance, not a precedent claimed as settled.
+

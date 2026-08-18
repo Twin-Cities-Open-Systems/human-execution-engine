@@ -1,0 +1,57 @@
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: hee-fleet-hosts
+  description: "Canonical FQDN/IP mapping for TCOS lab hosts, verified from live host state (not from anyone's spoken/typed recall). Other tools/contracts should point here instead of hardcoding an IP."
+  labels:
+    hee.object: "true"
+    hee.contract.type: fleet-inventory
+    hee.contract.phase: foundation
+    domain: fleet-ops
+    scope: infra
+    topic: host-inventory
+    artifact: contract
+  annotations:
+    inuid: "68c8c4ea-fca6-4755-bf12-25f48d9608f3"
+    updated-at: "2026-08-18T18:20:00Z"
+
+spec:
+  invariants:
+    - "Values here are verified against live host state at the time of the recipe below, not asserted from memory or conversation."
+    - "Any script/contract that needs a fleet host's IP or FQDN should reference this file, not a hardcoded literal."
+    - "A short alias (e.g. 'nuc-1' with no domain suffix) is recorded as-observed, not silently upgraded to a FQDN that isn't actually configured anywhere."
+
+  hosts:
+    kiosk.lab.tcos.us:
+      ipv4: "10.0.0.100"
+      fqdn: "kiosk.lab.tcos.us"
+      short_aliases: ["kiosk", "touchy"]
+      role: "kiosk display host, touchy-claude's primary running identity"
+      source: "hostname -f + /etc/hosts on kiosk itself"
+    nuc-1:
+      ipv4: "10.0.0.72"
+      fqdn: null
+      fqdn_note: "No 'nuc-1.lab.tcos.us' entry actually exists in kiosk's /etc/hosts or DNS -- only the short alias 'nuc-1' resolves. Recorded as-observed rather than assuming the FQDN exists to match kiosk's naming pattern."
+      short_aliases: ["nuc-1"]
+      role: "Spencer's own box; holds his GPG secret key (inspector@tcos.us), not present in kiosk's keyring"
+      source: "getent hosts + /etc/hosts on kiosk"
+
+  recipe:
+    description: "Exact commands run on kiosk on 2026-08-18 to produce the hosts block above -- rerun this to re-verify, don't hand-type IPs from memory."
+    commands:
+      - "hostname -f"
+      - "ip -4 addr show | grep -oP 'inet \\K[\\d.]+'"
+      - "getent hosts kiosk.lab kiosk.lab.tcos.us nuc-1.lab nuc-1.lab.tcos.us nuc-1"
+      - "cat /etc/hosts"
+
+  canonical_string:
+    format: "<host_key>=<ipv4>\\n, one line per host, sorted by host_key, trailing newline"
+    value: |
+      kiosk.lab.tcos.us=10.0.0.100
+      nuc-1=10.0.0.72
+    sha256: "8c0289494eac504856b5d272d69313d1bf2a51ef2cde18822eaeb0f3411d70bf"
+    verify: "printf 'kiosk.lab.tcos.us=10.0.0.100\\nnuc-1=10.0.0.72\\n' | sha256sum"
+
+  open_followups:
+    - "MT-logo-render recipe+image rendering of this contract (deterministic PNG/ANSI keyed on canonical_string.sha256) -- needs a from-source Rust build (cargo/rustc present on kiosk, no prebuilt release asset exists yet), tracked separately rather than jammed into this contract's first commit."
+    - "nuc-1.lab.tcos.us FQDN doesn't actually resolve anywhere -- decide whether it should exist, or stop implying it does in conversation."
