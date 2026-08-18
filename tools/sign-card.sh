@@ -71,8 +71,8 @@ if [[ "$before_json" != "$after_json" ]]; then
   exit 1
 fi
 
-gpg --armor --local-user "$key_id" --detach-sign --output "$sig_file" "$card_file"
-gpg --verify "$sig_file" "$card_file"
+gpg --batch --yes --armor --local-user "$key_id" --detach-sign --output "$sig_file" "$card_file"
+gpg --no-tty --batch --verify "$sig_file" "$card_file"
 
 echo
 echo "OK: ${attestor} signed and verified against the final file."
