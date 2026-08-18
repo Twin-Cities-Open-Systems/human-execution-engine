@@ -1,3 +1,4 @@
+# path: blueprints/plan/plan-create.blueprint.yaml
 # blueprints/plan/plan-create.blueprint.yaml
 
 apiVersion: hee/v1

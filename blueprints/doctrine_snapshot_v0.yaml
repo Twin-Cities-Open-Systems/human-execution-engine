@@ -1,3 +1,4 @@
+# path: blueprints/doctrine_snapshot_v0.yaml
 spec_version: 2
 name: HEE-Heavy-Doctrine
 description: Human Execution Engine Heavy Doctrine

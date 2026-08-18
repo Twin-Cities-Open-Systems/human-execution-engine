@@ -1,3 +1,4 @@
+# path: blueprints/prio_interrogator_v0.yaml
 version: 1.0
 name: HEE-Prio-Interrogator
 description: Priority Interrogator for Human Execution Engine
