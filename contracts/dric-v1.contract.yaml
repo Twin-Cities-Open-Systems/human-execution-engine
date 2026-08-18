@@ -1,3 +1,4 @@
+# path: contracts/dric-v1.contract.yaml
 version: dric-v1.01
 name: dric
 title: Design–Relay Interface Contract (DRIC-v1)

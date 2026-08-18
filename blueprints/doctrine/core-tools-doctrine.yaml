@@ -1,3 +1,4 @@
+# path: blueprints/doctrine/core-tools-doctrine.yaml
 blueprint:
   name: core-tools-doctrine
   schema-version: 1
