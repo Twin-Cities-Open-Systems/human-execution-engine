@@ -137,6 +137,17 @@ git push origin --delete feature/merged-branch  # Remote
 - Rationale: bare shorthand only auto-links inside GitHub's own
   same-org rendering — it renders as dead text everywhere else (chat
   transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+- A bare relative path (`docs/doctrine/HEE_POLICY.md`) is not a link
+  either — it is not resolvable outside a checkout of this repo. Any
+  reference to a repo file must be a full `https://github.com/...` URL
+- When the reference is to a *specific version* of a file under live
+  discussion (e.g. "see the section I just added"), link to the exact
+  commit SHA, not the branch name: `blob/<sha>/path`, not
+  `blob/<branch-name>/path`. Branch-name links silently drift as new
+  commits land on that branch, and 404 once the branch is deleted post-
+  merge — a commit SHA is permanent
+  (`https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/07b4acd/docs/doctrine/HEE_POLICY.md`,
+  not `.../blob/docs/real-links-policy/docs/doctrine/HEE_POLICY.md`)
 
 ### 6. Command Safety Policy
 
@@ -350,7 +361,10 @@ reason it doesn't
 ## References
 
 - [HEE Definition](HEE.md)
-- [Prompting Rules](../prompts/PROMPTING_RULES.md)
+- ~~Prompting Rules (`../prompts/PROMPTING_RULES.md`)~~ — **deprecated**,
+  per Spencer 2026-08-18: never existed (`docs/prompts/` 404s), and the
+  ceremony it would have covered is being superseded by the
+  `shift-init-v1` blueprint instead. Removed rather than backfilled.
 - [State Capsule Guide](STATE_CAPSULE_GUIDE.md)
 - [Troubleshooting Guide](TROUBLESHOOTING.md)
 
