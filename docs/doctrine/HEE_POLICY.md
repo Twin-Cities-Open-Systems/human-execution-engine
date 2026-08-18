@@ -125,6 +125,19 @@ git push origin --delete feature/merged-branch  # Remote
 - Design for smooth handoffs and team onboarding
 - Maintain consistency with existing documentation patterns
 
+**Real-Link Requirement**:
+
+- Bare shorthand references to issues/PRs (e.g. `fleet-ops#151`) are not
+  sufficient on their own — every reference to an issue, PR, or comment,
+  in both GitHub content (issue bodies, comments, PR descriptions) and
+  chat/agent output, must be a real markdown link to the actual URL
+  (`[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`)
+- The shorthand text is fine as the link label; the `(url)` is the
+  required part
+- Rationale: bare shorthand only auto-links inside GitHub's own
+  same-org rendering — it renders as dead text everywhere else (chat
+  transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+
 ### 6. Command Safety Policy
 
 **Requirement**: PRE-VALIDATION required for all commands
@@ -238,7 +251,25 @@ git push origin feature/work
 - Token efficiency should not compromise code quality
 - Process integrity takes precedence over token optimization
 
-## Violation Reporting
+### 10. Ticket & PR Ownership Policy
+
+**Requirement**: every issue and PR must have a clear owner or a labeled
+reason it doesn't
+
+**Enforcement**:
+
+- Self-assign any ticket or PR you create, unless explicitly directed
+  otherwise
+- Apply correct labels from the repo's existing label set — never create
+  a new label; if one is genuinely needed, file a ticket for it, assign
+  that ticket to `@spencerbutler`, and report the request in chat
+- Unassigned tickets/PRs must be the rare exception, not the default —
+  each one needs a label that denotes why no owner is assigned (e.g.
+  blocked on a decision, needs triage)
+- Close tickets as soon as their work is actually done — don't let
+  finished or stale work sit open
+
+
 
 ### HEE Rule Violation Documentation
 
