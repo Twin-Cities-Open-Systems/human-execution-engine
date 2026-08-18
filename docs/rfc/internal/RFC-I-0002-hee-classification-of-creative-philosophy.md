@@ -128,6 +128,24 @@ of theirs here (bits are copyrighted, and the classification doesn't
 need a quote to make its point) — this is about which edges of the
 duople they worked, not a transcript.
 
+## New pet thesis: HEE survives a return to "pencil age"
+
+Per Spencer: HEE (the actual preference, not just the project name)
+loves primitive, low-abstraction solutions specifically because they'd
+survive a civilizational reversion to a pencil-and-paper era — same
+throughline as the djb-tools and unikernel theses already in this repo
+(`hee/docs/djb-tools-to-replace-posfix-etc.md`,
+`hee/docs/stateless-lisp-unikernel.md`).
+
+**Named example, and a strong one**: Samuel Morse. Morse code is a
+discrete, binary-shaped (dot/dash), genuinely pencil-transmittable
+encoding, well over 150 years old, still in real active use today (ham
+radio, aviation emergency signaling) specifically *because* it needs no
+computer to generate, transmit, or decode. Same category as Shamir's
+Secret Sharing from earlier the same conversation: durability comes
+from not depending on any particular era's tooling, not from being
+clever with the tooling that happens to exist right now.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
