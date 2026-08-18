@@ -1,0 +1,68 @@
+# path: contracts/shift-metrics-v1.contract.yaml
+version: shift-metrics-v1
+name: shift-metrics
+title: Fleet Identity Shift Metrics Contract
+status: proposed
+
+intent:
+  - "require that every shift run under shift-schedule-v1 records a
+    minimal, honest set of metrics at shift_close"
+  - "stay deliberately thin -- tick:217@human-execution-engine's CORE section calls the metrics
+    schema itself tbd; this contract fixes the floor, not the final shape"
+
+actors:
+  identity:
+    must:
+      - record shift_open_at and shift_close_at timestamps for every shift
+      - record which tickets/PRs/commits the shift actually touched
+      - state explicitly when a metric can't be captured, rather than
+        omitting it silently
+    must_not:
+      - fabricate a metric value it didn't actually observe
+      - close a shift without recording the minimal set above
+
+boundaries:
+  governs: blueprints/shift-init-v1.yaml
+  minimal_fields:
+    - shift_open_at
+    - shift_close_at
+    - touched_refs
+  schema_status: "floor-level, extended below to satisfy HEE Policy
+    §11 (Quant-Ready Contract Metrics) -- shifts are a real period, so
+    this contract is in-scope for that policy, unlike a one-time
+    ceremony contract"
+
+ohlcv:
+  applies: "yes -- a shift is a real, bounded period (shift_open to
+    shift_close), so this contract is in §11's scope"
+  period: "one shift"
+  volume:
+    name: shift_actions_count
+    unit: "count of discrete git/gh actions taken during the shift
+      (commits + issue/PR creates, comments, label changes, closes)"
+    source: "git log for the shift's commit range, plus gh api
+      issues/pulls events for that time window -- read at shift_close,
+      not estimated"
+  gauge:
+    name: open_backlog_count
+    unit: "count of open issues/PRs assigned to the identity across its
+      tracked repos"
+    open: "sampled once at shift_open"
+    close: "sampled once at shift_close"
+    high: "max value across any samples taken during the shift --
+      best-effort; with only open/close samples, high = max(open, close)"
+    low: "min value across any samples taken during the shift --
+      best-effort; with only open/close samples, low = min(open, close)"
+    source: "gh api search or gh issue list --assignee <identity>
+      --state open, across the identity's tracked repos"
+  no_fabrication: "if a sample wasn't actually taken (e.g. only one of
+    open/close was captured), the missing value is recorded as missing,
+    not backfilled or interpolated"
+
+blocked_behavior:
+  when_blocked:
+    must:
+      - cite_governing_contract
+      - enumerate_missing_evidence_bounded
+    must_not:
+      - ack_only

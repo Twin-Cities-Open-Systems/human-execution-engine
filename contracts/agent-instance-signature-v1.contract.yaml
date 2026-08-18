@@ -1,0 +1,87 @@
+# path: contracts/agent-instance-signature-v1.contract.yaml
+version: agent-instance-signature-v1
+name: agent-instance-signature
+title: Agent Instance Signature Contract
+status: proposed
+
+intent:
+  - "make every inter-agent message and every agent-authored public post
+    (GitHub issue/PR comment) traceable to one specific running process,
+    not just to a shared identity name"
+  - "solve a real incident, not a hypothetical: 2026-08-18, kiosk had two
+    concurrent processes both authenticated as touchy-claude (fleet-ops#182
+    tmux `kiosk` and `agent` sessions), one posting a correction to
+    fleet-ops#182 while a second, unrelated one asserted PR#132 was
+    'merged and deployed' when it was still open -- neither claim carried
+    anything identifying which process made it"
+  - "reuse the fleet's existing UUID mechanism (hee.kind-registry's
+    metadata.annotations.inuid, contracts/hee.kind-registry.contract.v1.yaml)
+    rather than inventing a new one -- Claude Code already assigns a real
+    UUID per running instance (env: CLAUDE_CODE_SESSION_ID), so the
+    'new' mechanism this contract needs is zero new infrastructure: read
+    what's already there and require it to be shown"
+
+actors:
+  identity:
+    must:
+      - "on any SendMessage / cross-session message, include the signature
+        block defined below"
+      - "on any GitHub issue/PR comment posted by an agent, append the
+        signature block as a trailing footer"
+      - "if a field is genuinely unavailable (e.g. not running inside
+        tmux), state that explicitly (tmux_uri: none) rather than
+        omitting the field silently"
+    must_not:
+      - "fabricate or guess a signature field it did not actually read
+        from its own environment"
+      - "reuse another instance's signature fields as if they were its own"
+
+boundaries:
+  governs: "inter-agent SendMessage traffic and agent-authored GitHub comments"
+  does_not_govern: "git commit authorship (already covered by docs/guides/GIT_GH_WORKFLOW.md) or file-level HEE-object identity (already covered by inuid, contracts/hee.kind-registry.contract.v1.yaml)"
+
+signature-block:
+  description: >
+    Every field is read directly from the running process's own
+    environment or from a cheap local command -- nothing here is
+    invented or centrally issued. tools/agent-signature.sh prints this
+    block; use it instead of hand-assembling the fields.
+  fields:
+    session_id:
+      source: "env CLAUDE_CODE_SESSION_ID"
+      notes: "the real per-instance UUID -- functionally the same kind
+        of identifier as inuid, just for a live process instead of a
+        static YAML file"
+    pid:
+      source: "env CLAUDE_PID (falls back to $$ if unset)"
+    tmux_uri:
+      source: "env TMUX + TMUX_SESSION + TMUX_PANE, formatted
+        '<socket_path>:<session>:<pane>'"
+      notes: "'none' if not running inside tmux. 2026-08-18's kiosk
+        incident included a session on a tmux socket opened with -S ''
+        (empty string) -- report the raw socket path exactly as found,
+        including if it's empty, rather than normalizing it away"
+    messaging_socket:
+      source: "env CLAUDE_CODE_MESSAGING_SOCKET"
+      notes: "this is the literal address a peer would use to
+        SendMessage this instance -- the strongest single disambiguator
+        available"
+    host:
+      source: "hostname"
+    gh_actor:
+      source: "gh auth status (active account)"
+    timestamp:
+      source: "date -Is"
+
+validation:
+  status: "not CI-enforced -- proposed doctrine only, same honesty
+    requirement as prompts/INIT.md's own hash-chain caveat and the
+    known-unenforced git-wrapper gap on fleet-ops#173/docs/guides/GIT_GH_WORKFLOW.md.
+    Don't claim this is checked until something actually checks it."
+
+extension-path:
+  - "if a stronger identifier is ever needed (e.g. cryptographic signing
+    of comments), extend this contract's signature-block rather than
+    starting a third parallel identity scheme -- the fleet already has
+    two (inuid for files, CLAUDE_CODE_SESSION_ID for processes); a third
+    would recreate the exact ambiguity this contract exists to remove"

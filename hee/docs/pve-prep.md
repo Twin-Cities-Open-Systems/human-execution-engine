@@ -85,3 +85,8 @@ Would you like to write the raw assembly primitives or low-level C definitions r
 1. create (prefer extend script started previous, all of this will be done with hee `<job>` in future) the function to call the api and deliver our payloads
 1. extend the script to verify our payload landed as expected
 1. extend the script or plugin to deploy a test worker to nuc-1.lab.tcos.us, this will be our test. if this worker can snpwalk the new hee system, we have success.
+
+---
+
+see files that follow (check stat birth)
+* hee-steps.md

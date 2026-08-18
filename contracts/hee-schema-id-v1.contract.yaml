@@ -1,3 +1,4 @@
+# path: contracts/hee-schema-id-v1.contract.yaml
 version: hee-schema-id-v1
 name: hee-schema-id
 title: HEE Schema ID Contract (v1)
