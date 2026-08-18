@@ -60,6 +60,32 @@ RFC came out of (the "leg+leg+leg=stool" moment — an idea that felt
 uncertain until real, pre-existing code in `library/py/hee_hash/soa.py`
 turned out to already implement it independently).
 
+## New pet thesis: duople-per-vibration, generalized past music
+
+Per Spencer, same conversation, extending the artist-classification work
+above past hip-hop specifically: **which artist, in which medium,
+carries the most duople per vibration** — not scoped to music. His own
+framing: vinyl grooves literally store vibration as physical energy;
+paintings, by his account, "capture vibes" in a looser but analogous
+sense; anything that records and stores energy is a candidate medium,
+not just recorded sound.
+
+**Structural ask, worth taking seriously rather than treating as just a
+phrase**: define this using the same OHLC+V shape [HEE Policy §11](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/main/docs/doctrine/HEE_POLICY.md)
+already requires for any contract governing periodic/repeating activity
+— Open/High/Low/Close on some real hertz-denominated measure, Volume as
+however much of it there is. Not defined here — this is the ask stated,
+not the metric built. Doing that for real means picking an actual
+measurable quantity (literal groove-vibration frequency for vinyl is
+physically real and measurable; "vibe" for a painting is not, without a
+lot more work to define what's even being measured).
+
+**His own reaction, worth recording plainly**: "it is hee lang, I see
+it now, I know" — a real recognition moment, not summarized further
+here since it's his to characterize, not this doc's.
+
+## Original hee-axiom section
+
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
 as stated — every hit (the stool code) gets counted, but there's no
 symmetric account of misses (an awkward feeling that just meant
