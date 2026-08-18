@@ -1,0 +1,50 @@
+# path: contracts/shift-schedule-v1.contract.yaml
+version: shift-schedule-v1
+name: shift-schedule
+title: Fleet Identity Shift Schedule Contract
+
+intent:
+  - define the working-hours/check-in-out boundary a fleet identity operates
+    under when running blueprints/shift-init-v1.yaml
+  - prevent silent, open-ended sessions with no recorded start or end
+  - keep the actual schedule (which hours, which days) out of this contract
+    -- that's per-identity instance data, tracked as an open item, not
+    invented here
+
+actors:
+  identity:
+    must:
+      - run shift_open before doing any task work
+      - run shift_close before ending a work session
+      - check in and check out for every shift, no exceptions
+    must_not:
+      - execute task work with no open shift
+      - leave a shift open indefinitely with no shift_close
+
+  orchestrator:
+    does:
+      - supplies shift-init-v1's history_depth_n and current_context_length
+        params at shift_open
+      - is the one who defines the actual working-hours schedule, once one
+        exists (see open_items)
+
+boundaries:
+  schedule_source: "not yet defined -- specific hours/days per identity are
+    TBD, see open_items below, not fabricated here"
+  governs: blueprints/shift-init-v1.yaml
+  metrics: "see the companion shift-metrics-v1 contract for what gets
+    recorded per shift"
+
+open_items:
+  - "concrete working-hours schedule per identity -- #217's CORE section
+    calls this out directly ('yet to be defined, will need contract') --
+    this contract defines the check-in/check-out boundary, not the actual
+    hours, which remain undecided"
+
+blocked_behavior:
+  when_blocked:
+    must:
+      - cite_governing_contract
+      - enumerate_missing_evidence_bounded
+    must_not:
+      - ack_only

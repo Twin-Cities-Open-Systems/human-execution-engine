@@ -22,6 +22,10 @@ spec:
   schema-version: 1
   status: proposed
 
+  governed_by:
+    - contracts/shift-schedule-v1.contract.yaml
+    - contracts/shift-metrics-v1.contract.yaml
+
   actors:
     identity: "the fleet identity running the shift (e.g. touchy-claude)"
     orchestrator: "whoever/whatever starts the shift -- human or machine -- and supplies the ceremony's two params"
@@ -68,7 +72,7 @@ spec:
     description: "human-execution-engine#217's original INIT text frames history/current/future recaps as mandatory first-task content every shift -- close to authoritative. docs/STATE_CAPSULE_GUIDE.md is explicit that capsule content specifically must stay non-authoritative and optional. This blueprint resolves the tension by making the *ceremony steps* (shift_open, recap, current, projection, shift_close) mandatory, while treating capsule *content* as one optional input among several (git log, issue/PR history, memory) the identity draws on to fill those steps -- never a required gate. Flagged here rather than silently picking a side."
 
   prerequisites_not_yet_built:
-    - "regular working hours contract -- CORE section of #217 calls this 'yet to be defined, will need contract'"
-    - "shift metrics schema -- CORE section calls this 'tbd'"
+    - "DONE 2026-08-18: contracts/shift-schedule-v1.contract.yaml and contracts/shift-metrics-v1.contract.yaml drafted, both status: proposed -- neither ratified yet. shift-schedule-v1 fixes the check-in/check-out boundary but deliberately leaves the actual working-hours schedule per identity undefined (open item on that contract). shift-metrics-v1 fixes a minimal 3-field floor (open_at/close_at/touched_refs), not a full metrics schema"
+    - "the concrete working-hours schedule itself (which hours, which days, per identity) -- still genuinely undecided, tracked as an open item on shift-schedule-v1, not this blueprint"
     - "hee-epoch anchor itself -- blocked on epoch-0 (root-key ceremony), see fleet-ops#102 and fleet-ops#154"
     - "this blueprint has not been run end-to-end yet -- status: proposed, same as hiring-handshake-v1 was before its first real use"
