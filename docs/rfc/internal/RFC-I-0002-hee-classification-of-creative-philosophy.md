@@ -168,6 +168,20 @@ worth including, but the honest version is: same *family*, different
 *mechanism* — not identical to the other three, and saying so is more
 useful than smoothing over the difference to keep the set clean.
 
+## New pet thesis: infrastructure vs. content — Ian MacKaye / Dischord Records
+
+Per Spencer: Ian MacKaye (Minor Threat, Fugazi, Dischord Records
+co-founder) and Dischord itself are **"the wire of the Merkle," not
+HEE** — meaning the label is the connective infrastructure that let a
+whole scene of DIY bands link up and stay independent (real, documented
+Dischord practice: famously low, fixed album prices, bands keeping their
+own masters/rights), without Dischord itself making an explicit
+structural truth-claim the way KRS-One or RZA do. **Super influence and
+super HEE-adjacent, without being HEE itself** — the same
+infrastructure/content distinction as a Merkle tree's internal hash
+nodes versus its leaves: the wire connects the real content, it isn't
+the content making the claim.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
