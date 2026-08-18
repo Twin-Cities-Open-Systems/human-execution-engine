@@ -1,0 +1,59 @@
+{
+  "hee_version": "1.0",
+  "enterprise_pen": 66550,
+  "pools": [
+    {
+      "id": "hee-core-pool",
+      "comment": "Dedicated resource pool for HEE core infrastructure nodes"
+    }
+  ],
+  "access": {
+    "groups": [
+      {
+        "id": "hee-ops-group",
+        "comment": "Cryptographically bounded operator groups executing machine-ops"
+      }
+    ],
+    "roles": [
+      {
+        "id": "HEE-Operator",
+
+        "privileges": [
+          "VM.Audit",
+          "VM.Console",
+          "VM.PowerMgmt",
+          "Pool.Audit",
+          "SDN.Audit"
+        ]
+      }
+    ],
+    "acls": [
+      {
+        "path": "/pool/hee-core-pool",
+        "group": "hee-ops-group",
+        "role": "HEE-Operator"
+      }
+    ]
+  },
+  "sdn": {
+    "zones": [
+
+      {
+        "id": "heezone",
+        "type": "vlan",
+        "bridge": "vmbr0",
+        "comment": "Isolated L2 network underlay for wire-like HEE communication"
+      }
+    ],
+    "vnets": [
+      {
+        "id": "heevnet",
+        "zone": "heezone",
+        "tag": 650,
+        "comment": "Primary transit link segment for HEE Anchor-Worker duople packets"
+      }
+    ]
+  }
+}
+
+
