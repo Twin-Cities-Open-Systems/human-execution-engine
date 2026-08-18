@@ -50,15 +50,11 @@ spec:
       signed_artifact: "hee/cards/spencer-blank-generation-lyric.card.v1.yaml.asc (detached sig, this commit)"
     spencer:
       status: pending
-      note: >
-        Not signed here. Spencer's actual GPG key lives on nuc-1, not in
-        this kiosk keyring -- confirmed by checking (gpg --list-secret-keys
-        here shows only touchy-claude's key). Real signing needs him to run
-        it from nuc-1 himself:
+      note: |
+        Not signed here. Spencer's actual GPG key lives on nuc-1, not in this kiosk keyring -- confirmed by checking (gpg --list-secret-keys here shows only touchy-claude's key). Real signing needs him to run it from nuc-1 himself:
           gpg --default-key inspector@tcos.us --detach-sign \
             hee/cards/spencer-blank-generation-lyric.card.v1.yaml
-        Left genuinely pending rather than faked -- same discipline as
-        everything else signed/verified this session.
+        Left genuinely pending rather than faked -- same discipline as everything else signed/verified this session.
 
   category_note: >
     If more human-authored creative work goes through HEE after this,
