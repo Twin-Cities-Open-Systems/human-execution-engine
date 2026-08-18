@@ -146,6 +146,16 @@ Secret Sharing from earlier the same conversation: durability comes
 from not depending on any particular era's tooling, not from being
 clever with the tooling that happens to exist right now.
 
+**Same class, two more real examples**: ASCII art (obvious once said —
+plain characters, renders on any terminal or printer, no special
+hardware, older than most of the internet it now decorates) and Braille
+(already covered tonight on the [MT-logo-render#14](https://github.com/Twin-Cities-Open-Systems/MT-logo-render/issues/14)
+side — a physical 6-dot bitmask, tactile, needs no display at all).
+Three examples now in the same category: Morse (temporal/electrical),
+Braille (spatial/tactile), ASCII (visual/textual) — same underlying
+property (discrete, low-abstraction, pencil-or-hand-producible) across
+three different sensory channels.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
