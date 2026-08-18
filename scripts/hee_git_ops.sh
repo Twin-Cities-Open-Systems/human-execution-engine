@@ -29,7 +29,7 @@ is_protected_branch() {
   [[ "$b" == "main" || "$b" == "master" ]]
 }
 
-require_liveness_for_mutation() {
+require_liveness() {
   local act_flag="${1:-}"
   local mode="${HEE_TOOL_MODE:-}"
   if [[ "$act_flag" != "1" ]]; then
@@ -38,6 +38,10 @@ require_liveness_for_mutation() {
   if [[ "$mode" != "ACT" ]]; then
     blocker "Mutation requested but HEE_TOOL_MODE!=ACT (got: '${mode:-<unset>}'). Refusing."
   fi
+}
+
+require_liveness_for_mutation() {
+  require_liveness "${1:-}"
   if is_protected_branch; then
     blocker "Mutation requested on protected branch '$(current_branch)'. Refusing."
   fi
@@ -183,14 +187,24 @@ git commit "$@"
     ;;
 
   checkout)
-    # checkout can be read-only-ish, but it mutates HEAD; treat as mutation.
-    require_liveness_for_mutation "$act"
+    # Same reasoning as branch-create: the thing actually worth blocking
+    # is committing/pushing *while on* main, not leaving main to go work
+    # on a branch -- gating checkout on the *current* (pre-checkout)
+    # branch made it impossible to ever check out away from main, which
+    # is the one time this op is actually needed. commit/push below still
+    # fully enforce the real protection.
+    require_liveness "$act"
     [[ $# -eq 1 ]] || die "checkout requires <branch>"
     git checkout "$1"
     ;;
 
   branch-create)
-    require_liveness_for_mutation "$act"
+    # Deliberately not require_liveness_for_mutation: `git branch <name>`
+    # from main doesn't touch main or move HEAD, and main is the only
+    # place you'd ever actually call this from -- the protected-branch
+    # gate made this op impossible to use for its own purpose. Found
+    # 2026-08-18 on first real use (contracts/agent-instance-signature-v1).
+    require_liveness "$act"
     [[ $# -eq 1 ]] || die "branch-create requires <name>"
     git branch "$1"
     ;;
