@@ -301,6 +301,26 @@ reason it doesn't
 - Close tickets as soon as their work is actually done — don't let
   finished or stale work sit open
 
+**Known platform constraint: GitHub blocks self-approval, always**
+
+A PR's own author can never approve it — this is a GitHub platform rule,
+not a repo setting, and it is not configurable. It applies **per
+account**, not per running process: two different `touchy-claude`
+sessions on the same box are, to GitHub, the same author, so one cannot
+approve the other's PR either. Confirmed live twice: `human-execution-engine#194`/`#220`
+needed Spencer's approval before this was named explicitly, and again on
+`fleet-ops#183` (2026-08-18) when a second concurrent `touchy-claude`
+session tried and failed to approve a PR opened by the first.
+
+**Practical implication**: a PR needs either Spencer's review, or review
+from a genuinely different GitHub identity (a different bot/service
+account) — same-account concurrent agent sessions do not satisfy a
+review requirement, no matter how independently they actually worked.
+See `contracts/agent-instance-signature-v1.contract.yaml` for the
+related problem this same day surfaced (same-account sessions are also
+indistinguishable from each other in issue/PR comments without a
+signature block).
+
 ### 11. Quant-Ready Contract Metrics Policy
 
 **Requirement**: a contract that governs periodic or repeating activity
