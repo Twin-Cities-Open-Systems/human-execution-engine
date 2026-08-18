@@ -98,6 +98,22 @@ fits the same shape differently: angular, deliberately "wrong"-sounding
 voicings that are internally consistent by his own harmonic logic, not
 random dissonance.
 
+**Rankings refined, same conversation**: Monk moved to top 3. Miles
+Davis's *Miles Smiles* (1967, the second great quintet — Shorter,
+Hancock, Carter, Williams) enters the top 20. *South Park* and *Family
+Guy* added, in that order, extending the medium once more to satirical
+TV animation.
+
+**The actual mechanism named, across every medium in one line**: "the
+lyrics are the wires, not the coppers and gold" — then generalized
+immediately, per medium: paint is the wires (not the frame); the bridge
+is the wires (not the production polish). In each case, the real
+carrier of the signal is the structural/compositional element doing the
+actual work, not the surface material that looks valuable. This is the
+clearest one-line statement of what "duople per vibration" is actually
+trying to measure in this whole thesis — worth treating as close to the
+real definition, not just another good line.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
