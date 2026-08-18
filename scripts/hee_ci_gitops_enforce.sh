@@ -8,7 +8,7 @@ set -euo pipefail
 # - CI workflow includes enforcement step
 # - YAML path header naming enforcement
 #
-# This script should be invoked by .github/workflows/ci.yml.
+# This script should be invoked by .github/workflows/ci.yaml.
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -16,7 +16,7 @@ req_files=(
   "docs/guides/GIT_GH_WORKFLOW.md"
   "scripts/hee_git_ops.sh"
   "scripts/hee_ci_gitops_enforce.sh"
-  ".github/workflows/ci.yml"
+  ".github/workflows/ci.yaml"
 )
 
 for f in "${req_files[@]}"; do
@@ -52,7 +52,7 @@ for p in "${prompt_files[@]}"; do
 done
 
 # CI workflow must call this enforcement script.
-grep -q "scripts/hee_ci_gitops_enforce.sh" .github/workflows/ci.yml \
+grep -q "scripts/hee_ci_gitops_enforce.sh" .github/workflows/ci.yaml \
   || fail "ci.yml must run scripts/hee_ci_gitops_enforce.sh"
 
 # Enforce YAML path header naming compliance
@@ -83,7 +83,7 @@ fi
 
 # Optional: doc-path alignment guardrail (presence check, not correctness of content)
 # We only enforce that the workflow is no longer hard-coded to legacy docs/*.md.
-if grep -qE "(^|[^/])docs/\*\.md" .github/workflows/ci.yml; then
+if grep -qE "(^|[^/])docs/\*\.md" .github/workflows/ci.yaml; then
   fail "ci.yml still references legacy 'docs/*.md' glob; update to docs/doctrine/* and docs/specs/* (and/or docs/guides/*)."
 fi
 
