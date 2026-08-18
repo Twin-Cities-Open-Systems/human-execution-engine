@@ -26,9 +26,37 @@ boundaries:
     - shift_open_at
     - shift_close_at
     - touched_refs
-  schema_status: "TBD -- this is the floor, not a final schema. A richer
-    metrics schema (velocity, blockers-hit, whatever else Spencer wants
-    tracked) is future work, not invented here"
+  schema_status: "floor-level, extended below to satisfy HEE Policy
+    §11 (Quant-Ready Contract Metrics) -- shifts are a real period, so
+    this contract is in-scope for that policy, unlike a one-time
+    ceremony contract"
+
+ohlcv:
+  applies: "yes -- a shift is a real, bounded period (shift_open to
+    shift_close), so this contract is in §11's scope"
+  period: "one shift"
+  volume:
+    name: shift_actions_count
+    unit: "count of discrete git/gh actions taken during the shift
+      (commits + issue/PR creates, comments, label changes, closes)"
+    source: "git log for the shift's commit range, plus gh api
+      issues/pulls events for that time window -- read at shift_close,
+      not estimated"
+  gauge:
+    name: open_backlog_count
+    unit: "count of open issues/PRs assigned to the identity across its
+      tracked repos"
+    open: "sampled once at shift_open"
+    close: "sampled once at shift_close"
+    high: "max value across any samples taken during the shift --
+      best-effort; with only open/close samples, high = max(open, close)"
+    low: "min value across any samples taken during the shift --
+      best-effort; with only open/close samples, low = min(open, close)"
+    source: "gh api search or gh issue list --assignee <identity>
+      --state open, across the identity's tracked repos"
+  no_fabrication: "if a sample wasn't actually taken (e.g. only one of
+    open/close was captured), the missing value is recorded as missing,
+    not backfilled or interpolated"
 
 blocked_behavior:
   when_blocked:
