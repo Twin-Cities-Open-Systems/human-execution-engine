@@ -114,6 +114,20 @@ clearest one-line statement of what "duople per vibration" is actually
 trying to measure in this whole thesis — worth treating as close to the
 real definition, not just another good line.
 
+## New pet thesis: comedians, ranked by funny/true duople
+
+Per Spencer: comedy has its own two-edge duople — a bit can land on
+**funny**, on **true**, or both. Real comedians who hit both edges at
+once, named to the top of this ranking: **Redd Foxx**, **George
+Carlin**, **Lenny Bruce**. All three built careers specifically on
+saying true, often taboo things and getting away with it because it was
+also genuinely funny — Carlin's whole later career and Bruce's actual
+obscenity trials are real, documented history of the "true" edge
+costing something, not just a bit. Not reproducing any actual material
+of theirs here (bits are copyrighted, and the classification doesn't
+need a quote to make its point) — this is about which edges of the
+duople they worked, not a transcript.
+
 ## Original hee-axiom section
 
 **Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
