@@ -125,6 +125,19 @@ git push origin --delete feature/merged-branch  # Remote
 - Design for smooth handoffs and team onboarding
 - Maintain consistency with existing documentation patterns
 
+**Real-Link Requirement**:
+
+- Bare shorthand references to issues/PRs (e.g. `fleet-ops#151`) are not
+  sufficient on their own — every reference to an issue, PR, or comment,
+  in both GitHub content (issue bodies, comments, PR descriptions) and
+  chat/agent output, must be a real markdown link to the actual URL
+  (`[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`)
+- The shorthand text is fine as the link label; the `(url)` is the
+  required part
+- Rationale: bare shorthand only auto-links inside GitHub's own
+  same-org rendering — it renders as dead text everywhere else (chat
+  transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+
 ### 6. Command Safety Policy
 
 **Requirement**: PRE-VALIDATION required for all commands
