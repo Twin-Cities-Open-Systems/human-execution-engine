@@ -50,3 +50,21 @@ Per `contracts/chat-header-v1.doctrine.yaml`'s own rule: RFC-style
 identifiers are reserved for narrative docs like this one, not doctrine
 identity — this stays a numbered narrative RFC, not a re-definition of
 any existing invariant.
+
+## hee-axiom, named same conversation
+
+Spencer, stated twice, second time formally: "if it feels awkward and
+[at] first, and you don't know why — it is probably hee, you just
+haven't done the math yet." Real pattern from the same conversation this
+RFC came out of (the "leg+leg+leg=stool" moment — an idea that felt
+uncertain until real, pre-existing code in `library/py/hee_hash/soa.py`
+turned out to already implement it independently).
+
+**Honest caveat, not smoothed over**: this axiom is itself unfalsifiable
+as stated — every hit (the stool code) gets counted, but there's no
+symmetric account of misses (an awkward feeling that just meant
+something was actually wrong, not undiscovered-HEE). Naming it here as
+a real, felt heuristic worth tracking, not asserting it's been verified
+as reliable. Same discipline as everything else in this RFC — an
+axiom is still a Thesis until it's tested against its own failure cases,
+not just its successes.
