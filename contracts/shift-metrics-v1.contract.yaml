@@ -2,11 +2,12 @@
 version: shift-metrics-v1
 name: shift-metrics
 title: Fleet Identity Shift Metrics Contract
+status: proposed
 
 intent:
   - "require that every shift run under shift-schedule-v1 records a
     minimal, honest set of metrics at shift_close"
-  - "stay deliberately thin -- #217's CORE section calls the metrics
+  - "stay deliberately thin -- tick:217@human-execution-engine's CORE section calls the metrics
     schema itself tbd; this contract fixes the floor, not the final shape"
 
 actors:
