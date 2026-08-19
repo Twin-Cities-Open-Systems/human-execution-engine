@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/schemas/hee/v1/skill.schema.json",
+  "title": "HEE Skill",
+  "description": "A reusable, invokable PROCEDURE -- narrower and more operational than a BlueprintDoctrine (which is principle-level doctrine, not steps). A Skill captures something that was actually done, worked, and is worth doing the same way again. Requires kind=Skill.",
+  "allOf": [
+    { "$ref": "hee-object.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "Skill" },
+        "spec": {
+          "type": "object",
+          "required": ["trigger", "procedure", "verification", "evidence"],
+          "properties": {
+            "trigger": {
+              "type": "string",
+              "description": "When/why this skill applies -- the situation that should make someone reach for it."
+            },
+            "prerequisites": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "What must already be true/available before running this skill."
+            },
+            "procedure": {
+              "type": "object",
+              "description": "The actual steps. 'script' for an executable procedure with a real path in this repo; 'steps' for a manual/human procedure. At least one required.",
+              "anyOf": [
+                { "required": ["script"] },
+                { "required": ["steps"] }
+              ],
+              "properties": {
+                "script": {
+                  "type": "string",
+                  "description": "Repo-relative path to an executable implementing this skill."
+                },
+                "steps": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            },
+            "verification": {
+              "type": "string",
+              "description": "How to confirm the skill actually worked -- not just that it ran."
+            },
+            "evidence": {
+              "type": "string",
+              "description": "Pointer to real, disk-backed proof this skill was actually used successfully -- a commit, PR, or .hee/evidence/ path. Not a claim, a reference."
+            },
+            "known_gaps": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
