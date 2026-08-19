@@ -19,7 +19,7 @@ def _sha256_hex(data: bytes) -> str:
 
 
 def _host_short(hostf: str) -> str:
-    # nuc-1.crooked.tcos.us -> nuc-1 ; flippy.localdomain -> flippy
+    # host1.example.com -> host1 ; host2.localdomain -> host2
     return hostf.split(".", 1)[0].strip() if hostf else ""
 
 

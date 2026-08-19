@@ -1,7 +1,6 @@
 # Human Execution Engine (HEE)
 
-[![CI/CD Pipeline](https://github.com/spencerbutler/human-execution-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/spencerbutler/human-execution-engine/actions/workflows/ci.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI/CD Pipeline](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/actions/workflows/ci.yaml)
 
 HEE is a **doctrine-first execution framework** for coordinating human reasoning, machine assistance, and automation **without ambiguity**.
 
@@ -138,6 +137,29 @@ It does this by:
 The goal is simple:
 turn intent into **verifiable outcomes** without relying on memory, vibes,
 or fragile UI state.
+
+---
+
+## Thesis vs. Duople
+
+HEE has two content states, and the difference matters:
+
+- **Thesis** — a claim to be stress-tested. Might be a raw idea, a pasted
+  external chat, a proposal, a first draft. Not wrong to have around, but
+  not yet trustworthy on its own say-so.
+- **Duople** — a claim that's been reduced to its binary-predicate,
+  HEE-native form: verifiable, evaluable, evidence-backed. This is what
+  "correct by construction" (above) actually looks like once a Thesis
+  has done its work.
+
+**Why it matters**: HEE's whole premise is that unverifiable claims are
+the failure mode to design against (see "Why HEE" above). A Thesis that
+gets treated as settled just because it sounds confident or has been
+repeated is exactly the "works on my machine" problem this project
+exists to prevent — just in prose form instead of code. Labeling
+something Thesis is not a demotion; it's an honest status. It graduates
+to Duople on evidence, not on iteration count or how long it's been
+argued.
 
 ---
 

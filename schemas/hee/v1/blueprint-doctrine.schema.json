@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/schemas/hee/v1/blueprint-doctrine.schema.json",
+  "$id": "https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/schemas/hee/v1/blueprint-doctrine.schema.json",
   "title": "HEE Blueprint Doctrine (v1)",
   "description": "Kubernetes-style object for doctrine blueprints.",
   "type": "object",

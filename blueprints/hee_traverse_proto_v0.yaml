@@ -1,3 +1,4 @@
+# path: blueprints/hee_traverse_proto_v0.yaml
 version: 1.0
 name: HEE-Traverse-Proto
 description: Human Execution Engine Traverse Protocol

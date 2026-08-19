@@ -1,3 +1,4 @@
+# path: blueprints/index.yaml
 version: 1.0
 name: HEE-Relay-Office-Index
 description: Minimal index for relay-office snapshot pills
