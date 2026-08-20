@@ -1,0 +1,16 @@
+# Governance-sensitive paths -- changes here need real review, not a
+# self-merge. This is the "who can verify what" gate: an approval here
+# is the actual stamp, not a chat back-and-forth.
+#
+# Repo-wide policy: all PRs require 2 approving reviews (branch
+# protection). For these specific paths, both listed owners are the
+# realistic reviewer pool, so requiring 2 approvals here functionally
+# means human (spencer) + security officer (claudesec-j1), not just
+# any two people -- GitHub CODEOWNERS doesn't have a native "exactly
+# one from each role" primitive, this is the practical equivalent
+# given who's actually available to review.
+
+/hee/contracts/    @spencerbutler @claudesec-j1
+/blueprints/       @spencerbutler @claudesec-j1
+/schemas/          @spencerbutler @claudesec-j1
+/hee/registries/   @spencerbutler @claudesec-j1
