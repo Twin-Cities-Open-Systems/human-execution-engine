@@ -1,0 +1,130 @@
+## The Sanitized Production MIB Specification (PEN: 66550)
+Below is the formal, compiled ASN.1 MIB taxonomy mapping structure initialized under your officially assigned private enterprise arc. All structural elements have been sanitized of explicit vendor text, replacing them with generic, low-abstraction ownership primitives (ownerOrg), while leveraging the active registration 66550 as the concrete production example.
+
+OWNER-ROOT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Unsigned32, Integer32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+ownerRootMIB MODULE-IDENTITY
+    LAST-UPDATED "202608172200Z" -- August 17, 2026
+    ORGANIZATION "Twin Cities Open Systems - Operations LLC"
+    CONTACT-INFO
+        "HEE Core Architecture Registry
+         Email: inspector@tcos.us
+         Registry URL: https://www.iana.org/assignments/enterprise-numbers/"
+    DESCRIPTION
+        "Sanitized Core Management Information Base for the HEE architecture.
+         Maps deterministic operational variables directly to the private enterprise
+         registration node 66550 without vendor-specific software abstractions."
+    REVISION "202608172200Z"
+    DESCRIPTION
+        "Production release substituting active registered PEN 66550 matrix."
+    ::= { enterprises 66550 } -- Official IANA Private Enterprise Number Allocation
+
+-- ============================================================================
+-- Core System Taxonomy Branches
+-- ============================================================================
+
+ownerFleetOrg         OBJECT IDENTIFIER ::= { ownerRootMIB 1 }
+ownerHumanRightsOrg   OBJECT IDENTIFIER ::= { ownerRootMIB 2 }
+ownerMachineRightsOrg OBJECT IDENTIFIER ::= { ownerRootMIB 3 }
+
+-- ============================================================================
+-- Machine Rights Enforcement Sub-Tree
+-- ============================================================================
+
+ownerAgentIdentities  OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 1 }
+ownerAgentContracts   OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 2 }
+ownerTemporalAnchor   OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 3 }
+
+heeEpoch OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The absolute 0-second universal epoch baseline marker used by the unikernel
+         gate to algorithmically compute time-window expirations across the fleet."
+    ::= { ownerTemporalAnchor 1 }
+
+contractTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ContractEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Live matrix reflecting cryptographically verified cross-signing agreements."
+    ::= { ownerAgentContracts 1 }
+
+contractEntry OBJECT-TYPE
+    SYNTAX      ContractEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A singular authority validation record mapping permissions to hardware."
+    INDEX       { contractIndex }
+    ::= { contractTable 1 }
+
+ContractEntry ::= SEQUENCE {
+    contractIndex           Integer32,
+    contractFileName        DisplayString,
+    contractType            INTEGER,
+    contractTimeExpires     Unsigned32,
+    contractStatus          INTEGER
+}
+
+contractIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Primary look-up index matching the local kernel verification sequence."
+    ::= { contractEntry 1 }
+
+contractFileName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (1..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The literal file target matching the repository configuration payload."
+    ::= { contractEntry 2 }
+
+contractType OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    peerToPeer(1),
+                    manyToMachine(2),
+                    seniorAuthority(3)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The hierarchical scope of authority granted to the digital execution gate."
+    ::= { contractEntry 3 }
+
+contractTimeExpires OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Absolute tick limit relative to the heeEpoch. If the current tick counter
+         exceeds this value, authorization boundaries instantly collapse to 0."
+    ::= { contractEntry 4 }
+
+contractStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    active(1),
+                    expired(2),
+                    revoked(3),
+                    compromised(4)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The operational state variable of the contract. Administrative scripts
+         can write a value of revoked(3) to instantly lock out peripheral execution."
+    ::= { contractEntry 5 }
+
+END
+
