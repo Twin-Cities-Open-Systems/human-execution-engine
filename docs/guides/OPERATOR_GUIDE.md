@@ -2,9 +2,9 @@
 
 Canonical, org-wide reference for how a **human** runs the org's
 scripts and tools directly. Distinct from
-[`GIT_GH_WORKFLOW.md`](GIT_GH_WORKFLOW.md), which governs what *agents*
-may do with raw git/gh commands — this doc is about you, at a keyboard,
-running things yourself.
+[`GIT_GH_WORKFLOW.md`](GIT_GH_WORKFLOW.md), which governs what
+**machines** may do with raw git/gh commands — this doc is about you,
+at a keyboard, running things yourself.
 
 Every other repo's own operator doc (where it has one) should be short
 and link back here for shared conventions instead of repeating them.
