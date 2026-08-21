@@ -15,6 +15,41 @@ full taxonomy and the writing rules (terminology, linking, no
 unfilled placeholders) that apply across all of them, not just this
 one.
 
+## `oper` always means human
+
+**"Oper" (operator) is always a human.** Not a shorthand for "agent,"
+not ambiguous — if it's a human running something themselves, it's an
+oper concern and belongs in a doc like this one. If it's automation
+(CI/CD, a hook, anything a human would rather not do by hand), it's a
+**machine** tool — but a machine tool's own documentation must still
+say clearly **when** (not *if*) an oper needs to run it, change it, or
+evaluate its output by hand. Machine tools aren't exempt from being
+human-legible at the seams; they just don't have oper as their
+*primary* audience.
+
+## Prefer `gh`, fall back to raw API, then contribute back
+
+When working in a GitHub org: use the `gh` CLI first. Only reach for
+`gh api` raw calls when `gh` genuinely doesn't expose what's needed
+(e.g. `addSubIssue` has no CLI subcommand as of this writing — see the
+epic-creation example below). Once a raw-API workaround has been
+dogfooded and proven for real, the follow-up is a feature PR to
+wherever that capability actually belongs — for org-internal tooling,
+that's this org's own repos (per the `.github`-vs-`hee` split above);
+for a genuine `gh` CLI gap, that's upstream to `gh` itself. Don't leave
+a proven raw-API workaround as the permanent answer when a real fix
+is possible.
+
+## Research first, before touching any external `ORG`
+
+Before interacting with any `ORG` (see
+[`EXTERNAL_SURVEY_METHODOLOGY.md`](EXTERNAL_SURVEY_METHODOLOGY.md)) —
+survey and understand it first, HEE-first: does what we're about to do
+comply with our own doctrine/policy? If maintaining HEE policy isn't
+possible while interacting with that `ORG`, the answer is to document
+that conflict and move on — **never** compromise our own principles to
+make an external interaction work.
+
 ## Prerequisites
 
 - `gh` CLI, authenticated (`gh auth status` to check)
