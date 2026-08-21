@@ -20,6 +20,11 @@ should work the same. Contrast with
 whose whole job *is* GitHub-org administration — GitHub-coupling is
 correct and expected there, not here.
 
+`tcos/.github` and `tcos/hee` are the two centers *of this org*.
+Anything outside both is an **`ORG`** — see
+[`guides/EXTERNAL_SURVEY_METHODOLOGY.md`](guides/EXTERNAL_SURVEY_METHODOLOGY.md#term-org)
+for that term and how an `ORG` gets compared against `ORG:tcos/hee`.
+
 ## Documentation types
 
 Each type has its own real audience, authority level, and (where one

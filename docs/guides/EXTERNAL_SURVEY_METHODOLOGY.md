@@ -8,6 +8,28 @@ org/repo surveyor (`.github/bin/survey-github-org.py`) — the methodology
 itself isn't GitHub-specific and should extend to other information
 stores (a different git host, a wiki, a docs site) later.
 
+## Term: `ORG`
+
+Per `DOCUMENTATION_POLICY.md`'s platform-independence note,
+`Twin-Cities-Open-Systems` runs on two distinct centers:
+`tcos/.github` (GitHub-platform tooling, TCOS-specific) and `tcos/hee`
+(this repo — doctrine/glossary/policy, framed generically enough for
+*any* organization that adopts HEE as its governance framework, not
+just TCOS).
+
+**`ORG`** is the term for whatever's being surveyed — any
+organization or information store that exists **outside both**
+`tcos/.github` and `tcos/hee`. The point of surveying an `ORG` isn't
+just cataloging it; it's asking how it compares against
+`ORG:tcos/hee` — does this org have something functionally equivalent
+to a doctrine/glossary/policy source, a platform-config layer, real
+governance signals — using the same five dimensions either way. This
+is why dimension 2 (governance & documentation) in the survey checks
+for a `.github`-equivalent specifically: it's checking for the
+platform-config layer's counterpart, with the deeper question being
+whether an `ORG` has anything resembling a `tcos/hee`-equivalent at
+all.
+
 ## The five dimensions
 
 Any external store gets sized up along the same five axes, regardless
