@@ -63,6 +63,11 @@ Narrative documentation only:
 RFC-style identifiers are **reserved exclusively** for `docs/rfc/`.
 RFCs may reference doctrine identities but MUST NOT define them.
 
+See [`docs/DOCUMENTATION_POLICY.md`](docs/DOCUMENTATION_POLICY.md) for
+the full documentation-type taxonomy (doctrine, contracts, cards/pills,
+RFCs, operator guides, and more) and the writing rules that apply
+across all of them.
+
 ### Operational directories (e.g. `ci/`, `ops/`, scripts)
 
 Automation and enforcement that **consume doctrine**.
