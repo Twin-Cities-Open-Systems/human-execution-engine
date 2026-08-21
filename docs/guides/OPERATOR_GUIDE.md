@@ -9,6 +9,12 @@ at a keyboard, running things yourself.
 Every other repo's own operator doc (where it has one) should be short
 and link back here for shared conventions instead of repeating them.
 
+This is one of several documentation *types* — see
+[`../DOCUMENTATION_POLICY.md`](../DOCUMENTATION_POLICY.md) for the
+full taxonomy and the writing rules (terminology, linking, no
+unfilled placeholders) that apply across all of them, not just this
+one.
+
 ## Prerequisites
 
 - `gh` CLI, authenticated (`gh auth status` to check)
