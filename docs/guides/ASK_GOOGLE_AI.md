@@ -30,14 +30,30 @@ this doc was written: **no shared conversations, no shared context,
   from X," "when did Y actually happen based on my inbox," "what
   GitHub activity happened that I might have missed."
 
-### Google Search "AI Mode" — search-only, no account link
+### Google Search "AI Mode" — real account link, with an opt-out toggle
+
+**Correction (2026-08-21, same day this doc first shipped)**: an
+earlier version of this doc said AI Mode has "no Gmail/account access."
+That was wrong — Spencer corrected it directly. AI Mode **does** have a
+real account link, capable of using personal data the same way
+`gemini.google.com` does, and it carries an **explicit, optional toggle
+to turn personal-data use off**. "Search-only, no account" was never
+accurate; "account-linked by default, with a real off switch" is.
+Making this distinction very clear per Spencer's explicit instruction —
+conflating "no account link" with "not currently using my data" would
+misrepresent how the tool actually works.
 
 - Lives inside google.com search, not a separate product page — distinct
   from `gemini.google.com` even though both are branded "Gemini"-family
-  underneath.
-- No Gmail/account access — general web-search-grounded analysis only.
+  underneath, and both can be account-linked.
+- With the personal-data toggle on: same class of access as
+  `gemini.google.com` for Spencer's own account. With it off: general
+  web-search-grounded analysis only, no personal data used for that
+  session.
 - Free tier, used opportunistically for "more analytical" questions when
-  a human isn't around to ask directly.
+  a human isn't around to ask directly — regardless of which toggle
+  state, this is still the tool for general analysis rather than a
+  Gmail-history lookup specifically.
 - **Real, already-shipped provenance**: `.github/bin/manage-org-repos.sh`
   was originally built this way — through AI Mode, not authored by an
   HEE identity. Worth knowing when reading that script's real bugs
@@ -64,13 +80,26 @@ the specifics once checked against the actual `fleet-ops#201` issue text
 and `glass-browser`'s real config. Close enough to be useful as a
 pointer, not accurate enough to restate as fact without checking.
 
+## Idea: Gmail as a durable veracity-check store
+
+Spencer's framing (2026-08-21): `spencerunderground@gmail.com` is a
+real, durable, backed-up-per-Google's-own-retention-policy record
+spanning almost 20 years. Any fact answerable by breaking a question
+down into its binary sub-answers ("did X happen," "was Y sent," "when
+did Z occur") is potentially derivable from that history via
+`gemini.google.com` — a real ground-truth source to check a claim
+against, not just a convenience search. Not yet built into any tool or
+workflow — recorded here as a real, stated idea, not yet exercised
+beyond the Squarespace-invite discovery that prompted this whole doc.
+
 ## Using this well
 
 1. Ask the right tool for the right thing — personal/Gmail history to
-   `gemini.google.com`, general analysis to AI Mode. Getting this
-   backwards either fails silently (AI Mode has nothing to search) or
-   wastes the Gmail-connected tool's real advantage on a question it
-   didn't need.
+   `gemini.google.com`, general analysis to AI Mode. If AI Mode's
+   personal-data toggle is off, getting this backwards fails silently
+   (nothing to search); if it's on, AI Mode can do Gmail-style lookups
+   too, but that's still not its normal job — check which toggle state
+   is active before assuming either way.
 2. Treat the answer as a lead, not a verified fact — cross-check
    anything it claims about this org's actual state (an issue number,
    a file's contents, a workflow's current config) against the real
