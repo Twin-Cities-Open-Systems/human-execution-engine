@@ -8,6 +8,18 @@ repeat of. This doc has two jobs: name the real types of documentation
 that exist here, and state the writing rules that apply across all of
 them regardless of type.
 
+**Platform independence.** This repo is the root source of HEE
+doctrine/information — not GitHub config. It currently lives on GitHub
+and plenty of its live workflow (contracts, issues, cross-repo links)
+uses GitHub's own machinery, but that's a hosting choice, not a
+property of the doctrine itself. If HEE moved to a different git
+server (see [fleet-ops#155](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/155),
+the tracked on-prem plan), the actual content and rules in this repo
+should work the same. Contrast with
+[`.github`](https://github.com/Twin-Cities-Open-Systems/.github),
+whose whole job *is* GitHub-org administration — GitHub-coupling is
+correct and expected there, not here.
+
 ## Documentation types
 
 Each type has its own real audience, authority level, and (where one
