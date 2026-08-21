@@ -21,7 +21,9 @@ the top of a session, per `prompts/INIT.md`.
    Policy §5. Structured work files (contracts/blueprints/doctrine YAML)
    use the compact `tick:N@repo`/`pr:N@repo` notation instead — §13.
 4. **Self-assign what you create, label from the existing set, never
-   invent a new label** — HEE Policy §10/§12.
+   invent a new label. Only the opener closes/merges their own ticket
+   or PR** — explicit exception only, never inferred — **HEE Policy
+   §10/§12.**
 5. **When in doubt, stop and ask rather than guess** — same invariant as
    below, restated because it's the one that matters most.
 
