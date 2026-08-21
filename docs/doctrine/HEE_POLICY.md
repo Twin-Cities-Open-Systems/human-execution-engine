@@ -605,6 +605,38 @@ that regardless of tier.
   (`sha256sum -c`, confirmed `OK`); no detached signature is published
   for this project, noted as a real limitation rather than assumed away
 
+### 16. GNU Tools Preference Policy
+
+**Requirement**: target GNU coreutils/GNU tool syntax and behavior by
+default in any script or one-liner — not BSD, not another
+implementation — whenever a real choice exists
+
+**Rationale**: real, well-known, meaningfully different flag syntax
+between implementations, not a style preference. Named example, per
+Spencer directly ("I have that scar"): `sed -i` — GNU allows
+`sed -i 's/x/y/' file` with no argument to `-i`; BSD/macOS `sed`
+*requires* an explicit suffix argument, even an empty one:
+`sed -i '' 's/x/y/' file`. Same-looking invocation, silently different
+(and on BSD, error-if-omitted) behavior — a genuinely common
+cross-platform scripting trap, not a hypothetical one. Same underlying
+hazard class as `date -d` (GNU) vs. `date -v`/`-j -f` (BSD), already
+load-bearing throughout this session's epoch-0 work.
+
+**Enforcement**:
+
+- Default to GNU syntax/behavior in every script and one-liner — this
+  already matches the real environment (Debian-family Linux throughout,
+  including the kiosk reinstall's planned OS) so it's mostly already
+  true in practice, now explicit rather than incidental
+- When a tool's GNU vs. BSD behavior genuinely differs in a
+  security-or-correctness-relevant way (like `sed -i`'s required-vs-
+  optional suffix argument), don't just pick GNU silently — a comment
+  noting the divergence is worth it, the same way `date -d` usage
+  already gets called out when it matters
+- If a script genuinely needs to run on a non-GNU target (a real BSD
+  box, macOS), that's an explicit, stated exception at the point of
+  use — not a default anyone should assume without saying so
+
 ### HEE Rule Violation Documentation
 
 **Process**:
