@@ -119,3 +119,37 @@ The successful completion status of an HEE operation. Indicates all requirements
 ### FAIL
 
 The failure status of an HEE operation. Indicates one or more hard gates failed or requirements could not be met. Requires investigation and corrective action.
+
+### Disk / permanent state of record
+
+HEE's preferred store for anything that needs to be a durable, checked-in
+fact: a file on disk in a git repo, not a remote/hosted service. "Disk"
+isn't literally "spinning rust" — it means the checked-in, versioned file
+itself is the source of truth, wherever it physically lives. This holds at
+every scale HEE runs at, hyperscaler to the pencil: the same technical
+declaration must stay correct whether a cloud unikernel gate reads it or a
+human reads it printed on paper. Added per
+[human-execution-engine#245](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/245)'s
+review of `hee/docs/hee-66550.mib`'s `contractFileName`.
+
+### Leg / duople / stool (`hee-soa.v1`)
+
+HEE's real identity-anchoring hash chain, implemented in
+[`library/py/hee_hash/soa.py`](../../library/py/hee_hash/soa.py). Three
+**legs** (`leg.home_fs`, `leg.repo_fs`, `leg.user`) each hash independently;
+the three legs combine pairwise into three **duoples**; the three duoples
+combine into one **stool** root hash — 3 legs and a seat make a stool. The
+expected stool hash is meant to live at `~/.hee/index/_.yaml#hee-soa.v1`
+(the **SOA anchor**) — as of this writing, no identity in the fleet has that
+file yet (see [`prompts/INIT.md`](../../prompts/INIT.md)), so the chain is
+implemented and real, but not yet load-bearing anywhere. Don't claim
+otherwise until it is.
+
+### Long value, short display
+
+The codebase's existing convention for showing a long value (a 64-char
+sha256 stool hash, a long path) in a UI or log without truncating
+ambiguously: keep both ends, elide the middle — `f"{v[:8]}..{v[-8:]}"`.
+See `_show()` in `library/py/hee_hash/soa.py`. Not yet applied outside the
+hash chain; noted here so a future field (e.g. `contractFileName`) can reuse
+it deliberately instead of reinventing a truncation scheme.

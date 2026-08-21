@@ -4,22 +4,55 @@ Below is the formal, compiled ASN.1 MIB taxonomy mapping structure initialized u
 OWNER-ROOT-MIB DEFINITIONS ::= BEGIN
 
 IMPORTS
-    MODULE-IDENTITY, OBJECT-TYPE, Unsigned32, Integer32, enterprises
+    MODULE-IDENTITY, OBJECT-TYPE, Unsigned32, Integer32, Counter64, enterprises
         FROM SNMPv2-SMI
     DisplayString
         FROM SNMPv2-TC;
+-- Every import above is used at least once below. Counter64 is the addition
+-- for this revision (see heeEpoch) -- SNMPv2-SMI has no floating-point type;
+-- Counter64 (64-bit unsigned) is the widest primitive it defines.
 
 ownerRootMIB MODULE-IDENTITY
-    LAST-UPDATED "202608172200Z" -- August 17, 2026
+    LAST-UPDATED "202608212000Z" -- August 21, 2026
     ORGANIZATION "Twin Cities Open Systems - Operations LLC"
     CONTACT-INFO
         "HEE Core Architecture Registry
          Email: inspector@tcos.us
-         Registry URL: https://www.iana.org/assignments/enterprise-numbers/"
+         Registry URL: https://www.iana.org/assignments/enterprise-numbers/
+         SOA anchor (per identity): ~/.hee/index/_.yaml#hee-soa.v1
+         Honest status: this anchor file does not yet exist for any fleet
+         identity (see prompts/INIT.md) -- it is a pointer, not yet a
+         hash-verified root. This MIB's ownerTemporalAnchor subtree
+         (heeEpoch, below) and this CONTACT-INFO deliberately point at the
+         same external anchor, so authority here is circular by design:
+         neither is the root: the yaml is, once it exists."
     DESCRIPTION
         "Sanitized Core Management Information Base for the HEE architecture.
          Maps deterministic operational variables directly to the private enterprise
-         registration node 66550 without vendor-specific software abstractions."
+         registration node 66550 without vendor-specific software abstractions.
+
+         Dogfooded example, not just an internal spec: this MIB is written to
+         double as a worked reference any ORG can copy to formalize its own
+         ownership taxonomy (see docs/guides/EXTERNAL_SURVEY_METHODOLOGY.md's
+         ORG term, DOCUMENTATION_POLICY.md's dogfood/document/example rule).
+
+         The load-bearing example is the hee-soa.v1 hash chain implemented in
+         library/py/hee_hash/soa.py: 3 legs (leg.home_fs, leg.repo_fs,
+         leg.user) hash independently, combine pairwise into 3 duoples, and
+         those 3 duoples combine into 1 stool root hash -- 3 legs and a seat
+         make a stool. No fleet identity has completed this chain yet
+         (~/.hee/index/_.yaml is absent everywhere, confirmed in
+         prompts/INIT.md); contractTable below is where that chain's live
+         state should eventually surface as a queryable object, once real."
+    REVISION "202608212000Z"
+    DESCRIPTION
+        "Widened heeEpoch and contractTimeExpires from Unsigned32 to Counter64
+         (Unsigned32 seconds-since-epoch hits the Y2106 problem in ~80 years
+         from this fleet's real epoch baseline of 1789640000, per
+         hee-core-system-architecture-manifest-66550.md -- nowhere near a
+         1000-year design horizon). Added the CONTACT-INFO SOA-anchor
+         circularity and the explicit dogfooding statement above. Tightened
+         contractFileName's DESCRIPTION. Per PR #245 review thread."
     REVISION "202608172200Z"
     DESCRIPTION
         "Production release substituting active registered PEN 66550 matrix."
@@ -42,12 +75,22 @@ ownerAgentContracts   OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 2 }
 ownerTemporalAnchor   OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 3 }
 
 heeEpoch OBJECT-TYPE
-    SYNTAX      Unsigned32
+    SYNTAX      Counter64
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
         "The absolute 0-second universal epoch baseline marker used by the unikernel
-         gate to algorithmically compute time-window expirations across the fleet."
+         gate to algorithmically compute time-window expirations across the fleet.
+         Counter64, not Unsigned32: this fleet's real epoch baseline is already
+         1789640000 (hee-core-system-architecture-manifest-66550.md's unikernel
+         boot arg) -- Unsigned32 seconds-since-epoch wraps at 2^32-1
+         (~2106 AD, the general Unix Y2106 problem), roughly 80 years of
+         runway from that baseline. Counter64 gives ~584 billion years,
+         which comfortably clears a 1000-year design horizon.
+         Deliberate deviation from strict SNMP Counter64 semantics (a
+         monotonic wrapping counter, not a timestamp) -- flagged here rather
+         than silently repurposed, because SNMPv2-SMI defines no other
+         64-bit unsigned primitive and no floating-point type at all."
     ::= { ownerTemporalAnchor 1 }
 
 contractTable OBJECT-TYPE
@@ -71,7 +114,7 @@ ContractEntry ::= SEQUENCE {
     contractIndex           Integer32,
     contractFileName        DisplayString,
     contractType            INTEGER,
-    contractTimeExpires     Unsigned32,
+    contractTimeExpires     Counter64,
     contractStatus          INTEGER
 }
 
@@ -80,7 +123,11 @@ contractIndex OBJECT-TYPE
     MAX-ACCESS  not-accessible
     STATUS      current
     DESCRIPTION
-        "Primary look-up index matching the local kernel verification sequence."
+        "Primary look-up index matching the local kernel verification sequence.
+         Left at Integer32 deliberately, unlike heeEpoch/contractTimeExpires:
+         this counts contracts, not seconds -- ~2.1 billion signed contracts
+         is not a realistic fleet-scale ceiling the way ~80 years of runway
+         is for a timestamp. Open to revisiting if that reasoning is wrong."
     ::= { contractEntry 1 }
 
 contractFileName OBJECT-TYPE
@@ -88,7 +135,26 @@ contractFileName OBJECT-TYPE
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
-        "The literal file target matching the repository configuration payload."
+        "Repo-relative path to the contract file, e.g.
+         contracts/shift-schedule-v1.contract.yaml -- matches how contracts
+         are already referenced elsewhere in this repo (see prompts/INIT.md).
+         Not a hash, not an absolute path, not a URL: a path a human or
+         machine can open directly from the repo root.
+
+         'permanent state of record' here means the checked-in file on disk
+         in this git repo -- disk over any remote/hosted store, per HEE's
+         general preference (see docs/oper/README.md's Glossary, disk entry,
+         added alongside this revision). That preference holds at every
+         scale HEE runs at, hyperscaler to the pencil: the same declaration
+         must stay correct whether it is read by a cloud unikernel gate or
+         a human with the file printed on paper.
+
+         128-char SIZE bound is the stored field's own limit, not a display
+         limit -- for showing a long value in a UI/log, the existing
+         convention in this codebase is truncate-with-both-ends
+         (library/py/hee_hash/soa.py's _show(): first 8 + '..' + last 8
+         chars), used today for the 64-char stool hash. Worth the same
+         Glossary entry once this field's real usage proves it needs one."
     ::= { contractEntry 2 }
 
 contractType OBJECT-TYPE
@@ -100,16 +166,24 @@ contractType OBJECT-TYPE
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
-        "The hierarchical scope of authority granted to the digital execution gate."
+        "The hierarchical scope of authority granted to the digital execution gate.
+         Open item, not resolved by this revision: whether this enum should
+         instead reflect which stool-hash leg pairing (home_fs/repo_fs/user,
+         see library/py/hee_hash/soa.py) authorized the contract, rather than
+         a hand-picked hierarchy. Needs real iteration, flagged per PR #245
+         review rather than decided unilaterally here."
     ::= { contractEntry 3 }
 
 contractTimeExpires OBJECT-TYPE
-    SYNTAX      Unsigned32
+    SYNTAX      Counter64
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
         "Absolute tick limit relative to the heeEpoch. If the current tick counter
-         exceeds this value, authorization boundaries instantly collapse to 0."
+         exceeds this value, authorization boundaries instantly collapse to 0.
+         Widened to Counter64 to match heeEpoch above -- a narrower type here
+         would just move the Y2106-class ceiling problem into the comparison
+         instead of removing it."
     ::= { contractEntry 4 }
 
 contractStatus OBJECT-TYPE
@@ -125,6 +199,15 @@ contractStatus OBJECT-TYPE
         "The operational state variable of the contract. Administrative scripts
          can write a value of revoked(3) to instantly lock out peripheral execution."
     ::= { contractEntry 5 }
+
+-- Scale note (open, not resolved by this revision): the goal per PR #245
+-- review is a taxonomy that stays "hee" from the most grandiose ORG down to
+-- the smallest -- comparable to ORG:tcos/hee at any scale (see
+-- docs/guides/EXTERNAL_SURVEY_METHODOLOGY.md's ORG term). Counter64 above
+-- buys expandability past Unsigned32 for time; nothing here yet proves the
+-- taxonomy itself (ownerFleetOrg / ownerHumanRightsOrg /
+-- ownerMachineRightsOrg) actually scales down to something atom-sized.
+-- Needs a real small-scale worked example before calling that claim proven.
 
 END
 
