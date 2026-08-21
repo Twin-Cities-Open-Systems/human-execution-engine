@@ -24,6 +24,13 @@ the top of a session, per `prompts/INIT.md`.
    invent a new label** — HEE Policy §10/§12.
 5. **When in doubt, stop and ask rather than guess** — same invariant as
    below, restated because it's the one that matters most.
+6. **When a doc's stated design contradicts real precedent already in
+   use, surface both sides and reconcile — don't silently pick one.**
+   Review why the old standard existed and why current practice
+   diverged, reason toward the best of both rather than a unilateral
+   pick, let the human decide on a genuine tradeoff, then canonize the
+   resolution back into the doc with its reasoning kept — HEE Policy
+   §14.
 
 ## Authority Invariants
 
