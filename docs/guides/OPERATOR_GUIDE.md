@@ -151,3 +151,12 @@ If a task genuinely can't be done without clicking through a browser
 a `glass-ops` issue so it's tracked toward `glass-browser` (Playwright
 automation) actually closing the gap, rather than staying a one-off
 manual chore forever. See `glass-ops#7` for a real example.
+
+## Asking Google's AI tools a question
+
+Another oper-only tool worth knowing about, alongside the above: see
+[`ASK_GOOGLE_AI.md`](ASK_GOOGLE_AI.md) for `gemini.google.com` (Gmail-
+connected, real personal-history search) vs. Google Search "AI Mode"
+(search-only, no account link) — confirmed unrelated products despite
+both being "Google AI," with a real example of the former surfacing
+something neither Spencer nor touchy otherwise knew was pending.
