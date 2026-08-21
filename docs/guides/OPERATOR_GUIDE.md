@@ -157,6 +157,20 @@ manual chore forever. See `glass-ops#7` for a real example.
 Another oper-only tool worth knowing about, alongside the above: see
 [`ASK_GOOGLE_AI.md`](ASK_GOOGLE_AI.md) for `gemini.google.com` (Gmail-
 connected, real personal-history search) vs. Google Search "AI Mode"
-(search-only, no account link) — confirmed unrelated products despite
-both being "Google AI," with a real example of the former surfacing
-something neither Spencer nor touchy otherwise knew was pending.
+(also real account-linkable, with an opt-out toggle for personal data)
+— confirmed unrelated products despite both being "Google AI," with a
+real example of the former surfacing something neither Spencer nor
+touchy otherwise knew was pending.
+
+## Setting up an unprivileged human user
+
+When a human gets their own account on a box a `touchy`-class identity
+administers, see
+[`UNPRIVILEGED_USER_SETUP.md`](UNPRIVILEGED_USER_SETUP.md) — the real
+procedure (clean-slate removal of any broken partial setup, `adduser`
+not `useradd`, minimal verified group membership, dogfooding the
+`dotfiles` repo for real shell config, SSH key auth) and the authority
+model behind it: unprivileged by default, fine-grained privileges
+granted only when the machine identity reasons a specific task needs
+them — not the human ceding real control, since physical/electrical
+authority still sits with them regardless of OS-level group membership.
