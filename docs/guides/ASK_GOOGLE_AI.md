@@ -19,13 +19,23 @@ this doc was written: **no shared conversations, no shared context,
   held since ~2007 — real, deep history to search).
 - Can search/read his Gmail directly, on request — this is the load-
   bearing capability, not general knowledge.
-- Real force-multiplier: GitHub notifications are set to maximum and
-  forwarded from `inspector@tcos.us` (and its aliases) into this Gmail
-  account. That means this tool can already see the org's *entire*
-  GitHub notification history — issues, PR reviews, comments, everything
-  — for free, without any GitHub API call. Worth exploiting deliberately
-  (Spencer's words: "let's exploit the fuck out of that"), not just as
-  an incidental side effect.
+- Real force-multiplier, and a **general pattern, not GitHub-specific**:
+  GitHub notifications are set to maximum and forwarded from
+  `inspector@tcos.us` (and its aliases) into this Gmail account, so this
+  tool can already see the org's *entire* GitHub notification history —
+  issues, PR reviews, comments, everything — for free, without any
+  GitHub API call. Worth exploiting deliberately (Spencer's words:
+  "let's exploit the fuck out of that"), not just as an incidental side
+  effect. Extended 2026-08-21 to X (Twitter): Spencer turned on full
+  email notifications there too (new notifications, DMs, posts emailed
+  to him, activity digests), same reasoning — any platform whose
+  notifications land in this Gmail becomes searchable ground truth
+  through it. His own framing: "using the system to build a system that
+  no longer needs the old system" — bootstrapping independence from a
+  platform using the platform's own export mechanism, same spirit as
+  [`fleet-ops#208`](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/208)'s
+  dependency-removal epic, just applied to information sources instead
+  of tool binaries.
 - Use for: anything that requires *his* history — "did I get an email
   from X," "when did Y actually happen based on my inbox," "what
   GitHub activity happened that I might have missed."
