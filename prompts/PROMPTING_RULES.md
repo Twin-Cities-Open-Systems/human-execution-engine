@@ -24,6 +24,10 @@ the top of a session, per `prompts/INIT.md`.
    invent a new label** — HEE Policy §10/§12.
 5. **When in doubt, stop and ask rather than guess** — same invariant as
    below, restated because it's the one that matters most.
+6. **Target GNU tool syntax/behavior by default**, not BSD or another
+   implementation — real, not stylistic (`sed -i` requires an explicit
+   suffix argument on BSD, optional on GNU; `date -d` is GNU-only) —
+   HEE Policy's GNU Tools Preference Policy.
 
 ## Authority Invariants
 
