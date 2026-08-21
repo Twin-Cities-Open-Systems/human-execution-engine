@@ -37,6 +37,7 @@ it's the index, and the home for rules that cut across all of them.
 | **READMEs** | repo root | Real, repo-specific entry point — never generic boilerplate (see the incident above) | — |
 | **Postmortems** | `docs/postmortems/` | Record of what happened and why, after the fact | — |
 | **State Capsules** | per `STATE_CAPSULE_GUIDE.md` | Point-in-time session/state snapshot | [`docs/STATE_CAPSULE_GUIDE.md`](STATE_CAPSULE_GUIDE.md) |
+| **Examples / dogfood output** | `examples/` (repo root), in whichever repo the tool lives in | A real run's actual output, not a hand-written mockup | This policy, §6 below |
 
 If you're not sure which type something is, that's a signal to
 figure it out before writing it — a Card written as if it were
@@ -91,3 +92,27 @@ A Card is not a Contract. An RFC referencing a doctrine identity is
 not the same as an RFC defining one. A narrative doc in `docs/`
 explaining a decision is not the decision itself. Keep the type's
 real authority level in mind while writing, not just its format.
+
+### 6. New operator-facing tools: dogfood it, document it, save the example
+
+Every time a new tool or process is built for a human to interact
+with directly, three things happen **while building it, not after**:
+
+1. **Dogfood it for real** — run it against real data before calling
+   it done. Not a synthetic/mocked example; a real invocation against
+   something real. (Three real instances already: `create-epic.py`
+   creating the actual operator-docs epic, `manage-project.py`
+   dumping/applying the real Roadmap project, `survey-github-org.py`
+   surveying the real `pallets` org — the last one caught a real bug
+   in the process that a synthetic test wouldn't have hit.)
+2. **Document it** — a real operator doc entry (this repo's
+   `OPERATOR_GUIDE.md` for central conventions, or the tool's own
+   repo's `OPERATORS.md`), not just a `--help` string.
+3. **Save the dogfood run as a real example**, in `examples/` at the
+   root of **the repo the tool actually lives in** (its intended
+   audience's repo — a `.github`-hosted tool's example lives in
+   `.github`, not here), named `examples/<tool-name>-<case>.<ext>`.
+   Referenced from that repo's operator doc, next to the tool's own
+   entry. This is a real run's real output, not a hand-written mockup
+   of what output might look like — the whole point is that a human
+   reading it can trust it reflects what actually happens.
