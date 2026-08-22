@@ -44,7 +44,7 @@ specifically so a secret can never be piped in from a chat/log/script
 and end up recorded somewhere it shouldn't.
 
 -seal -genfrom (generated) instead pulls real words out of real media
-dialogue matching TERM (ripgrep against /mnt/nuc1-pool/media by
+dialogue matching TERM (ripgrep against /var/local/hee-corpus by
 default), joins -blocks of them (default 4) into a real passphrase --
 still never printed, same as the typed path.
 
@@ -64,7 +64,7 @@ from pathlib import Path
 
 DEFAULT_DIR = ".hee/secrets"
 ENV_VAR = "HEE_CRED_PASS"
-DEFAULT_CORPUS_ROOT = "/mnt/nuc1-pool/media"
+DEFAULT_CORPUS_ROOT = "/var/local/hee-corpus"
 WORD_RE = re.compile(r"[A-Za-z']{3,}")
 
 
