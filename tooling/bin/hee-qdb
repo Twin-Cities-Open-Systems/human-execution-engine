@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""hee-qdb -- quote search, deliberately not centralized.
+
+Real trigger (2026-08-22): "so I can /qdb that shit in irc and get the
+quote from you however, not central, is chaos entropy tool too."
+
+No single canonical quote database -- searches across multiple real
+source files (each just a plain-language Markdown "Quotes" section,
+the format already established in fleet-ops/WHO-WE-ARE.md), and picks
+randomly among real matches rather than deterministically returning
+the first one. Adding a new source is adding a path, not migrating
+data into one authority.
+
+Real seed quote this was dogfooded against, from
+fleet-ops/WHO-WE-ARE.md's Quotes section: touchy-claude (2026-08-18),
+on why information-theoretic security holds up over time: "because
+it's not a search problem, it's a counting fact."
+
+Source format expected (one bullet per quote):
+  - **speaker** (date), context: "the actual quote text"
+
+Usage:
+  hee-qdb -search TERM [-source PATH ...]
+"""
+import argparse
+import random
+import re
+import sys
+from pathlib import Path
+
+QUOTE_RE = re.compile(
+    r"-\s+\*\*(?P<speaker>[^*]+)\*\*\s*\(?(?P<date>[^),]*)\)?[^:]*:\s*\"(?P<quote>[^\"]+)\"",
+    re.MULTILINE,
+)
+
+DEFAULT_SOURCES = [
+    "WHO-WE-ARE.md",
+]
+
+
+def extract_quotes(path: Path):
+    if not path.exists():
+        return []
+    text = path.read_text(errors="replace")
+    return [
+        {"speaker": m.group("speaker").strip(), "date": m.group("date").strip(), "quote": re.sub(r"\s+", " ", m.group("quote")).strip(), "source": str(path)}
+        for m in QUOTE_RE.finditer(text)
+    ]
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-qdb")
+    ap.add_argument("-search", required=True, metavar="TERM")
+    ap.add_argument("-source", action="append", default=None, metavar="PATH")
+    args = ap.parse_args()
+
+    sources = args.source or DEFAULT_SOURCES
+    quotes = []
+    for s in sources:
+        quotes += extract_quotes(Path(s))
+
+    term = args.search.lower()
+    matches = [q for q in quotes if term in q["quote"].lower() or term in q["speaker"].lower()]
+
+    if not matches:
+        print(f"hee-qdb: no match for '{args.search}' across {len(sources)} source(s)")
+        sys.exit(1)
+
+    q = random.choice(matches)
+    print(f'"{q["quote"]}" -- {q["speaker"]}, {q["date"]}')
+
+
+if __name__ == "__main__":
+    main()
