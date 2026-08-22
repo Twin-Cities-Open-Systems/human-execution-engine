@@ -262,7 +262,8 @@ def main():
     anchor = embed_anchor(img, recipe)
     _canon_json, rid = canonical_json_and_id(recipe)
     if not args.no_qr:
-        draw_qr(img, rid)
+        qr_payload = f"https://spencer.blog.tcos.us/?hash={rid}"
+        draw_qr(img, qr_payload)
     img.save(args.out, pnginfo=anchor)
     print(f"{args.out} {img.size[0]}x{img.size[1]} {img.mode}")
 
