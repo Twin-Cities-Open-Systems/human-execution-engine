@@ -68,6 +68,18 @@ real, discoverable record of what spawned them and why is the exact
 failure mode `decom-agent.sh` exists to catch -- don't reintroduce it
 at a new layer just because the mechanism changed.
 
+## Native to the Platform, Not One Model Everywhere
+
+Real, direct: "we are on debian, so let's be debian on debian and unik
+on unik." Lean on the real host platform's own native tooling instead
+of forcing one deployment model onto every environment -- `systemd`
+units (like `tmux-agent@.service`) on a real Debian/Ubuntu host, real
+unikernel-native idioms on unikernel infrastructure (see the real
+Lisp/unikernel pivot thread, `fleet-ops#173`). Same spirit as the GNU
+Tools Preference Policy's real `sed -i` footgun -- match the real tool
+to the real platform, don't assume one convention travels everywhere
+unquestioned.
+
 ---
 
 ## Repository Layout
