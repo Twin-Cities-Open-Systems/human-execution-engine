@@ -12,11 +12,19 @@ selector line + CRLF, read plaintext back until the connection closes
 or a lone "." line. No auth, no TLS in the original spec. This is a
 real client for it, not a simulation.
 
+Real trigger for finger (2026-08-22): "finger and gopher and snmp will
+be good buds" -- same family of old, simple, text-based query
+protocols. finger (RFC 1288) is dead simple too: connect to port 79,
+send "user\r\n" (or "\r\n" alone for a full listing), read plaintext
+back until the connection closes.
+
 Usage:
   hee-net -proto gopher -url gopher://host[:port]/[type]selector
+  hee-net -proto finger -query user[@host[:port]]
 """
 import argparse
 import socket
+import subprocess
 import sys
 from urllib.parse import urlparse
 
@@ -43,14 +51,42 @@ def fetch_gopher(url: str) -> str:
     return b"".join(chunks).decode(errors="replace")
 
 
+def fetch_finger(query: str) -> str:
+    if "@" in query:
+        user, hostport = query.split("@", 1)
+        host, _, port = hostport.partition(":")
+        port = int(port) if port else 79
+        with socket.create_connection((host, port), timeout=10) as sock:
+            sock.sendall((user + "\r\n").encode())
+            chunks = []
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        return b"".join(chunks).decode(errors="replace")
+    else:
+        # local user -- real finger(1) already does this correctly
+        # (reads .plan, login sessions, etc.) -- no reason to reimplement it
+        result = subprocess.run(["finger", query], capture_output=True, text=True)
+        return result.stdout or result.stderr
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-net")
-    ap.add_argument("-proto", required=True, choices=["gopher"])
-    ap.add_argument("-url", required=True)
+    ap.add_argument("-proto", required=True, choices=["gopher", "finger"])
+    ap.add_argument("-url")
+    ap.add_argument("-query")
     args = ap.parse_args()
 
     if args.proto == "gopher":
+        if not args.url:
+            sys.exit("hee-net: -url required for -proto gopher")
         print(fetch_gopher(args.url))
+    elif args.proto == "finger":
+        if not args.query:
+            sys.exit("hee-net: -query required for -proto finger")
+        print(fetch_finger(args.query))
 
 
 if __name__ == "__main__":
