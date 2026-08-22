@@ -1,0 +1,38 @@
+.TH HEE-QDB 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-qdb \- real quote search across a source document
+.SH SYNOPSIS
+.B hee qdb
+.B \-source
+.I PATH
+.B \-search
+.I TERM
+.SH DESCRIPTION
+Searches a real source text file (a roster/quote\-log document such
+as WHO\-WE\-ARE.md) for lines matching
+.I TERM
+and prints real matches \-\- no fabricated quotes, no paraphrasing.
+.SH OPTIONS
+.TP
+.BI \-source " PATH"
+Path to the source document to search.
+.TP
+.BI \-search " TERM"
+Search term. Required.
+.SH EXAMPLES
+.RS
+hee qdb \-source ~/.local/bin/WHO\-WE\-ARE.md \-search "counting fact"
+.RE
+.SH IRSSI INTEGRATION
+.RS
+QDB = "EXEC \-o ~/.local/bin/hee qdb \-source ~/.local/bin/WHO\-WE\-ARE.md \-search"
+.RE
+.PP
+then \fB/QDB\fR \fITERM\fR in a channel.
+.SH ORGANIZATION
+Twin Cities Open Systems \- Operations LLC
+.br
+IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+.SH SEE ALSO
+.BR hee-scrob (1),
+.BR hee-scan (1)

@@ -1,0 +1,66 @@
+.TH HEE-SCROB 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-scrob \- terse now-playing scrobble, real Plex source
+.SH SYNOPSIS
+.B hee scrob
+[\fB\-server\fR \fIURL\fR] [\fB\-current\-only\fR]
+.SH DESCRIPTION
+Queries a real Plex server's
+.B /status/sessions
+endpoint and prints one line describing what's currently playing. For
+a TV episode, prints the real show name, season/episode, episode
+title, and year \-\- not just the episode's own title (Plex's
+.B title
+attribute on an episode element is the episode title, not the show's;
+show name lives in
+.BR grandparentTitle ).
+.PP
+For video content, also pulls the real subtitle line active at the
+exact playback position from the
+.B .srt
+sitting next to the media file. No invented dialogue \-\- if there's
+no real .srt, there's no subtitle line in the output, and a moment
+that genuinely falls in a silent gap prints nothing, correctly.
+.PP
+Device names: real hostname of the playing device via reverse DNS on
+the player's connecting IP, falling back to Plex's own self\-reported
+title if that fails. A local override file,
+.BR ~/.config/hee/device-names.txt ,
+takes priority over both when present.
+.SH OPTIONS
+.TP
+.BI \-server " URL"
+Plex server base URL (default \fBhttps://plex.crooked.tcos.us\fR).
+.TP
+.B \-current\-only
+Skip the \(+-5s subtitle context, print only the exact\-moment line.
+.SH AUTHENTICATION
+Reads
+.B PLEX_TOKEN
+from the environment, or from
+.B ~/.config/hee/plex\-token
+if unset (irssi's EXEC doesn't inherit env vars set after irssi
+launched, so the file is the reliable path for that case). Never
+hardcoded, never printed.
+.SH EXAMPLES
+.RS
+.nf
+hee scrob
+np: Family Guy s20e01 \- LASIK Instinct (2021) @ 00:10:40 (Dad TV)
+.fi
+.RE
+.SH IRSSI INTEGRATION
+Designed to sit behind an alias:
+.PP
+.RS
+SCROB = "EXEC \-o ~/.local/bin/hee scrob"
+.RE
+.PP
+then just \fB/SCROB\fR in a channel.
+.SH ORGANIZATION
+Twin Cities Open Systems \- Operations LLC
+.br
+IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+.SH SEE ALSO
+.BR hee-qdb (1),
+.BR hee-net (1)

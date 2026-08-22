@@ -1,0 +1,43 @@
+.TH HEE-NET 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-net \- protocol-aware fetch: gopher, finger
+.SH SYNOPSIS
+.B hee net
+.B \-proto
+.BR gopher | finger
+.B \-url
+.I URL
+.br
+.B hee net
+.B \-proto
+.B finger
+.B \-query
+.I USER@HOST
+.SH DESCRIPTION
+Fetches content over an older, simpler real protocol instead of HTTP.
+Real trigger: "use finger and our hee tools vs what the network
+provides."
+.SH OPTIONS
+.TP
+.BI \-proto " {gopher,finger}"
+Which protocol to speak. Required.
+.TP
+.BI \-url " URL"
+Full gopher:// URL to fetch.
+.TP
+.BI \-query " QUERY"
+Finger query, user@host form.
+.SH EXAMPLES
+.RS
+.nf
+hee net \-proto gopher \-url gopher://man.tcos.us:7070/
+hee net \-proto finger \-query spencer@kiosk
+.fi
+.RE
+.SH ORGANIZATION
+Twin Cities Open Systems \- Operations LLC
+.br
+IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+.SH SEE ALSO
+.BR hee-con (1),
+.BR hee-shell (1)
