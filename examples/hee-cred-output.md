@@ -50,6 +50,32 @@ $ hee-cred -pass spencer@kiosk
 hee-cred: -exec <command...> required -- hee-cred never prints a decrypted secret directly
 ```
 
+## Real extension: `-genfrom`, corpus-derived passphrases
+
+Real trigger: "build cool wordlists... can be for play slip word
+thingys." Real words pulled from real media dialogue (same rg-backed
+search as `hee-srtscan`), CSPRNG-picked from the real matches, joined
+into a SLIP-39/Diceware-shaped passphrase -- generated, not typed, so
+it skips the interactive-terminal prompt, but stays unprinted the same
+as the typed path.
+
+```
+$ hee-cred -seal southpark-demo -recipients hee-cred-test@example.invalid -genfrom "south park" -blocks 4
+hee-cred: generated a 4-word passphrase from real dialogue matching 'south park' (not shown)
+hee-cred: sealed -> .hee/secrets/southpark-demo.gpg (recipients: hee-cred-test@example.invalid)
+
+$ hee-cred -pass southpark-demo -exec bash -c 'echo -n "$HEE_CRED_PASS" | sha256sum; echo -n "$HEE_CRED_PASS" | wc -c; echo -n "$HEE_CRED_PASS" | grep -oE "\-" | wc -l'
+a8bc411a3c15c57f12adca6b13ece3c89b8c9b0306cfcf29037e9c5191f9aea1  -
+20
+3
+```
+
+4 real words, 3 dashes, correct shape -- verified via hash/length/dash-count only, the actual passphrase never printed.
+
+Real footgun caught mid-build: `rg --json` uses a `bytes` (base64)
+field instead of `text` for lines that aren't valid UTF-8 -- real
+subtitle files hit this. Fixed to skip those lines rather than crash.
+
 ## Explicitly not built here
 
 - No key-recovery/rotation flow -- if the recipient set changes, an
