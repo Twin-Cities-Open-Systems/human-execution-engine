@@ -205,6 +205,30 @@ command -v whois >/dev/null || { echo "whois not installed"; exit 1; }
 whois "$domain" || { echo "whois query failed (exit $?)"; exit 1; }
 ```
 
+**Real addendum, 2026-08-21 -- long `&&`-chains fail the same way**:
+a multi-step `step1 && step2 && step3 && step4` chain has the exact
+same silent-failure risk as suppressed stderr -- if `step1` fails,
+`step2` through `step4` never run, and if nothing in the chain prints
+a distinguishable failure message, that reads identically to "all four
+steps succeeded" unless the exit code is actually checked. Real
+incident this same session: `git add && git commit && git push && gh
+pr create` silently died at `git add` (a `.gitignore` rejection) --
+the PR was reported as shipped, and the gap wasn't caught for several
+follow-up exchanges. Spencer's own framing: run critical multi-step
+sequences with a real failure path, not a bare `&&`-chain assumed to
+either fully succeed or obviously fail --
+
+```bash
+# Wrong -- a failure anywhere in the chain is silent past that point
+git add file && git commit -m "..." && git push && gh pr create ...
+
+# Right -- every real step's failure is caught and reported explicitly
+git add file || { echo "add failed"; exit 1; }
+git commit -m "..." || { echo "commit failed"; exit 1; }
+git push || { echo "push failed"; exit 1; }
+gh pr create ... || { echo "pr create failed"; exit 1; }
+```
+
 ### 7. Integration Compliance Policy
 
 **Requirement**: HEE/HEER compliance enforced
