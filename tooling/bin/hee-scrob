@@ -50,10 +50,10 @@ def read_token() -> str:
 
 
 def fmt_ts(ms: int) -> str:
-    s = ms // 1000
+    s = max(ms, 0) // 1000
     h, s = divmod(s, 3600)
     m, s = divmod(s, 60)
-    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 
 def _srt_dialogue(block: str, ts_re) -> str:
@@ -62,38 +62,48 @@ def _srt_dialogue(block: str, ts_re) -> str:
     return " ".join(dialogue).strip()
 
 
-def srt_line_at(srt_path: Path, offset_ms: int):
-    """Real SRT parse -- returns the subtitle text active at offset_ms,
-    quoted WITH real surrounding context (the block before and after),
-    not just the single isolated line -- a scrobble is a moment, not a
-    fragment."""
-    if not srt_path.exists():
-        return None
+def _srt_blocks(srt_path: Path):
     text = srt_path.read_text(errors="replace")
     ts_re = re.compile(
         r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
     )
-    blocks = text.split("\n\n")
-    for i, block in enumerate(blocks):
+    parsed = []
+    for block in text.split("\n\n"):
         m = ts_re.search(block)
         if not m:
             continue
         h1, m1, s1, ms1, h2, m2, s2, ms2 = map(int, m.groups())
         start = ((h1 * 3600 + m1 * 60 + s1) * 1000) + ms1
         end = ((h2 * 3600 + m2 * 60 + s2) * 1000) + ms2
+        parsed.append((start, end, _srt_dialogue(block, ts_re)))
+    return parsed, ts_re
+
+
+def srt_line_at_offset(blocks, offset_ms: int):
+    """Real, discrete lookup at one exact moment -- returns the real
+    dialogue active there, or None. No fabricated line when the moment
+    genuinely falls in a silent gap between subtitle blocks -- an
+    empty result there is correct, not a bug."""
+    for start, end, text in blocks:
         if start <= offset_ms <= end:
-            parts = []
-            if i > 0:
-                prev = _srt_dialogue(blocks[i - 1], ts_re)
-                if prev:
-                    parts.append(prev)
-            parts.append(_srt_dialogue(block, ts_re))
-            if i + 1 < len(blocks):
-                nxt = _srt_dialogue(blocks[i + 1], ts_re)
-                if nxt:
-                    parts.append(nxt)
-            return " / ".join(p for p in parts if p)
+            return text or None
     return None
+
+
+def srt_context(srt_path: Path, offset_ms: int):
+    """Real trigger: "need 00:00:00 for scrob and for tv/movie 5s
+    before, cur, 5s after, discrete things" -- three independent,
+    fixed-offset lookups (offset-5000, offset, offset+5000), not
+    whatever subtitle block happens to be structurally adjacent. Each
+    one is real and separately correct if empty."""
+    if not srt_path.exists():
+        return None
+    blocks, _ = _srt_blocks(srt_path)
+    before = srt_line_at_offset(blocks, offset_ms - 5000)
+    current = srt_line_at_offset(blocks, offset_ms)
+    after = srt_line_at_offset(blocks, offset_ms + 5000)
+    parts = [p for p in (before, current, after) if p]
+    return " / ".join(parts) if parts else None
 
 
 def find_srt(media_file: str):
@@ -142,7 +152,7 @@ def now_playing(server: str, token: str):
             if media_file:
                 srt_path = find_srt(media_file)
                 if srt_path:
-                    srt_text = srt_line_at(srt_path, offset)
+                    srt_text = srt_context(srt_path, offset)
         return {"kind": "video", "title": title, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video)}
 
     if track is not None:
