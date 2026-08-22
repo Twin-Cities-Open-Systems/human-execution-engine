@@ -56,8 +56,17 @@ def fmt_ts(ms: int) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def _srt_dialogue(block: str, ts_re) -> str:
+    lines = block.strip().splitlines()
+    dialogue = [l for l in lines if l.strip() and not ts_re.search(l) and not l.strip().isdigit()]
+    return " ".join(dialogue).strip()
+
+
 def srt_line_at(srt_path: Path, offset_ms: int):
-    """Real SRT parse -- returns the subtitle text active at offset_ms, or None."""
+    """Real SRT parse -- returns the subtitle text active at offset_ms,
+    quoted WITH real surrounding context (the block before and after),
+    not just the single isolated line -- a scrobble is a moment, not a
+    fragment."""
     if not srt_path.exists():
         return None
     text = srt_path.read_text(errors="replace")
@@ -65,7 +74,7 @@ def srt_line_at(srt_path: Path, offset_ms: int):
         r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
     )
     blocks = text.split("\n\n")
-    for block in blocks:
+    for i, block in enumerate(blocks):
         m = ts_re.search(block)
         if not m:
             continue
@@ -73,10 +82,17 @@ def srt_line_at(srt_path: Path, offset_ms: int):
         start = ((h1 * 3600 + m1 * 60 + s1) * 1000) + ms1
         end = ((h2 * 3600 + m2 * 60 + s2) * 1000) + ms2
         if start <= offset_ms <= end:
-            lines = block.strip().splitlines()
-            # drop index + timestamp lines, keep the real dialogue text
-            dialogue = [l for l in lines if l.strip() and not ts_re.search(l) and not l.strip().isdigit()]
-            return " / ".join(dialogue).strip()
+            parts = []
+            if i > 0:
+                prev = _srt_dialogue(blocks[i - 1], ts_re)
+                if prev:
+                    parts.append(prev)
+            parts.append(_srt_dialogue(block, ts_re))
+            if i + 1 < len(blocks):
+                nxt = _srt_dialogue(blocks[i + 1], ts_re)
+                if nxt:
+                    parts.append(nxt)
+            return " / ".join(p for p in parts if p)
     return None
 
 
