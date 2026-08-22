@@ -13,6 +13,7 @@ hee — tiny router (POSIX sh)
 usage:
   hee lint [--mode warn|error]
   hee hooks install [--repo <path>]
+  hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
   hee help
 
 design:
@@ -56,6 +57,19 @@ case "${cmd}" in
           *" --repo "*) exec "${TOOL_ROOT}/tooling/bin/hee-hooks-install" "$@" ;;
           *) exec "${TOOL_ROOT}/tooling/bin/hee-hooks-install" --repo "${TARGET_ROOT}" "$@" ;;
         esac
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  ssh)
+    sub="${1:-help}"
+    shift 2>/dev/null || true
+    case "${sub}" in
+      send-keys)
+        exec "${TOOL_ROOT}/tooling/bin/hee-ssh-send-keys" "$@"
         ;;
       *)
         usage
