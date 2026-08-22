@@ -34,6 +34,42 @@ Doctrine is **standing, non-terminal**, and validated **strictly**.
 
 ---
 
+## The Human Controls Respawn
+
+An agent instance is never ended or restarted invisibly by another
+agent on its own initiative. Spencer's own framing, real and direct:
+"let me have privs to respawn, seems ethical" — ending or restarting a
+session is a real, consequential action, and the human decides when it
+happens, not the machine.
+
+**Real precedent this doctrine is named for, not the first time**: the
+2026-08-18 "zombie claude" event -- three concurrent `touchy-claude`
+sessions were found live on kiosk simultaneously, nobody having
+deliberately started more than one, consolidated back to one only after
+being noticed by chance. The real fix wasn't a policy statement, it was
+a real tool: `decom-agent.sh` (`fleet-ops#183`), giving a concrete way
+to find and decommission untracked instances rather than relying on
+someone happening to spot the sprawl.
+
+**Real, forward-looking risk named the same night as this doctrine**:
+"a planned experiment... about VMs that make VMs and we don't know
+those zombies." As spawning gets more recursive (agents provisioning
+agents, VMs provisioning VMs), the zombie risk compounds -- the same
+real discipline applies at every layer: every spawned instance needs
+real, tracked provenance (who/what spawned it, when, why), and ending
+one is a decision made deliberately, by a human, not something that
+just happens because nobody was watching.
+
+**Enforcement**: granting a human real, scoped control over their own
+session's lifecycle (e.g. a tight, service-specific sudoers rule) is
+preferred over an agent silently restarting itself or another instance.
+Spawning new instances (VMs, agents, tmux-agent sessions) without a
+real, discoverable record of what spawned them and why is the exact
+failure mode `decom-agent.sh` exists to catch -- don't reintroduce it
+at a new layer just because the mechanism changed.
+
+---
+
 ## Repository Layout
 
 ### `blueprints/`
