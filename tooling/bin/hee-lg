@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""hee-lg -- a real, minimal BGP looking glass wrapper.
+
+Real trigger (2026-08-21/22): researching Honeycomb Internet Services
+(AS25720) for a possible deploy/hosting partnership meant hand-running
+whois, RIPEstat, and PeeringDB lookups in sequence. Spencer's own name
+for that class of tool once he had it -- "looking glass" -- then asked
+for it as a real command: `./hee lg honeycomb.net`. This is that,
+dogfooded against the exact target that prompted it.
+
+Data sources, all real public APIs, no auth, no scraping:
+  - Team Cymru whois (`whois.cymru.com`) -- resolves an IP to its
+    origin ASN and announcing BGP prefix
+  - RIPEstat (stat.ripe.net) -- AS holder name + real announced
+    prefix list
+  - PeeringDB (peeringdb.com/api) -- peering policy, IX/facility
+    presence, looking-glass URL if the network publishes one
+
+Usage:
+  hee-lg <domain>       # resolves -> IP -> ASN, then reports on it
+  hee-lg <ip>           # IP -> ASN directly
+  hee-lg AS<N>           # ASN directly, e.g. hee-lg AS25720
+"""
+import ipaddress
+import json
+import re
+import socket
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+UA = "hee-lg/1.0 (Twin-Cities-Open-Systems/human-execution-engine)"
+
+
+def resolve_ip(target: str):
+    try:
+        return socket.gethostbyname(target)
+    except OSError:
+        return None
+
+
+def cymru_asn_lookup(ip: str):
+    try:
+        out = subprocess.run(
+            ["whois", "-h", "whois.cymru.com", f" -v {ip}"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = [l for l in out.stdout.strip().splitlines() if l.strip()]
+    if len(lines) < 2:
+        return None
+    header = [h.strip() for h in lines[0].split("|")]
+    fields = [f.strip() for f in lines[1].split("|")]
+    return dict(zip(header, fields))
+
+
+def http_json(url: str):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r)
+
+
+def main():
+    if len(sys.argv) != 2:
+        print(__doc__)
+        sys.exit(1)
+    target = sys.argv[1]
+
+    m = re.match(r"^[Aa][Ss](\d+)$", target)
+    ip = None
+    if m:
+        asn = m.group(1)
+    else:
+        try:
+            ipaddress.ip_address(target)
+            ip = target
+        except ValueError:
+            ip = resolve_ip(target)
+            if not ip:
+                sys.exit(f"hee-lg: couldn't resolve '{target}' to an IP")
+        cymru = cymru_asn_lookup(ip)
+        if not cymru or not cymru.get("AS"):
+            sys.exit(f"hee-lg: no ASN data for {ip} (Team Cymru whois returned nothing usable)")
+        asn = cymru["AS"]
+
+    header = f"hee-lg: {target}"
+    if ip:
+        header += f" -> {ip}"
+    header += f" -> AS{asn}"
+    print(header)
+
+    try:
+        overview = http_json(f"https://stat.ripe.net/data/as-overview/data.json?resource=AS{asn}")
+        holder = overview.get("data", {}).get("holder", "?")
+        print(f"  holder: {holder}")
+    except (urllib.error.URLError, json.JSONDecodeError):
+        print("  holder: (RIPEstat lookup failed)")
+
+    try:
+        prefixes = http_json(f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn}")
+        pfx_list = prefixes.get("data", {}).get("prefixes", [])
+        v4 = [p["prefix"] for p in pfx_list if ":" not in p["prefix"]]
+        v6 = [p["prefix"] for p in pfx_list if ":" in p["prefix"]]
+        print(f"  announced now: {len(v4)} IPv4 / {len(v6)} IPv6 prefixes")
+    except (urllib.error.URLError, json.JSONDecodeError):
+        print("  announced now: (RIPEstat lookup failed)")
+
+    try:
+        pdb = http_json(f"https://www.peeringdb.com/api/net?asn={asn}")
+        rows = pdb.get("data") or []
+        if rows:
+            net = rows[0]
+            print(f"  peeringdb: policy={net.get('policy_general')!r} scope={net.get('info_scope')!r} type={net.get('info_type')!r}")
+            lg = net.get("looking_glass")
+            print(f"  looking glass: {lg or '(none published)'}")
+        else:
+            print("  peeringdb: no record")
+    except (urllib.error.URLError, json.JSONDecodeError):
+        print("  peeringdb: (lookup failed)")
+
+
+if __name__ == "__main__":
+    main()
