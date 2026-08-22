@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""hee-procmail -- procmail's real interface, an adapted rule syntax.
+
+Real trigger (2026-08-22): spitballing an email-to-IRC relay
+(`hee-irc+<channel>@tcos.us` -> `hee-con -irc <channel>`, see
+fleet-ops#224) surfaced the real question of what actually parses
+incoming mail. Spencer's own verdict on the two known options: "fuck
+yes to procmailrc, I fucking hate that thing. very hee" -- likes
+procmail's spirit (an MTA pipes the raw message to a program on stdin,
+rules decide what happens), not its syntax (fragile regex-on-raw-text,
+`.procmailrc`'s notoriously easy-to-get-subtly-wrong whitespace rules).
+
+What's kept from real procmail: the stdin interface itself -- this is
+still "the MTA execs this with the message on stdin," the actual
+authentic part, not reinvented.
+
+What's adapted: rules are real YAML, not procmail's positional-flag
+syntax; header parsing goes through Python's real `email` module
+instead of raw regex-on-headers; and dispatch never goes through a
+shell string (shlex-split + subprocess with shell=False) specifically
+because naive procmail configs are a well-known shell-injection
+footgun when a rule's extracted value flows into an unquoted shell
+action -- closing that off is the one non-negotiable improvement, not
+just taste.
+
+Usage (procmail-real interface -- message on stdin):
+  hee-procmail [-rules PATH] < message.eml
+
+Rule file format (default: .hee/mailrules.yaml in the current repo):
+  rules:
+    - name: irc-relay
+      match:
+        header: To
+        plus_of: hee-irc      # matches hee-irc+<tag>@anything, captures <tag>
+      action: "tooling/bin/hee-con -irc {tag}"
+    - name: ping
+      match:
+        header: Subject
+        regex: "^ping"
+      action: "echo pong"
+
+First matching rule wins and runs; this is a deliberate simplification
+of real procmail's much richer flag system (:0, lockfiles, nesting),
+not a claim of full parity.
+"""
+import argparse
+import email
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("hee-procmail: requires pyyaml: pip install pyyaml")
+
+SAFE_TAG = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def load_rules(path: Path):
+    if not path.exists():
+        sys.exit(f"hee-procmail: no rule file at {path}")
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("rules", [])
+
+
+def match_rule(rule, msg):
+    match = rule.get("match", {})
+    header_name = match.get("header")
+    if not header_name:
+        return None
+    value = msg.get(header_name, "")
+    if not value:
+        return None
+
+    if "plus_of" in match:
+        local = re.escape(match["plus_of"])
+        m = re.search(rf"{local}\+([^@]+)@", value)
+        if not m:
+            return None
+        tag = m.group(1)
+        if not SAFE_TAG.match(tag):
+            print(f"hee-procmail: rule '{rule.get('name')}' matched but tag "
+                  f"'{tag}' failed safe-charset check -- skipping", file=sys.stderr)
+            return None
+        return {"tag": tag}
+
+    if "regex" in match:
+        m = re.search(match["regex"], value)
+        if not m:
+            return None
+        return {"match": m.group(0)}
+
+    return None
+
+
+def run_action(rule, fields):
+    action = rule.get("action")
+    if not action:
+        sys.exit(f"hee-procmail: rule '{rule.get('name')}' has no action")
+    argv = [tok.format(**fields) for tok in shlex.split(action)]
+    print(f"hee-procmail: rule '{rule.get('name')}' matched -> {argv}", file=sys.stderr)
+    subprocess.run(argv, shell=False, check=False)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-procmail")
+    ap.add_argument("-rules", default=".hee/mailrules.yaml", metavar="PATH")
+    args = ap.parse_args()
+
+    raw = sys.stdin.buffer.read()
+    if not raw:
+        sys.exit("hee-procmail: empty message on stdin")
+    msg = email.message_from_bytes(raw)
+
+    rules = load_rules(Path(args.rules))
+    for rule in rules:
+        fields = match_rule(rule, msg)
+        if fields is not None:
+            run_action(rule, fields)
+            return
+
+    print("hee-procmail: no rule matched -- message dropped", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
