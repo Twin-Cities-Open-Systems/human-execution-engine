@@ -131,16 +131,50 @@ def draw_badge(draw, size, badge, color=(220, 60, 60, 255)):
                   fill=(255, 255, 255, 255), width=lw, joint="curve")
 
 
+EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+FALLBACK_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _is_emoji(text: str) -> bool:
+    return any(ord(ch) > 0x2000 for ch in text)
+
+
 def draw_text(draw, size, text, font_path=None):
+    """Real fix (2026-08-22): the old fallback was
+    ImageFont.load_default() -- a tiny bitmap font that CANNOT render
+    emoji at all, so a glyph like the tux penguin came out as an ugly
+    missing-glyph box, not a design failure ("supa ugg" was a real
+    bug report, not taste). NotoColorEmoji (confirmed installed) with
+    embedded_color=True renders real color emoji; DejaVuSans-Bold is a
+    real, much better default for plain text labels too, instead of
+    the bitmap font."""
     w, h = size
     font_size = int(min(w, h) * 0.42)
+    use_emoji = _is_emoji(text) and not font_path
+    emoji_mode = False
+
     try:
-        font = ImageFont.truetype(font_path, font_size) if font_path else ImageFont.load_default(size=font_size)
+        if font_path:
+            font = ImageFont.truetype(font_path, font_size)
+        elif use_emoji:
+            # NotoColorEmoji is a fixed-strike bitmap-color font --
+            # real size comes from its own strike, not the requested
+            # pixel size, so ask big and let PIL scale the bitmap.
+            font = ImageFont.truetype(EMOJI_FONT, 109)
+            emoji_mode = True
+        else:
+            font = ImageFont.truetype(FALLBACK_FONT, font_size)
     except Exception:
         font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), text, font=font)
+
+    kwargs = {"embedded_color": True} if emoji_mode else {}
+    bbox = draw.textbbox((0, 0), text, font=font, **kwargs)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text((w / 2 - tw / 2 - bbox[0], h / 2 - th / 2 - bbox[1]), text, font=font, fill=(20, 20, 20, 255))
+    pos = (w / 2 - tw / 2 - bbox[0], h / 2 - th / 2 - bbox[1])
+    if emoji_mode:
+        draw.text(pos, text, font=font, embedded_color=True)
+    else:
+        draw.text(pos, text, font=font, fill=(20, 20, 20, 255))
 
 
 def render(recipe: dict) -> Image.Image:
