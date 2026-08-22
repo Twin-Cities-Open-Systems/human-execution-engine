@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""hee-net -- protocol-aware fetch, starting with gopher.
+
+Real trigger (2026-08-22): Chrome dropped native gopher:// support years
+ago -- "chrome no first try." Real gopher URL fetched directly via raw
+socket first (gopher.quux.org, /Software/Gopher), then wrapped into a
+real, reusable tool matching the session's pattern (hee-lg for BGP,
+hee-con for IRC, this for gopher and whatever protocol comes next).
+
+Gopher itself is a dead-simple protocol (RFC 1436): connect, send the
+selector line + CRLF, read plaintext back until the connection closes
+or a lone "." line. No auth, no TLS in the original spec. This is a
+real client for it, not a simulation.
+
+Usage:
+  hee-net -proto gopher -url gopher://host[:port]/[type]selector
+"""
+import argparse
+import socket
+import sys
+from urllib.parse import urlparse
+
+
+def fetch_gopher(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme != "gopher":
+        sys.exit(f"hee-net: not a gopher:// URL: {url}")
+    host = parsed.hostname
+    port = parsed.port or 70
+    path = parsed.path or "/1"
+    # First path char after the leading "/" is the gopher item type digit;
+    # the real selector to send is everything after that.
+    selector = path[2:] if len(path) > 1 else ""
+
+    with socket.create_connection((host, port), timeout=15) as sock:
+        sock.sendall((selector + "\r\n").encode())
+        chunks = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    return b"".join(chunks).decode(errors="replace")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-net")
+    ap.add_argument("-proto", required=True, choices=["gopher"])
+    ap.add_argument("-url", required=True)
+    args = ap.parse_args()
+
+    if args.proto == "gopher":
+        print(fetch_gopher(args.url))
+
+
+if __name__ == "__main__":
+    main()
