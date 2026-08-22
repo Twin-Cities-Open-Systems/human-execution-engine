@@ -175,12 +175,58 @@ git push origin --delete feature/merged-branch  # Remote
 - Path verification before file operations
 - Git state verification before repository operations
 - No execution without explicit validation
+- **Never redirect stderr to `/dev/null` (or otherwise discard a
+  command's exit code) when the command's result is about to be
+  interpreted or reported as fact.** Real incident, 2026-08-21:
+  `whois "$d" 2>/dev/null | grep -i phone` produced no output because
+  `whois` wasn't installed on the box at all -- the `2>/dev/null` hid
+  `command not found`, and the resulting silence got reported as "WHOIS
+  came back empty (privacy-protected registration)" -- a specific,
+  plausible-sounding, **wrong** explanation for a result that was
+  actually just a missing binary. Caught only because Spencer happened
+  to retry with a different invocation. "No output" and "ran
+  successfully and found nothing" are not the same fact, and treating
+  suppressed-failure silence as if it were the latter is a subtler
+  version of the fabrication Rule 2 (`prompts/PROMPTING_RULES.md`)
+  already bans -- not inventing a claim outright, but accepting the
+  first plausible interpretation of an ambiguous result without
+  checking which interpretation is actually true.
 
 **Validation Pattern**:
 
 ```bash
 # Pattern: Validate then execute
 [ -f file.txt ] && echo "File exists" || echo "File missing - plan violation"
+
+# Pattern: check success before interpreting output as a real result --
+# don't let a suppressed stderr turn "the command failed" into
+# "the query legitimately found nothing"
+command -v whois >/dev/null || { echo "whois not installed"; exit 1; }
+whois "$domain" || { echo "whois query failed (exit $?)"; exit 1; }
+```
+
+**Real addendum, 2026-08-21 -- long `&&`-chains fail the same way**:
+a multi-step `step1 && step2 && step3 && step4` chain has the exact
+same silent-failure risk as suppressed stderr -- if `step1` fails,
+`step2` through `step4` never run, and if nothing in the chain prints
+a distinguishable failure message, that reads identically to "all four
+steps succeeded" unless the exit code is actually checked. Real
+incident this same session: `git add && git commit && git push && gh
+pr create` silently died at `git add` (a `.gitignore` rejection) --
+the PR was reported as shipped, and the gap wasn't caught for several
+follow-up exchanges. Spencer's own framing: run critical multi-step
+sequences with a real failure path, not a bare `&&`-chain assumed to
+either fully succeed or obviously fail --
+
+```bash
+# Wrong -- a failure anywhere in the chain is silent past that point
+git add file && git commit -m "..." && git push && gh pr create ...
+
+# Right -- every real step's failure is caught and reported explicitly
+git add file || { echo "add failed"; exit 1; }
+git commit -m "..." || { echo "commit failed"; exit 1; }
+git push || { echo "push failed"; exit 1; }
+gh pr create ... || { echo "pr create failed"; exit 1; }
 ```
 
 ### 7. Integration Compliance Policy
