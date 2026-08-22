@@ -416,6 +416,45 @@ not a link.
   retrofitted across the rest of the repo, tracked as future cleanup, not
   claimed as done everywhere
 
+### 14. Mail Search Tooling Policy
+
+**Requirement**: searching or reading mail on TCOS's behalf goes through a
+tool (a script, an API call, an AI assistant with account-linked access),
+never a human or agent manually browsing a native webmail UI.
+
+**Rationale**: a tool-mediated search is a real, repeatable, scriptable
+step — the same query run twice gives the same answer, and what was
+searched and what was found are both real artifacts that can be shown, not
+just recalled from memory. Manually clicking through a webmail UI produces
+none of that; it's a dead end for automation and leaves no trail. Same
+principle as this doc's existing observability stance — a check that can't
+be re-run or shown isn't a check, it's an assertion.
+
+**Current state, transitional**: as of 2026-08-21 there is no TCOS-owned
+mail infrastructure yet, so this is done today via the Gmail-linked AI
+tooling workflow (`docs/guides/ASK_GOOGLE_AI.md`) — real first use: checking
+an inbox for a Mailman confirmation email
+(`inspector@tcos.us`/`tclug-list@mn-linux.org`), not a hypothetical.
+Real, current limitation worth naming: that check itself came back as a
+negative result ("hasn't arrived yet") without the underlying tool call
+being independently visible/verifiable the way a shell command's output is
+— so this policy also stands as a marker that the current interim tooling
+doesn't yet meet the bar it sets. Once TCOS has its own mail exchangers
+(`mx-N.tcos.us`, plural — multiple, not a single point of failure), this
+becomes a first-party, fully observable tool rather than a routed-through
+workflow — tracked as an open dependency-removal item in the same spirit
+as [[primitives#5]] and `fleet-ops#208`'s primitives epic, not built yet.
+
+**Enforcement**:
+
+- No standing exception for "just checking real quick" — the tool-mediated
+  path is standard op even for a one-off look, not just recurring/automated
+  checks
+- When the interim (third-party AI assistant) tooling is used, its
+  answer is reported as what the tool returned, not restated as an
+  independently-verified fact — the distinction matters until the tool
+  call itself is as inspectable as a shell command
+
 ### HEE Rule Violation Documentation
 
 **Process**:
