@@ -17,12 +17,15 @@ real schema/constraints already validated in recipe.rs:
 Output: real RGBA (32-bit color, 8 bits/channel) PNG.
 """
 import argparse
+import hashlib
 import json
 import math
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+from PIL.PngImagePlugin import PngInfo
+import qrcode
 
 MIN_DIM = 16
 MAX_DIM = 4096
@@ -169,15 +172,98 @@ def render(recipe: dict) -> Image.Image:
     return canvas
 
 
+
+def canonical_json_and_id(recipe: dict) -> tuple[str, str]:
+    """Real 'hee-key hole' anchor -- the exact same canonicalization
+    rrr.py already does (steps=[] present, sorted keys, indent=2,
+    trailing newline), so the recipe-id embedded in the image matches
+    what rrr.py would independently compute from the recipe file.
+    Not a second, competing hash scheme -- the same one."""
+    canon = dict(recipe)
+    canon.setdefault("steps", [])
+    canon_json = json.dumps(canon, indent=2, sort_keys=True) + "\n"
+    rid = hashlib.sha256(canon_json.encode("utf-8")).hexdigest()
+    return canon_json, rid
+
+
+def embed_anchor(img: Image.Image, recipe: dict) -> PngInfo:
+    """Real, honest reverse path: SHA256 is one-way by design --
+    finding a recipe from a hash is not possible, and guessing shape/
+    color/label back out of pixels via computer vision is unreliable,
+    not proof. So the image carries its own real receipt instead: the
+    exact canonical recipe JSON and its id, written as standard PNG
+    text chunks (tEXt) -- metadata, not pixel data, so it survives
+    regardless of color mode/bit depth as long as chunks are preserved
+    on re-save (2026-08-22, real ask: "even 8bit")."""
+    canon_json, rid = canonical_json_and_id(recipe)
+    info = PngInfo()
+    info.add_text("hee-recipe", canon_json)
+    info.add_text("hee-recipe-id", rid)
+    return info
+
+
+def read_anchor(png_path: str) -> dict:
+    """The actual reverse operation: read the real embedded receipt
+    back out of a rendered PNG. No guessing, no inversion -- just
+    reading metadata that was written at render time."""
+    img = Image.open(png_path)
+    text = getattr(img, "text", {})
+    if "hee-recipe-id" not in text:
+        return {"anchor": None, "note": "no hee-key hole anchor found in this PNG"}
+    return {
+        "recipe_id": text.get("hee-recipe-id"),
+        "recipe": json.loads(text.get("hee-recipe", "{}")),
+    }
+
+
+
+def draw_qr(canvas: Image.Image, payload: str):
+    """Real, scannable QR -- survives any format/bit-depth change
+    since it's pixels, not metadata (2026-08-22, real ask: "qr code
+    inspired", "even 8bit"). Own clean quiet-zone box so it stays
+    scannable regardless of what's under it -- a QR overlaid directly
+    on a busy fill pattern loses contrast and stops decoding, that's
+    not a hypothetical, it's how the format actually works."""
+    w, h = canvas.size
+    qr_px = max(int(min(w, h) * 0.22), 21)
+    qr = qrcode.QRCode(border=2, box_size=max(1, qr_px // 25))
+    qr.add_data(payload)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+    qr_img = qr_img.resize((qr_px, qr_px), Image.NEAREST)  # NEAREST -- QR modules must stay hard-edged, no AA blur
+
+    pad = int(qr_px * 0.08)
+    box = Image.new("RGBA", (qr_px + pad * 2, qr_px + pad * 2), (255, 255, 255, 255))
+    box.paste(qr_img, (pad, pad))
+
+    x = w - box.width - int(w * 0.03)
+    y = h - box.height - int(h * 0.03)
+    canvas.alpha_composite(box, (x, y))
+
+
 def main():
     ap = argparse.ArgumentParser(prog="mt-logo-render")
-    ap.add_argument("recipe", help="path to recipe .json")
-    ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("recipe", nargs="?", help="path to recipe .json")
+    ap.add_argument("-o", "--out", help="output PNG path")
+    ap.add_argument("--read-anchor", metavar="PNG", help="read the real embedded recipe/hash back out of a rendered PNG")
+    ap.add_argument("--no-qr", action="store_true", help="skip the scannable QR corner badge")
     args = ap.parse_args()
+
+    if args.read_anchor:
+        result = read_anchor(args.read_anchor)
+        print(json.dumps(result, indent=2))
+        return
+
+    if not args.recipe or not args.out:
+        ap.error("recipe and -o/--out are required unless using --read-anchor")
 
     recipe = json.loads(Path(args.recipe).read_text())
     img = render(recipe)
-    img.save(args.out)
+    anchor = embed_anchor(img, recipe)
+    _canon_json, rid = canonical_json_and_id(recipe)
+    if not args.no_qr:
+        draw_qr(img, rid)
+    img.save(args.out, pnginfo=anchor)
     print(f"{args.out} {img.size[0]}x{img.size[1]} {img.mode}")
 
 
