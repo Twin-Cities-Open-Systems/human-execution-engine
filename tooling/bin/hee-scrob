@@ -31,6 +31,21 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 DEFAULT_SERVER = "https://plex.crooked.tcos.us"
+DEFAULT_TOKEN_FILE = Path.home() / ".config" / "hee" / "plex-token"
+
+
+def read_token() -> str:
+    """Real fallback for EXEC-spawned shells: irssi's EXEC only inherits
+    env vars present when irssi itself launched, and doesn't source
+    .profile -- so PLEX_TOKEN set after the fact never reaches /SCROB
+    without a full session restart. A real file, checked second, avoids
+    needing one."""
+    env_token = os.environ.get("PLEX_TOKEN")
+    if env_token:
+        return env_token
+    if DEFAULT_TOKEN_FILE.exists():
+        return DEFAULT_TOKEN_FILE.read_text().strip()
+    return ""
 
 
 def fmt_ts(ms: int) -> str:
@@ -116,9 +131,9 @@ def main():
     ap.add_argument("-server", default=DEFAULT_SERVER)
     args = ap.parse_args()
 
-    token = os.environ.get("PLEX_TOKEN")
+    token = read_token()
     if not token:
-        sys.exit("hee-scrob: PLEX_TOKEN not set")
+        sys.exit(f"hee-scrob: no token -- set $PLEX_TOKEN or write one to {DEFAULT_TOKEN_FILE}")
 
     try:
         r = now_playing(args.server, token)
