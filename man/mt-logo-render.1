@@ -1,0 +1,82 @@
+.TH MT-LOGO-RENDER 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+mt-logo-render \- real Pillow renderer for the mt-logo recipe schema
+.SH SYNOPSIS
+.B render.py
+.I RECIPE.json
+.B \-o
+.I OUT.png
+[\fB\-\-no\-qr\fR]
+.br
+.B render.py
+.B \-\-read\-anchor
+.I OUT.png
+.SH DESCRIPTION
+Renders a parametric logo from a JSON recipe, real 32\-bit RGBA
+output. Every render self\-verifies: a real scannable QR corner badge
+and matching PNG metadata, both encoding the recipe's canonical
+SHA256 id \-\- see
+.BR hee-qr (1)
+to read either back.
+.PP
+This is the real, missing pixel\-rendering half of the vendored
+.B upstream/mt\-logo\-render
+(recipe.rs), which only ever defined the data model, never the actual
+rendering code.
+.SH RECIPE SCHEMA
+.TP
+.B shape
+circle | square | triangle | hex
+.TP
+.B size
+"WxH", 16..4096 each dimension
+.TP
+.B base_color
+"#RGB" / "#RRGGBB" or a PIL\-recognized name
+.TP
+.B accent_color
+same format, optional
+.TP
+.B fill
+solid | pie:DEG | split:N | stripe:N
+.TP
+.B mark
+check | x | dot
+.TP
+.B badge
+corner_dot | corner_check
+.TP
+.B label
+<=4 chars, centered
+.TP
+.B glyph
+any unicode, centered (real color emoji via NotoColorEmoji when
+applicable, not a missing\-glyph box)
+.SH OPTIONS
+.TP
+.BI \-o " OUT.png"
+Output path. Required unless \fB\-\-read\-anchor\fR.
+.TP
+.B \-\-no\-qr
+Skip the scannable QR corner badge.
+.TP
+.BI \-\-read\-anchor " OUT.png"
+Read the embedded recipe/hash back out instead of rendering. Same as
+.BR hee-qr (1)'s
+PNG\-metadata path.
+.SH EXAMPLES
+.RS
+.nf
+render.py hee\-recipe.json \-o hee\-logo.png
+render.py \-\-read\-anchor hee\-logo.png
+.fi
+.RE
+.SH VERIFICATION
+.RS
+.nf
+sha256sum OUT.png       real, reproducible, bit\-for\-bit across runs
+zbarimg \-\-raw OUT.png   scans the real QR out of the pixels
+.fi
+.RE
+.SH SEE ALSO
+.BR hee-qr (1)

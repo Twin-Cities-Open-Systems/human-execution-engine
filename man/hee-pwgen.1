@@ -1,0 +1,35 @@
+.TH HEE-PWGEN 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-pwgen \- real cryptographically secure password generator
+.SH SYNOPSIS
+.B hee pwgen
+[\fILENGTH\fR]
+.SH DESCRIPTION
+Generates one random password using Python's
+.B secrets
+module (a real CSPRNG, not
+.BR random ,
+which is not cryptographically secure and should never generate
+anything credential\-shaped). Alphabet is ASCII letters and digits.
+.PP
+Prints directly to stdout \-\- this is the "just generate one" tool,
+separate from
+.BR hee-cred (1)'s
+sealed\-storage path. Pipe the output into
+.BR hee-cred (1)'s
+interactive prompt yourself if it needs to be stored; this tool has
+no storage of its own.
+.SH OPTIONS
+.TP
+.I LENGTH
+Password length. Default 20 if omitted. Below 12 prints a real
+warning to stderr but still generates.
+.SH EXAMPLES
+.RS
+.nf
+hee pwgen
+hee pwgen 24
+.fi
+.RE
+.SH SEE ALSO
+.BR hee-cred (1)

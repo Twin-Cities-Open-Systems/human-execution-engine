@@ -1,0 +1,48 @@
+.TH HEE-QR 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-qr \- reader for a mt-logo-render "hee-key hole" anchor
+.SH SYNOPSIS
+.B hee qr
+.I IMAGE
+.br
+.B hee qr
+.I IMAGE
+.B \-manifest
+.I PATH
+.SH DESCRIPTION
+SHA256 is one\-way by design \-\- there is no reversing a hash back to
+the recipe that produced it, and guessing an image's parameters back
+out of its pixels via computer vision is not proof. So a
+.BR mt-logo-render (1)
+output carries its own real receipt instead: a scannable QR encoded
+into the image's own pixels, and matching PNG text\-chunk metadata.
+.PP
+.B hee\-qr
+tries the real QR scan first (via
+.BR zbarimg ,
+survives any format/bit\-depth change since it's pixels, not
+metadata), then falls back to reading the PNG metadata directly.
+.SH OPTIONS
+.TP
+.I IMAGE
+Path to a PNG rendered by mt\-logo\-render.
+.TP
+.BI \-manifest " PATH"
+Instead of just printing the result, write/update an entry in a
+static {recipe_id: recipe} JSON manifest at
+.I PATH
+\-\- the data file a static lookup page (no backend needed) reads
+client\-side by hash.
+.SH EXAMPLES
+.RS
+.nf
+hee qr hee\-logo.png
+hee qr hee\-logo.png \-manifest /srv/mt\-logo/manifest.json
+.fi
+.RE
+.SH OUTPUT
+JSON:
+.B {"source": "qr\-scan"|"png\-metadata", "recipe_id": "...", "recipe": {...}}
+\-\- or a real error if neither anchor is found.
+.SH SEE ALSO
+.BR mt-logo-render (1)

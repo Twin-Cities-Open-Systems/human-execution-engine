@@ -1,0 +1,47 @@
+.TH HEE-SCAN 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-scan \- named-target regex scan via ripgrep
+.SH SYNOPSIS
+.B hee scan
+.B \-target
+.I NAME
+.B \-r
+.I REGEX
+.br
+.B hee scan
+.B \-list\-targets
+.SH DESCRIPTION
+Runs a real ripgrep scan against a pre\-configured named target
+directory. "One true regex" \-\- ripgrep's own dialect, used
+consistently, no alternate regex engines.
+.PP
+Tolerates per\-file permission errors on mixed\-ownership filesystems
+(ripgrep's exit code 2 on partial permission failure is treated as
+non\-fatal; a real skipped\-file count is reported instead of aborting
+the whole scan).
+.SH OPTIONS
+.TP
+.BI \-target " NAME"
+Which configured target to scan.
+.TP
+.BI \-r " REGEX"
+Ripgrep\-dialect regex to search for.
+.TP
+.B \-list\-targets
+List configured target names instead of scanning.
+.SH EXAMPLES
+.RS
+.nf
+hee scan \-list\-targets
+hee scan \-target storage \-r 'hygien|foo|bar{3,}'
+.fi
+.RE
+.SH CAVEAT
+Any 40\-character git commit SHA\-1 will produce a real 32\-hex false
+positive under a bare
+.B [0\-9a\-f]{32}
+pattern \-\- structural, not a bug in this tool. Check context before
+treating a hit as a real secret.
+.SH SEE ALSO
+.BR hee-srtscan (1),
+.BR hee-cred (1)

@@ -1,0 +1,106 @@
+.TH HEE-CRED 1 "2026-08-22" "HEE" "User Commands"
+.SH NAME
+hee-cred \- real, minimal GPG-backed credential store
+.SH SYNOPSIS
+.B hee cred
+.B \-seal
+.I ACCOUNT
+.B \-recipients
+.I ID[,ID...]
+[\fB\-dir\fR \fIPATH\fR]
+.br
+.B hee cred
+.B \-seal
+.I ACCOUNT
+.B \-recipients
+.I ID[,ID...]
+.B \-genfrom
+.I TERM
+[\fB\-blocks\fR \fIN\fR] [\fB\-root\fR \fIPATH\fR]
+.br
+.B hee cred
+.B \-pass
+.I ACCOUNT
+.B \-exec
+.I COMMAND [ARGS...]
+[\fB\-dir\fR \fIPATH\fR]
+.SH DESCRIPTION
+.B hee-cred
+stores secrets as ciphertext-only GPG files under
+.BR .hee/secrets/ACCOUNT.gpg ,
+and never lets a decrypted value reach an agent's own visible output.
+Retrieval is exec-only: the secret is injected into a single child
+process's environment and nowhere else.
+.PP
+.B \-seal
+(typed) reads the secret from an interactive hidden prompt. It
+refuses to run at all if stdin isn't a real terminal \-\- deliberately,
+so a secret can never be piped in from a chat, log, or script.
+.PP
+.B \-seal \-genfrom
+instead pulls real words out of a local media corpus matching
+.IR TERM ,
+joins them into a passphrase. Still never printed \-\- flows straight
+into the same GPG encrypt call as a typed secret.
+.PP
+.B \-pass
+decrypts and sets the secret in the
+.B HEE_CRED_PASS
+environment variable of the
+.B \-exec
+child process only \-\- never argv (visible via \fBps\fR to other
+users), never stdout, never a log line.
+.SH OPTIONS
+.TP
+.BI \-seal " ACCOUNT"
+Seal a new secret under the given account name.
+.TP
+.BI \-recipients " ID[,ID...]"
+Comma\-separated GPG key IDs or emails to encrypt to. At least one
+required. Multiple recipients means any one of them can independently
+decrypt.
+.TP
+.BI \-pass " ACCOUNT"
+Decrypt the named account's secret for one \fB\-exec\fR call.
+.TP
+.BI \-exec " COMMAND [ARGS...]"
+The command to run with \fBHEE_CRED_PASS\fR set. Required with
+\fB\-pass\fR.
+.TP
+.BI \-genfrom " TERM"
+Generate a passphrase from real corpus text matching \fITERM\fR
+instead of typing one.
+.TP
+.BI \-blocks " N"
+Number of corpus\-derived words to join (default 4).
+.TP
+.BI \-dir " PATH"
+Secrets directory (default \fB.hee/secrets\fR, relative to cwd).
+.TP
+.BI \-root " PATH"
+Corpus root for \fB\-genfrom\fR (default \fB/var/local/hee\-corpus\fR).
+.SH EXAMPLES
+Seal a secret, two recipients:
+.PP
+.RS
+hee cred \-seal my\-api\-key \e
+.br
+    \-recipients 6A58FE47...3188,73B1462A...FDA0
+.RE
+.PP
+Use a sealed secret without ever seeing it:
+.PP
+.RS
+hee cred \-pass my\-api\-key \-exec bash \-c \e
+.br
+    'curl \-H "Authorization: Bearer $HEE_CRED_PASS" https://api.example.com'
+.RE
+.SH SECURITY
+A secret sealed to multiple recipients can be decrypted independently
+by any one of them \-\- this is intentional, not a weakness. Add every
+real party that legitimately needs access as a recipient at seal
+time; there is no way to add a recipient after the fact without
+re\-sealing.
+.SH SEE ALSO
+.BR hee-pwgen (1),
+.BR hee-qr (1)
