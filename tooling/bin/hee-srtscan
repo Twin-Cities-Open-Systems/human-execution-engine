@@ -6,7 +6,7 @@ based on srt other txt lots for years, make a scanner for them," then
 "need super fast rg scan for quotes in srt, lots of pop ref gold" --
 hee-scrob's SRT lookup only ever reads the one file next to whatever's
 playing right now. This searches the whole real archive
-(/mnt/nuc1-pool/media/ by default -- years of real .srt/.txt files)
+(/var/local/hee-corpus/ by default -- years of real .srt/.txt files)
 for a term, real matches with real file+timestamp context.
 
 Fast path: ripgrep does the actual scanning (built for exactly this --
@@ -29,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_ROOT = "/mnt/nuc1-pool/media"
+DEFAULT_ROOT = "/var/local/hee-corpus"
 TS_RE = re.compile(
     r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
 )
