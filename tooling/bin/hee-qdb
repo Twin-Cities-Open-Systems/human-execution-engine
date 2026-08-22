@@ -67,7 +67,7 @@ def main():
         sys.exit(1)
 
     q = random.choice(matches)
-    print(f'"{q["quote"]}" -- {q["speaker"]}, {q["date"]}')
+    print(f'{q["quote"]} -- {q["speaker"]}, {q["date"]}')
 
 
 if __name__ == "__main__":
