@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""hee-git-merge: interactive, cross-repo mass-review-and-merge for open PRs.
+
+Real trigger (2026-08-22, Spencer): "need mass approve tool" +
+`./hee -git -merge -squash -r 'ready for me to mas merge regex'` +
+"and a one by one synopsis with y/N/s/Edit" -- a lot of PRs pile up
+across repos when an agent works fast; this is the human review gate,
+not a way to skip review. Default is always a one-by-one prompt, never
+a blind bulk merge.
+
+Usage:
+  hee-git-merge [-r REGEX] [--org ORG] [--author LOGIN] [--squash|--merge|--rebase]
+                [--delete-branch|--no-delete-branch]
+
+  -r REGEX          only show PRs whose title or body matches this
+                     (case-insensitive, Python re.search). Omit to see
+                     every open PR from --author across the org.
+  --org             GitHub org to search (default: Twin-Cities-Open-Systems)
+  --author          filter to PRs by this login (default: touchy-claude)
+  --squash          squash-merge on 'y' (default)
+  --merge           real merge commit on 'y' instead of squash
+  --rebase          rebase-merge on 'y' instead of squash
+  --delete-branch   delete the head branch after merge (default: on)
+  --no-delete-branch
+
+Per PR, prompts:
+  y  merge it now, this method
+  N  skip (default -- just hit enter)
+  s  skip (explicit, same as N)
+  e  show the full diff (gh pr diff), then re-prompt the same PR
+"""
+import argparse
+import json
+import re
+import subprocess
+import sys
+
+
+def gh_json(args):
+    proc = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"gh {' '.join(args)} failed:\n{proc.stderr}", file=sys.stderr)
+        sys.exit(1)
+    return json.loads(proc.stdout)
+
+
+def fetch_prs(org, author):
+    # gh search prs only supports a limited field set (no additions/
+    # changedFiles/statusCheckRollup) -- use it for discovery, then
+    # gh pr view per-repo for the richer synopsis fields.
+    return gh_json([
+        "search", "prs",
+        f"--owner={org}",
+        f"--author={author}",
+        "--state=open",
+        "--json=number,title,body,url,repository",
+        "--limit=100",
+    ])
+
+
+def fetch_pr_detail(repo_full, number):
+    try:
+        return gh_json([
+            "pr", "view", str(number), "--repo", repo_full,
+            "--json=additions,deletions,changedFiles,statusCheckRollup",
+        ])
+    except SystemExit:
+        return {}
+
+
+def matches(pr, pattern):
+    if pattern is None:
+        return True
+    hay = f"{pr.get('title', '')}\n{pr.get('body', '')}"
+    return bool(re.search(pattern, hay, re.IGNORECASE))
+
+
+def checks_summary(pr):
+    rollup = pr.get("statusCheckRollup") or []
+    if not rollup:
+        return "no checks"
+    states = [c.get("conclusion") or c.get("state") or "?" for c in rollup]
+    if all(s in ("SUCCESS", "success") for s in states):
+        return f"checks: {len(states)} passing"
+    if any(s in ("FAILURE", "failure", "ERROR", "error") for s in states):
+        return f"checks: FAILING ({states.count('FAILURE') + states.count('failure')} of {len(states)})"
+    return f"checks: {len(states)} pending/mixed"
+
+
+def print_synopsis(pr, repo_full):
+    print()
+    print(f"[{repo_full}#{pr['number']}] {pr['title']}")
+    print(f"  {pr['url']}")
+    print(f"  +{pr.get('additions', '?')} -{pr.get('deletions', '?')}  "
+          f"{pr.get('changedFiles', '?')} files  {checks_summary(pr)}")
+    body = (pr.get("body") or "").strip().splitlines()
+    if body:
+        print(f"  {body[0][:100]}")
+
+
+def do_merge(repo_full, number, method, delete_branch):
+    args = ["pr", "merge", str(number), "--repo", repo_full, f"--{method}"]
+    if delete_branch:
+        args.append("--delete-branch")
+    proc = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if proc.returncode == 0:
+        print(f"  merged ({method}).")
+    else:
+        print(f"  MERGE FAILED:\n{proc.stderr}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-git-merge")
+    ap.add_argument("-r", "--regex", default=None)
+    ap.add_argument("--org", default="Twin-Cities-Open-Systems")
+    ap.add_argument("--author", default="touchy-claude")
+    method = ap.add_mutually_exclusive_group()
+    method.add_argument("--squash", action="store_const", dest="method", const="squash")
+    method.add_argument("--merge", action="store_const", dest="method", const="merge")
+    method.add_argument("--rebase", action="store_const", dest="method", const="rebase")
+    ap.set_defaults(method="squash")
+    delbranch = ap.add_mutually_exclusive_group()
+    delbranch.add_argument("--delete-branch", action="store_true", dest="delete_branch")
+    delbranch.add_argument("--no-delete-branch", action="store_false", dest="delete_branch")
+    ap.set_defaults(delete_branch=True)
+    args = ap.parse_args()
+
+    prs = fetch_prs(args.org, args.author)
+    candidates = [pr for pr in prs if matches(pr, args.regex)]
+
+    if not candidates:
+        print(f"No open PRs from {args.author} in {args.org}"
+              + (f" matching /{args.regex}/" if args.regex else "") + ".")
+        return
+
+    print(f"{len(candidates)} candidate PR(s), method={args.method}, "
+          f"delete-branch={'yes' if args.delete_branch else 'no'}.")
+
+    for pr in candidates:
+        repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
+        pr.update(fetch_pr_detail(repo_full, pr["number"]))
+        while True:
+            print_synopsis(pr, repo_full)
+            choice = input("  y/N/s/e > ").strip().lower()
+            if choice == "y":
+                do_merge(repo_full, pr["number"], args.method, args.delete_branch)
+                break
+            elif choice == "e":
+                subprocess.run(["gh", "pr", "diff", str(pr["number"]), "--repo", repo_full])
+                continue
+            else:
+                print("  skipped.")
+                break
+
+
+if __name__ == "__main__":
+    main()
