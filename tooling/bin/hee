@@ -13,6 +13,7 @@ hee — tiny router (POSIX sh)
 usage:
   hee lint [--mode warn|error]
   hee hooks install [--repo <path>]
+  hee git merge [-r <regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
   hee help
 
 design:
@@ -56,6 +57,19 @@ case "${cmd}" in
           *" --repo "*) exec "${TOOL_ROOT}/tooling/bin/hee-hooks-install" "$@" ;;
           *) exec "${TOOL_ROOT}/tooling/bin/hee-hooks-install" --repo "${TARGET_ROOT}" "$@" ;;
         esac
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  git)
+    sub="${1:-help}"
+    shift 2>/dev/null || true
+    case "${sub}" in
+      merge)
+        exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
         ;;
       *)
         usage
