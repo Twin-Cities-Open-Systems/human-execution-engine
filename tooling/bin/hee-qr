@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""hee-qr -- real reader for the "hee-key hole" anchor.
+
+Real trigger (2026-08-22): "need qr reader" -- the reverse half of
+render.py's embed_anchor()/draw_qr(). SHA256 is one-way by design, so
+"reversing" an image means reading a real receipt the renderer left
+behind, not guessing. Two independent real mechanisms, tried in order:
+
+  1. A scannable QR in the pixels themselves (via zbarimg, real,
+     installed) -- survives format/bit-depth changes since it's not
+     metadata, it's the image.
+  2. PNG text-chunk metadata (hee-recipe-id / hee-recipe) -- fast,
+     free, but only survives if whatever touched the file since kept
+     the chunks.
+
+Not a new competing decoder -- zbarimg does the real QR decode work,
+this just wraps it and adds the metadata fallback + a consistent
+hee-* interface.
+
+Usage:
+  hee-qr <image>
+"""
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def try_qr_scan(path: str):
+    proc = subprocess.run(
+        ["zbarimg", "--raw", "-q", path],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0 and proc.stdout.strip():
+        return proc.stdout.strip().splitlines()[0]
+    return None
+
+
+def try_png_metadata(path: str):
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.open(path)
+    except Exception:
+        return None
+    text = getattr(img, "text", {})
+    if "hee-recipe-id" in text:
+        return text["hee-recipe-id"], text.get("hee-recipe")
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-qr")
+    ap.add_argument("image")
+    args = ap.parse_args()
+
+    if not Path(args.image).exists():
+        sys.exit(f"hee-qr: no such file: {args.image}")
+
+    qr_result = try_qr_scan(args.image)
+    if qr_result:
+        print(json.dumps({"source": "qr-scan", "recipe_id": qr_result}, indent=2))
+        return
+
+    meta_result = try_png_metadata(args.image)
+    if meta_result:
+        rid, recipe_json = meta_result
+        out = {"source": "png-metadata", "recipe_id": rid}
+        if recipe_json:
+            try:
+                out["recipe"] = json.loads(recipe_json)
+            except json.JSONDecodeError:
+                out["recipe_raw"] = recipe_json
+        print(json.dumps(out, indent=2))
+        return
+
+    sys.exit("hee-qr: no anchor found -- no scannable QR, no hee-recipe-id metadata")
+
+
+if __name__ == "__main__":
+    main()
