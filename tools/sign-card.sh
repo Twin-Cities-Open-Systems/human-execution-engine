@@ -17,6 +17,11 @@
 #   tools/sign-card.sh hee/cards/spencer-blank-generation-lyric.card.v1.yaml spencer inspector@tcos.us
 set -euo pipefail
 
+# CRON-REAL-5 (blueprints/spec-hee-cron-tooling-blueprint.yaml): no pagers,
+# ever -- a tool silently blocking on `less` is the same failure class as
+# an unguarded interactive prompt.
+export GIT_PAGER=cat PAGER=cat GH_PAGER=cat
+
 card_file="${1:?usage: sign-card.sh <card-file> <attestor-name> <gpg-key-id>}"
 attestor="${2:?usage: sign-card.sh <card-file> <attestor-name> <gpg-key-id>}"
 key_id="${3:?usage: sign-card.sh <card-file> <attestor-name> <gpg-key-id>}"
