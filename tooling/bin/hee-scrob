@@ -191,7 +191,7 @@ def main():
         print(f"np: {r['artist']} - {r['title']}{yr}{alb} @ {r['ts']}{dev}")
     else:
         yr = f" ({r['year']})" if r["year"] else ""
-        line = f' -- "{r["line"]}"' if r["line"] else ""
+        line = f' -- {r["line"]}' if r["line"] else ""
         print(f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}")
 
 
