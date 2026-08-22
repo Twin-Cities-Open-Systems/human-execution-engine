@@ -108,11 +108,13 @@ def main():
     if not result:
         sys.exit("hee-qr: no anchor found -- no scannable QR, no hee-recipe-id metadata")
 
+    rid = extract_hash_from_payload(result["recipe_id"])
+    result["recipe_id"] = rid
+
     if not args.manifest:
         print(json.dumps(result, indent=2))
         return
 
-    rid = extract_hash_from_payload(result["recipe_id"])
     if recipe is None:
         # QR-sourced result only carries the URL/hash, not the full
         # recipe -- try the PNG metadata fallback too so -manifest
