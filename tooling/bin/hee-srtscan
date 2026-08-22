@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""hee-srtscan -- real, fast search across years of .srt/.txt files in media/.
+
+Real trigger (2026-08-22): "add the quotes surrounding the current ts
+based on srt other txt lots for years, make a scanner for them," then
+"need super fast rg scan for quotes in srt, lots of pop ref gold" --
+hee-scrob's SRT lookup only ever reads the one file next to whatever's
+playing right now. This searches the whole real archive
+(/mnt/nuc1-pool/media/ by default -- years of real .srt/.txt files)
+for a term, real matches with real file+timestamp context.
+
+Fast path: ripgrep does the actual scanning (built for exactly this --
+years of files, real speed, not a naive per-file Python read loop).
+Python only touches the small number of files rg says actually match,
+to pull the real SRT timestamp context around each hit.
+
+Deliberately not folded into hee-qdb: qdb's format is real people's
+attributed quotes (speaker + date); this is unattributed media
+dialogue at scale, a different real shape of data, not the same
+problem wearing a different hat.
+
+Usage:
+  hee-srtscan -search TERM [-root PATH]
+"""
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+DEFAULT_ROOT = "/mnt/nuc1-pool/media"
+TS_RE = re.compile(
+    r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
+)
+
+
+def fmt_ts(h, m, s):
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def rg_matches(root: str, term: str):
+    """Real ripgrep pass -- returns {file: [matched line numbers]}, fast,
+    across every .srt/.txt file under root in one process, not a
+    per-file Python open() loop."""
+    # real absolute path -- avoids any ambiguity with shell-level rg
+    # wrappers some environments define (found the hard way tonight)
+    proc = subprocess.run(
+        ["/usr/bin/rg", "--json", "-i", "-g", "*.srt", "-g", "*.txt", "--", term, root],
+        capture_output=True, text=True,
+    )
+    # Real finding, same session: the media library has mixed real
+    # ownership (some files touchy:touchy 640, some world-readable) --
+    # rg exits 2 when it hits per-file permission errors even if other
+    # files scanned fine. Those are real, expected, not fatal -- only
+    # a genuinely empty/missing root should abort the whole scan.
+    skipped = proc.stderr.count("Permission denied")
+    if proc.returncode not in (0, 1, 2):
+        sys.exit(f"hee-srtscan: rg failed: {proc.stderr}")
+    if skipped:
+        print(f"hee-srtscan: {skipped} real file(s) not readable by this account, skipped", file=sys.stderr)
+
+    hits_by_file = {}
+    for line in proc.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "match":
+            continue
+        path = event["data"]["path"]["text"]
+        line_no = event["data"]["line_number"]
+        hits_by_file.setdefault(path, []).append(line_no)
+    return hits_by_file
+
+
+def srt_context_for_lines(path: Path, line_numbers: set):
+    """For a real SRT hit, pull the actual timestamp block it's in --
+    grep found the text, this recovers the real timing around it."""
+    text = path.read_text(errors="replace")
+    blocks = text.split("\n\n")
+    line_cursor = 1
+    results = []
+    for block in blocks:
+        block_lines = block.count("\n") + 1
+        block_start, block_end = line_cursor, line_cursor + block_lines - 1
+        line_cursor += block_lines + 1  # +1 for the blank separator line
+        if not any(block_start <= n <= block_end for n in line_numbers):
+            continue
+        m = TS_RE.search(block)
+        if not m:
+            continue
+        h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        lines = block.strip().splitlines()
+        dialogue = [l for l in lines if l.strip() and not TS_RE.search(l) and not l.strip().isdigit()]
+        results.append((fmt_ts(h, mi, s), " ".join(dialogue).strip()))
+    return results
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-srtscan")
+    ap.add_argument("-search", required=True, metavar="TERM")
+    ap.add_argument("-root", default=DEFAULT_ROOT)
+    args = ap.parse_args()
+
+    if not Path(args.root).exists():
+        sys.exit(f"hee-srtscan: root not found: {args.root}")
+
+    hits_by_file = rg_matches(args.root, args.search)
+    total_hits = 0
+
+    for file_path, line_numbers in hits_by_file.items():
+        p = Path(file_path)
+        if p.suffix.lower() == ".srt":
+            for ts, text in srt_context_for_lines(p, set(line_numbers)):
+                total_hits += 1
+                print(f"{p}: @ {ts}: {text}")
+        else:
+            text = p.read_text(errors="replace").splitlines()
+            for n in line_numbers:
+                total_hits += 1
+                print(f"{p}: line {n}: {text[n - 1].strip()}")
+
+    if total_hits == 0:
+        print(f"hee-srtscan: no match for '{args.search}' under {args.root}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
