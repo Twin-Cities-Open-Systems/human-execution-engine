@@ -25,6 +25,7 @@ Usage:
 import argparse
 import os
 import re
+import socket
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -98,8 +99,21 @@ def now_playing(server: str, token: str):
     track = root.find("Track")
 
     def device_name(el):
+        """Real hostname of the playing device, not just Plex's
+        self-reported friendly title -- reverse-DNS the Player's real
+        connecting IP first, fall back to the title Plex gives us if
+        that fails (most devices on this network won't have PTR
+        records, same real gap as everything else tonight)."""
         player = el.find("Player")
-        return player.get("title") if player is not None else None
+        if player is None:
+            return None
+        address = player.get("address")
+        if address:
+            try:
+                return socket.gethostbyaddr(address)[0]
+            except (socket.herror, socket.gaierror):
+                pass
+        return player.get("title")
 
     if video is not None:
         title = video.get("title") or "?"
