@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""hee-qr -- real reader for the "hee-key hole" anchor.
+
+Real trigger (2026-08-22): "need qr reader" -- the reverse half of
+render.py's embed_anchor()/draw_qr(). SHA256 is one-way by design, so
+"reversing" an image means reading a real receipt the renderer left
+behind, not guessing. Two independent real mechanisms, tried in order:
+
+  1. A scannable QR in the pixels themselves (via zbarimg, real,
+     installed) -- survives format/bit-depth changes since it's not
+     metadata, it's the image.
+  2. PNG text-chunk metadata (hee-recipe-id / hee-recipe) -- fast,
+     free, but only survives if whatever touched the file since kept
+     the chunks.
+
+Not a new competing decoder -- zbarimg does the real QR decode work,
+this just wraps it and adds the metadata fallback + a consistent
+hee-* interface.
+
+Real extension (2026-08-22): "-out" -- "should be in hee qr out"
+-- rather than a one-off manifest-building script, hee-qr grows the
+write side too: -manifest PATH reads the real anchor out of an image
+(same as always) and writes/updates an entry in a static JSON
+manifest {recipe_id: recipe, ...} at PATH. That manifest is exactly
+what a static lookup page (spencer.blog.tcos.us/?hash=) needs client-
+side -- no backend, just a JSON file fetched and indexed by hash in JS
+("static is perfect").
+
+Usage:
+  hee-qr <image>
+  hee-qr <image> -manifest PATH
+"""
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def try_qr_scan(path: str):
+    proc = subprocess.run(
+        ["zbarimg", "--raw", "-q", path],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0 and proc.stdout.strip():
+        return proc.stdout.strip().splitlines()[0]
+    return None
+
+
+def try_png_metadata(path: str):
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.open(path)
+    except Exception:
+        return None
+    text = getattr(img, "text", {})
+    if "hee-recipe-id" in text:
+        return text["hee-recipe-id"], text.get("hee-recipe")
+    return None
+
+
+def resolve_anchor(image: str):
+    """Real, single resolution path shared by print mode and
+    -manifest mode -- QR scan first, PNG metadata fallback, same order
+    either way."""
+    qr_result = try_qr_scan(image)
+    if qr_result:
+        return {"source": "qr-scan", "recipe_id": qr_result}, None
+
+    meta_result = try_png_metadata(image)
+    if meta_result:
+        rid, recipe_json = meta_result
+        out = {"source": "png-metadata", "recipe_id": rid}
+        recipe = None
+        if recipe_json:
+            try:
+                recipe = json.loads(recipe_json)
+                out["recipe"] = recipe
+            except json.JSONDecodeError:
+                out["recipe_raw"] = recipe_json
+        return out, recipe
+
+    return None, None
+
+
+def extract_hash_from_payload(payload: str) -> str:
+    """QR payloads are now real URLs (?hash=<id>), not bare hashes --
+    handle both so -manifest works on renders made before or after
+    that change."""
+    if "hash=" in payload:
+        return payload.split("hash=", 1)[1].split("&", 1)[0]
+    return payload
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-qr")
+    ap.add_argument("image")
+    ap.add_argument("-manifest", metavar="PATH", help="write/update a static {recipe_id: recipe} JSON manifest entry")
+    args = ap.parse_args()
+
+    if not Path(args.image).exists():
+        sys.exit(f"hee-qr: no such file: {args.image}")
+
+    result, recipe = resolve_anchor(args.image)
+    if not result:
+        sys.exit("hee-qr: no anchor found -- no scannable QR, no hee-recipe-id metadata")
+
+    rid = extract_hash_from_payload(result["recipe_id"])
+    result["recipe_id"] = rid
+
+    if not args.manifest:
+        print(json.dumps(result, indent=2))
+        return
+
+    if recipe is None:
+        # QR-sourced result only carries the URL/hash, not the full
+        # recipe -- try the PNG metadata fallback too so -manifest
+        # still gets the real recipe body when it's there.
+        meta_result = try_png_metadata(args.image)
+        if meta_result:
+            _rid2, recipe_json = meta_result
+            if recipe_json:
+                try:
+                    recipe = json.loads(recipe_json)
+                except json.JSONDecodeError:
+                    pass
+
+    manifest_path = Path(args.manifest)
+    manifest = {}
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+
+    manifest[rid] = recipe if recipe is not None else {"note": "no recipe body available, hash only"}
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    print(f"hee-qr: wrote {rid} to {manifest_path} ({len(manifest)} total entries)")
+
+
+if __name__ == "__main__":
+    main()
