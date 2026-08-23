@@ -44,6 +44,28 @@ Per PR, prompts:
 
 Already-APPROVED PRs are skipped automatically under --action=approve
 -- shown with a note, never re-prompted, never re-approved.
+
+Real extension (2026-08-23): "research if we already have tooling to
+merge these per your order. the tooling should be upgraded to do the
+order (like you just did here)" -- prompted by manually ordering 29
+real PRs by hand (fleet-ops#247) before this tool could do it. Real
+dependency detection, two layers, both real signal not guesses:
+
+  1. Explicit body text: "depends on #N" / "blocked by #N" /
+     "requires #N" / "needs #N" / "builds on #N" / "after #N" -- hard
+     edge, N merges first.
+  2. Same-repo content heuristic: if PR B's diff *text* contains the
+     basename of a file PR A's diff *adds*, B depends on A. Real case
+     this catches automatically that #1 alone wouldn't: HEE#298
+     (hee-ssh-send-keys) never says "depends on #279" anywhere in its
+     body, but its code contains the literal string "hee-cred" (calls
+     find_tool("hee-cred")), which is exactly the file HEE#279 adds --
+     caught by grep, not asserted.
+
+Falls back to (repo, PR number ascending) as the stable default/
+tiebreaker wherever no real edge exists. Cross-repo edges aren't
+attempted -- different repos' history is independent, ordering across
+them is cosmetic only.
 """
 import argparse
 import json
@@ -89,6 +111,109 @@ def matches(pr, pattern):
         return True
     hay = f"{pr.get('title', '')}\n{pr.get('body', '')}"
     return bool(re.search(pattern, hay, re.IGNORECASE))
+
+
+DEP_RE = re.compile(
+    r"(?:depends on|blocked by|requires|needs|builds on|build on|after)\s+#(\d+)",
+    re.IGNORECASE,
+)
+
+
+def explicit_deps(pr):
+    """Real dependency numbers stated in the PR's own body -- returns a
+    set of PR numbers this PR must merge after."""
+    body = pr.get("body") or ""
+    return {int(n) for n in DEP_RE.findall(body)}
+
+
+def content_deps(candidates, repo_full):
+    """Real, generic same-repo heuristic: PR B depends on PR A if A's
+    diff adds a file whose basename appears as a literal string in B's
+    diff. Only runs within one repo -- cross-repo text overlap isn't a
+    real signal."""
+    same_repo = [pr for pr in candidates
+                 if (pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")) == repo_full]
+    if len(same_repo) < 2:
+        return {}
+
+    added_files = {}   # pr number -> set of basenames this PR adds
+    diffs = {}          # pr number -> full diff text
+    for pr in same_repo:
+        num = pr["number"]
+        files_proc = subprocess.run(
+            ["gh", "pr", "view", str(num), "--repo", repo_full, "--json=files"],
+            capture_output=True, text=True,
+        )
+        basenames = set()
+        if files_proc.returncode == 0:
+            try:
+                files = json.loads(files_proc.stdout).get("files", [])
+                basenames = {f["path"].rsplit("/", 1)[-1] for f in files
+                             if f.get("additions", 0) > 0 and f.get("deletions", 0) == 0}
+            except (json.JSONDecodeError, KeyError):
+                pass
+        added_files[num] = basenames
+
+        diff_proc = subprocess.run(
+            ["gh", "pr", "diff", str(num), "--repo", repo_full],
+            capture_output=True, text=True,
+        )
+        diffs[num] = diff_proc.stdout if diff_proc.returncode == 0 else ""
+
+    deps = {pr["number"]: set() for pr in same_repo}
+    for b in same_repo:
+        bn = b["number"]
+        for a in same_repo:
+            an = a["number"]
+            if an == bn:
+                continue
+            for basename in added_files.get(an, ()):
+                if len(basename) > 3 and basename in diffs.get(bn, ""):
+                    deps[bn].add(an)
+                    break
+    return deps
+
+
+def order_candidates(candidates):
+    """Real topological sort: explicit body-text deps first, then the
+    same-repo content heuristic, (repo, number) ascending as the stable
+    fallback wherever no real edge exists."""
+    by_num = {}
+    for pr in candidates:
+        repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
+        pr["_repo_full"] = repo_full
+        by_num[pr["number"]] = pr
+
+    deps = {pr["number"]: explicit_deps(pr) for pr in candidates}
+
+    for repo_full in {pr["_repo_full"] for pr in candidates}:
+        for num, ds in content_deps(candidates, repo_full).items():
+            deps[num] |= ds
+
+    # only keep edges to PRs actually in this candidate set
+    for num in deps:
+        deps[num] = {d for d in deps[num] if d in by_num and d != num}
+
+    ordered = []
+    placed = set()
+    remaining = sorted(candidates, key=lambda p: (p["_repo_full"], p["number"]))
+    while remaining:
+        progressed = False
+        still = []
+        for pr in remaining:
+            if deps[pr["number"]] <= placed:
+                ordered.append(pr)
+                placed.add(pr["number"])
+                progressed = True
+            else:
+                still.append(pr)
+        remaining = still
+        if not progressed:
+            # real cycle or missing dep -- don't hang, fall back to stable order for the rest
+            ordered.extend(remaining)
+            break
+
+    return ordered
 
 
 def checks_summary(pr):
@@ -161,6 +286,8 @@ def main():
         print(f"No open PRs from {args.author} in {args.org}"
               + (f" matching /{args.regex}/" if args.regex else "") + ".")
         return
+
+    candidates = order_candidates(candidates)
 
     action_desc = f"method={args.method}, delete-branch={'yes' if args.delete_branch else 'no'}" \
         if args.action == "merge" else "approve only, no merge"
