@@ -28,6 +28,11 @@ Usage:
   hee-ticket -new "description text"
   hee-ticket -list
   hee-ticket -advance ID     # idea -> footgun -> dogfood, one step at a time
+  hee-ticket -close SPEC     # mark one or more tickets closed
+                             #   SPEC: comma list (1,2,3), ranges (1-3,7),
+                             #   or mixed (1-3,7,9) -- digits/commas/hyphens
+                             #   only. Anything else is treated as a regex
+                             #   matched against each ticket's description.
 """
 import argparse
 import re
@@ -109,6 +114,74 @@ def cmd_advance(tid: str):
     print(f"hee-ticket {tid}: {cur} -> {new_stage}")
 
 
+def resolve_close_spec(spec: str, d: Path):
+    """SPEC is either a digits/commas/hyphens ID+range list (1,2,3 / 1-3 /
+    1-3,7,9), or -- if it contains anything else -- a regex matched
+    against each ticket's description. One mechanism, not two flags,
+    since the two forms don't overlap: a real regex almost never looks
+    like a bare id/range list."""
+    if re.fullmatch(r"[\d,\-\s]+", spec):
+        ids = set()
+        for part in spec.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                lo, hi = part.split("-", 1)
+                ids.update(f"{n:04d}" for n in range(int(lo), int(hi) + 1))
+            else:
+                ids.add(part.zfill(4))
+        return sorted(ids)
+
+    try:
+        pattern = re.compile(spec)
+    except re.error as e:
+        die(f"-close: '{spec}' is neither a valid id/range list nor a valid regex ({e})")
+    matched = []
+    for p in sorted(d.glob("*.yaml")):
+        with open(p) as f:
+            rec = yaml.safe_load(f)
+        if pattern.search(rec.get("description", "")):
+            matched.append(rec["id"])
+    return matched
+
+
+def die(msg):
+    sys.exit(f"hee-ticket: {msg}")
+
+
+def cmd_close(spec: str):
+    d = tickets_dir()
+    ids = resolve_close_spec(spec, d)
+    if not ids:
+        print(f"hee-ticket -close: no tickets matched '{spec}'", file=sys.stderr)
+        sys.exit(1)
+    ok, missing, already = [], [], []
+    for tid in ids:
+        path = d / f"{tid}.yaml"
+        if not path.exists():
+            missing.append(tid)
+            continue
+        with open(path) as f:
+            rec = yaml.safe_load(f)
+        if rec.get("status") == "closed":
+            already.append(tid)
+            continue
+        rec["status"] = "closed"
+        rec["closed_at"] = now_iso()
+        with open(path, "w") as f:
+            yaml.safe_dump(rec, f, sort_keys=False)
+        ok.append(tid)
+    for tid in ok:
+        print(f"hee-ticket {tid}: closed")
+    for tid in already:
+        print(f"hee-ticket {tid}: already closed, no-op")
+    for tid in missing:
+        print(f"hee-ticket {tid}: no such ticket", file=sys.stderr)
+    if missing:
+        sys.exit(1)
+
+
 def cmd_list():
     d = tickets_dir()
     tickets = sorted(d.glob("*.yaml"))
@@ -127,6 +200,7 @@ def main():
     ap.add_argument("-new", dest="new_desc", metavar="DESCRIPTION")
     ap.add_argument("-list", action="store_true")
     ap.add_argument("-advance", dest="advance_id", metavar="ID")
+    ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
     args = ap.parse_args()
 
     if args.new_desc:
@@ -135,6 +209,8 @@ def main():
         cmd_list()
     elif args.advance_id:
         cmd_advance(args.advance_id)
+    elif args.close_ids:
+        cmd_close(args.close_ids)
     else:
         print(__doc__)
         sys.exit(1)
