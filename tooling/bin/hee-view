@@ -31,6 +31,18 @@ def pve_health(pve_host):
     return json.loads(out)
 
 
+def print_nerd_stats(health):
+    for c in health["lxc"]:
+        h, rem = divmod(c["uptime_s"], 3600)
+        m = rem // 60
+        print(f"   {c['name']:20} cpu {c['cpu_pct']:5.1f}%  mem {c['mem_mb']:5}/{c['maxmem_mb']:5}MB  "
+              f"disk r/w {c['diskread_mb']:6}/{c['diskwrite_mb']:6}MB  "
+              f"net in/out {c['netin_mb']:6}/{c['netout_mb']:6}MB  elapsed {h}h{m}m")
+    t = health["totals"]
+    print(f"🔹 totals across {len(health['lxc'])} container(s): mem {t['mem_mb']}MB  "
+          f"disk r/w {t['diskread_mb']}/{t['diskwrite_mb']}MB  net in/out {t['netin_mb']}/{t['netout_mb']}MB")
+
+
 def haproxy_backends(haproxy_host):
     try:
         with urllib.request.urlopen(f"http://{haproxy_host}:8404/;csv", timeout=3) as r:
@@ -57,6 +69,8 @@ def main():
     ap.add_argument("--pve-host", default="10.0.0.153")
     ap.add_argument("--haproxy-host", default="10.0.0.160")
     ap.add_argument("--dns-host", default="10.0.0.194")
+    ap.add_argument("--nerd", action="store_true",
+                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals")
     args = ap.parse_args()
 
     print("=== tcos lab -- hee view ===")
@@ -74,6 +88,8 @@ def main():
         for c in health["lxc"]:
             flag = "🟢" if c["status"] == "running" else "🔴"
             print(f"{flag} lxc {c['name']}: {c['status']}")
+        if args.nerd:
+            print_nerd_stats(health)
 
     backends = haproxy_backends(args.haproxy_host)
     if backends is None:

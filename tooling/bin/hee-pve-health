@@ -72,8 +72,23 @@ def cmd_status(args):
             "allocated_gb": round(allocated / 1e9, 1),
             "overcommit_ratio": round(allocated / s["total"], 2) if s["total"] else 0,
         }
+    totals = {"mem_mb": 0, "diskread_mb": 0, "diskwrite_mb": 0, "netin_mb": 0, "netout_mb": 0}
     for c in lxcs:
-        result["lxc"].append({"vmid": c["vmid"], "name": c["name"], "status": c["status"]})
+        entry = {
+            "vmid": c["vmid"], "name": c["name"], "status": c["status"],
+            "cpu_pct": round(c.get("cpu", 0) * 100, 1),
+            "mem_mb": c.get("mem", 0) // 1024 // 1024,
+            "maxmem_mb": c.get("maxmem", 0) // 1024 // 1024,
+            "diskread_mb": c.get("diskread", 0) // 1024 // 1024,
+            "diskwrite_mb": c.get("diskwrite", 0) // 1024 // 1024,
+            "netin_mb": c.get("netin", 0) // 1024 // 1024,
+            "netout_mb": c.get("netout", 0) // 1024 // 1024,
+            "uptime_s": c.get("uptime", 0),
+        }
+        result["lxc"].append(entry)
+        for k in totals:
+            totals[k] += entry.get(k, 0)
+    result["totals"] = totals
 
     if args.json:
         print(json.dumps(result))
@@ -88,7 +103,21 @@ def cmd_status(args):
               f"allocated {s['allocated_gb']}GB ({s['overcommit_ratio']}x overcommit)")
     for c in result["lxc"]:
         flag = "🟢" if c["status"] == "running" else "🔴"
-        print(f"{flag} lxc {c['vmid']:>4} {c['name']:20} {c['status']}")
+        if args.nerd:
+            h, rem = divmod(c['uptime_s'], 3600)
+            m = rem // 60
+            print(f"{flag} lxc {c['vmid']:>4} {c['name']:20} {c['status']:8} "
+                  f"cpu {c['cpu_pct']:5.1f}%  mem {c['mem_mb']:5}/{c['maxmem_mb']:5}MB  "
+                  f"disk r/w {c['diskread_mb']:6}/{c['diskwrite_mb']:6}MB  "
+                  f"net in/out {c['netin_mb']:6}/{c['netout_mb']:6}MB  "
+                  f"elapsed {h}h{m}m")
+        else:
+            print(f"{flag} lxc {c['vmid']:>4} {c['name']:20} {c['status']}")
+    if args.nerd:
+        t = result["totals"]
+        print(f"🔹 totals across {len(result['lxc'])} container(s): mem {t['mem_mb']}MB  "
+              f"disk r/w {t['diskread_mb']}/{t['diskwrite_mb']}MB  "
+              f"net in/out {t['netin_mb']}/{t['netout_mb']}MB")
 
 
 def cmd_warn(args):
@@ -116,6 +145,8 @@ def main():
     s.add_argument("--host", default="10.0.0.153")
     s.add_argument("--node", default="pve")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--nerd", action="store_true",
+                    help="per-container cpu/mem/disk-io/net-io/elapsed + totals (real stats-for-nerds)")
     w = sub.add_parser("warn")
     w.add_argument("--host", default="10.0.0.153")
     w.add_argument("--node", default="pve")
