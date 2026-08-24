@@ -11,15 +11,18 @@ Defines how contracts are authored, stored, and referenced.
 - Evidence-first: every behavioral claim should have a reproducer + captured output.
 - No-clobber is A1 when writing files (default refuse overwrite).
 - Agent-Sig: any emission governed by a contract (issue/PR comment, commit,
-  contract signature) MUST carry a slim identity line — `Agent-Sig:
-  <login>@<host>:<tmux-session>` — anchored to the real SOA identity
-  capsule (`~/.hee/index/_.yaml`) per the existing `verify_identity_before_emit`
-  invariant (see `hee/contracts/gcic-dric-mdshell.contract.v1.md`). For
-  higher-stakes emissions (contract ratification, security findings), append
-  the capsule's `stool_hash_show`: `Agent-Sig: <login>@<host>:<tmux-session>
-  (stool <short-hash>)`. Purpose: disambiguate which specific agent
-  instance/session produced an emission when multiple share one identity
-  (real need, not hypothetical — see human-execution-engine#308).
+  contract signature) MUST carry a real identity signature, produced by
+  `tools/agent-signature.sh` per `contracts/agent-instance-signature-v1.contract.yaml`
+  — session id, pid, tmux URI (or `none`), messaging socket, gh actor,
+  timestamp, all read live from the process's own environment, never
+  hand-assembled. Use `tools/agent-signature.sh --footer` to append it to
+  a comment. Purpose: disambiguate which specific agent instance/session
+  produced an emission when multiple share one identity (real need, not
+  hypothetical — see human-execution-engine#308, and fleet-ops#257, where
+  a hand-rolled tmux self-identification turned out to be wrong and the
+  real tool caught it). This rule does not invent a second mechanism — an
+  earlier draft of this rule tried to and was corrected once the existing
+  contract was found.
 
 ## Interface
 
