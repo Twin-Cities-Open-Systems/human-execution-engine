@@ -43,6 +43,7 @@ private repo leaked onto the public activity page):
    prints a loud banner saying the scan did not run.
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -80,46 +81,21 @@ def gh_json(path):
 
 
 _VISIBILITY_CACHE = {}
+_HEE_FILTER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-filter")
 
 
 def repo_is_public(full_name):
-    """Real, live check -- never trust a cached/hardcoded allowlist. This
-    is the fix for the exact incident that already happened once on
-    tcos-www's activity page (a repo's visibility changed and a
-    hardcoded list didn't notice)."""
+    """Delegates to the shared hee-filter tool (contracts/publish-
+    sanitization-v1.contract.yaml) rather than a second copy of the same
+    check -- this used to be inline here, moved out after the same gap
+    was found missing in tcos-www's generator too."""
     if full_name in _VISIBILITY_CACHE:
         return _VISIBILITY_CACHE[full_name]
-    out = subprocess.run(["gh", "api", f"repos/{full_name}", "--jq", ".private"],
+    out = subprocess.run([sys.executable, _HEE_FILTER, "check-repo", full_name],
                           capture_output=True, text=True)
-    # Fail closed: any error (repo gone, no access, API hiccup) is treated
-    # as "not confirmed public" -- excluded, not included by default.
-    is_public = out.returncode == 0 and out.stdout.strip() == "false"
+    is_public = out.returncode == 0
     _VISIBILITY_CACHE[full_name] = is_public
     return is_public
-
-
-def find_tcos_audit():
-    """Locate a local tcos-audit checkout, same convention as this repo's
-    own sibling clones under ~/git/. Not vendored/duplicated here on
-    purpose -- one real ruleset, not two copies to keep in sync."""
-    import os
-    bin_dir = os.path.join(os.path.expanduser("~/git/tcos-audit"), "bin")
-    if os.path.isfile(os.path.join(bin_dir, "scan_common.py")):
-        return bin_dir
-    return None
-
-
-def scan_content(text):
-    """Returns a list of real findings (rule, reason, line_no, snippet)
-    using tcos-audit's actual ruleset, or None if the scanner couldn't be
-    located -- caller must treat None as 'scan did not run', never as
-    'clean'."""
-    audit_bin = find_tcos_audit()
-    if audit_bin is None:
-        return None
-    sys.path.insert(0, audit_bin)
-    from scan_common import scan_text  # noqa: E402
-    return scan_text(text)
 
 
 def resolve_since(range_str):
@@ -188,21 +164,17 @@ def main():
             lines.append(f"- **{ts.strftime('%H:%M:%S')}** [`{repo}`] {line}")
     rendered = "\n".join(lines)
 
-    findings = scan_content(rendered)
-    if findings is None:
-        if not args.i_reviewed_manually:
-            die("mandatory content scan could not run -- tcos-audit not found at ~/git/tcos-audit. "
-                "This is a hard stop, not a skip: pass --i-reviewed-manually if you've reviewed this "
-                "output yourself and are certain it's safe to publish.")
-        print("!!! WARNING: publishing WITHOUT the mandatory content scan -- tcos-audit unavailable, "
-              "--i-reviewed-manually was passed. This output has NOT been automatically checked. !!!\n",
-              file=sys.stderr)
-    elif findings:
-        print(f"hee-publish: REFUSING to print -- {len(findings)} real finding(s) from the mandatory content scan:",
-              file=sys.stderr)
-        for f in findings:
-            print(f"  [{f.rule}] line {f.line_no}: {f.reason}\n      {f.snippet}", file=sys.stderr)
+    scan_args = [sys.executable, _HEE_FILTER, "scan"]
+    if args.i_reviewed_manually:
+        scan_args.append("--i-reviewed-manually")
+    proc = subprocess.run(scan_args, input=rendered, capture_output=True, text=True)
+    if proc.returncode == 2:
+        die(proc.stderr.strip())
+    if proc.returncode == 1:
+        print(proc.stderr, file=sys.stderr, end="")
         die("fix the flagged content (or confirm it's a false positive and adjust the source) before publishing.")
+    if proc.stderr:
+        print(proc.stderr, file=sys.stderr, end="")  # the --i-reviewed-manually warning path
 
     print(rendered)
 
