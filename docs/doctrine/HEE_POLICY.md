@@ -474,6 +474,42 @@ immediately after, the signatures, rather than lagging behind them.
   `gpg --verify` immediately after signing, every time, rather than
   trusting the signing step's own exit status
 
+### 15. External Data Sourcing Policy
+
+**Requirement**: a strict, real order of preference for any external data
+a tool/feature needs — **free/open licensed source, then a paid API as a
+genuine last resort, never scraping**
+
+**Rationale**, per Spencer directly (2026-08-24, deciding how to source
+comp/skill-market data for a real resume-badge feature): "free openintel
+> scrape or pay every single time," then, stronger a moment later:
+"avoid scrape like the plague, nasty business is that one," then
+clarifying the actual order: a paid API — not scraping — "is tool of
+last resort." Scraping carries real, ongoing exposure this org already
+takes seriously elsewhere (ToS violations, legal risk, brittleness to
+the target site's own changes) — it is not merely the cheapest fallback,
+it is excluded as an option.
+
+**Already real, existing practice, now made explicit**: `thesis-engine`
+already sources macro data this way — FRED for credit-spread/bond index
+data, BLS/FRED for CPI/PPI/yield-curve data — real, free, government-
+licensed sources, no scraping, no paid vendor. This policy names that
+existing discipline instead of leaving it an unstated habit.
+
+**Enforcement**:
+
+- Before reaching for a scraper or a paid API/data vendor, check for a
+  free, openly-licensed real source first: government stats agencies
+  (BLS, FRED, Census, and equivalents), public datasets, or a project's
+  own official open API
+- A paid API is acceptable only when a real search has confirmed no free
+  source genuinely covers the need — state that explicitly when reaching
+  for one, don't reach for it silently
+- Scraping (unofficial, ToS-unsanctioned extraction of a site's content)
+  is excluded, not a last-resort fallback — if a real need has no free
+  source and no official API, surface that as an explicit decision point
+  rather than defaulting to scraping to unblock progress
+
 ### HEE Rule Violation Documentation
 
 **Process**:
