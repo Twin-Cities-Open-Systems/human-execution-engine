@@ -517,6 +517,32 @@ existing discipline instead of leaving it an unstated habit.
   real need seems to leave no free or paid option, surface that as an
   explicit decision point for Spencer rather than defaulting to scraping
 
+**Downloaded artifact integrity is a separate, mandatory requirement —
+sourcing tier doesn't excuse skipping it.** Per Spencer directly
+(2026-08-24, after a binary was fetched and used without checksum
+verification): "make sure we are getting and verify sums and shit for
+things we download." A free/open source being trustworthy in principle
+doesn't mean any individual download wasn't corrupted in transit or
+served from a compromised mirror/CDN — checksum verification catches
+that regardless of tier.
+
+- Before running or trusting any downloaded binary/artifact, fetch its
+  publisher's own checksum file (not a third-party mirror's) and verify
+  the download against it (`sha256sum -c`, or equivalent)
+- Pin the exact version being used (a real, current release tag checked
+  directly — e.g. via the project's own release API — not guessed or
+  assumed from memory)
+- A detached cryptographic signature (GPG, cosign, etc.), when the
+  publisher provides one, is a stronger guarantee than a checksum alone
+  and should be preferred when available — note explicitly when a
+  project does *not* publish one, rather than silently treating checksum
+  verification as equivalent
+- Real worked example: `gitleaks` v8.30.1 ([human-execution-engine#337](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/337))
+  — version confirmed via the real GitHub releases API, binary verified
+  against the publisher's own `gitleaks_8.30.1_checksums.txt` before use
+  (`sha256sum -c`, confirmed `OK`); no detached signature is published
+  for this project, noted as a real limitation rather than assumed away
+
 ### HEE Rule Violation Documentation
 
 **Process**:
