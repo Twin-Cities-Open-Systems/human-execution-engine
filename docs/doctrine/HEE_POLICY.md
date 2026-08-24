@@ -476,19 +476,25 @@ immediately after, the signatures, rather than lagging behind them.
 
 ### 15. External Data Sourcing Policy
 
-**Requirement**: a strict, real order of preference for any external data
-a tool/feature needs — **free/open licensed source, then a paid API as a
-genuine last resort, never scraping**
+**Requirement**: a strict, real three-tier order for any external data a
+tool/feature needs — **(1) default/preferred: free, open intel that is
+not scraped; (2) paid, when the value is genuinely justified; (3)
+scraping, the actual last resort after every other option has been
+considered, which should never actually happen**
 
 **Rationale**, per Spencer directly (2026-08-24, deciding how to source
-comp/skill-market data for a real resume-badge feature): "free openintel
-> scrape or pay every single time," then, stronger a moment later:
-"avoid scrape like the plague, nasty business is that one," then
-clarifying the actual order: a paid API — not scraping — "is tool of
-last resort." Scraping carries real, ongoing exposure this org already
-takes seriously elsewhere (ToS violations, legal risk, brittleness to
-the target site's own changes) — it is not merely the cheapest fallback,
-it is excluded as an option.
+comp/skill-market data for a real resume-badge feature), in his own
+words and order: "free openintel > scrape or pay every single time" →
+"avoid scrape like the plague, nasty business is that one" → precise
+correction of a first-pass summary of this policy that mis-ordered paid
+vs. scrape: "default(prefered) free open intel that is not scraped
+paid(when val is justified), scrape is last resort after every other
+thing we can think of, should never ever happen." Paid is a legitimate,
+reasonably-reached-for middle tier (a real cost/value call, not gated
+behind an exhaustive search first) — scraping sits *below* paid, not
+alongside it, and carries real, ongoing exposure this org already takes
+seriously elsewhere (ToS violations, legal risk, brittleness to the
+target site's own changes).
 
 **Already real, existing practice, now made explicit**: `thesis-engine`
 already sources macro data this way — FRED for credit-spread/bond index
@@ -498,17 +504,18 @@ existing discipline instead of leaving it an unstated habit.
 
 **Enforcement**:
 
-- Before reaching for a scraper or a paid API/data vendor, check for a
-  free, openly-licensed real source first: government stats agencies
-  (BLS, FRED, Census, and equivalents), public datasets, or a project's
-  own official open API
-- A paid API is acceptable only when a real search has confirmed no free
-  source genuinely covers the need — state that explicitly when reaching
-  for one, don't reach for it silently
-- Scraping (unofficial, ToS-unsanctioned extraction of a site's content)
-  is excluded, not a last-resort fallback — if a real need has no free
-  source and no official API, surface that as an explicit decision point
-  rather than defaulting to scraping to unblock progress
+- Default: a free, openly-licensed real source — government stats
+  agencies (BLS, FRED, Census, and equivalents), public datasets, or a
+  project's own official open API — obtained through its real, sanctioned
+  channel, not scraped just because it happens to be free to view
+- Paid is acceptable whenever its value is genuinely justified — a real
+  cost/value judgment call, not something that requires proving no free
+  option exists first
+- Scraping is the true last resort, reached for only after every other
+  real option has actually been considered and ruled out — and the
+  standing expectation is that this should never actually happen; if a
+  real need seems to leave no free or paid option, surface that as an
+  explicit decision point for Spencer rather than defaulting to scraping
 
 ### HEE Rule Violation Documentation
 
