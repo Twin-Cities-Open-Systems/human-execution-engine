@@ -33,7 +33,8 @@ CLONE_DIR := $(HOME_DIR)/git/$(REPO)
 BIN_DIR := $(HOME_DIR)/.local/bin
 GIT_DIR := $(HOME_DIR)/git
 
-.PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status
+.PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
+        health-all-repos pull-all-repos refresh-all-repos
 
 bootstrap: clone-repo link-hee
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
@@ -80,3 +81,74 @@ status:
 	@echo "clone: $$([ -d '$(CLONE_DIR)/.git' ] && echo real || echo missing) ($(CLONE_DIR))"
 	@echo "hee:   $$(readlink -f '$(BIN_DIR)/hee' 2>/dev/null || echo missing)"
 	@echo "repos: $$(find '$(GIT_DIR)' -maxdepth 2 -name .git -type d 2>/dev/null | wc -l) cloned in $(GIT_DIR)"
+
+# Real per-repo health, not just "cloned or not": dirty working tree,
+# diverged/behind upstream, no upstream at all. Fetches first (real
+# network check against origin, not stale local refs) so ahead/behind
+# reflects what's actually on GitHub right now.
+#
+# Real distinction, found live 2026-08-24: uncommitted changes to
+# *tracked* files (M/A/D/R/etc, or staged) are a real reason not to
+# touch a repo automatically; a plain untracked file is not the same
+# risk -- `git pull --ff-only` doesn't care about it. This matters
+# concretely now that hee-cred -seal writes real secrets to
+# .hee/secrets/, which is untracked-by-design (gitignored) in every
+# repo that gets one -- treating that as blocking would make every
+# repo with a sealed credential permanently un-pullable by this target.
+health-all-repos:
+	@for d in $(GIT_DIR)/*/; do \
+		r=$$(basename "$$d"); \
+		[ -d "$$d.git" ] || continue; \
+		git -C "$$d" fetch --quiet 2>/dev/null; \
+		branch=$$(git -C "$$d" branch --show-current 2>/dev/null); \
+		status=$$(git -C "$$d" status --porcelain 2>/dev/null); \
+		tracked_dirty=$$(echo "$$status" | grep -v '^??' | grep -c . || true); \
+		untracked=$$(echo "$$status" | grep -c '^??' || true); \
+		upstream=$$(git -C "$$d" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); \
+		if [ -n "$$upstream" ]; then \
+			set -- $$(git -C "$$d" rev-list --left-right --count "HEAD...$$upstream" 2>/dev/null); \
+			ahead=$${1:-0}; behind=$${2:-0}; \
+		else \
+			ahead=0; behind=0; \
+		fi; \
+		untracked_note=""; \
+		[ "$$untracked" != "0" ] && untracked_note=" ($$untracked untracked, fine to pull through)"; \
+		if [ "$$tracked_dirty" != "0" ] && [ "$$behind" != "0" ]; then \
+			echo "🔴 $$r: dirty ($$tracked_dirty uncommitted) AND $$behind behind $$branch -- resolve by hand first"; \
+		elif [ "$$tracked_dirty" != "0" ]; then \
+			echo "🟠 $$r: dirty ($$tracked_dirty uncommitted) on $$branch"; \
+		elif [ "$$ahead" != "0" ] && [ "$$behind" != "0" ]; then \
+			echo "🟠 $$r: diverged ($$ahead ahead / $$behind behind $$branch)"; \
+		elif [ -z "$$upstream" ]; then \
+			echo "🟡 $$r: no upstream tracking branch ($$branch)$$untracked_note"; \
+		elif [ "$$behind" != "0" ]; then \
+			echo "🟡 $$r: $$behind behind $$branch -- pull-all-repos will fast-forward$$untracked_note"; \
+		else \
+			echo "🟢 $$r: clean, up to date ($$branch)$$untracked_note"; \
+		fi; \
+	done
+
+# Fast-forward only -- never touches a repo with uncommitted changes to
+# a *tracked* file or real local/upstream divergence (health-all-repos
+# flags those; fix by hand, this target won't guess). A repo with only
+# untracked files (e.g. a sealed .hee/secrets/ credential) still pulls
+# -- git itself only blocks a merge that would clobber a real change.
+pull-all-repos:
+	@for d in $(GIT_DIR)/*/; do \
+		r=$$(basename "$$d"); \
+		[ -d "$$d.git" ] || continue; \
+		tracked_dirty=$$(git -C "$$d" status --porcelain 2>/dev/null | grep -v '^??' | grep -c . || true); \
+		if [ "$$tracked_dirty" != "0" ]; then \
+			echo "🟠 $$r: skipped -- $$tracked_dirty uncommitted change(s) to tracked files, not touching"; \
+			continue; \
+		fi; \
+		out=$$(git -C "$$d" pull --ff-only 2>&1); \
+		if [ $$? -eq 0 ]; then \
+			echo "🟢 $$r: $$(echo "$$out" | tail -1)"; \
+		else \
+			echo "🔴 $$r: pull failed -- $$(echo "$$out" | tail -1)"; \
+		fi; \
+	done
+
+refresh-all-repos: health-all-repos pull-all-repos
+	@echo "bootstrap.mk: refresh complete -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
