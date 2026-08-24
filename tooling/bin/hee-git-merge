@@ -99,14 +99,18 @@ def fetch_prs(org, author):
     # gh search prs only supports a limited field set (no additions/
     # changedFiles/statusCheckRollup) -- use it for discovery, then
     # gh pr view per-repo for the richer synopsis fields.
-    return gh_json([
+    # author=None (--author all) omits the filter entirely -- real need
+    # tonight: "orchestrate all open PRs from all users," not just mine.
+    args = [
         "search", "prs",
         f"--owner={org}",
-        f"--author={author}",
         "--state=open",
-        "--json=number,title,body,url,repository",
+        "--json=number,title,body,url,repository,author",
         "--limit=100",
-    ])
+    ]
+    if author:
+        args.insert(3, f"--author={author}")
+    return gh_json(args)
 
 
 def fetch_pr_detail(repo_full, number):
@@ -134,9 +138,14 @@ DEP_RE = re.compile(
 
 def explicit_deps(pr):
     """Real dependency numbers stated in the PR's own body -- returns a
-    set of PR numbers this PR must merge after."""
+    set of (repo, number) keys this PR must merge after. An unqualified
+    '#N' means same-repo, the real GitHub convention -- real bug fixed
+    2026-08-24: this used to return bare numbers, which collide across
+    repos once candidates span more than one author/repo (dotfiles#2 and
+    glass-ops#2 are not the same PR)."""
     body = pr.get("body") or ""
-    return {int(n) for n in DEP_RE.findall(body)}
+    repo_full = pr["_repo_full"]
+    return {(repo_full, int(n)) for n in DEP_RE.findall(body)}
 
 
 def content_deps(candidates, repo_full):
@@ -173,7 +182,7 @@ def content_deps(candidates, repo_full):
         )
         diffs[num] = diff_proc.stdout if diff_proc.returncode == 0 else ""
 
-    deps = {pr["number"]: set() for pr in same_repo}
+    deps = {(repo_full, pr["number"]): set() for pr in same_repo}
     for b in same_repo:
         bn = b["number"]
         for a in same_repo:
@@ -182,31 +191,35 @@ def content_deps(candidates, repo_full):
                 continue
             for basename in added_files.get(an, ()):
                 if len(basename) > 3 and basename in diffs.get(bn, ""):
-                    deps[bn].add(an)
+                    deps[(repo_full, bn)].add((repo_full, an))
                     break
     return deps
 
 
 def compute_deps(candidates):
     """Real dependency edges for this candidate set: explicit body-text
-    deps, plus the same-repo content heuristic. Returns {number: {dep_nums}},
-    factored out of order_candidates so batch selection can reuse the same
-    real signal instead of recomputing it differently."""
-    by_num = {}
+    deps, plus the same-repo content heuristic. Returns {(repo, number):
+    {(repo, dep_number)}}, factored out of order_candidates so batch
+    selection can reuse the same real signal instead of recomputing it
+    differently. Keyed by (repo, number), not bare number -- real bug
+    fixed 2026-08-24: PR numbers collide across repos once candidates
+    span more than one author (--author all), so a bare-number dict
+    silently mixed up unrelated PRs from different repos."""
+    by_key = {}
     for pr in candidates:
         repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
         pr["_repo_full"] = repo_full
-        by_num[pr["number"]] = pr
+        by_key[(repo_full, pr["number"])] = pr
 
-    deps = {pr["number"]: explicit_deps(pr) for pr in candidates}
+    deps = {(pr["_repo_full"], pr["number"]): explicit_deps(pr) for pr in candidates}
 
     for repo_full in {pr["_repo_full"] for pr in candidates}:
-        for num, ds in content_deps(candidates, repo_full).items():
-            deps[num] |= ds
+        for key, ds in content_deps(candidates, repo_full).items():
+            deps[key] |= ds
 
     # only keep edges to PRs actually in this candidate set
-    for num in deps:
-        deps[num] = {d for d in deps[num] if d in by_num and d != num}
+    for key in deps:
+        deps[key] = {d for d in deps[key] if d in by_key and d != key}
 
     return deps
 
@@ -224,9 +237,10 @@ def order_candidates(candidates):
         progressed = False
         still = []
         for pr in remaining:
-            if deps[pr["number"]] <= placed:
+            key = (pr["_repo_full"], pr["number"])
+            if deps[key] <= placed:
                 ordered.append(pr)
-                placed.add(pr["number"])
+                placed.add(key)
                 progressed = True
             else:
                 still.append(pr)
@@ -250,18 +264,19 @@ def build_batch(ordered, deps, batch_size):
     would otherwise silently vanish from view instead of blocking its
     dependent."""
     batch = []
-    batch_nums = set()
+    batch_keys = set()
     for pr in ordered:
         if len(batch) >= batch_size:
             break
-        num = pr["number"]
-        unresolved = deps.get(num, set()) - batch_nums
+        key = (pr["_repo_full"], pr["number"])
+        unresolved = deps.get(key, set()) - batch_keys
         if unresolved:
-            print(f"  [{pr['_repo_full']}#{num}] held back from this batch -- "
-                  f"depends on #{sorted(unresolved)} which isn't approved+mergeable yet.")
+            readable = ", ".join(f"{r}#{n}" for r, n in sorted(unresolved))
+            print(f"  [{pr['_repo_full']}#{pr['number']}] held back from this batch -- "
+                  f"depends on {readable} which isn't approved+mergeable yet.")
             continue
         batch.append(pr)
-        batch_nums.add(num)
+        batch_keys.add(key)
     return batch
 
 
@@ -329,12 +344,30 @@ def do_approve(repo_full, number):
         print(f"  APPROVE FAILED:\n{proc.stderr}")
 
 
+def estimate_agents(ready):
+    """Real, minimal agent-count estimate -- the missing half of HEE#313
+    ('pencil to hyperscaler'). Cross-repo dependency edges aren't tracked
+    (by design -- content_deps is same-repo only, explicit_deps resolves
+    '#N' to the same repo), which means repos are the real unit of
+    parallelism here: work inside one repo serializes on its own real
+    dependency chain, but two different repos' ready PRs never block each
+    other. One agent per repo with ready work is the real, computable
+    upper bound on useful parallelism -- more agents on one repo doesn't
+    shorten its own chain. Degrades correctly: one repo -> one agent,
+    sequential, same as a human with a pencil."""
+    by_repo = {}
+    for pr in ready:
+        by_repo.setdefault(pr["_repo_full"], []).append(pr)
+    return by_repo
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-git-merge")
     ap.add_argument("-r", "--regex", default=None)
     ap.add_argument("--org", default="Twin-Cities-Open-Systems")
-    ap.add_argument("--author", default="touchy-claude")
-    ap.add_argument("--action", choices=["merge", "approve", "batch"], default="merge")
+    ap.add_argument("--author", default="touchy-claude",
+                     help="filter by login, or 'all' for every open PR org-wide")
+    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize"], default="merge")
     ap.add_argument("--batch-size", type=int, default=5,
                      help="max PRs per batch under --action batch (default 5)")
     method = ap.add_mutually_exclusive_group()
@@ -348,7 +381,8 @@ def main():
     ap.set_defaults(delete_branch=True)
     args = ap.parse_args()
 
-    prs = fetch_prs(args.org, args.author)
+    author = None if args.author == "all" else args.author
+    prs = fetch_prs(args.org, author)
     candidates = [pr for pr in prs if matches(pr, args.regex)]
 
     if not candidates:
@@ -362,9 +396,25 @@ def main():
 
     candidates, deps = order_candidates(candidates)
 
+    ready = [pr for pr in candidates
+             if pr.get("reviewDecision") == "APPROVED" and pr.get("mergeable") == "MERGEABLE"]
+
+    if args.action == "optimize":
+        print(f"{len(candidates)} total open candidate(s), {len(ready)} approved+mergeable.")
+        by_repo = estimate_agents(ready)
+        if not by_repo:
+            print("No ready work -- 0 agents needed.")
+            return
+        print(f"\n{len(by_repo)} repo(s) with ready work -- real upper bound on useful "
+              f"parallel agents (more per repo doesn't help, its own chain still serializes):")
+        for repo_full, prs in sorted(by_repo.items()):
+            print(f"  {repo_full}: {len(prs)} PR(s) ready")
+        if len(by_repo) == 1:
+            print("\nOne repo -- one agent, sequential, is the real answer here. "
+                  "Pencil, not hyperscaler.")
+        return
+
     if args.action == "batch":
-        ready = [pr for pr in candidates
-                 if pr.get("reviewDecision") == "APPROVED" and pr.get("mergeable") == "MERGEABLE"]
         print(f"{len(candidates)} total open candidate(s), {len(ready)} approved+mergeable.")
         batch = build_batch(ready, deps, args.batch_size)
         if not batch:
