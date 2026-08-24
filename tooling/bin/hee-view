@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""hee-view: one command, the whole real picture -- pve node, every
+container, HAProxy backend health, DNS. Same "only view to see them
+all" intent as view.lab.tcos.us, as a real CLI, no do-this-do-that.
+
+Real trigger (2026-08-24, Spencer): "not going to all this do this do
+that. slick hee view for all." Reuses hee-pve-health's real data
+(shells out to it --json, doesn't reimplement pvesh calls) and adds
+HAProxy + DNS checks in one terse report.
+
+Usage:
+  hee-view [--pve-host IP] [--haproxy-host IP] [--dns-host IP]
+"""
+import argparse
+import json
+import subprocess
+import sys
+import urllib.request
+
+
+def sh(cmd):
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def pve_health(pve_host):
+    tool = __file__.rsplit("/", 1)[0] + "/hee-pve-health"
+    code, out, err = sh([sys.executable, tool, "status", "--host", pve_host, "--json"])
+    if code != 0:
+        return None
+    return json.loads(out)
+
+
+def haproxy_backends(haproxy_host):
+    try:
+        with urllib.request.urlopen(f"http://{haproxy_host}:8404/;csv", timeout=3) as r:
+            body = r.read().decode()
+    except Exception:
+        return None
+    rows = {}
+    for line in body.strip().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        f = line.split(",")
+        if len(f) > 17 and f[1] not in ("FRONTEND", "BACKEND"):
+            rows[f"{f[0]}/{f[1]}"] = f[17]  # pxname/svname -> status
+    return rows
+
+
+def dns_check(dns_host, name="ns1.lab.tcos.us"):
+    code, out, err = sh(["dig", f"@{dns_host}", name, "+short", "+time=2"])
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-view")
+    ap.add_argument("--pve-host", default="10.0.0.153")
+    ap.add_argument("--haproxy-host", default="10.0.0.160")
+    ap.add_argument("--dns-host", default="10.0.0.194")
+    args = ap.parse_args()
+
+    print("=== tcos lab -- hee view ===")
+
+    health = pve_health(args.pve_host)
+    if health is None:
+        print("🔴 pve: unreachable")
+    else:
+        n = health["node"]
+        print(f"🟢 pve node: cpu {n['cpu_pct']}%  mem {n['mem_used_mb']}/{n['mem_total_mb']}MB")
+        for sname, s in health["storage"].items():
+            flag = "🔴" if s["overcommit_ratio"] > 3 else ("🟡" if s["overcommit_ratio"] > 1 else "🟢")
+            print(f"{flag} storage {sname}: {s['overcommit_ratio']}x overcommit "
+                  f"({s['allocated_gb']}GB / {s['pool_total_gb']}GB pool)")
+        for c in health["lxc"]:
+            flag = "🟢" if c["status"] == "running" else "🔴"
+            print(f"{flag} lxc {c['name']}: {c['status']}")
+
+    backends = haproxy_backends(args.haproxy_host)
+    if backends is None:
+        print("🔴 haproxy: unreachable")
+    else:
+        for name, status in backends.items():
+            flag = "🟢" if status == "UP" else "🔴"
+            print(f"{flag} haproxy backend {name}: {status}")
+
+    dns = dns_check(args.dns_host)
+    flag = "🟢" if dns else "🔴"
+    print(f"{flag} dns (ns1): {dns or 'no answer'}")
+
+
+if __name__ == "__main__":
+    main()
