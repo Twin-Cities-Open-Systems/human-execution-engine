@@ -1,9 +1,9 @@
-hostname: bastion
+hostname: thesis-engine
 template: alpine-3.23-default_20260116_amd64.tar.xz
 template_storage: local
 storage: vmdata
-cores: 1
-memory_mb: 256
-disk_gb: 4
+cores: 2
+memory_mb: 1024
+disk_gb: 16
 bridge: vmbr0
 unprivileged: true
