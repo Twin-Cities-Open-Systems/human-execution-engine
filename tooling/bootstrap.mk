@@ -34,7 +34,8 @@ BIN_DIR := $(HOME_DIR)/.local/bin
 GIT_DIR := $(HOME_DIR)/git
 
 .PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
-        health-all-repos pull-all-repos refresh-all-repos
+        health-all-repos pull-all-repos refresh-all-repos \
+        link-cache-prune install-cron
 
 bootstrap: clone-repo link-hee
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
@@ -152,3 +153,29 @@ pull-all-repos:
 
 refresh-all-repos: health-all-repos pull-all-repos
 	@echo "bootstrap.mk: refresh complete -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
+
+link-cache-prune: clone-repo
+	@mkdir -p "$(BIN_DIR)"
+	@ln -sf "$(CLONE_DIR)/tooling/bin/hee-cache-prune" "$(BIN_DIR)/hee-cache-prune"
+
+# Real, unprivileged-by-design cron install -- per Spencer's correction
+# 2026-08-24: user tools belong in $(BIN_DIR) (~/.local/bin, same as
+# link-hee), managed by this Makefile, never a manually-copied one-off
+# script sitting in an ad hoc ~/bin. Additive to crontab -l (never
+# overwrites an existing crontab wholesale), skips if these two real
+# lines are already present so re-running is a real no-op, not a
+# growing duplicate list.
+install-cron: link-hee link-cache-prune
+	@existing="$$(crontab -l 2>/dev/null || true)"; \
+	prune_line="0 4 * * * $(BIN_DIR)/hee-cache-prune"; \
+	health_line="0 5 * * 0 cd $(CLONE_DIR) && $(MAKE) -f tooling/bootstrap.mk health-all-repos > $(HOME_DIR)/.cache/hee-git-health-report.txt 2>&1"; \
+	new="$$existing"; \
+	echo "$$existing" | grep -qF "hee-cache-prune" || new="$$(printf '%s\n%s' "$$new" "$$prune_line")"; \
+	echo "$$existing" | grep -qF "health-all-repos" || new="$$(printf '%s\n%s' "$$new" "$$health_line")"; \
+	if [ "$$new" = "$$existing" ]; then \
+		echo "bootstrap.mk: cron already installed, nothing to do"; \
+	else \
+		mkdir -p "$(HOME_DIR)/.cache"; \
+		printf '%s\n' "$$new" | crontab -; \
+		echo "bootstrap.mk: cron installed -- daily cache-prune (4am), weekly git-health report (Sun 5am)"; \
+	fi
