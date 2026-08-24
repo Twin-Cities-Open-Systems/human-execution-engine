@@ -24,6 +24,8 @@ guardrails:
     rule: "environment is explicit: PATH, HOME, SHELL, locale, tokens; no implicit shell profiles"
   - id: CRON-REAL-4
     rule: "output contract is append-only logs + structured artifacts; failures are edge-triggered alerts"
+  - id: CRON-REAL-5
+    rule: "no pagers, ever, cron or live human TTY alike: git/gh/man/etc. must run with paging forced off (GIT_PAGER=cat, GH_PAGER=cat, PAGER=cat, or the tool's own --no-pager flag). A tool silently blocking on a pager it never asked permission to invoke is the same failure class as an unguarded interactive prompt (see CRON-REAL-1) -- found live 2026-08-18 as a real gap this list didn't name explicitly."
 
 # Cron Wrappers Required
 cron_wrappers_required:
