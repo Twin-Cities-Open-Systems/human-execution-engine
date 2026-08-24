@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""hee-pve-health: real, 0-token health check for a pve node and every
+LXC on it -- node resources, real storage overcommit ratio (allocated
+vs. actual thin-pool size, not just "used"), and per-container status.
+
+Real trigger (2026-08-24, Spencer): "write a quick tool to get an
+overall health of the pve and of our infra" -- after standing up 8
+real containers via hee-pve-deploy and hitting a real, growing thin-
+pool overcommit (48GB allocated on a 32GB pool) with no single command
+to see that at a glance.
+
+Usage:
+  hee-pve-health status [--host IP] [--node NAME] [--json]
+  hee-pve-health warn [--host IP] [--node NAME] [--overcommit-max N]
+                 -- exit 1 if real overcommit ratio (allocated/pool)
+                    exceeds N (default 3.0x), or any container isn't
+                    'running', otherwise exit 0 silently.
+"""
+import argparse
+import json
+import subprocess
+import sys
+
+
+def pvesh_json(host, path):
+    proc = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pvesh", "get", path, "--output-format", "json"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        sys.exit(f"hee-pve-health: pvesh get {path} failed:\n{proc.stderr}")
+    return json.loads(proc.stdout)
+
+
+def gather(host, node):
+    node_status = pvesh_json(host, f"/nodes/{node}/status")
+    storages = pvesh_json(host, f"/nodes/{node}/storage")
+    lxcs = pvesh_json(host, f"/nodes/{node}/lxc")
+
+    # Real overcommit: sum of every LXC's configured rootfs size against
+    # the real backing pool's total capacity -- pvesh's own per-storage
+    # "total" is the real pool size; maxdisk summed across LXCs on that
+    # storage is what's actually been promised out of it.
+    rootdir_storages = {s["storage"]: s for s in storages if "rootdir" in s.get("content", "")}
+    allocated_by_storage = {}
+    for c in lxcs:
+        cfg = pvesh_json(host, f"/nodes/{node}/lxc/{c['vmid']}/config")
+        rootfs = cfg.get("rootfs", "")
+        for sname in rootdir_storages:
+            if rootfs.startswith(f"{sname}:"):
+                allocated_by_storage[sname] = allocated_by_storage.get(sname, 0) + c.get("maxdisk", 0)
+
+    return node_status, rootdir_storages, allocated_by_storage, lxcs
+
+
+def cmd_status(args):
+    node_status, rootdir_storages, allocated_by_storage, lxcs = gather(args.host, args.node)
+
+    mem = node_status["memory"]
+    cpu_pct = node_status["cpu"] * 100
+
+    result = {
+        "node": {"cpu_pct": round(cpu_pct, 1), "mem_used_mb": mem["used"] // 1024 // 1024,
+                  "mem_total_mb": mem["total"] // 1024 // 1024, "uptime_s": node_status["uptime"]},
+        "storage": {}, "lxc": [],
+    }
+    for sname, s in rootdir_storages.items():
+        allocated = allocated_by_storage.get(sname, 0)
+        result["storage"][sname] = {
+            "pool_total_gb": round(s["total"] / 1e9, 1),
+            "pool_used_gb": round(s["used"] / 1e9, 1),
+            "allocated_gb": round(allocated / 1e9, 1),
+            "overcommit_ratio": round(allocated / s["total"], 2) if s["total"] else 0,
+        }
+    for c in lxcs:
+        result["lxc"].append({"vmid": c["vmid"], "name": c["name"], "status": c["status"]})
+
+    if args.json:
+        print(json.dumps(result))
+        return
+
+    n = result["node"]
+    print(f"node {args.node}: cpu {n['cpu_pct']}%  mem {n['mem_used_mb']}/{n['mem_total_mb']}MB  "
+          f"uptime {n['uptime_s']//3600}h")
+    for sname, s in result["storage"].items():
+        flag = "🔴" if s["overcommit_ratio"] > 3 else ("🟡" if s["overcommit_ratio"] > 1 else "🟢")
+        print(f"{flag} storage {sname}: pool {s['pool_total_gb']}GB, real used {s['pool_used_gb']}GB, "
+              f"allocated {s['allocated_gb']}GB ({s['overcommit_ratio']}x overcommit)")
+    for c in result["lxc"]:
+        flag = "🟢" if c["status"] == "running" else "🔴"
+        print(f"{flag} lxc {c['vmid']:>4} {c['name']:20} {c['status']}")
+
+
+def cmd_warn(args):
+    node_status, rootdir_storages, allocated_by_storage, lxcs = gather(args.host, args.node)
+    bad = []
+    for sname, s in rootdir_storages.items():
+        allocated = allocated_by_storage.get(sname, 0)
+        ratio = allocated / s["total"] if s["total"] else 0
+        if ratio > args.overcommit_max:
+            bad.append(f"storage {sname}: {ratio:.2f}x overcommit (max {args.overcommit_max})")
+    for c in lxcs:
+        if c["status"] != "running":
+            bad.append(f"lxc {c['vmid']} {c['name']}: status={c['status']}, not running")
+    if bad:
+        for line in bad:
+            print(f"WARN: {line}", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(0)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-pve-health")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("status")
+    s.add_argument("--host", default="10.0.0.153")
+    s.add_argument("--node", default="pve")
+    s.add_argument("--json", action="store_true")
+    w = sub.add_parser("warn")
+    w.add_argument("--host", default="10.0.0.153")
+    w.add_argument("--node", default="pve")
+    w.add_argument("--overcommit-max", type=float, default=3.0)
+    args = ap.parse_args()
+    {"status": cmd_status, "warn": cmd_warn}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()
