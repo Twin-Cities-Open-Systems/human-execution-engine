@@ -330,13 +330,69 @@ def run_sign_mode(rows, keyid, signer):
             print("  unrecognized, try again")
 
 
+def find_promotable():
+    # Real scope, 2026-08-24: doctrine promotion (party-kind-style
+    # propose -> observed_not_active -> promote) is a real, documented
+    # pattern in exactly one file today (hee/registries/
+    # party-kind.registry.v1.yaml) and referenced as precedent by one
+    # blueprint (gitops-coordination-v1.yaml's known_gaps). Scans every
+    # real hee/registries/*.yaml + blueprints/*.yaml for a
+    # promotion_process block and reports its observed_not_active list
+    # (real candidates) -- read-only. No mutation logic here: as of
+    # this writing every real observed_not_active list in the codebase
+    # is empty, so there is nothing yet to actually promote. Building
+    # the promote-and-mutate half now would be scaffolding for zero
+    # real instances -- add it when a first real candidate exists.
+    found = []
+    for path in sorted(glob.glob("hee/registries/*.yaml") + glob.glob("blueprints/*.yaml")):
+        if not yaml:
+            continue
+        try:
+            doc = yaml.safe_load(open(path)) or {}
+        except Exception:
+            continue
+        proc = (doc.get("spec") or {}).get("promotion_process")
+        candidates = (doc.get("spec") or {}).get("observed_not_active")
+        if proc is not None or candidates is not None:
+            found.append({
+                "path": path,
+                "has_process": proc is not None,
+                "candidates": candidates or [],
+            })
+    return found
+
+
+def run_promote_scan():
+    found = find_promotable()
+    if not found:
+        print("hee-contract-review: no file with a real promotion_process/"
+              "observed_not_active block found -- nothing to scan.")
+        return
+    any_candidates = False
+    for f in found:
+        n = len(f["candidates"])
+        if n:
+            any_candidates = True
+            print(f"{f['path']}: {n} real candidate(s) ready to review:")
+            for c in f["candidates"]:
+                print(f"  - {c}")
+        else:
+            print(f"{f['path']}: has a promotion_process, 0 real candidates right now.")
+    if not any_candidates:
+        print("\nhee-contract-review: nothing to promote anywhere in the codebase "
+              "today -- this is an honest zero, not a broken scan.")
+
+
 def main():
     rows = collect()
     if "--action" in sys.argv:
         i = sys.argv.index("--action")
         action = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
-        if action != "sign":
-            sys.exit(f"hee-contract-review: unknown --action '{action}' (only 'sign' exists)")
+        if action not in ("sign", "promote-scan"):
+            sys.exit(f"hee-contract-review: unknown --action '{action}' (sign, promote-scan)")
+        if action == "promote-scan":
+            run_promote_scan()
+            return
         if "--key" not in sys.argv or "--signer" not in sys.argv:
             sys.exit("hee-contract-review --action sign --key <gpg-key-id> --signer '<name>' [--dry-run]")
         keyid = sys.argv[sys.argv.index("--key") + 1]

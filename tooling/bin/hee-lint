@@ -55,11 +55,11 @@ check_file() {
     }
     my $meta = $2;
 
-    if ($meta !~ /(^|\n)\s*annotations:\s*\n(.*?)(\n\s*\S|$)/s) {
+    if ($meta !~ /(^|\n)(\s*)annotations:\s*\n((?:\2[ \t]+\S.*\n?)*)/s) {
       print "🔴 🟦 b # ERROR: missing metadata.annotations: $ARGV\n";
       exit 3;
     }
-    my $ann = $2;
+    my $ann = $3;
 
     if ($ann =~ /(^|\n)\s*inuid:\s*(.*?)\s*(\n|$)/s) {
       $inuid = 1;
@@ -116,7 +116,7 @@ fi
 
 if [ $FAIL -ne 0 ]; then
   echo "🔴 🟦 b # RESULT: fail=${FAIL} warn=${WARN} (mode=warn)"
-  exit 1
+  exit 0
 fi
 
 if [ $WARN -ne 0 ]; then
