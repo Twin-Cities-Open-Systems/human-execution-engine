@@ -202,18 +202,122 @@ def check_quota(candidates, use_cache=True):
         sys.exit(1)
 
 
+def _real_quota(pool):
+    """0-token: gh api rate_limit costs nothing against any pool. Real
+    remaining count, or None if the check itself fails (never block
+    real work on a quota-check failure)."""
+    proc = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout)["resources"][pool]["remaining"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _pick_source():
+    """Real smart sourcing (Spencer's ask): fetch_pr_detail's one real
+    call is GraphQL-only today, but a REST equivalent exists (2 calls
+    instead of 1 -- pulls/{n} + check-runs -- costing core-pool budget
+    instead). Core is near-always near-full while graphql is the one
+    that's repeatedly hit 0 tonight (confirmed live, fleet-ops#269) --
+    route to REST once graphql is thin, even though it costs 2x the
+    real call count, because core has real headroom graphql doesn't.
+    Checked once per run (module-level cache), not per PR -- the quota
+    check itself is free but re-running it 76 times adds real latency
+    for no real benefit within one run's timeframe."""
+    global _SOURCE_CACHE
+    if _SOURCE_CACHE is not None:
+        return _SOURCE_CACHE
+    graphql = _real_quota("graphql")
+    _SOURCE_CACHE = "rest" if graphql is not None and graphql < 200 else "graphql"
+    if _SOURCE_CACHE == "rest":
+        print(f"hee-git-merge: graphql pool thin ({graphql} remaining) -- "
+              f"routing PR detail fetches through REST instead (real core-pool budget).",
+              file=sys.stderr)
+    return _SOURCE_CACHE
+
+
+_SOURCE_CACHE = None
+
+
+def _fetch_pr_detail_rest(repo_full, number):
+    """Real REST equivalent -- 2 calls (pulls/{n}, check-runs) instead
+    of GraphQL's 1, trading call count for a pool that actually has
+    headroom when graphql doesn't. reviewDecision isn't a real REST
+    field (GraphQL aggregates it server-side) -- reduced here from the
+    real per-reviewer review list: any real CHANGES_REQUESTED wins
+    over an APPROVED, matching GitHub's own latest-review-per-reviewer
+    logic closely enough for this tool's real use (a human still makes
+    the actual call before approving/merging, this just orders/flags)."""
+    pr = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/pulls/{number}"],
+        capture_output=True, text=True,
+    )
+    if pr.returncode != 0:
+        return {}
+    try:
+        p = json.loads(pr.stdout)
+    except json.JSONDecodeError:
+        return {}
+
+    reviews = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/pulls/{number}/reviews", "--paginate"],
+        capture_output=True, text=True,
+    )
+    review_decision = "REVIEW_REQUIRED"
+    if reviews.returncode == 0:
+        try:
+            latest = {}
+            for r in json.loads(reviews.stdout):
+                if r.get("state") in ("APPROVED", "CHANGES_REQUESTED"):
+                    latest[r["user"]["login"]] = r["state"]
+            states = set(latest.values())
+            if "CHANGES_REQUESTED" in states:
+                review_decision = "CHANGES_REQUESTED"
+            elif "APPROVED" in states:
+                review_decision = "APPROVED"
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    checks = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/commits/{p['head']['sha']}/check-runs"],
+        capture_output=True, text=True,
+    )
+    rollup = []
+    if checks.returncode == 0:
+        try:
+            rollup = [{"conclusion": c.get("conclusion"), "state": c.get("status")}
+                      for c in json.loads(checks.stdout).get("check_runs", [])]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return {
+        "additions": p.get("additions"),
+        "deletions": p.get("deletions"),
+        "changedFiles": p.get("changed_files"),
+        "mergeable": "MERGEABLE" if p.get("mergeable") else (
+            "CONFLICTING" if p.get("mergeable") is False else "UNKNOWN"),
+        "reviewDecision": review_decision,
+        "statusCheckRollup": rollup,
+    }
+
+
 def fetch_pr_detail(repo_full, number, use_cache=True):
     if use_cache:
         cached = _pr_cache_get(repo_full, number)
         if cached is not None:
             return cached
-    try:
-        data = gh_json([
-            "pr", "view", str(number), "--repo", repo_full,
-            "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
-        ])
-    except SystemExit:
-        return {}
+    if _pick_source() == "rest":
+        data = _fetch_pr_detail_rest(repo_full, number)
+    else:
+        try:
+            data = gh_json([
+                "pr", "view", str(number), "--repo", repo_full,
+                "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
+            ])
+        except SystemExit:
+            return {}
     if use_cache and data:
         _pr_cache_put(repo_full, number, data)
     return data
