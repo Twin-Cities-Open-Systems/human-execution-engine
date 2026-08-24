@@ -1,4 +1,4 @@
-hostname: own-cleveland  # fleet-ops#76 convention (bast-<character>), hee-name pool=family-guy scope=pve-lxc
+hostname: tcos-own-cleveland  # org-role-char, fleet-ops#76 lineage; hee-name pool=family-guy scope=pve-lxc
 template: alpine-3.23-default_20260116_amd64.tar.xz
 template_storage: local
 storage: vmdata
