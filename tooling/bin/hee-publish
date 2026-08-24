@@ -19,6 +19,28 @@ Usage:
 Data source: GitHub's own Events API (`gh api users/<oper>/events`) --
 real, already-recorded activity, zero LLM tokens spent reading or
 producing this output.
+
+Safety (mandatory, not optional -- see fleet-ops#261 and the real,
+already-documented incident in tcos-www/generate-public-site.py where a
+private repo leaked onto the public activity page):
+
+1. Repo-visibility filter: the Events API for a user includes activity
+   from every repo that identity can see, private ones included. Every
+   unique repo touched is checked live (`gh api repos/<repo> --jq
+   .private`), not assumed from a hardcoded list -- a repo's visibility
+   changing is exactly what caused the real tcos-www incident, and a
+   stale allowlist wouldn't have caught it either. Private-repo events
+   are dropped before rendering, not redacted after.
+2. Content scan: the real content (titles, commit-derived text) still
+   comes from public repos but isn't guaranteed clean -- a commit
+   message or issue title can itself contain something sensitive. Before
+   printing, the rendered output is scanned using tcos-audit's real
+   pattern ruleset (bank/SSN/EIN-shaped numbers, credential-shaped
+   tokens, currency-near-vendor, hardcoded home paths -- see
+   tcos-audit/bin/scan_common.py). If tcos-audit isn't checked out
+   locally, this tool refuses to print output at all rather than skip
+   the scan silently -- pass --i-reviewed-manually to override, which
+   prints a loud banner saying the scan did not run.
 """
 import argparse
 import re
@@ -57,6 +79,49 @@ def gh_json(path):
     return json.loads(out.stdout)
 
 
+_VISIBILITY_CACHE = {}
+
+
+def repo_is_public(full_name):
+    """Real, live check -- never trust a cached/hardcoded allowlist. This
+    is the fix for the exact incident that already happened once on
+    tcos-www's activity page (a repo's visibility changed and a
+    hardcoded list didn't notice)."""
+    if full_name in _VISIBILITY_CACHE:
+        return _VISIBILITY_CACHE[full_name]
+    out = subprocess.run(["gh", "api", f"repos/{full_name}", "--jq", ".private"],
+                          capture_output=True, text=True)
+    # Fail closed: any error (repo gone, no access, API hiccup) is treated
+    # as "not confirmed public" -- excluded, not included by default.
+    is_public = out.returncode == 0 and out.stdout.strip() == "false"
+    _VISIBILITY_CACHE[full_name] = is_public
+    return is_public
+
+
+def find_tcos_audit():
+    """Locate a local tcos-audit checkout, same convention as this repo's
+    own sibling clones under ~/git/. Not vendored/duplicated here on
+    purpose -- one real ruleset, not two copies to keep in sync."""
+    import os
+    bin_dir = os.path.join(os.path.expanduser("~/git/tcos-audit"), "bin")
+    if os.path.isfile(os.path.join(bin_dir, "scan_common.py")):
+        return bin_dir
+    return None
+
+
+def scan_content(text):
+    """Returns a list of real findings (rule, reason, line_no, snippet)
+    using tcos-audit's actual ruleset, or None if the scanner couldn't be
+    located -- caller must treat None as 'scan did not run', never as
+    'clean'."""
+    audit_bin = find_tcos_audit()
+    if audit_bin is None:
+        return None
+    sys.path.insert(0, audit_bin)
+    from scan_common import scan_text  # noqa: E402
+    return scan_text(text)
+
+
 def resolve_since(range_str):
     m = re.match(r"^\s*(\d+)\s+(min|hrs|day|wks|sess)\s*$", range_str)
     if not m:
@@ -82,15 +147,22 @@ def main():
     ap.add_argument("-blog", dest="oper", required=True)
     ap.add_argument("-context", dest="context", default="summary")
     ap.add_argument("-range", dest="range_", required=True)
+    ap.add_argument("--i-reviewed-manually", action="store_true",
+                     help="override the mandatory content scan when tcos-audit isn't available locally -- prints a loud warning, doesn't skip silently")
     args = ap.parse_args()
 
     since, note = resolve_since(args.range_)
     events = gh_json(f"users/{args.oper}/events?per_page=100")
 
     rows = []
+    skipped_private = set()
     for e in events:
         ts = datetime.fromisoformat(e["created_at"].replace("Z", "+00:00"))
         if ts < since:
+            continue
+        repo_name = e["repo"]["name"]
+        if not repo_is_public(repo_name):
+            skipped_private.add(repo_name)
             continue
         render = EVENT_RENDER.get(e["type"])
         if not render:
@@ -99,19 +171,40 @@ def main():
             line = render(e["payload"])
         except (KeyError, TypeError):
             continue
-        rows.append((ts, e["repo"]["name"], line))
+        rows.append((ts, repo_name, line))
     rows.sort(key=lambda r: r[0], reverse=True)
 
-    print(f"# {args.oper} -- {args.context}")
-    print(f"\nSince {since.isoformat()}")
+    lines = [f"# {args.oper} -- {args.context}", f"\nSince {since.isoformat()}"]
     if note:
-        print(f"\n> {note}")
+        lines.append(f"\n> {note}")
+    if skipped_private:
+        lines.append(f"\n> {len(skipped_private)} private repo(s) with real activity in range were excluded "
+                      f"(visibility checked live, not assumed): {', '.join(sorted(skipped_private))}")
     if not rows:
-        print("\nNo real activity found in this range.")
-        return
-    print()
-    for ts, repo, line in rows:
-        print(f"- **{ts.strftime('%H:%M:%S')}** [`{repo}`] {line}")
+        lines.append("\nNo real activity found in this range.")
+    else:
+        lines.append("")
+        for ts, repo, line in rows:
+            lines.append(f"- **{ts.strftime('%H:%M:%S')}** [`{repo}`] {line}")
+    rendered = "\n".join(lines)
+
+    findings = scan_content(rendered)
+    if findings is None:
+        if not args.i_reviewed_manually:
+            die("mandatory content scan could not run -- tcos-audit not found at ~/git/tcos-audit. "
+                "This is a hard stop, not a skip: pass --i-reviewed-manually if you've reviewed this "
+                "output yourself and are certain it's safe to publish.")
+        print("!!! WARNING: publishing WITHOUT the mandatory content scan -- tcos-audit unavailable, "
+              "--i-reviewed-manually was passed. This output has NOT been automatically checked. !!!\n",
+              file=sys.stderr)
+    elif findings:
+        print(f"hee-publish: REFUSING to print -- {len(findings)} real finding(s) from the mandatory content scan:",
+              file=sys.stderr)
+        for f in findings:
+            print(f"  [{f.rule}] line {f.line_no}: {f.reason}\n      {f.snippet}", file=sys.stderr)
+        die("fix the flagged content (or confirm it's a false positive and adjust the source) before publishing.")
+
+    print(rendered)
 
 
 if __name__ == "__main__":
