@@ -306,28 +306,82 @@ def create_batch_ticket(batch):
 # Real fix (2026-08-24, Spencer, live): colored *emoji* circles alone
 # don't reliably carry color in every terminal -- some fonts render
 # them as monochrome outline glyphs, so a colored-dot-only approach can
-# read as no color at all. Fixed with real 24-bit ANSI escapes wrapping
-# the *text label* too, not just the dot -- the label paints in the
-# same reserved color the dot is trying to (and failing) to carry alone,
-# so color survives even where the emoji glyph doesn't render as color.
-# Skips ANSI entirely on a non-tty (piped/redirected output, NO_COLOR
-# set) -- codes in a log file are noise, not signal.
-_COLOR_OK = sys.stdout.isatty() and not __import__("os").environ.get("NO_COLOR")
-_RESET = "\033[0m" if _COLOR_OK else ""
+# read as no color at all. Fixed with real ANSI escapes wrapping the
+# *text label* too, not just the dot -- the label paints in the same
+# reserved color the dot is trying to (and failing) to carry alone, so
+# color survives even where the emoji glyph doesn't render as color.
+#
+# Real second fix, same live session: still no color even after that --
+# root cause confirmed by reading spencer@kiosk's actual live pane env
+# (/proc/<pane_pid>/environ, not a freshly spawned shell's): TERM=
+# screen-256color, TERM_PROGRAM=tmux 3.4, COLORTERM unset. tmux inside
+# a screen-256color TERM doesn't pass 24-bit truecolor through by
+# default (needs an explicit `Tc`/`RGB` terminal-overrides entry this
+# session doesn't have) -- the \033[38;2;r;g;bm codes were real but
+# silently swallowed. Detects real capability instead of assuming it:
+# COLORTERM=truecolor/24bit -> 24-bit; "256color" in TERM (this box's
+# real case) -> the 256-palette index nearest each hex; anything else
+# with a real TERM -> basic 16-color. Skips ANSI entirely on a non-tty
+# or NO_COLOR (logs/pipes stay clean).
+import os as _os
+
+_TERM = _os.environ.get("TERM", "")
+_COLORTERM = _os.environ.get("COLORTERM", "")
+_COLOR_OK = sys.stdout.isatty() and not _os.environ.get("NO_COLOR")
+if not _COLOR_OK:
+    _COLOR_MODE = "none"
+elif _COLORTERM in ("truecolor", "24bit"):
+    _COLOR_MODE = "true"
+elif "256color" in _TERM:
+    _COLOR_MODE = "256"
+elif _TERM and _TERM != "dumb":
+    _COLOR_MODE = "16"
+else:
+    _COLOR_MODE = "none"
+_RESET = "\033[0m" if _COLOR_MODE != "none" else ""
 
 
-def _rgb(hexstr):
-    if not _COLOR_OK:
+def _rgb_to_256(r, g, b):
+    # Nearest step in xterm's 6x6x6 color cube (indices 16-231); these
+    # four status hexes are all saturated enough that the grayscale
+    # ramp (232-255) is never a closer match, so it's not checked.
+    steps = (0, 95, 135, 175, 215, 255)
+
+    def nearest(v):
+        return min(range(6), key=lambda i: abs(steps[i] - v))
+
+    ri, gi, bi = nearest(r), nearest(g), nearest(b)
+    return 16 + 36 * ri + 6 * gi + bi
+
+
+def _rgb_to_16(r, g, b):
+    # Coarsest real fallback -- picks the closer of the plain/bright
+    # variant of the nearest primary, good enough to keep the four
+    # tiers visually distinct on a bare 16-color terminal.
+    bright = (r + g + b) > 380
+    if r >= g and r >= b:
+        return 91 if bright else 31
+    if g >= r and g >= b:
+        return 92 if bright else 32
+    return 93 if bright else 33
+
+
+def _code(hexstr):
+    if _COLOR_MODE == "none":
         return ""
     r, g, b = (int(hexstr[i:i + 2], 16) for i in (0, 2, 4))
-    return f"\033[38;2;{r};{g};{b}m"
+    if _COLOR_MODE == "true":
+        return f"\033[38;2;{r};{g};{b}m"
+    if _COLOR_MODE == "256":
+        return f"\033[38;5;{_rgb_to_256(r, g, b)}m"
+    return f"\033[{_rgb_to_16(r, g, b)}m"
 
 
 GOOD_HEX, WARNING_HEX, SERIOUS_HEX, CRITICAL_HEX = "0ca30c", "fab219", "ec835a", "d03b3b"
 
 
 def paint(text, hexstr):
-    return f"{_rgb(hexstr)}{text}{_RESET}" if _COLOR_OK else text
+    return f"{_code(hexstr)}{text}{_RESET}" if _COLOR_MODE != "none" else text
 
 
 def good(text):
@@ -367,7 +421,13 @@ def checks_summary(pr):
     return f"checks: {len(states)} pending/mixed"
 
 
-def pr_status_dot(pr):
+DOT_BY_TIER = {"good": DOT_GOOD, "warning": DOT_WARNING,
+               "serious": DOT_SERIOUS, "critical": DOT_CRITICAL}
+PAINT_BY_TIER = {"good": good, "warning": warning,
+                  "serious": serious, "critical": critical}
+
+
+def pr_status_tier(pr):
     """Worst-of-four real signals (checks, review, mergeable) on the fixed
     good/warning/serious/critical scale -- critical beats serious beats
     warning beats good, so one blocking signal colors the whole line."""
@@ -379,12 +439,16 @@ def pr_status_dot(pr):
     mergeable = pr.get("mergeable") or "UNKNOWN"
 
     if checks_failing or mergeable == "CONFLICTING":
-        return DOT_CRITICAL
+        return "critical"
     if review == "CHANGES_REQUESTED":
-        return DOT_SERIOUS
+        return "serious"
     if checks_passing and review == "APPROVED" and mergeable == "MERGEABLE":
-        return DOT_GOOD
-    return DOT_WARNING
+        return "good"
+    return "warning"
+
+
+def pr_status_dot(pr):
+    return DOT_BY_TIER[pr_status_tier(pr)]
 
 
 def _painted_checks_summary(pr):
@@ -406,8 +470,10 @@ def _painted_review(pr):
 
 
 def print_synopsis(pr, repo_full):
+    tier = pr_status_tier(pr)
+    title_line = f"[{repo_full}#{pr['number']}] {pr['title']}"
     print()
-    print(f"{pr_status_dot(pr)} [{repo_full}#{pr['number']}] {pr['title']}")
+    print(f"{DOT_BY_TIER[tier]} {PAINT_BY_TIER[tier](title_line)}")
     print(f"  {pr['url']}")
     print(f"  +{pr.get('additions', '?')} -{pr.get('deletions', '?')}  "
           f"{pr.get('changedFiles', '?')} files  {_painted_checks_summary(pr)}  "
@@ -582,7 +648,9 @@ def main():
             return
         print(f"\nBatch of {len(batch)} (dependency-complete, real order):")
         for pr in batch:
-            print(f"  [{pr['_repo_full']}#{pr['number']}] {pr['title']}")
+            tier = pr_status_tier(pr)
+            title_line = f"[{pr['_repo_full']}#{pr['number']}] {pr['title']}"
+            print(f"  {DOT_BY_TIER[tier]} {PAINT_BY_TIER[tier](title_line)}")
         ticket = create_batch_ticket(batch)
         if ticket:
             print(f"\nTracked: {ticket}")
