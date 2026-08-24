@@ -3,7 +3,7 @@
 Real trigger: [HEE#355](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/355)
 -- `hee-procmail`'s own example (`examples/hee-procmail-output.md`)
 explicitly deferred this: "no real MTA/mail-server wiring... that's
-`mx-N.tcos.us`'s dependency, not this tool's." This is that dependency,
+`mxN.tcos.us`'s dependency, not this tool's." This is that dependency,
 sketched out concretely so #355 has real code to build against instead
 of just prose. **Illustrative, not dogfooded** -- qmail isn't installed
 anywhere yet, so unlike the other `examples/*-output.md` docs this
