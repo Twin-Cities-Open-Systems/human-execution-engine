@@ -361,6 +361,60 @@ def estimate_agents(ready):
     return by_repo
 
 
+ISSUE_REF_RE = re.compile(r"(?:([\w.-]+/[\w.-]+)#(\d+)|(?<![\w/])#(\d+))")
+
+
+def find_issue_refs(pr):
+    """Real issue references in a PR's body -- (repo, number) pairs,
+    resolving a bare '#N' to the PR's own repo (same GitHub convention
+    explicit_deps already relies on). Not guessed: literal text scan."""
+    body = pr.get("body") or ""
+    refs = set()
+    for owner_repo, cross_num, same_num in ISSUE_REF_RE.findall(body):
+        if owner_repo and cross_num:
+            refs.add((owner_repo, int(cross_num)))
+        elif same_num:
+            refs.add((pr["_repo_full"], int(same_num)))
+    return refs
+
+
+def group_by_epic(ready):
+    """Real epic grouping: for each ready PR, resolve its real issue
+    references and check which (if any) are actually type=Epic --
+    reuses the 'Cross-ref: HEE#NNN' convention already in real use
+    tonight, not a new format. One gh issue view per unique referenced
+    issue, cached, not per PR."""
+    all_refs = set()
+    for pr in ready:
+        all_refs |= find_issue_refs(pr)
+
+    epic_titles = {}  # (repo, num) -> title, only if type == Epic
+    for repo_full, num in all_refs:
+        proc = subprocess.run(
+            ["gh", "issue", "view", str(num), "--repo", repo_full, "--json", "title,type"],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0:
+            continue
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            continue
+        if (data.get("type") or {}).get("name") == "Epic":
+            epic_titles[(repo_full, num)] = data["title"]
+
+    by_epic = {}
+    no_epic = []
+    for pr in ready:
+        refs = find_issue_refs(pr)
+        matched = [epic_titles[r] for r in refs if r in epic_titles]
+        if matched:
+            by_epic.setdefault(matched[0], []).append(pr)
+        else:
+            no_epic.append(pr)
+    return by_epic, no_epic
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-git-merge")
     ap.add_argument("-r", "--regex", default=None)
@@ -412,6 +466,13 @@ def main():
         if len(by_repo) == 1:
             print("\nOne repo -- one agent, sequential, is the real answer here. "
                   "Pencil, not hyperscaler.")
+
+        by_epic, no_epic = group_by_epic(ready)
+        print(f"\nBy epic (real cross-refs found in PR bodies, not asserted):")
+        for title, prs in sorted(by_epic.items()):
+            print(f"  {title}: {len(prs)} PR(s)")
+        if no_epic:
+            print(f"  (no epic reference found): {len(no_epic)} PR(s)")
         return
 
     if args.action == "batch":
