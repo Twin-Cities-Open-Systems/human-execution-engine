@@ -35,7 +35,6 @@ Usage:
                              #   matched against each ticket's description.
 """
 import argparse
-import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -45,6 +44,12 @@ try:
     import yaml
 except ImportError:
     sys.exit("Requires pyyaml: pip install pyyaml")
+
+# library/py lives in this tool's own repo, not the target repo -- derive
+# from this script's own location, not repo_root() (which resolves to
+# whatever repo this tool is currently invoked against).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_range import resolve_spec  # noqa: E402
 
 STAGES = ["idea", "footgun", "dogfood"]
 
@@ -114,62 +119,39 @@ def cmd_advance(tid: str):
     print(f"hee-ticket {tid}: {cur} -> {new_stage}")
 
 
-def resolve_close_spec(spec: str, d: Path):
-    """SPEC is either a digits/commas/hyphens ID+range list (1,2,3 / 1-3 /
-    1-3,7,9), or -- if it contains anything else -- a regex matched
-    against each ticket's description. One mechanism, not two flags,
-    since the two forms don't overlap: a real regex almost never looks
-    like a bare id/range list."""
-    if re.fullmatch(r"[\d,\-\s]+", spec):
-        ids = set()
-        for part in spec.split(","):
-            part = part.strip()
-            if not part:
-                continue
-            if "-" in part:
-                lo, hi = part.split("-", 1)
-                ids.update(f"{n:04d}" for n in range(int(lo), int(hi) + 1))
-            else:
-                ids.add(part.zfill(4))
-        return sorted(ids)
-
-    try:
-        pattern = re.compile(spec)
-    except re.error as e:
-        die(f"-close: '{spec}' is neither a valid id/range list nor a valid regex ({e})")
-    matched = []
-    for p in sorted(d.glob("*.yaml")):
-        with open(p) as f:
-            rec = yaml.safe_load(f)
-        if pattern.search(rec.get("description", "")):
-            matched.append(rec["id"])
-    return matched
-
-
 def die(msg):
     sys.exit(f"hee-ticket: {msg}")
 
 
 def cmd_close(spec: str):
+    from hee_range import is_id_range_spec, parse_id_range
+
     d = tickets_dir()
-    ids = resolve_close_spec(spec, d)
-    if not ids:
+    all_ids = sorted(p.stem for p in d.glob("*.yaml") if p.stem.isdigit())
+    records = []
+    for tid in all_ids:
+        with open(d / f"{tid}.yaml") as f:
+            records.append(yaml.safe_load(f))
+
+    matched = resolve_spec(spec, records, lambda r: r["id"], lambda r: r.get("description"))
+
+    missing = []
+    if is_id_range_spec(spec):
+        requested = {tid.zfill(4) for tid in parse_id_range(spec)}
+        missing = sorted(tid for tid in requested if tid not in {r["id"] for r in records})
+    elif not matched:
         print(f"hee-ticket -close: no tickets matched '{spec}'", file=sys.stderr)
         sys.exit(1)
-    ok, missing, already = [], [], []
-    for tid in ids:
-        path = d / f"{tid}.yaml"
-        if not path.exists():
-            missing.append(tid)
-            continue
-        with open(path) as f:
-            rec = yaml.safe_load(f)
+
+    ok, already = [], []
+    for rec in matched:
+        tid = rec["id"]
         if rec.get("status") == "closed":
             already.append(tid)
             continue
         rec["status"] = "closed"
         rec["closed_at"] = now_iso()
-        with open(path, "w") as f:
+        with open(d / f"{tid}.yaml", "w") as f:
             yaml.safe_dump(rec, f, sort_keys=False)
         ok.append(tid)
     for tid in ok:
