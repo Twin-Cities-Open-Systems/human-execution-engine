@@ -1,0 +1,12 @@
+id: 0008
+created_at: '2026-08-24T16:38:08Z'
+description: 'Field backfill: 68 real items missing Priority/Effort/Target-Date, real
+  label-derived priority + documented default policy (P3/M/tier-based date), yolo''d
+  per Spencer''s explicit high-confidence go-ahead'
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-08-24T16:38:08Z'
+- stage: footgun
+  at: '2026-08-24T16:38:15Z'
