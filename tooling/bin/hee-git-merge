@@ -242,7 +242,7 @@ def explicit_deps(pr):
     return {(repo_full, int(n)) for n in DEP_RE.findall(body)}
 
 
-def content_deps(candidates, repo_full):
+def content_deps(candidates, repo_full, progress=None):
     """Real, generic same-repo heuristic: PR B depends on PR A if A's
     diff adds a file whose basename appears as a literal string in B's
     diff. Only runs within one repo -- cross-repo text overlap isn't a
@@ -254,8 +254,10 @@ def content_deps(candidates, repo_full):
 
     added_files = {}   # pr number -> set of basenames this PR adds
     diffs = {}          # pr number -> full diff text
-    for pr in same_repo:
+    for i, pr in enumerate(same_repo, 1):
         num = pr["number"]
+        if progress:
+            print(f"  [{i}/{len(same_repo)}] {repo_full}#{num}...", end=" ", flush=True)
         files_proc = subprocess.run(
             ["gh", "pr", "view", str(num), "--repo", repo_full, "--json=files"],
             capture_output=True, text=True,
@@ -275,6 +277,8 @@ def content_deps(candidates, repo_full):
             capture_output=True, text=True,
         )
         diffs[num] = diff_proc.stdout if diff_proc.returncode == 0 else ""
+        if progress:
+            print("done")
 
     deps = {(repo_full, pr["number"]): set() for pr in same_repo}
     for b in same_repo:
@@ -307,8 +311,14 @@ def compute_deps(candidates):
 
     deps = {(pr["_repo_full"], pr["number"]): explicit_deps(pr) for pr in candidates}
 
-    for repo_full in {pr["_repo_full"] for pr in candidates}:
-        for key, ds in content_deps(candidates, repo_full).items():
+    # Real UX fix, live-flagged (Spencer): this phase went silent after
+    # the fetch-detail loop finished, looked hung/dead on a 75-candidate
+    # run. content_deps does 2 more real gh calls per multi-PR repo --
+    # real, visible progress here, not just at the earlier fetch step.
+    repos = sorted({pr["_repo_full"] for pr in candidates})
+    print(f"hee-git-merge: checking cross-PR dependencies across {len(repos)} repo(s)...")
+    for repo_full in repos:
+        for key, ds in content_deps(candidates, repo_full, progress=True).items():
             deps[key] |= ds
 
     # only keep edges to PRs actually in this candidate set
