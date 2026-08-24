@@ -382,26 +382,39 @@ def group_by_epic(ready):
     """Real epic grouping: for each ready PR, resolve its real issue
     references and check which (if any) are actually type=Epic --
     reuses the 'Cross-ref: HEE#NNN' convention already in real use
-    tonight, not a new format. One gh issue view per unique referenced
-    issue, cached, not per PR."""
+    tonight, not a new format. Real sqz: was one `gh issue view` per
+    unique referenced issue -- N separate calls in a loop, the exact
+    pattern hee-fields' set_project_fields/link_epic collapsed via
+    GraphQL alias batching the same night this was written and missed
+    here at first. One aliased GraphQL query resolves every unique
+    (repo, num) pair in a single call instead."""
     all_refs = set()
     for pr in ready:
         all_refs |= find_issue_refs(pr)
 
     epic_titles = {}  # (repo, num) -> title, only if type == Epic
-    for repo_full, num in all_refs:
-        proc = subprocess.run(
-            ["gh", "issue", "view", str(num), "--repo", repo_full, "--json", "title,type"],
-            capture_output=True, text=True,
-        )
-        if proc.returncode != 0:
-            continue
-        try:
-            data = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            continue
-        if (data.get("type") or {}).get("name") == "Epic":
-            epic_titles[(repo_full, num)] = data["title"]
+    refs = sorted(all_refs)
+    if refs:
+        parts = []
+        for i, (repo_full, num) in enumerate(refs):
+            owner, name = repo_full.split("/")
+            parts.append(
+                f'r{i}: repository(owner: "{owner}", name: "{name}") '
+                f'{{ issue(number: {num}) {{ title issueType {{ name }} }} }}'
+            )
+        query = "{ " + " ".join(parts) + " }"
+        proc = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                               capture_output=True, text=True)
+        if proc.returncode == 0:
+            try:
+                data = json.loads(proc.stdout)["data"]
+            except (json.JSONDecodeError, KeyError):
+                data = {}
+            for i, (repo_full, num) in enumerate(refs):
+                node = data.get(f"r{i}")
+                issue = node.get("issue") if node else None
+                if issue and (issue.get("issueType") or {}).get("name") == "Epic":
+                    epic_titles[(repo_full, num)] = issue["title"]
 
     by_epic = {}
     no_epic = []

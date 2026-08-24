@@ -135,13 +135,21 @@ def set_type(repo, number, type_name):
 
 def link_epic(repo, number, epic_repo, epic_number):
     """Real native sub-issue link, not a text cross-ref -- only works
-    issue-to-issue (not PRs)."""
-    def node_id(r, n):
-        owner, name = r.split("/")
-        q = '{ repository(owner: "%s", name: "%s") { issue(number: %d) { id } } }' % (owner, name, n)
-        return gh_json(["api", "graphql", "-f", f"query={q}"])["data"]["repository"]["issue"]["id"]
-    parent = node_id(epic_repo, epic_number)
-    child = node_id(repo, number)
+    issue-to-issue (not PRs). Real sqz: was 3 GraphQL calls (2 separate
+    node_id lookups + 1 mutation) -- the two id lookups are both reads,
+    so they alias into a single query, same pattern just applied to
+    set_project_fields above. A query and a mutation can't merge into
+    one request (different GraphQL operation types), so 2 calls is the
+    real floor here, not 1 -- flagging that honestly rather than
+    claiming a full collapse that isn't possible."""
+    p_owner, p_name = epic_repo.split("/")
+    c_owner, c_name = repo.split("/")
+    q = ('{ p: repository(owner: "%s", name: "%s") { issue(number: %d) { id } } '
+         '  c: repository(owner: "%s", name: "%s") { issue(number: %d) { id } } }'
+         % (p_owner, p_name, epic_number, c_owner, c_name, number))
+    ids = gh_json(["api", "graphql", "-f", f"query={q}"])["data"]
+    parent = ids["p"]["issue"]["id"]
+    child = ids["c"]["issue"]["id"]
     mutation = 'mutation($p:ID!,$c:ID!){ addSubIssue(input:{issueId:$p, subIssueId:$c}){ subIssue{number} } }'
     subprocess.run(["gh", "api", "graphql", "-f", f"query={mutation}", "-f", f"p={parent}", "-f", f"c={child}"],
                     capture_output=True, text=True, check=True)
