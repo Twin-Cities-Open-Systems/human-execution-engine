@@ -45,7 +45,11 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$STRAY_DIRS" ] || STRAY_DIRS="$HOME/tooling/bin $HOME/bin"
 
-BACKUP_DIR="$HOME/.hee-reset-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+# mktemp -u: real, collision-safe unique name, without pre-creating it
+# -- BACKUP_DIR is only actually made if a differing file is found
+# (lazy mkdir below), and pre-creating it here would leave a stray
+# empty dir behind even on a fully-clean run.
+BACKUP_DIR="$(mktemp -u "$HOME/.hee-reset-backup-XXXXXXXX")"
 NEVER_TOUCH="$HOME/.ssh $HOME/.gnupg $HOME/.hee/secrets $HOME/.config $HOME/git"
 
 # Real idle check -- `who -u`'s IDLE column: "." means active right now,
@@ -132,14 +136,29 @@ fi
 # real full-restore point if something about the per-file logic itself
 # turns out to be wrong. Real trigger: Spencer's explicit ask,
 # 2026-08-24, before this tool's first real (--yes) run.
-META_BACKUP="$HOME/.hee-reset-meta-backup-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+META_BACKUP="$(mktemp -u "$HOME/.hee-reset-meta-backup-XXXXXXXX").tar.bz2"
 real_stray_dirs=""
 for stray in $STRAY_DIRS; do
   [ -d "$stray" ] && real_stray_dirs="$real_stray_dirs $stray"
 done
 if [ -n "$real_stray_dirs" ]; then
-  # shellcheck disable=SC2086 -- real word-splitting intended, each dir is its own tar arg
-  tar -czf "$META_BACKUP" $real_stray_dirs 2>/dev/null && \
+  # bzip2 (real, Spencer's ask -- meaningfully smaller than gzip for
+  # small text/script content, which is exactly what this backs up).
+  # Excludes real cruft that has no business in a backup meant to
+  # preserve genuine work (__pycache__/.pyc, editor swap files,
+  # .DS_Store), and any real nested git repo entirely, not just its
+  # .git/ -- a real repo is already version-controlled elsewhere, this
+  # backup has no reason to duplicate it.
+  repo_excludes=""
+  for gitdir in $(find $real_stray_dirs -maxdepth 3 -name .git -type d 2>/dev/null); do
+    repo_excludes="$repo_excludes --exclude=$(dirname "$gitdir")"
+  done
+  # shellcheck disable=SC2086 -- real word-splitting intended throughout: each dir/exclude is its own tar arg
+  tar -cjf "$META_BACKUP" \
+    --exclude='__pycache__' --exclude='*.pyc' \
+    --exclude='*.swp' --exclude='*.swo' --exclude='.DS_Store' \
+    $repo_excludes \
+    $real_stray_dirs 2>/dev/null && \
     echo "hee-reset-tooling: meta backup taken -> $META_BACKUP" || \
     echo "hee-reset-tooling: WARNING -- meta backup failed, proceeding anyway (per-file preserve is still real)" >&2
 fi
