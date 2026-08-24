@@ -29,6 +29,18 @@ case "$SELF" in
   /*) ;;
   *) SELF="$(command -v -- "$SELF" 2>/dev/null || echo "$SELF")" ;;
 esac
+# Resolve symlinks -- a `hee` symlinked onto PATH (e.g.
+# ~/.local/bin/hee -> <repo>/tooling/bin/hee, the real bootstrap.mk
+# install pattern) must resolve TOOL_ROOT from the real repo, not the
+# symlink's own directory. Real bug, found live 2026-08-24 dogfooding
+# tooling/bootstrap.mk against spencer@kiosk.
+while [ -L "$SELF" ]; do
+  LINK="$(readlink "$SELF")"
+  case "$LINK" in
+    /*) SELF="$LINK" ;;
+    *) SELF="$(dirname "$SELF")/$LINK" ;;
+  esac
+done
 SELF_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd)"
 TOOL_ROOT="$(cd "${SELF_DIR}/../.." 2>/dev/null && pwd)"
 
