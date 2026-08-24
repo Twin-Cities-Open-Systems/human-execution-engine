@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""hee-publish -- 0-token blog/summary publisher.
+
+Real trigger (2026-08-24, Spencer): designing `hee publish -blog ...`
+and being told explicitly it needs to be a 0-token solution -- no LLM
+call at runtime, deterministic aggregation from real data only. Same
+pattern as tcos-www/generate-public-site.py's render_activity: pull
+real GitHub activity, render it, don't ask a model to summarize it.
+Tracked at https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/208
+
+Usage:
+  hee publish -blog <oper> -context summary -range "<N> <unit>"
+
+  unit is one of: min, hrs, day, wks, sess
+  (sess = sessions; real boundary source is docs/history/state_capsules/
+  -- if no capsule entry exists yet for this identity/session, falls
+  back to a stated, documented default rather than faking a boundary)
+
+Data source: GitHub's own Events API (`gh api users/<oper>/events`) --
+real, already-recorded activity, zero LLM tokens spent reading or
+producing this output.
+"""
+import argparse
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+
+UNIT_TIMEDELTA = {
+    "min": lambda n: timedelta(minutes=n),
+    "hrs": lambda n: timedelta(hours=n),
+    "day": lambda n: timedelta(days=n),
+    "wks": lambda n: timedelta(weeks=n),
+}
+
+SESS_FALLBACK_HOURS = 6
+
+EVENT_RENDER = {
+    "IssuesEvent": lambda p: f"{p['action']} issue [{p['issue']['title']}]({p['issue']['html_url']})",
+    "IssueCommentEvent": lambda p: f"commented on [{p['issue']['title']}]({p['issue']['html_url']})",
+    "PullRequestEvent": lambda p: f"{p['action']} PR [{p['pull_request']['title']}]({p['pull_request']['html_url']})",
+    "PullRequestReviewEvent": lambda p: f"reviewed PR [{p['pull_request']['title']}]({p['pull_request']['html_url']}) -- {p['review']['state']}",
+    "PushEvent": lambda p: f"pushed {len(p.get('commits', []))} commit(s) to `{p.get('ref', '').removeprefix('refs/heads/')}`",
+    "CreateEvent": lambda p: f"created {p.get('ref_type', 'ref')} `{p.get('ref') or ''}`".strip(),
+}
+
+
+def die(msg):
+    sys.exit(f"hee-publish: {msg}")
+
+
+def gh_json(path):
+    out = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    if out.returncode != 0:
+        die(f"gh api {path} failed: {out.stderr.strip()}")
+    import json
+    return json.loads(out.stdout)
+
+
+def resolve_since(range_str):
+    m = re.match(r"^\s*(\d+)\s+(min|hrs|day|wks|sess)\s*$", range_str)
+    if not m:
+        die(f"bad -range '{range_str}' -- expected '<N> <unit>', unit in min/hrs/day/wks/sess")
+    n, unit = int(m.group(1)), m.group(2)
+    if unit == "sess":
+        # Real session-boundary source is docs/history/state_capsules/ --
+        # not yet cross-referenced per-identity here. Documented fallback,
+        # not a silently faked boundary.
+        since = datetime.now(timezone.utc) - timedelta(hours=SESS_FALLBACK_HOURS)
+        note = (
+            f"'sess' requested ({n}) but no docs/history/state_capsules/ "
+            f"entry lookup is wired up yet for this identity -- fell back "
+            f"to the last {SESS_FALLBACK_HOURS}h as a real, stated default, "
+            f"not a guessed session boundary."
+        )
+        return since, note
+    return datetime.now(timezone.utc) - UNIT_TIMEDELTA[unit](n), None
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=False)
+    ap.add_argument("-blog", dest="oper", required=True)
+    ap.add_argument("-context", dest="context", default="summary")
+    ap.add_argument("-range", dest="range_", required=True)
+    args = ap.parse_args()
+
+    since, note = resolve_since(args.range_)
+    events = gh_json(f"users/{args.oper}/events?per_page=100")
+
+    rows = []
+    for e in events:
+        ts = datetime.fromisoformat(e["created_at"].replace("Z", "+00:00"))
+        if ts < since:
+            continue
+        render = EVENT_RENDER.get(e["type"])
+        if not render:
+            continue
+        try:
+            line = render(e["payload"])
+        except (KeyError, TypeError):
+            continue
+        rows.append((ts, e["repo"]["name"], line))
+    rows.sort(key=lambda r: r[0], reverse=True)
+
+    print(f"# {args.oper} -- {args.context}")
+    print(f"\nSince {since.isoformat()}")
+    if note:
+        print(f"\n> {note}")
+    if not rows:
+        print("\nNo real activity found in this range.")
+        return
+    print()
+    for ts, repo, line in rows:
+        print(f"- **{ts.strftime('%H:%M:%S')}** [`{repo}`] {line}")
+
+
+if __name__ == "__main__":
+    main()
