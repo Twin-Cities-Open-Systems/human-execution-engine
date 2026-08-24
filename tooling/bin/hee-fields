@@ -53,20 +53,25 @@ def field_map():
     return out
 
 
-def find_item(repo, number):
-    items = gh_json(["project", "item-list", str(PROJECT_NUMBER), "--owner", PROJECT_OWNER, "--format", "json", "--limit", "300"])["items"]
+def fetch_items():
+    return gh_json(["project", "item-list", str(PROJECT_NUMBER), "--owner", PROJECT_OWNER, "--format", "json", "--limit", "300"])["items"]
+
+
+def find_item(items, repo, number):
     for it in items:
         if it.get("content", {}).get("number") == number and it.get("repository") == f"https://github.com/{repo}":
             return it["id"]
     return None
 
 
-def ensure_item(repo, number):
+def ensure_item(items, repo, number):
     """Real propagation lag confirmed live: gh project item-add returns
     success before item-list reflects it -- an immediate re-query can
     show 'not found' on a real, successful add. Retry with backoff
-    instead of failing on the first miss."""
-    item_id = find_item(repo, number)
+    instead of failing on the first miss. `items` is a real, already-
+    fetched list -- caller's job to refresh it after an add (see batch
+    mode: real squeeze, one item-list per run, not one per issue)."""
+    item_id = find_item(items, repo, number)
     if item_id:
         return item_id
     url = f"https://github.com/{repo}/issues/{number}"
@@ -74,7 +79,8 @@ def ensure_item(repo, number):
                     capture_output=True, text=True)
     for delay in (1, 2, 4):
         time.sleep(delay)
-        item_id = find_item(repo, number)
+        items[:] = fetch_items()
+        item_id = find_item(items, repo, number)
         if item_id:
             return item_id
     sys.exit(f"hee-fields: could not add/find project item for {repo}#{number} after retries")
@@ -114,6 +120,32 @@ def link_epic(repo, number, epic_repo, epic_number):
                     capture_output=True, text=True, check=True)
 
 
+def apply_one(item, ctx):
+    """item: dict with repo/number/type/priority/effort/target_date/
+    epic_repo/epic_number (any of the field keys may be None/absent).
+    ctx: {"proj_id", "fmap", "items"} -- shared, fetched once by the
+    caller, not per issue."""
+    repo, number = item["repo"], item["number"]
+    if item.get("type"):
+        set_type(repo, number, item["type"])
+        print(f"  type -> {item['type']}")
+    if item.get("priority") or item.get("effort") or item.get("target_date"):
+        item_id = ensure_item(ctx["items"], repo, number)
+        if item.get("priority"):
+            set_select(ctx["proj_id"], item_id, "Priority", item["priority"], ctx["fmap"])
+            print(f"  priority -> {item['priority']}")
+        if item.get("effort"):
+            set_select(ctx["proj_id"], item_id, "Effort", item["effort"], ctx["fmap"])
+            print(f"  effort -> {item['effort']}")
+        if item.get("target_date"):
+            set_date(ctx["proj_id"], item_id, "Target Date", item["target_date"], ctx["fmap"])
+            print(f"  target date -> {item['target_date']}")
+    if item.get("epic_repo") and item.get("epic_number"):
+        link_epic(repo, number, item["epic_repo"], item["epic_number"])
+        print(f"  epic -> {item['epic_repo']}#{item['epic_number']}")
+    print(f"{repo}#{number} done.")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-fields")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -126,31 +158,35 @@ def main():
     s.add_argument("--target-date")
     s.add_argument("--epic-repo")
     s.add_argument("--epic-number", type=int)
+
+    b = sub.add_parser("batch")
+    b.add_argument("--file", required=True,
+                    help="one JSON object per line: repo, number, and any of "
+                         "type/priority/effort/target_date/epic_repo/epic_number")
+
     args = ap.parse_args()
 
-    if args.type:
-        set_type(args.repo, args.number, args.type)
-        print(f"  type -> {args.type}")
+    if args.cmd == "set":
+        item = {"repo": args.repo, "number": args.number, "type": args.type,
+                "priority": args.priority, "effort": args.effort,
+                "target_date": args.target_date, "epic_repo": args.epic_repo,
+                "epic_number": args.epic_number}
+        ctx = {"proj_id": None, "fmap": None, "items": None}
+        if item["priority"] or item["effort"] or item["target_date"]:
+            ctx["proj_id"] = project_id()
+            ctx["fmap"] = field_map()
+            ctx["items"] = fetch_items()
+        apply_one(item, ctx)
+        return
 
-    if args.priority or args.effort or args.target_date:
-        proj_id = project_id()
-        fmap = field_map()
-        item_id = ensure_item(args.repo, args.number)
-        if args.priority:
-            set_select(proj_id, item_id, "Priority", args.priority, fmap)
-            print(f"  priority -> {args.priority}")
-        if args.effort:
-            set_select(proj_id, item_id, "Effort", args.effort, fmap)
-            print(f"  effort -> {args.effort}")
-        if args.target_date:
-            set_date(proj_id, item_id, "Target Date", args.target_date, fmap)
-            print(f"  target date -> {args.target_date}")
-
-    if args.epic_repo and args.epic_number:
-        link_epic(args.repo, args.number, args.epic_repo, args.epic_number)
-        print(f"  epic -> {args.epic_repo}#{args.epic_number}")
-
-    print(f"{args.repo}#{args.number} done.")
+    # batch: real squeeze -- project_id/field_map/item-list fetched once
+    # for the whole run, not once per issue. This is the actual fix for
+    # tripping GitHub's secondary rate limit on a 37-issue backfill.
+    with open(args.file) as f:
+        items = [json.loads(line) for line in f if line.strip()]
+    ctx = {"proj_id": project_id(), "fmap": field_map(), "items": fetch_items()}
+    for item in items:
+        apply_one(item, ctx)
 
 
 if __name__ == "__main__":
