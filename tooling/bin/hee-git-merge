@@ -298,18 +298,61 @@ def create_batch_ticket(batch):
     return proc.stdout.strip()
 
 
-# Reserved status dots -- the dataviz skill's real fixed 4-tier status
+# Reserved status colors -- the dataviz skill's real fixed 4-tier status
 # scale (good -> warning -> serious -> critical, references/palette.md's
 # #0ca30c/#fab219/#ec835a/#d03b3b), not an improvised red/yellow/green.
-# Never cycled, never reused as a generic 4th categorical slot. Always
-# paired with a text label on the same or next line -- the dot is a scan
-# aid, never the only signal (a piped/no-emoji terminal still reads fine
-# off the label alone).
-DOT_GOOD = "\U0001F7E2"      # green  -- resolved: ready as-is, or an action just succeeded
-DOT_WARNING = "\U0001F7E1"   # yellow -- open/pending: no decision made yet, nothing wrong
-DOT_SERIOUS = "\U0001F7E0"   # orange -- a real signal needing attention: changes requested,
-                             # or a human explicitly deferred this one
-DOT_CRITICAL = "\U0001F534"  # red    -- blocking: checks failing, conflict, or action failed
+# Never cycled, never reused as a generic 4th categorical slot.
+#
+# Real fix (2026-08-24, Spencer, live): colored *emoji* circles alone
+# don't reliably carry color in every terminal -- some fonts render
+# them as monochrome outline glyphs, so a colored-dot-only approach can
+# read as no color at all. Fixed with real 24-bit ANSI escapes wrapping
+# the *text label* too, not just the dot -- the label paints in the
+# same reserved color the dot is trying to (and failing) to carry alone,
+# so color survives even where the emoji glyph doesn't render as color.
+# Skips ANSI entirely on a non-tty (piped/redirected output, NO_COLOR
+# set) -- codes in a log file are noise, not signal.
+_COLOR_OK = sys.stdout.isatty() and not __import__("os").environ.get("NO_COLOR")
+_RESET = "\033[0m" if _COLOR_OK else ""
+
+
+def _rgb(hexstr):
+    if not _COLOR_OK:
+        return ""
+    r, g, b = (int(hexstr[i:i + 2], 16) for i in (0, 2, 4))
+    return f"\033[38;2;{r};{g};{b}m"
+
+
+GOOD_HEX, WARNING_HEX, SERIOUS_HEX, CRITICAL_HEX = "0ca30c", "fab219", "ec835a", "d03b3b"
+
+
+def paint(text, hexstr):
+    return f"{_rgb(hexstr)}{text}{_RESET}" if _COLOR_OK else text
+
+
+def good(text):
+    return paint(text, GOOD_HEX)
+
+
+def warning(text):
+    return paint(text, WARNING_HEX)
+
+
+def serious(text):
+    return paint(text, SERIOUS_HEX)
+
+
+def critical(text):
+    return paint(text, CRITICAL_HEX)
+
+
+# Dot glyph + real color together -- always paired with a painted text
+# label at each call site too, per the skill's icon+label rule (a status
+# color never carries meaning on the glyph alone).
+DOT_GOOD = paint("\U0001F7E2", GOOD_HEX)
+DOT_WARNING = paint("\U0001F7E1", WARNING_HEX)
+DOT_SERIOUS = paint("\U0001F7E0", SERIOUS_HEX)
+DOT_CRITICAL = paint("\U0001F534", CRITICAL_HEX)
 
 
 def checks_summary(pr):
@@ -344,13 +387,31 @@ def pr_status_dot(pr):
     return DOT_WARNING
 
 
+def _painted_checks_summary(pr):
+    text = checks_summary(pr)
+    if text.startswith("checks: FAILING"):
+        return critical(text)
+    if text.startswith("checks:") and "passing" in text:
+        return good(text)
+    return warning(text)
+
+
+def _painted_review(pr):
+    review = pr.get("reviewDecision") or "NONE"
+    if review == "APPROVED":
+        return good(review)
+    if review == "CHANGES_REQUESTED":
+        return serious(review)
+    return warning(review)
+
+
 def print_synopsis(pr, repo_full):
     print()
     print(f"{pr_status_dot(pr)} [{repo_full}#{pr['number']}] {pr['title']}")
     print(f"  {pr['url']}")
     print(f"  +{pr.get('additions', '?')} -{pr.get('deletions', '?')}  "
-          f"{pr.get('changedFiles', '?')} files  {checks_summary(pr)}  "
-          f"review: {pr.get('reviewDecision') or 'NONE'}")
+          f"{pr.get('changedFiles', '?')} files  {_painted_checks_summary(pr)}  "
+          f"review: {_painted_review(pr)}")
     body = (pr.get("body") or "").strip().splitlines()
     if body:
         print(f"  {body[0][:100]}")
@@ -362,9 +423,9 @@ def do_merge(repo_full, number, method, delete_branch):
         args.append("--delete-branch")
     proc = subprocess.run(["gh", *args], capture_output=True, text=True)
     if proc.returncode == 0:
-        print(f"  {DOT_GOOD} merged ({method}).")
+        print(f"  {DOT_GOOD} {good(f'merged ({method}).')}")
     else:
-        print(f"  {DOT_CRITICAL} MERGE FAILED:\n{proc.stderr}")
+        print(f"  {DOT_CRITICAL} {critical('MERGE FAILED:')}\n{proc.stderr}")
 
 
 def do_approve(repo_full, number):
@@ -373,9 +434,9 @@ def do_approve(repo_full, number):
         capture_output=True, text=True,
     )
     if proc.returncode == 0:
-        print(f"  {DOT_GOOD} approved.")
+        print(f"  {DOT_GOOD} {good('approved.')}")
     else:
-        print(f"  {DOT_CRITICAL} APPROVE FAILED:\n{proc.stderr}")
+        print(f"  {DOT_CRITICAL} {critical('APPROVE FAILED:')}\n{proc.stderr}")
 
 
 def estimate_agents(ready):
@@ -495,12 +556,12 @@ def main():
         print(f"{len(candidates)} total open candidate(s), {len(ready)} approved+mergeable.")
         by_repo = estimate_agents(ready)
         if not by_repo:
-            print(f"{DOT_WARNING} No ready work -- 0 agents needed.")
+            print(f"{DOT_WARNING} {warning('No ready work -- 0 agents needed.')}")
             return
         print(f"\n{len(by_repo)} repo(s) with ready work -- real upper bound on useful "
               f"parallel agents (more per repo doesn't help, its own chain still serializes):")
         for repo_full, prs in sorted(by_repo.items()):
-            print(f"  {DOT_GOOD} {repo_full}: {len(prs)} PR(s) ready")
+            print(f"  {DOT_GOOD} {repo_full}: {good(f'{len(prs)} PR(s) ready')}")
         if len(by_repo) == 1:
             print("\nOne repo -- one agent, sequential, is the real answer here. "
                   "Pencil, not hyperscaler.")
@@ -540,7 +601,7 @@ def main():
         # already happened). Never re-prompt for one under --action=approve.
         if args.action == "approve" and pr.get("reviewDecision") == "APPROVED":
             skipped_approved += 1
-            print(f"\n{DOT_GOOD} [{repo_full}#{pr['number']}] already approved "
+            print(f"\n{DOT_GOOD} [{repo_full}#{pr['number']}] {good('already approved')} "
                   f"-- auto-skipped, no prompt shown.")
             continue
 
@@ -549,8 +610,13 @@ def main():
             try:
                 choice = input("  y/N/s/e > ").strip().lower()
             except EOFError:
-                print(f"\n  {DOT_CRITICAL} no stdin (EOF) -- can't prompt here, stopping "
-                      f"rather than silently skip the rest.")
+                print(f"\n  {DOT_CRITICAL} {critical('no stdin (EOF)')} -- can't prompt here, "
+                      f"stopping rather than silently skip the rest.")
+                if skipped_approved:
+                    print(f"\n({skipped_approved} PR(s) already approved, auto-skipped -- no re-approval.)")
+                return
+            except KeyboardInterrupt:
+                print(f"\n  {DOT_SERIOUS} {serious('stopped (Ctrl-C)')} -- rest of this batch untouched.")
                 if skipped_approved:
                     print(f"\n({skipped_approved} PR(s) already approved, auto-skipped -- no re-approval.)")
                 return
@@ -564,7 +630,7 @@ def main():
                 subprocess.run(["gh", "pr", "diff", str(pr["number"]), "--repo", repo_full])
                 continue
             else:
-                print(f"  {DOT_SERIOUS} skipped -- you deferred this one, still open.")
+                print(f"  {DOT_SERIOUS} {serious('skipped')} -- you deferred this one, still open.")
                 break
 
     if skipped_approved:
