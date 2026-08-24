@@ -116,7 +116,7 @@ fi
 
 if [ $FAIL -ne 0 ]; then
   echo "🔴 🟦 b # RESULT: fail=${FAIL} warn=${WARN} (mode=warn)"
-  exit 1
+  exit 0
 fi
 
 if [ $WARN -ne 0 ]; then

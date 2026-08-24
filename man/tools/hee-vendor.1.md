@@ -1,0 +1,30 @@
+# hee-vendor(1)
+
+```
+hee-vendor
+
+Vendors HEE doctrine into a target repo using validator-safe layout.
+
+Usage:
+  tooling/bin/hee-vendor --target <repo_path> [--hee <hee_repo_path>] [--branch <name>] [--no-push] [--auto-amend]
+  tooling/bin/hee-vendor --check  --target <repo_path> [--hee <hee_repo_path>]
+
+Behavior (vendored mode):
+  - prompts/hee/       <- HEE prompts (excluding .cursor)
+  - prompts/hee/docs/  <- HEE docs/specs
+  - docs/hee/          <- pointers + VERSION only (imperative-free)
+  - docs/HEE_POLICY.md <- pointer doc (imperative-free)
+  - installs scripts/hee-check.sh (consumer-side check)
+  - derives .cursor/prompts directly (no consumer repo script required)
+
+Notes:
+  - This tool creates/overwrites vendored directories in vendored mode.
+  - It creates a branch (default: chore/vendor-hee-policy) and pushes it.
+
+--check mode (non-mutating audit):
+  - Computes diffs that vendoring WOULD produce, without changing the target repo.
+  - Exit codes:
+      0  = no drift
+      2  = drift detected
+     >2  = tooling error
+```
