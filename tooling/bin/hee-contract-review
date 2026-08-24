@@ -19,6 +19,15 @@ Modes:
   hee-contract-review --dump     plain text, sorted list, no TUI (scripting/testing)
   hee-contract-review --dump json   same data as real JSON (kubectl -o json style)
   hee-contract-review --gopher-menu   real RFC1436 gopher menu text on stdout
+  hee-contract-review --action sign --key <gpg-key-id> --signer '<name>'
+      Real mass-sign mode, extending this tool per HEE#309. Loops every
+      status=proposed contract needed-first, prompts y/N/s/e per one
+      (same shape as hee-git-merge's own prompt), stages the final
+      content (status -> ratified, evidence field) then runs
+      `gpg --detach-sign` on THIS terminal -- your own gpg-agent, your
+      own key. An agent cannot run this step on your behalf; it can only
+      build the tool that makes running it yourself, for a whole queue
+      at once, fast.
 """
 import curses
 import glob
@@ -37,13 +46,38 @@ URGENT_KEYWORDS = ("financial", "sovereignty", "security")
 
 
 def find_contracts():
+    # Real gap fixed 2026-08-24: only hee/contracts/ was scanned, missing
+    # root contracts/*.yaml entirely -- where several real contracts
+    # built this same session live (treasury-invariants,
+    # publish-sanitization, the M&A sale-deal contract). Both patterns
+    # now scanned; also covers hee/gcic/contracts (HEE#301's real "5
+    # locations" finding) via the -path glob matching any *contracts/ dir.
+    #
+    # Second real bug, found live testing this same fix: /home/claude/git
+    # holds both the main checkout AND every worktree
+    # (human-execution-engine.worktrees/<name>/...), each with its own
+    # physical copy of every contract file -- naive path scanning
+    # double-counted every contract once per worktree. Worktrees are
+    # ephemeral personal working copies, never the canonical/committed
+    # source of truth for a signature -- excluded from the scan entirely,
+    # and results deduped by (repo, relative-path) as a second safety net
+    # in case two non-worktree clones of the same repo ever coexist.
     paths = []
-    for root in subprocess.run(
-        ["find", "/home/claude/git", "-path", "*/hee/contracts/*.yaml", "-not", "-path", "*/node_modules/*"],
-        capture_output=True, text=True,
-    ).stdout.splitlines():
-        paths.append(root)
-    return sorted(set(paths))
+    for pattern in ("*/contracts/*.yaml", "*/hee/contracts/*.yaml"):
+        for root in subprocess.run(
+            ["find", "/home/claude/git", "-path", pattern,
+             "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*",
+             "-not", "-path", "*.worktrees*"],
+            capture_output=True, text=True,
+        ).stdout.splitlines():
+            paths.append(root)
+
+    seen = {}
+    for p in paths:
+        m = re.search(r"/git/([^/]+)/(.+\.yaml)$", p)
+        key = (m.group(1), m.group(2)) if m else p
+        seen.setdefault(key, p)  # first real (non-worktree) hit wins
+    return sorted(seen.values())
 
 
 def load(path):
@@ -226,9 +260,84 @@ def run_tui(rows):
     curses.wrapper(_main)
 
 
+def stage_for_ratification(path, keyid, signer):
+    """Same real staging logic as tools/hee/ratify-contract.sh, generalized
+    to loop over a queue. Real order-of-operations bug this prevents: sign
+    BEFORE editing status/evidence and the signature no longer matches the
+    committed bytes -- stage the FINAL content first, sign second, never
+    touch the file again after."""
+    text = open(path).read()
+    if "status: proposed" not in text:
+        return False, "no 'status: proposed' found -- already ratified or unexpected format, not touching it"
+    text = text.replace("status: proposed", "status: ratified", 1)
+    asc_name = path.split("/")[-1] + ".asc"
+    if "ratification_required_from:" in text:
+        text = text.replace(
+            "ratification_required_from:",
+            f'ratification_evidence: "{asc_name} -- detached GPG signature, key {keyid} ({signer}), covers the exact ratified content in this file"\n  ratification_required_from:',
+            1,
+        )
+    open(path, "w").write(text)
+    return True, asc_name
+
+
+def do_sign(path, keyid, signer):
+    """Real GPG signing -- runs on THIS terminal, using whoever's secret
+    key gpg-agent actually has loaded. Never something an agent runs
+    against a human's key; this tool prepares, the human's own terminal
+    session signs. That's why this is `--action sign` run by Spencer
+    himself, not something done on his behalf."""
+    ok, result = stage_for_ratification(path, keyid, signer)
+    if not ok:
+        print(f"  SKIP: {result}")
+        return
+    print(f"  staged: status -> ratified, evidence -> {result}")
+    proc = subprocess.run(["gpg", "--detach-sign", "--armor", "--local-user", keyid, path])
+    if proc.returncode != 0:
+        print(f"  GPG SIGN FAILED for {path} -- content is staged as ratified but unsigned. "
+              f"Fix the gpg issue and re-run: gpg --detach-sign --armor --local-user {keyid} '{path}'", file=sys.stderr)
+        return
+    print(f"  signed: {path}.asc")
+
+
+def run_sign_mode(rows, keyid, signer):
+    pending = [r for r in rows if r["status"] == "proposed"]
+    if not pending:
+        print("hee-contract-review: nothing with status=proposed -- nothing to sign.")
+        return
+    print(f"{len(pending)} contract(s) with status=proposed, needed-first order.\n"
+          f"Signing key: {keyid} ({signer})\n"
+          "y = stage + sign now (runs gpg on THIS terminal, your key)\n"
+          "N = skip (default)   s = skip (explicit)   e = show full file, re-prompt\n")
+    for r in pending:
+        while True:
+            print(f"\n[P{r['priority']}/E{r['effort']}] {r['name']}  ({r['url']})")
+            ans = input("  y/N/s/e> ").strip().lower()
+            if ans in ("", "n", "s"):
+                print("  skipped")
+                break
+            if ans == "e":
+                print(open(r["path"]).read())
+                continue
+            if ans == "y":
+                do_sign(r["path"], keyid, signer)
+                break
+            print("  unrecognized, try again")
+
+
 def main():
     rows = collect()
-    if "--dump" in sys.argv:
+    if "--action" in sys.argv:
+        i = sys.argv.index("--action")
+        action = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        if action != "sign":
+            sys.exit(f"hee-contract-review: unknown --action '{action}' (only 'sign' exists)")
+        if "--key" not in sys.argv or "--signer" not in sys.argv:
+            sys.exit("hee-contract-review --action sign --key <gpg-key-id> --signer '<name>' [--dry-run]")
+        keyid = sys.argv[sys.argv.index("--key") + 1]
+        signer = sys.argv[sys.argv.index("--signer") + 1]
+        run_sign_mode(rows, keyid, signer)
+    elif "--dump" in sys.argv:
         i = sys.argv.index("--dump")
         fmt = sys.argv[i + 1] if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-") else "text"
         dump_json(rows) if fmt == "json" else dump_text(rows)
