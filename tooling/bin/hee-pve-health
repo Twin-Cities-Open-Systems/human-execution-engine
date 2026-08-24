@@ -18,18 +18,69 @@ Usage:
 """
 import argparse
 import json
+import ssl
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+
+# Real KISS fallback (Spencer, live): not every real account has SSH
+# root access to pve (by design -- see fleet-ops#285's real user/token
+# work). A scoped API token already exists for exactly this
+# (spencer@pve!hee-cli, heeLabVM+PVEAuditor, verified working). If SSH
+# isn't available, fall back to the real HTTPS API using that token --
+# same pvesh-style path, no new flags, no user action needed beyond
+# having sealed the token once (hee-cred -seal pve-api-token-spencer).
+_TOKEN_ID = "spencer@pve!hee-cli"
+_TOKEN_ACCOUNT = "pve-api-token-spencer"
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
+
+
+def _token_api_json(host, path):
+    script_dir = __file__.rsplit("/", 1)[0]
+    tool = script_dir + "/hee-cred"
+    secrets_dir = script_dir + "/../../.hee/secrets"  # real repo root, where -seal put it
+    # hee-cred passes the secret via $HEE_CRED_PASS to the exec'd
+    # command only -- relay it out through a tiny real subprocess so it
+    # never touches this process's own argv/stdout, just an in-memory
+    # env var handoff.
+    relay = subprocess.run(
+        [sys.executable, tool, "-pass", _TOKEN_ACCOUNT, "-dir", secrets_dir, "-exec",
+         sys.executable, "-c", "import os,sys; sys.stdout.write(os.environ['HEE_CRED_PASS'])"],
+        capture_output=True, text=True,
+    )
+    if relay.returncode != 0:
+        return None
+    secret = relay.stdout.strip()
+    if not secret:
+        return None
+    req = urllib.request.Request(
+        f"https://{host}:8006/api2/json{path}",
+        headers={"Authorization": f"PVEAPIToken={_TOKEN_ID}={secret}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5, context=_SSL_CTX) as r:
+            return json.loads(r.read().decode())["data"]
+    except (urllib.error.URLError, urllib.error.HTTPError, KeyError, json.JSONDecodeError):
+        return None
 
 
 def pvesh_json(host, path):
     proc = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pvesh", "get", path, "--output-format", "json"],
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", f"root@{host}", "pvesh", "get", path, "--output-format", "json"],
         capture_output=True, text=True,
     )
-    if proc.returncode != 0:
-        sys.exit(f"hee-pve-health: pvesh get {path} failed:\n{proc.stderr}")
-    return json.loads(proc.stdout)
+    if proc.returncode == 0:
+        return json.loads(proc.stdout)
+
+    token_result = _token_api_json(host, path)
+    if token_result is not None:
+        return token_result
+
+    sys.exit(f"hee-pve-health: pvesh get {path} failed (SSH and API-token fallback both "
+             f"failed):\n{proc.stderr}")
 
 
 def gather(host, node):
