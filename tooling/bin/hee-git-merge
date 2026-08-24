@@ -19,9 +19,21 @@ Every synopsis now shows real reviewDecision, and already-APPROVED PRs
 auto-skip with a note instead of re-prompting, so this tool can't
 reproduce that same waste.
 
+Real extension (2026-08-24, Spencer): "never need a giant mass merger
+party like this again -- plan much smaller merge get-togethers that
+are well defined and coordinated via our own tooling." --action batch
+picks a real, dependency-complete batch of up to --batch-size (default
+5) approved+mergeable PRs off the front of the same real topo order
+above, holds back anything whose dependency isn't itself ready yet
+(rather than silently dropping the edge), and tracks the batch as a
+real hee-ticket (HEE#274) instead of a chat mention. Dry-run only --
+prints the batch and creates the ticket, doesn't merge anything; run
+--action merge afterward to actually work the batch.
+
 Usage:
   hee-git-merge [-r REGEX] [--org ORG] [--author LOGIN]
-                [--action merge|approve] [--squash|--merge|--rebase]
+                [--action merge|approve|batch] [--batch-size N]
+                [--squash|--merge|--rebase]
                 [--delete-branch|--no-delete-branch]
 
   -r REGEX          only show PRs whose title or body matches this
@@ -72,6 +84,7 @@ import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 
 def gh_json(args):
@@ -100,7 +113,7 @@ def fetch_pr_detail(repo_full, number):
     try:
         return gh_json([
             "pr", "view", str(number), "--repo", repo_full,
-            "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision",
+            "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
         ])
     except SystemExit:
         return {}
@@ -174,10 +187,11 @@ def content_deps(candidates, repo_full):
     return deps
 
 
-def order_candidates(candidates):
-    """Real topological sort: explicit body-text deps first, then the
-    same-repo content heuristic, (repo, number) ascending as the stable
-    fallback wherever no real edge exists."""
+def compute_deps(candidates):
+    """Real dependency edges for this candidate set: explicit body-text
+    deps, plus the same-repo content heuristic. Returns {number: {dep_nums}},
+    factored out of order_candidates so batch selection can reuse the same
+    real signal instead of recomputing it differently."""
     by_num = {}
     for pr in candidates:
         repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
@@ -193,6 +207,15 @@ def order_candidates(candidates):
     # only keep edges to PRs actually in this candidate set
     for num in deps:
         deps[num] = {d for d in deps[num] if d in by_num and d != num}
+
+    return deps
+
+
+def order_candidates(candidates):
+    """Real topological sort: explicit body-text deps first, then the
+    same-repo content heuristic, (repo, number) ascending as the stable
+    fallback wherever no real edge exists. Returns (ordered, deps)."""
+    deps = compute_deps(candidates)
 
     ordered = []
     placed = set()
@@ -213,7 +236,51 @@ def order_candidates(candidates):
             ordered.extend(remaining)
             break
 
-    return ordered
+    return ordered, deps
+
+
+def build_batch(ordered, deps, batch_size):
+    """Real trigger (2026-08-24, Spencer): 'never need a giant mass merger
+    party like this again -- plan much smaller merge get-togethers.' Takes
+    the topo-ordered, already-approved+mergeable candidate list and returns
+    the first batch_size PRs, skipping (not just deferring past) any PR
+    whose real dependency isn't already merged or already in this batch --
+    a truncated topo-order alone isn't enough once the list has been
+    filtered down to approved+mergeable, since an unapproved dependency
+    would otherwise silently vanish from view instead of blocking its
+    dependent."""
+    batch = []
+    batch_nums = set()
+    for pr in ordered:
+        if len(batch) >= batch_size:
+            break
+        num = pr["number"]
+        unresolved = deps.get(num, set()) - batch_nums
+        if unresolved:
+            print(f"  [{pr['_repo_full']}#{num}] held back from this batch -- "
+                  f"depends on #{sorted(unresolved)} which isn't approved+mergeable yet.")
+            continue
+        batch.append(pr)
+        batch_nums.add(num)
+    return batch
+
+
+def create_batch_ticket(batch):
+    """Real batch, real ticket -- extends hee-ticket (HEE#274) rather than
+    inventing a second tracking mechanism for the same kind of thing."""
+    if not batch:
+        return None
+    summary = ", ".join(f"{pr['_repo_full']}#{pr['number']}" for pr in batch)
+    title = f"merge batch: {summary}"
+    hee_ticket = Path(__file__).resolve().parent / "hee-ticket"
+    proc = subprocess.run(
+        [str(hee_ticket), "-new", title],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        print(f"  (hee-ticket failed, batch plan still valid, just untracked:\n{proc.stderr})")
+        return None
+    return proc.stdout.strip()
 
 
 def checks_summary(pr):
@@ -267,7 +334,9 @@ def main():
     ap.add_argument("-r", "--regex", default=None)
     ap.add_argument("--org", default="Twin-Cities-Open-Systems")
     ap.add_argument("--author", default="touchy-claude")
-    ap.add_argument("--action", choices=["merge", "approve"], default="merge")
+    ap.add_argument("--action", choices=["merge", "approve", "batch"], default="merge")
+    ap.add_argument("--batch-size", type=int, default=5,
+                     help="max PRs per batch under --action batch (default 5)")
     method = ap.add_mutually_exclusive_group()
     method.add_argument("--squash", action="store_const", dest="method", const="squash")
     method.add_argument("--merge", action="store_const", dest="method", const="merge")
@@ -287,7 +356,27 @@ def main():
               + (f" matching /{args.regex}/" if args.regex else "") + ".")
         return
 
-    candidates = order_candidates(candidates)
+    for pr in candidates:
+        repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
+        pr.update(fetch_pr_detail(repo_full, pr["number"]))
+
+    candidates, deps = order_candidates(candidates)
+
+    if args.action == "batch":
+        ready = [pr for pr in candidates
+                 if pr.get("reviewDecision") == "APPROVED" and pr.get("mergeable") == "MERGEABLE"]
+        print(f"{len(candidates)} total open candidate(s), {len(ready)} approved+mergeable.")
+        batch = build_batch(ready, deps, args.batch_size)
+        if not batch:
+            print("No dependency-complete batch available right now.")
+            return
+        print(f"\nBatch of {len(batch)} (dependency-complete, real order):")
+        for pr in batch:
+            print(f"  [{pr['_repo_full']}#{pr['number']}] {pr['title']}")
+        ticket = create_batch_ticket(batch)
+        if ticket:
+            print(f"\nTracked: {ticket}")
+        return
 
     action_desc = f"method={args.method}, delete-branch={'yes' if args.delete_branch else 'no'}" \
         if args.action == "merge" else "approve only, no merge"
@@ -295,8 +384,7 @@ def main():
 
     skipped_approved = 0
     for pr in candidates:
-        repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
-        pr.update(fetch_pr_detail(repo_full, pr["number"]))
+        repo_full = pr["_repo_full"]
 
         # Real, live-observed problem this fixes: re-approving an already-
         # approved PR is pure waste (GitHub's UI gives no clear signal it
