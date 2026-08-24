@@ -35,7 +35,7 @@ GIT_DIR := $(HOME_DIR)/git
 
 .PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
         health-all-repos pull-all-repos refresh-all-repos \
-        link-cache-prune install-cron
+        link-cache-prune install-cron reset-tooling
 
 bootstrap: clone-repo link-hee
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
@@ -178,4 +178,18 @@ install-cron: link-hee link-cache-prune
 		mkdir -p "$(HOME_DIR)/.cache"; \
 		printf '%s\n' "$$new" | crontab -; \
 		echo "bootstrap.mk: cron installed -- daily cache-prune (4am), weekly git-health report (Sun 5am)"; \
+	fi
+
+# Real "reset to new" -- dry-run by default (see hee-reset-tooling
+# itself for the full real safety design: never touches .ssh/.gnupg/
+# .hee/secrets/.config/git, per-file preserve-if-different, a full
+# meta-backup taken before any real change). This target just wires it
+# to the real canonical checkout; CONFIRM=yes actually executes.
+#   make -f tooling/bootstrap.mk reset-tooling           # dry run
+#   make -f tooling/bootstrap.mk reset-tooling CONFIRM=yes
+reset-tooling: clone-repo
+	@if [ "$(CONFIRM)" = "yes" ]; then \
+		"$(CLONE_DIR)/tooling/bin/hee-reset-tooling" --yes --canonical "$(CLONE_DIR)/tooling/bin"; \
+	else \
+		"$(CLONE_DIR)/tooling/bin/hee-reset-tooling" --canonical "$(CLONE_DIR)/tooling/bin"; \
 	fi

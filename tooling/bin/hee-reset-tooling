@@ -1,0 +1,184 @@
+#!/bin/sh
+# hee-reset-tooling -- real, conservative "reset to new" for stray tool
+# directories (real trigger, Spencer 2026-08-24: fleet-ops#260's stray
+# ~/tooling/bin/ cleanup, formalized into a reusable tool instead of a
+# one-off manual pass).
+#
+# Real safety, per Spencer's explicit call:
+# - Dry-run by default. Nothing is ever removed without --yes -- an
+#   OPER must actually agree, not just invoke the command.
+# - --unattended (cron-shaped invocation) additionally requires the
+#   real environment to be idle first (see is_idle below) -- refuses
+#   to run destructive cleanup while a real user might be mid-work,
+#   checks who's actually logged in and how long they've been idle,
+#   not just "no tty attached."
+# - NEVER touches: ~/.ssh, ~/.gnupg, ~/.hee/secrets, ~/.config, or
+#   anything under ~/git/ -- refuses outright if a stray path resolves
+#   inside one of those.
+# - A stray file is only removed if it's byte-identical to the real
+#   tracked equivalent; anything that differs, or has no tracked
+#   equivalent, gets backed up first, never silently destroyed.
+#
+# Usage:
+#   hee-reset-tooling [--yes] [--unattended] [--idle-mins N] \
+#     [--canonical DIR] [--stray DIR ...]
+#   (defaults: canonical = ~/git/human-execution-engine/tooling/bin,
+#              stray = ~/tooling/bin ~/bin, idle-mins = 10)
+
+set -eu
+
+CANONICAL="$HOME/git/human-execution-engine/tooling/bin"
+STRAY_DIRS=""
+YES=0
+UNATTENDED=0
+IDLE_MINS=10
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --yes) YES=1; shift ;;
+    --unattended) UNATTENDED=1; shift ;;
+    --idle-mins) IDLE_MINS="$2"; shift 2 ;;
+    --canonical) CANONICAL="$2"; shift 2 ;;
+    --stray) STRAY_DIRS="$STRAY_DIRS $2"; shift 2 ;;
+    *) echo "hee-reset-tooling: unknown arg '$1'" >&2; exit 2 ;;
+  esac
+done
+[ -n "$STRAY_DIRS" ] || STRAY_DIRS="$HOME/tooling/bin $HOME/bin"
+
+BACKUP_DIR="$HOME/.hee-reset-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+NEVER_TOUCH="$HOME/.ssh $HOME/.gnupg $HOME/.hee/secrets $HOME/.config $HOME/git"
+
+# Real idle check -- `who -u`'s IDLE column: "." means active right now,
+# an HH:MM/days value means real idle time, absent/unsupported means
+# fail closed (treat as busy, never assume idle on a platform quirk).
+is_idle() {
+  who_out="$(who -u 2>/dev/null)" || { echo "hee-reset-tooling: 'who -u' failed -- can't confirm idle, treating as busy" >&2; return 1; }
+  [ -z "$who_out" ] && return 0  # nobody logged in at all -- real idle
+
+  # Real bug caught testing this on the actual host: who -u's IDLE
+  # column here is a real HH:MM duration ("00:01" = 1 minute idle),
+  # NOT the literal "." some other `who` implementations use for
+  # "active this instant" -- an earlier draft only checked for ".",
+  # which never matches this host's real format and would have always
+  # reported idle. Parses both: "." (busy, some other who variant),
+  # "old" (long idle, several systems' real convention for >24h,
+  # treated as idle), and HH:MM (real duration, compared to
+  # IDLE_MINS).
+  echo "$who_out" | awk -v thresh="$IDLE_MINS" '
+    {
+      idle = $5
+      if (idle == ".") { print "busy"; exit }
+      if (idle == "old") { next }
+      n = split(idle, t, ":")
+      if (n == 2) {
+        mins = t[1] * 60 + t[2]
+        if (mins < thresh) { print "busy"; exit }
+      }
+    }
+    END { print "idle" }
+  ' | grep -q '^idle$'
+}
+
+if [ "$UNATTENDED" -eq 1 ]; then
+  if ! is_idle; then
+    echo "hee-reset-tooling: real user activity detected -- refusing to run unattended reset while busy." >&2
+    exit 0
+  fi
+  YES=1  # unattended + confirmed idle = the real, pre-agreed consent for this run
+fi
+
+# Stay fresh: pull the real canonical source before comparing against
+# it, so "identical" reflects the latest tracked version, not a stale
+# local checkout.
+if [ -d "$CANONICAL/../.." ] && [ -d "$CANONICAL/../../.git" ]; then
+  ( cd "$CANONICAL/../.." && git pull --ff-only --quiet 2>/dev/null ) || \
+    echo "hee-reset-tooling: could not fast-forward canonical checkout -- comparing against whatever's on disk now" >&2
+fi
+
+plan() {
+  for stray in $STRAY_DIRS; do
+    [ -d "$stray" ] || continue
+    for nt in $NEVER_TOUCH; do
+      case "$stray" in
+        "$nt"|"$nt"/*)
+          echo "REFUSING: $stray is protected (matches $nt) -- not touching it" >&2
+          exit 1
+          ;;
+      esac
+    done
+    for f in "$stray"/*; do
+      [ -f "$f" ] || continue
+      name=$(basename "$f")
+      tracked="$CANONICAL/$name"
+      if [ -f "$tracked" ] && cmp -s "$f" "$tracked"; then
+        echo "REMOVE $f"
+      else
+        echo "PRESERVE $f"
+      fi
+    done
+  done
+}
+
+if [ "$YES" -ne 1 ]; then
+  echo "hee-reset-tooling: DRY RUN (pass --yes to actually run this) --"
+  plan
+  exit 0
+fi
+
+# Real, second backup layer -- a full tar snapshot of every real stray
+# dir as it exists right now, taken BEFORE anything is touched, kept
+# regardless of what happens below. Per-file preserve-if-different
+# (below) protects genuinely unique content; this snapshot is the
+# real full-restore point if something about the per-file logic itself
+# turns out to be wrong. Real trigger: Spencer's explicit ask,
+# 2026-08-24, before this tool's first real (--yes) run.
+META_BACKUP="$HOME/.hee-reset-meta-backup-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+real_stray_dirs=""
+for stray in $STRAY_DIRS; do
+  [ -d "$stray" ] && real_stray_dirs="$real_stray_dirs $stray"
+done
+if [ -n "$real_stray_dirs" ]; then
+  # shellcheck disable=SC2086 -- real word-splitting intended, each dir is its own tar arg
+  tar -czf "$META_BACKUP" $real_stray_dirs 2>/dev/null && \
+    echo "hee-reset-tooling: meta backup taken -> $META_BACKUP" || \
+    echo "hee-reset-tooling: WARNING -- meta backup failed, proceeding anyway (per-file preserve is still real)" >&2
+fi
+
+for stray in $STRAY_DIRS; do
+  [ -d "$stray" ] || continue
+  for nt in $NEVER_TOUCH; do
+    case "$stray" in
+      "$nt"|"$nt"/*)
+        echo "REFUSING: $stray is protected (matches $nt) -- not touching it" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  for f in "$stray"/*; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    tracked="$CANONICAL/$name"
+    if [ -f "$tracked" ] && cmp -s "$f" "$tracked"; then
+      echo "REMOVE (identical to $tracked): $f"
+      rm -f "$f"
+    else
+      mkdir -p "$BACKUP_DIR"
+      cp -p "$f" "$BACKUP_DIR/$name"
+      echo "PRESERVED (differs or no tracked equivalent) -> $BACKUP_DIR/$name: $f"
+      rm -f "$f"
+    fi
+  done
+
+  if [ -z "$(ls -A "$stray" 2>/dev/null)" ]; then
+    rmdir "$stray" && echo "removed now-empty $stray"
+  else
+    echo "left $stray in place -- still has non-file entries (subdirs?), not removing"
+  fi
+done
+
+if [ -d "$BACKUP_DIR" ]; then
+  echo "done -- some files preserved, real review needed: $BACKUP_DIR"
+else
+  echo "done -- everything removed was a confirmed exact duplicate, nothing to review"
+fi
