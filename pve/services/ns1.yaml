@@ -1,4 +1,4 @@
-hostname: lois  # role: ns1, allocated via hee-name pool=family-guy scope=pve-lxc
+hostname: ns1-lois  # fleet-ops#76 convention (bast-<character>), hee-name pool=family-guy scope=pve-lxc
 template: alpine-3.23-default_20260116_amd64.tar.xz
 template_storage: local
 storage: vmdata
