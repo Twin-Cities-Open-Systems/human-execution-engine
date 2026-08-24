@@ -30,16 +30,46 @@ Usage:
       the *default*, it doesn't add a new restriction beyond what
       convert.sh already did.
 """
+import json
 import os
 import subprocess
 import sys
+import time
+
+# Real shared cache-dir convention: ~/.config/hee/cache/<namespace>/ --
+# same root kenny's PR#349 established for hee-git-merge's PR-detail
+# cache (~/.config/hee/gh-pr-cache/), standardized here per kenny's own
+# suggestion (relayed via Spencer) so tools don't each invent their own
+# location. 60s TTL, same real number kenny's cache uses.
+CACHE_DIR = os.path.expanduser("~/.config/hee/cache/repo-visibility")
+CACHE_TTL = 60
+
+
+def _cache_path(full_name):
+    return os.path.join(CACHE_DIR, full_name.replace("/", "__") + ".json")
 
 
 def check_repo(full_name):
+    path = _cache_path(full_name)
+    if os.path.isfile(path):
+        try:
+            entry = json.load(open(path))
+            if time.time() - entry["checked_at"] < CACHE_TTL:
+                print(entry["visibility"])
+                return 0 if entry["visibility"] == "public" else 1
+        except (json.JSONDecodeError, KeyError, OSError):
+            pass  # real corrupt/partial cache entry -- fall through and re-check live
+
     out = subprocess.run(["gh", "api", f"repos/{full_name}", "--jq", ".private"],
                           capture_output=True, text=True)
     is_public = out.returncode == 0 and out.stdout.strip() == "false"
-    print("public" if is_public else "private")
+    visibility = "public" if is_public else "private"
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"visibility": visibility, "checked_at": time.time()}, f)
+
+    print(visibility)
     return 0 if is_public else 1
 
 
