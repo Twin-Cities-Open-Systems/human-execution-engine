@@ -20,6 +20,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -77,28 +78,54 @@ def ensure_item(items, repo, number):
     url = f"https://github.com/{repo}/issues/{number}"
     subprocess.run(["gh", "project", "item-add", str(PROJECT_NUMBER), "--owner", PROJECT_OWNER, "--url", url],
                     capture_output=True, text=True)
-    for delay in (1, 2, 4):
+    for delay in (2, 4, 8, 16):
         time.sleep(delay)
         items[:] = fetch_items()
         item_id = find_item(items, repo, number)
         if item_id:
             return item_id
-    sys.exit(f"hee-fields: could not add/find project item for {repo}#{number} after retries")
+    raise RuntimeError(f"could not add/find project item for {repo}#{number} after retries -- real propagation lag, not a permanent failure; safe to retry this one item later")
 
 
-def set_select(proj_id, item_id, field, option_name, fmap):
-    if field not in fmap or "options" not in fmap[field]:
-        sys.exit(f"hee-fields: no such select field '{field}'")
-    if option_name not in fmap[field]["options"]:
-        sys.exit(f"hee-fields: '{option_name}' is not a real option for '{field}'")
-    subprocess.run(["gh", "project", "item-edit", "--id", item_id, "--project-id", proj_id,
-                     "--field-id", fmap[field]["id"], "--single-select-option-id", fmap[field]["options"][option_name]],
-                    check=True)
-
-
-def set_date(proj_id, item_id, field, value, fmap):
-    subprocess.run(["gh", "project", "item-edit", "--id", item_id, "--project-id", proj_id,
-                     "--field-id", fmap[field]["id"], "--date", value], check=True)
+def set_project_fields(proj_id, item_id, priority, effort, target_date, fmap):
+    """Real sqz: GitHub's updateProjectV2ItemFieldValue mutation is one
+    field per call with no native multi-field form -- but GraphQL supports
+    aliasing multiple mutations into a single HTTP request. Setting
+    priority+effort+target_date used to be 3 separate `gh project item-edit`
+    calls (3 GraphQL requests); this does the same work as 1. Real,
+    measured motivation: hit GraphQL's 5000/hr pool exhausted twice in one
+    session (2026-08-24) doing exactly this pattern at scale -- see
+    fleet-ops#269."""
+    parts, gh_args = [], ["api", "graphql"]
+    n = 0
+    for label, field, value_expr in (
+        ("priority", "Priority", priority),
+        ("effort", "Effort", effort),
+    ):
+        if value_expr is None:
+            continue
+        if field not in fmap or "options" not in fmap[field]:
+            sys.exit(f"hee-fields: no such select field '{field}'")
+        if value_expr not in fmap[field]["options"]:
+            sys.exit(f"hee-fields: '{value_expr}' is not a real option for '{field}'")
+        n += 1
+        parts.append(
+            f'{label}: updateProjectV2ItemFieldValue(input: {{projectId: $p, itemId: $i, '
+            f'fieldId: "{fmap[field]["id"]}", value: {{singleSelectOptionId: "{fmap[field]["options"][value_expr]}"}}}}) '
+            f'{{ projectV2Item {{ id }} }}'
+        )
+    if target_date is not None:
+        n += 1
+        parts.append(
+            f'targetDate: updateProjectV2ItemFieldValue(input: {{projectId: $p, itemId: $i, '
+            f'fieldId: "{fmap["Target Date"]["id"]}", value: {{date: "{target_date}"}}}}) '
+            f'{{ projectV2Item {{ id }} }}'
+        )
+    if n == 0:
+        return
+    mutation = "mutation($p:ID!,$i:ID!){ " + " ".join(parts) + " }"
+    gh_args += ["-f", f"query={mutation}", "-f", f"p={proj_id}", "-f", f"i={item_id}"]
+    subprocess.run(["gh", *gh_args], capture_output=True, text=True, check=True)
 
 
 def set_type(repo, number, type_name):
@@ -131,15 +158,10 @@ def apply_one(item, ctx):
         print(f"  type -> {item['type']}")
     if item.get("priority") or item.get("effort") or item.get("target_date"):
         item_id = ensure_item(ctx["items"], repo, number)
-        if item.get("priority"):
-            set_select(ctx["proj_id"], item_id, "Priority", item["priority"], ctx["fmap"])
-            print(f"  priority -> {item['priority']}")
-        if item.get("effort"):
-            set_select(ctx["proj_id"], item_id, "Effort", item["effort"], ctx["fmap"])
-            print(f"  effort -> {item['effort']}")
-        if item.get("target_date"):
-            set_date(ctx["proj_id"], item_id, "Target Date", item["target_date"], ctx["fmap"])
-            print(f"  target date -> {item['target_date']}")
+        set_project_fields(ctx["proj_id"], item_id, item.get("priority"), item.get("effort"), item.get("target_date"), ctx["fmap"])
+        for label in ("priority", "effort", "target_date"):
+            if item.get(label):
+                print(f"  {label.replace('_', ' ')} -> {item[label]}")
     if item.get("epic_repo") and item.get("epic_number"):
         link_epic(repo, number, item["epic_repo"], item["epic_number"])
         print(f"  epic -> {item['epic_repo']}#{item['epic_number']}")
@@ -176,8 +198,37 @@ def main():
             ctx["proj_id"] = project_id()
             ctx["fmap"] = field_map()
             ctx["items"] = fetch_items()
-        apply_one(item, ctx)
+        try:
+            apply_one(item, ctx)
+        except RuntimeError as e:
+            sys.exit(f"hee-fields: {e}")
         return
+
+    # real auto-mode pre-flight: batch mode is GraphQL-heavy (project_id,
+    # field_map, item-list, and every field mutation) -- check headroom
+    # before burning calls into a batch that's going to stall partway
+    # through anyway. hee-quota is a sibling tool, same repo, real fix for
+    # fleet-ops#269 (this exact reactive-discovery problem, hit twice
+    # tonight before this existed).
+    quota_tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-quota")
+    if os.path.exists(quota_tool):
+        with open(args.file) as f:
+            n_items = sum(1 for line in f if line.strip())
+        # rough real estimate: ~1 graphql call per field-bearing item (aliased mutation)
+        # + 1 per epic-link + ~3 setup calls; pad 20% for retries.
+        with open(args.file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        est = 3 + sum(1 for r in rows if r.get("priority") or r.get("effort") or r.get("target_date")) \
+                + sum(1 for r in rows if r.get("epic_repo"))
+        est = int(est * 1.2)
+        proc = subprocess.run([sys.executable, quota_tool, "warn", "--threshold", str(min(90, max(5, est / 50 * 100)))],
+                               capture_output=True, text=True)
+        if proc.returncode != 0:
+            print(proc.stderr, file=sys.stderr)
+            print(f"hee-fields: batch of {n_items} items needs an estimated ~{est} GraphQL calls -- "
+                  f"quota looks too low to finish cleanly. Run '{quota_tool} status' to check, "
+                  f"or '{quota_tool} wait --pool graphql --min {est}' to block until it clears.", file=sys.stderr)
+            sys.exit(1)
 
     # batch: real squeeze -- project_id/field_map/item-list fetched once
     # for the whole run, not once per issue. This is the actual fix for
@@ -185,8 +236,15 @@ def main():
     with open(args.file) as f:
         items = [json.loads(line) for line in f if line.strip()]
     ctx = {"proj_id": project_id(), "fmap": field_map(), "items": fetch_items()}
+    failed = []
     for item in items:
-        apply_one(item, ctx)
+        try:
+            apply_one(item, ctx)
+        except RuntimeError as e:
+            print(f"  SKIPPED: {e}")
+            failed.append(f"{item['repo']}#{item['number']}")
+    if failed:
+        print(f"\n{len(failed)} item(s) skipped (real propagation-lag misses, safe to retry): {', '.join(failed)}")
 
 
 if __name__ == "__main__":
