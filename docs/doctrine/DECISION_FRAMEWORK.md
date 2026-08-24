@@ -34,6 +34,30 @@ real state. Independently re-check against the actual source.
   files were moved; verified false against the live tree seven months
   later. Treat any "already done" claim as a hypothesis to check, not a fact
   to relay.
+- Two real, independent collisions the same night (2026-08-24) both
+  traced back to acting on stale/assumed state instead of a fresh check:
+  `hee-name` allocated the identical name `kenny` to two concurrent
+  sessions ([HEE#336](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/336));
+  a shared git working directory let one session's `checkout` silently
+  yank another session off its own branch mid-task. Neither would have
+  happened if the acting session had freshly verified shared state
+  immediately before acting, rather than trusting what it last knew.
+
+**Why this is the actual mechanism, not just caution, per Spencer
+directly (2026-08-24)**: "when you verify before acting you enforce a no
+collision system by default." A verification check (`git fetch`, `gh api
+... reviewDecision`, re-reading a file) has near-zero marginal cost; what
+it prevents — a collision, a bad merge, hours untangling stale state —
+has no ceiling. Same structural shape as the `left(capex)` thesis
+(`theses/btc-energy-time-spread.md`'s "cheap input relative to value
+produced = structural spread," extended past markets): cheap check now,
+unbounded avoided cost later. The asymmetry only holds while the check
+itself stays cheap — a real check should be a 0-token/deterministic
+operation (a `git status`, a `gh api` call), not an LLM call, or the
+"verification is nearly free" premise stops being true. See
+[fleet-ops#208](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/208)
+for the tracked discipline of keeping checks on the cheap side of that
+line.
 
 ## 2. Trace a claim to its real source before accepting its category
 
