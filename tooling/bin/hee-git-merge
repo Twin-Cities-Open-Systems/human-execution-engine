@@ -493,8 +493,9 @@ def do_merge(repo_full, number, method, delete_branch):
     proc = subprocess.run(["gh", *args], capture_output=True, text=True)
     if proc.returncode == 0:
         print(f"  {DOT_GOOD} {good(f'merged ({method}).')}")
-    else:
-        print(f"  {DOT_CRITICAL} {critical('MERGE FAILED:')}\n{proc.stderr}")
+        return True
+    print(f"  {DOT_CRITICAL} {critical('MERGE FAILED:')}\n{proc.stderr}")
+    return False
 
 
 def do_comment(repo_full, number, body):
@@ -504,8 +505,9 @@ def do_comment(repo_full, number, body):
     )
     if proc.returncode == 0:
         print(f"  {DOT_GOOD} {good('note posted.')}")
-    else:
-        print(f"  {DOT_CRITICAL} {critical('COMMENT FAILED:')}\n{proc.stderr}")
+        return True
+    print(f"  {DOT_CRITICAL} {critical('COMMENT FAILED:')}\n{proc.stderr}")
+    return False
 
 
 def do_approve(repo_full, number):
@@ -515,8 +517,9 @@ def do_approve(repo_full, number):
     )
     if proc.returncode == 0:
         print(f"  {DOT_GOOD} {good('approved.')}")
-    else:
-        print(f"  {DOT_CRITICAL} {critical('APPROVE FAILED:')}\n{proc.stderr}")
+        return True
+    print(f"  {DOT_CRITICAL} {critical('APPROVE FAILED:')}\n{proc.stderr}")
+    return False
 
 
 def estimate_agents(ready):
@@ -588,6 +591,31 @@ def group_by_epic(ready):
         else:
             no_epic.append(pr)
     return by_epic, no_epic
+
+
+def print_run_summary(stats, total_candidates):
+    """Real ask from Spencer, live: "need more inform[ative] status" --
+    the old summary was just the auto-skip count. Reports every real
+    outcome the loop tracked, colored by tier, so a run that stopped
+    partway (EOF, Ctrl-C) or ran to completion both leave a clear record
+    of what actually happened, not just what didn't."""
+    acted, auto_skipped = stats["acted"], stats["auto_skipped"]
+    commented, deferred, failed = stats["commented"], stats["deferred"], stats["failed"]
+    seen = auto_skipped + acted + failed + deferred
+    print(f"\n--- run summary: {seen}/{total_candidates} candidate(s) seen ---")
+    if acted:
+        print(f"  {DOT_GOOD} {good(str(acted) + ' actioned')} (approved/merged this run)")
+    if auto_skipped:
+        print(f"  {DOT_GOOD} {good(str(auto_skipped) + ' already approved')} (auto-skipped, no re-approval)")
+    if commented:
+        print(f"  {DOT_GOOD} {good(str(commented) + ' note(s) posted')}")
+    if deferred:
+        print(f"  {DOT_SERIOUS} {serious(str(deferred) + ' deferred')} (you skipped -- still open)")
+    if failed:
+        print(f"  {DOT_CRITICAL} {critical(str(failed) + ' FAILED')} (see errors above)")
+    remaining = total_candidates - seen
+    if remaining:
+        print(f"  {DOT_WARNING} {warning(f'{remaining} not reached')} (run stopped early)")
 
 
 def main():
@@ -674,7 +702,7 @@ def main():
         if args.action == "merge" else "approve only, no merge"
     print(f"{len(candidates)} candidate PR(s), action={args.action}, {action_desc}.")
 
-    skipped_approved = 0
+    stats = {"auto_skipped": 0, "acted": 0, "failed": 0, "deferred": 0, "commented": 0}
     for pr in candidates:
         repo_full = pr["_repo_full"]
 
@@ -682,7 +710,7 @@ def main():
         # approved PR is pure waste (GitHub's UI gives no clear signal it
         # already happened). Never re-prompt for one under --action=approve.
         if args.action == "approve" and pr.get("reviewDecision") == "APPROVED":
-            skipped_approved += 1
+            stats["auto_skipped"] += 1
             print(f"\n{DOT_GOOD} [{repo_full}#{pr['number']}] {good('already approved')} "
                   f"-- auto-skipped, no prompt shown.")
             continue
@@ -694,19 +722,18 @@ def main():
             except EOFError:
                 print(f"\n  {DOT_CRITICAL} {critical('no stdin (EOF)')} -- can't prompt here, "
                       f"stopping rather than silently skip the rest.")
-                if skipped_approved:
-                    print(f"\n({skipped_approved} PR(s) already approved, auto-skipped -- no re-approval.)")
+                print_run_summary(stats, len(candidates))
                 return
             except KeyboardInterrupt:
                 print(f"\n  {DOT_SERIOUS} {serious('stopped (Ctrl-C)')} -- rest of this batch untouched.")
-                if skipped_approved:
-                    print(f"\n({skipped_approved} PR(s) already approved, auto-skipped -- no re-approval.)")
+                print_run_summary(stats, len(candidates))
                 return
             if choice == "y":
                 if args.action == "approve":
-                    do_approve(repo_full, pr["number"])
+                    ok = do_approve(repo_full, pr["number"])
                 else:
-                    do_merge(repo_full, pr["number"], args.method, args.delete_branch)
+                    ok = do_merge(repo_full, pr["number"], args.method, args.delete_branch)
+                stats["acted" if ok else "failed"] += 1
                 break
             elif choice == "e":
                 subprocess.run(["gh", "pr", "diff", str(pr["number"]), "--repo", repo_full])
@@ -719,15 +746,15 @@ def main():
                     continue
                 if not note:
                     print(f"  {DOT_WARNING} {warning('empty note')} -- nothing posted.")
-                else:
-                    do_comment(repo_full, pr["number"], note)
+                elif do_comment(repo_full, pr["number"], note):
+                    stats["commented"] += 1
                 continue
             else:
+                stats["deferred"] += 1
                 print(f"  {DOT_SERIOUS} {serious('skipped')} -- you deferred this one, still open.")
                 break
 
-    if skipped_approved:
-        print(f"\n({skipped_approved} PR(s) already approved, auto-skipped -- no re-approval.)")
+    print_run_summary(stats, len(candidates))
 
 
 if __name__ == "__main__":
