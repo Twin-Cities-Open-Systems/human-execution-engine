@@ -69,6 +69,10 @@ case "${cmd}" in
     shift 2>/dev/null || true
     case "${sub}" in
       merge)
+        if [ "${1:-}" = "help" ]; then
+          shift
+          set -- --help "$@"
+        fi
         exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
         ;;
       *)
@@ -84,6 +88,16 @@ case "${cmd}" in
   *)
     ext_target="${TARGET_ROOT}/tooling/bin/hee-${cmd}"
     ext_tool="${TOOL_ROOT}/tooling/bin/hee-${cmd}"
+
+    # Real, general fix: "hee <cmd> help" must work the same as
+    # "hee <cmd> --help" for every extension tool, not just the ones
+    # that happen to accept a bare "help" arg themselves (most argparse-
+    # based hee-* tools don't -- they only recognize --help/-h). Fixed
+    # once here instead of in every tool.
+    if [ "${1:-}" = "help" ]; then
+      shift
+      set -- --help "$@"
+    fi
 
     if [ -x "${ext_target}" ]; then
       exec "${ext_target}" "$@"
