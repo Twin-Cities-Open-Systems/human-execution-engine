@@ -436,6 +436,7 @@ def main():
     args = ap.parse_args()
 
     author = None if args.author == "all" else args.author
+    print(f"hee-git-merge: searching {args.org} for open PRs from {args.author}...")
     prs = fetch_prs(args.org, author)
     candidates = [pr for pr in prs if matches(pr, args.regex)]
 
@@ -444,9 +445,12 @@ def main():
               + (f" matching /{args.regex}/" if args.regex else "") + ".")
         return
 
-    for pr in candidates:
+    print(f"hee-git-merge: {len(candidates)} candidate(s) found, fetching detail...")
+    for i, pr in enumerate(candidates, 1):
         repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
+        print(f"  [{i}/{len(candidates)}] {repo_full}#{pr['number']}...", end=" ", flush=True)
         pr.update(fetch_pr_detail(repo_full, pr["number"]))
+        print("done")
 
     candidates, deps = order_candidates(candidates)
 
