@@ -69,9 +69,24 @@ case "${cmd}" in
     shift 2>/dev/null || true
     case "${sub}" in
       merge)
-        if [ "${1:-}" = "help" ]; then
-          shift
-          set -- --help "$@"
+        # Real fix: "help" anywhere at the end (not just right after
+        # "merge") should work -- rotate args left-to-right $#-1 times
+        # so the true last arg lands at front, then swap it for
+        # --help, preserving every arg before it in original order.
+        if [ "$#" -gt 0 ]; then
+          eval "_last=\${$#}"
+          if [ "${_last}" = "help" ]; then
+            _n=$#
+            _i=1
+            while [ "${_i}" -lt "${_n}" ]; do
+              _first="$1"
+              shift
+              set -- "$@" "${_first}"
+              _i=$((_i + 1))
+            done
+            shift
+            set -- "$@" --help
+          fi
         fi
         exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
         ;;
@@ -89,14 +104,27 @@ case "${cmd}" in
     ext_target="${TARGET_ROOT}/tooling/bin/hee-${cmd}"
     ext_tool="${TOOL_ROOT}/tooling/bin/hee-${cmd}"
 
-    # Real, general fix: "hee <cmd> help" must work the same as
-    # "hee <cmd> --help" for every extension tool, not just the ones
-    # that happen to accept a bare "help" arg themselves (most argparse-
-    # based hee-* tools don't -- they only recognize --help/-h). Fixed
-    # once here instead of in every tool.
-    if [ "${1:-}" = "help" ]; then
-      shift
-      set -- --help "$@"
+    # Real, general fix: "help" as the LAST arg -- at any depth, e.g.
+    # "hee pve-health status help", not just right after the command
+    # name -- must work the same as --help. Most argparse-based hee-*
+    # tools only recognize --help/-h, and Spencer's real ask was "help
+    # as last arg... hate having to move the verb around": rotate args
+    # left $#-1 times so the true last one lands at front, swap it for
+    # --help, everything before it keeps its original order.
+    if [ "$#" -gt 0 ]; then
+      eval "_last=\${$#}"
+      if [ "${_last}" = "help" ]; then
+        _n=$#
+        _i=1
+        while [ "${_i}" -lt "${_n}" ]; do
+          _first="$1"
+          shift
+          set -- "$@" "${_first}"
+          _i=$((_i + 1))
+        done
+        shift
+        set -- "$@" --help
+      fi
     fi
 
     if [ -x "${ext_target}" ]; then
