@@ -88,7 +88,48 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+# Real disk cache for fetch_pr_detail -- one GraphQL `gh pr view` call
+# per candidate is the actual GraphQL cost driver here (confirmed via
+# hee-quota's pre-flight gate above), and it's genuinely redundant
+# across runs: the same PR's checks/review/mergeable state doesn't
+# change every few seconds, and multiple concurrent sessions under the
+# same shared GitHub identity are often reviewing overlapping PR sets.
+# ~/.config/hee/ matches hee-scrob's existing home-relative storage
+# convention, not a new one invented here -- and it's outside any git
+# repo on purpose, so a cache entry never needs gitignore coverage and
+# is naturally shared across every session on this account, not just
+# this process. Short TTL (60s) trades a small staleness window for a
+# real cut in GraphQL calls; --no-cache bypasses it entirely for a run
+# where you want to see the live state (e.g. right before merging).
+PR_CACHE_DIR = Path.home() / ".config" / "hee" / "gh-pr-cache"
+PR_CACHE_TTL = int(os.environ.get("HEE_PR_CACHE_TTL", "60"))
+
+
+def _pr_cache_path(repo_full, number):
+    return PR_CACHE_DIR / repo_full.replace("/", "__") / f"{number}.json"
+
+
+def _pr_cache_get(repo_full, number):
+    path = _pr_cache_path(repo_full, number)
+    try:
+        entry = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if time.time() - entry.get("cached_at", 0) > PR_CACHE_TTL:
+        return None
+    return entry.get("data")
+
+
+def _pr_cache_put(repo_full, number, data):
+    path = _pr_cache_path(repo_full, number)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"cached_at": time.time(), "data": data}))
+    except OSError:
+        pass  # cache is a real optimization, never a hard dependency
 
 
 def gh_json(args):
@@ -117,13 +158,13 @@ def fetch_prs(org, author):
     return gh_json(args)
 
 
-def check_quota(n_candidates):
+def check_quota(candidates, use_cache=True):
     """Real pre-flight gate, same fix as hee-fields' (fleet-ops#269):
     fetch_pr_detail below is one GraphQL `gh pr view` call per candidate
-    -- know before burning calls into a batch that's going to stall
-    partway through, instead of finding out reactively mid-run. hee-quota
-    is a sibling tool, same repo; skip the check entirely if it's not
-    installed rather than hard-depend on it."""
+    that isn't already cache-fresh -- know before burning calls into a
+    batch that's going to stall partway through, instead of finding out
+    reactively mid-run. hee-quota is a sibling tool, same repo; skip the
+    check entirely if it's not installed rather than hard-depend on it."""
     quota_tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-quota")
     if not os.path.exists(quota_tool):
         return
@@ -138,24 +179,42 @@ def check_quota(n_candidates):
         remaining = pools["graphql"]["remaining"]
     except (json.JSONDecodeError, KeyError):
         return
-    est = int(n_candidates * 1.2)  # same 20% pad hee-fields uses
+    if use_cache:
+        n_uncached = sum(
+            1 for pr in candidates
+            if _pr_cache_get(
+                pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository"),
+                pr["number"],
+            ) is None
+        )
+    else:
+        n_uncached = len(candidates)
+    est = int(n_uncached * 1.2)  # same 20% pad hee-fields uses
     if remaining < est:
-        print(f"hee-git-merge: {n_candidates} candidate(s) need an estimated ~{est} "
-              f"GraphQL calls to fetch detail, but only {remaining} remain. Run "
+        print(f"hee-git-merge: {len(candidates)} candidate(s), {n_uncached} not cache-fresh, "
+              f"need an estimated ~{est} GraphQL calls to fetch detail, but only {remaining} "
+              f"remain. Run "
               f"'{quota_tool} status' to check, or "
               f"'{quota_tool} wait --pool graphql --min {est}' to block until it clears.",
               file=sys.stderr)
         sys.exit(1)
 
 
-def fetch_pr_detail(repo_full, number):
+def fetch_pr_detail(repo_full, number, use_cache=True):
+    if use_cache:
+        cached = _pr_cache_get(repo_full, number)
+        if cached is not None:
+            return cached
     try:
-        return gh_json([
+        data = gh_json([
             "pr", "view", str(number), "--repo", repo_full,
             "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
         ])
     except SystemExit:
         return {}
+    if use_cache and data:
+        _pr_cache_put(repo_full, number, data)
+    return data
 
 
 def matches(pr, pattern):
@@ -668,6 +727,9 @@ def main():
     delbranch.add_argument("--delete-branch", action="store_true", dest="delete_branch")
     delbranch.add_argument("--no-delete-branch", action="store_false", dest="delete_branch")
     ap.set_defaults(delete_branch=True)
+    ap.add_argument("--no-cache", action="store_false", dest="use_cache", default=True,
+                     help=f"skip the {PR_CACHE_TTL}s PR-detail cache, always fetch live "
+                          f"(e.g. right before an actual merge)")
     args = ap.parse_args()
 
     author = None if args.author == "all" else args.author
@@ -680,14 +742,23 @@ def main():
               + (f" matching /{args.regex}/" if args.regex else "") + ".")
         return
 
-    check_quota(len(candidates))
+    check_quota(candidates, use_cache=args.use_cache)
 
     print(f"hee-git-merge: {len(candidates)} candidate(s) found, fetching detail...")
+    n_cache_hits = 0
     for i, pr in enumerate(candidates, 1):
         repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
         print(f"  [{i}/{len(candidates)}] {repo_full}#{pr['number']}...", end=" ", flush=True)
-        pr.update(fetch_pr_detail(repo_full, pr["number"]))
-        print("done")
+        was_cached = args.use_cache and _pr_cache_get(repo_full, pr["number"]) is not None
+        pr.update(fetch_pr_detail(repo_full, pr["number"], use_cache=args.use_cache))
+        if was_cached:
+            n_cache_hits += 1
+            print("cached")
+        else:
+            print("done")
+    if n_cache_hits:
+        print(f"hee-git-merge: {n_cache_hits}/{len(candidates)} served from the "
+              f"{PR_CACHE_TTL}s cache -- that many real GraphQL calls skipped.")
 
     candidates, deps = order_candidates(candidates)
 
