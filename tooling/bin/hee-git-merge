@@ -41,7 +41,9 @@ Usage:
                      every open PR from --author across the org.
   --org             GitHub org to search (default: Twin-Cities-Open-Systems)
   --author          filter to PRs by this login (default: touchy-claude)
-  --action          merge (default) or approve
+  --action          merge (default), approve, batch, optimize, or prime
+                     (prime: warm the PR-detail disk cache, no merge/
+                     prompts/ordering -- real prep before a heavy run)
   --squash          squash-merge on 'y' when --action=merge (default)
   --merge           real merge commit on 'y' instead of squash
   --rebase          rebase-merge on 'y' instead of squash
@@ -738,7 +740,7 @@ def main():
     ap.add_argument("--org", default="Twin-Cities-Open-Systems")
     ap.add_argument("--author", default="touchy-claude",
                      help="filter by login, or 'all' for every open PR org-wide")
-    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize"], default="merge")
+    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize", "prime"], default="merge")
     ap.add_argument("--batch-size", type=int, default=5,
                      help="max PRs per batch under --action batch (default 5)")
     method = ap.add_mutually_exclusive_group()
@@ -782,6 +784,16 @@ def main():
     if n_cache_hits:
         print(f"hee-git-merge: {n_cache_hits}/{len(candidates)} served from the "
               f"{PR_CACHE_TTL}s cache -- that many real GraphQL calls skipped.")
+
+    if args.action == "prime":
+        # Real, deliberately minimal: the fetch-detail loop above already
+        # writes every result to the real disk cache as a side effect --
+        # priming is just "run that loop, skip the expensive dependency-
+        # ordering phase (order_candidates' N^2 same-repo gh calls) that
+        # nothing here needs." No merge, no prompts, no ordering.
+        print(f"hee-git-merge: primed {len(candidates)} PR(s) into the "
+              f"{PR_CACHE_TTL}s disk cache ({n_cache_hits} were already warm).")
+        return
 
     candidates, deps = order_candidates(candidates)
 
