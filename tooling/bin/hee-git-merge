@@ -53,6 +53,9 @@ Per PR, prompts:
   N  skip (default -- just hit enter)
   s  skip (explicit, same as N)
   e  show the full diff (gh pr diff), then re-prompt the same PR
+  c  leave a real PR comment (gh pr comment) -- prompts for the note
+     text, posts it, then re-prompts the same PR (doesn't consume a
+     review verdict, so still open to y/N/s/e afterward)
 
 Already-APPROVED PRs are skipped automatically under --action=approve
 -- shown with a note, never re-prompted, never re-approved.
@@ -494,6 +497,17 @@ def do_merge(repo_full, number, method, delete_branch):
         print(f"  {DOT_CRITICAL} {critical('MERGE FAILED:')}\n{proc.stderr}")
 
 
+def do_comment(repo_full, number, body):
+    proc = subprocess.run(
+        ["gh", "pr", "comment", str(number), "--repo", repo_full, "--body", body],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0:
+        print(f"  {DOT_GOOD} {good('note posted.')}")
+    else:
+        print(f"  {DOT_CRITICAL} {critical('COMMENT FAILED:')}\n{proc.stderr}")
+
+
 def do_approve(repo_full, number):
     proc = subprocess.run(
         ["gh", "pr", "review", str(number), "--repo", repo_full, "--approve"],
@@ -676,7 +690,7 @@ def main():
         while True:
             print_synopsis(pr, repo_full)
             try:
-                choice = input("  y/N/s/e > ").strip().lower()
+                choice = input("  y/N/s/e/c > ").strip().lower()
             except EOFError:
                 print(f"\n  {DOT_CRITICAL} {critical('no stdin (EOF)')} -- can't prompt here, "
                       f"stopping rather than silently skip the rest.")
@@ -696,6 +710,17 @@ def main():
                 break
             elif choice == "e":
                 subprocess.run(["gh", "pr", "diff", str(pr["number"]), "--repo", repo_full])
+                continue
+            elif choice == "c":
+                try:
+                    note = input("  note > ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print(f"  {DOT_WARNING} {warning('no note entered')} -- nothing posted.")
+                    continue
+                if not note:
+                    print(f"  {DOT_WARNING} {warning('empty note')} -- nothing posted.")
+                else:
+                    do_comment(repo_full, pr["number"], note)
                 continue
             else:
                 print(f"  {DOT_SERIOUS} {serious('skipped')} -- you deferred this one, still open.")
