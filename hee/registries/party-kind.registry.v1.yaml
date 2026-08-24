@@ -16,6 +16,8 @@ metadata:
     updated-at: "2026-08-13T00:00:00Z"
 
 spec:
+  status: active
+
   ts_human: 2026-08-13_1900
 
   invariants:

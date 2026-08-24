@@ -2,6 +2,7 @@
 version: dric-v1.01
 name: dric
 title: Design–Relay Interface Contract (DRIC-v1)
+status: active
 
 intent:
   - enforce strict separation of design vs relay

@@ -2,6 +2,7 @@
 version: hee-sqz-roll-v1
 name: hee-sqz-roll
 title: HEE SQZ Roll Contract (v1)
+status: active
 
 definition:
   - "A SQZ roll converts one UNKNOWN axis into one KNOWN signal using exactly one source artifact."

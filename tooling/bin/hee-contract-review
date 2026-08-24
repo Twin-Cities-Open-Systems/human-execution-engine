@@ -62,12 +62,22 @@ def find_contracts():
     # source of truth for a signature -- excluded from the scan entirely,
     # and results deduped by (repo, relative-path) as a second safety net
     # in case two non-worktree clones of the same repo ever coexist.
+    #
+    # Real gap found 2026-08-24 dogfooding the tool's own fix: the
+    # exclusion only matched the OLD manual `repo.worktrees/<name>/`
+    # convention, not the harness-native EnterWorktree location
+    # (`repo/.claude/worktrees/<name>/`) -- confirmed live, every
+    # contract in an EnterWorktree worktree was double-listed (once
+    # "correctly" excluded-then-readded via the main checkout, once via
+    # the worktree copy showing real edits the main checkout doesn't
+    # have yet). Both patterns excluded now.
     paths = []
     for pattern in ("*/contracts/*.yaml", "*/hee/contracts/*.yaml"):
         for root in subprocess.run(
             ["find", "/home/claude/git", "-path", pattern,
              "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*",
-             "-not", "-path", "*.worktrees*"],
+             "-not", "-path", "*.worktrees*",
+             "-not", "-path", "*/.claude/worktrees/*"],
             capture_output=True, text=True,
         ).stdout.splitlines():
             paths.append(root)
@@ -103,7 +113,12 @@ def guess(doc, path):
     spec = doc.get("spec", {}) or {}
     ann = meta.get("annotations", {}) or {}
     name = meta.get("name") or path
-    status = (spec.get("status") or "").lower()
+    # Real fix 2026-08-24: several real contracts predate the current
+    # apiVersion/kind/metadata/spec envelope and put status at the file
+    # root instead of under spec (confirmed live: 9 of 11 files missing
+    # a recognized status were this older, flat shape) -- check both,
+    # spec.status taking priority when a file somehow has both.
+    status = (spec.get("status") or doc.get("status") or "").lower()
     updated = ann.get("updated-at") or doc.get("_updated_raw")
 
     age_days = None
@@ -131,6 +146,9 @@ def guess(doc, path):
     elif status in ("ratified", "completed"):
         prio = 1
         reasons.append(f"status={status}, likely just needs nothing or a vocab check")
+    elif status == "active":
+        prio = 2
+        reasons.append("status=active -- in real use, never went through formal GPG ratification (no .asc found)")
     else:
         prio = 5
         reasons.append(f"unrecognized status={status}")

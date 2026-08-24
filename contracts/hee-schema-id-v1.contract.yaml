@@ -2,6 +2,7 @@
 version: hee-schema-id-v1
 name: hee-schema-id
 title: HEE Schema ID Contract (v1)
+status: active
 
 problem:
   - branch-churn and domain drift in JSON Schema $id/$ref reduces portability

@@ -7,6 +7,7 @@ blueprint:
   result: false
 
 idea: "Define the minimal, descriptive validator contract for HEE doctrine and instances."
+status: active
 
 summary: >
   Describes validator behavior (inputs/outputs/exit-codes/violation format)

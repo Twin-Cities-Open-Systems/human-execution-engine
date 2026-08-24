@@ -11,6 +11,7 @@ identity:
 
 result: false
 schema-version: 1
+status: active
 
 title: "HEE Chat Header Doctrine"
 

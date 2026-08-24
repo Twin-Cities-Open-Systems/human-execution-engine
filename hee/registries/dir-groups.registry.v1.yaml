@@ -14,6 +14,7 @@ metadata:
     inuid_derivation: "sha256(inuid_seed)"
     updated-at: "2026-02-10T18:51:00-06:00"
 spec:
+  status: proposed
   ts_human: 2026-02-10_1851
   managed_by:
     runner: shellboss

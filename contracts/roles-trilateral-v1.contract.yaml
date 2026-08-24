@@ -2,6 +2,7 @@
 version: roles-trilateral-v1
 name: roles-trilateral
 title: GPT–Oper–Agent Roles Contract
+status: active
 
 intent:
   - define role boundaries across gpt, oper, and agent

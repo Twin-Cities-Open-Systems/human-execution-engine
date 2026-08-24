@@ -1,5 +1,6 @@
 # path: contracts/repo-policy.yaml
 version: 1
+status: active
 
 doctrine:
   canonical_paths:

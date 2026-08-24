@@ -2,6 +2,7 @@
 version: outfile-evidence-v1
 name: outfile-evidence
 title: GPT–Oper Outfile Evidence Contract
+status: active
 
 intent:
   - govern generation and update of evidence outfiles
