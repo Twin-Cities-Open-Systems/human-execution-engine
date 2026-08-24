@@ -1,0 +1,67 @@
+# path: blueprints/kinship-membership-governance-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: kinship-membership-governance-v1
+  description: "Reusable pattern for governing a durable, multi-tier human membership structure (an immutable identity tier plus one or more earned tiers) where identity is explicitly separated from entitlement. Extracted and genericized 2026-08-24 from a real, private, org-specific family-governance DIF (tcos-plan-private) as part of the fleet-ops#272 recovery epic -- no real names or relationships were carried over, only the reusable governance shape. The original, org-specific instance stays private and unchanged."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: kinship-membership-governance
+    artifact: blueprint
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    recovered_utc: "2026-08-24T00:00:00Z"
+    origin_note: "genericized from a private tcos-plan-private DIF pill; see fleet-ops#272"
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  intent:
+    - "Govern a durable membership structure where one tier is immutable (identity by an unearnable criterion, e.g. birth) and other tiers are earned and revocable."
+    - "Separate identity from entitlement explicitly: belonging to the immutable tier never automatically grants benefits, access, or roles."
+    - "Apply the same rules to every human party without exception, including whoever authored the policy."
+
+  actors:
+    identity_tier: "the immutable-membership bucket -- admission criterion is fixed and unearnable (e.g. birth into it); this blueprint doesn't prescribe the criterion itself, only that it be fixed and disjoint from the earned tiers"
+    earned_tiers: "one or more non-immutable buckets, membership granted and revocable by an explicit process; buckets are mutually disjoint -- a party belongs to exactly one"
+    adjudicator: "whoever has authority to act on a grievous-action trigger; a single founder in the simple case, a defined body in the mature case"
+
+  model:
+    participation_state: ["active", "opted_out", "suspended", "disqualified"]
+    entitlements:
+      benefits: "profit share / distributions / grants / perks"
+      access: "systems / docs / internal comms"
+      roles: "voting / leadership / trusteeship / operational authority"
+    rule: "Identity != entitlement. Immutable-tier identity does not by itself imply benefits, access, or roles."
+
+  ceremony:
+    - step: opt_out
+      description: "any member of the immutable tier may opt out at any time"
+      exit_condition: "benefits=0, access=0, roles=ineligible; recorded with real, auditable evidence (who/when/how)"
+      invariant: "opt-out never removes the underlying immutable-tier identity, and never entitles future distributions from new ventures"
+    - step: re_entry
+      description: "a member who opted out may request re-entry"
+      exit_condition: "never automatic; eligibility/process is left to the adopting org's own DIF"
+    - step: grievous_action_trigger
+      description: "protect first, adjudicate second -- first credible sign of trouble triggers an immediate blanket lock (zero perms), not a deliberation period"
+      exit_condition: "access, benefits, and roles are all immediately suspended and an evidence trail is opened"
+      guard: "hardship_guard -- the lock must not cause undue hardship to dependents who are not themselves the subject of the action; specifics are left to the adopting org's own DIF"
+    - step: due_process
+      description: "lock first, then due process -- any outcome (timeboxed suspension, permanent disqualification, or external/legal action) requires real evidence and an auditable record"
+      exit_condition: "outcome recorded; no automatic reinstatement, and no identity-based override of an entitlement decision"
+
+  invariants:
+    - "universality: policies apply to every human party without exception, including the policy's own author."
+    - "buckets_disjoint: a person belongs to exactly one tier at a time; no duplication across tiers."
+    - "identity_immutable: the immutable tier's admission rule, once set, does not change to accommodate a specific case."
+    - "evidence_required: opt-out, re-entry, disqualification, and any ban/no-contact action all require real, auditable evidence -- not a verbal or undocumented record."
+    - "no_automatic_reinstatement: a suspended or disqualified party does not return to active status without a real, evidenced decision."
+
+  known_gaps:
+    - "the 'credible trigger' threshold for the grievous_action_trigger step is intentionally left to the adopting org -- this blueprint sets the shape (lock first, evidence, hardship guard), not the numeric bar."
+    - "the adjudicator role is a single founder in the originating org-specific instance; a mature multi-party adjudication body is named as a future direction there but not designed here."
+    - "not yet exercised end-to-end as a real ceremony run -- the org-specific instance this was extracted from is itself still mid-DIF, per fleet-ops#272."
