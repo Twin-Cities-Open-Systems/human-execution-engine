@@ -165,7 +165,12 @@ def guess(doc, path):
 
 
 def github_url(path):
-    m = re.search(r"/git/([^/]+)/(hee/contracts/.+\.yaml)$", path)
+    # Real bug, found live: this only matched the literal "hee/contracts/"
+    # prefix, so every root-level contracts/*.yaml (the pattern
+    # find_contracts() was just fixed to also scan) silently fell through
+    # to the raw local path instead of a real GitHub link. (?:hee/)? makes
+    # that prefix optional instead of hardcoding one specific shape.
+    m = re.search(r"/git/([^/]+)/((?:hee/)?contracts/.+\.yaml)$", path)
     if not m:
         return path
     repo, rel = m.groups()
