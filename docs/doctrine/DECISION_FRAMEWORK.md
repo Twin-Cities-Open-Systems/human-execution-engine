@@ -172,6 +172,28 @@ than an honest gap.
   permission-mode, while explicitly not overstating it as a deterministic
   guarantee.
 
+## 9. Get it right the first time, not eventually
+
+Construct a command, regex, or API call correctly before running it, by
+tracing it against the real input shapes it will actually see — not as a
+first guess to be corrected by watching it fail. This matters most when
+each attempt has a real cost (a scarce API quota, a mutating operation),
+but it's the right default regardless: trial-and-error against a live
+system finds a bug slower and noisier than thinking it through would have.
+
+**Real example:** `hee-contract-review`'s `github_url()` hardcoded a
+literal `hee/contracts/` prefix in its regex instead of the correct
+`(?:hee/)?contracts/` — an imprecise pattern that silently produced a raw
+local path instead of a real link for every root-level contract, found
+live rather than caught by writing the pattern correctly up front.
+Spencer's real shorthand for this: "stingy good, greedy bad" — prefer a
+precise, anchored pattern over a greedy one unless greedy is actually the
+correct semantic.
+
+This doesn't replace verification (Rule 1) — it means the verification
+step should catch a genuinely uncertain thing, not a mistake that careful
+construction would have prevented for free.
+
 ## How to apply this at any scale
 
 Before any decision — whether it's a single word in a doctrine file or an
@@ -182,6 +204,7 @@ org-wide rollout — run it through, in order:
 4. Am I the right party to act, or does this route elsewhere? (Rule 6)
 5. Is the outcome recorded somewhere durable? (Rule 7)
 6. Am I stating confidence honestly? (Rule 8)
+7. Is this constructed correctly before I run it, not after? (Rule 9)
 
 None of these are new. They're what already happened, written down so the
 next decision — at either scale — doesn't have to rediscover the same
