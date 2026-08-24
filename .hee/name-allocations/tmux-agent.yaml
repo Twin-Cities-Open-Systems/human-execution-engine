@@ -1,0 +1,12 @@
+cartman:
+  allocated_at: '2026-08-24T03:35:35+00:00'
+  pool: south-park
+  scope: tmux-agent
+kyle:
+  allocated_at: '2026-08-24T03:35:35+00:00'
+  pool: south-park
+  scope: tmux-agent
+stan:
+  allocated_at: '2026-08-24T03:35:35+00:00'
+  pool: south-park
+  scope: tmux-agent
