@@ -25,24 +25,51 @@
 
 ORG ?= tcos
 USER ?= $(shell whoami)
+GH_ORG := Twin-Cities-Open-Systems
 REPO := human-execution-engine
-GIT_URL := https://github.com/Twin-Cities-Open-Systems/$(REPO)
+GIT_URL := https://github.com/$(GH_ORG)/$(REPO)
 HOME_DIR := $(HOME)
 CLONE_DIR := $(HOME_DIR)/git/$(REPO)
 BIN_DIR := $(HOME_DIR)/.local/bin
+GIT_DIR := $(HOME_DIR)/git
 
-.PHONY: bootstrap clone-repo link-hee status
+.PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status
 
 bootstrap: clone-repo link-hee
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
+
+bootstrap-all: clone-all-repos link-hee
+	@echo "bootstrap.mk: $(USER)@$(ORG) ready, all org repos cloned -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
 clone-repo:
 	@if [ -d "$(CLONE_DIR)/.git" ]; then \
 		echo "bootstrap.mk: $(REPO) already cloned at $(CLONE_DIR)"; \
 	else \
-		mkdir -p "$(HOME_DIR)/git"; \
-		git clone "$(GIT_URL)" "$(CLONE_DIR)"; \
+		mkdir -p "$(GIT_DIR)"; \
+		gh repo clone "$(GH_ORG)/$(REPO)" "$(CLONE_DIR)"; \
 	fi
+
+# Clone every real repo in the org -- queried live via gh, not a
+# hardcoded list, so it stays accurate as repos get added/renamed.
+# Real trigger: "let's add all the repos using our tool to my local
+# git" (spencer@kiosk had only human-execution-engine cloned).
+clone-all-repos:
+	@mkdir -p "$(GIT_DIR)"
+	@repos="$$(gh api "orgs/$(GH_ORG)/repos?per_page=100" --jq '.[].name')"; \
+	if [ -z "$$repos" ]; then \
+		echo "bootstrap.mk: gh api returned no repos -- check gh auth status" 1>&2; \
+		exit 1; \
+	fi; \
+	for r in $$repos; do \
+		d="$(GIT_DIR)/$$r"; \
+		if [ -d "$$d/.git" ]; then \
+			echo "bootstrap.mk: $$r already cloned"; \
+		else \
+			echo "bootstrap.mk: cloning $$r ..."; \
+			gh repo clone "$(GH_ORG)/$$r" "$$d" \
+				|| echo "bootstrap.mk: FAILED to clone $$r (real error above, continuing with the rest)"; \
+		fi; \
+	done
 
 link-hee: clone-repo
 	@mkdir -p "$(BIN_DIR)"
@@ -52,3 +79,4 @@ status:
 	@echo "ORG=$(ORG) USER=$(USER)"
 	@echo "clone: $$([ -d '$(CLONE_DIR)/.git' ] && echo real || echo missing) ($(CLONE_DIR))"
 	@echo "hee:   $$(readlink -f '$(BIN_DIR)/hee' 2>/dev/null || echo missing)"
+	@echo "repos: $$(find '$(GIT_DIR)' -maxdepth 2 -name .git -type d 2>/dev/null | wc -l) cloned in $(GIT_DIR)"
