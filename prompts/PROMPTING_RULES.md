@@ -19,7 +19,7 @@ the top of a session, per `prompts/INIT.md`.
    actual state first.
 3. **Real links, not bare shorthand**, for issue/PR references — HEE
    Policy §5. Structured work files (contracts/blueprints/doctrine YAML)
-   use the compact `tick:N@repo`/`pr:N@repo` notation instead — §13.
+   use the compact `issue:N@repo`/`pr:N@repo` notation instead — §13.
 4. **Self-assign what you create, label from the existing set, never
    invent a new label** — HEE Policy §10/§12.
 5. **When in doubt, stop and ask rather than guess** — same invariant as
