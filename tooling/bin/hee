@@ -23,12 +23,25 @@ design:
 TXT
 }
 
-# resolve TOOL_ROOT from this script path
+# resolve TOOL_ROOT from this script's REAL path, not the PATH entry
+# used to invoke it. Real bug (2026-08-25): `command -v` on $0 returns
+# a symlink's own path (e.g. ~/.local/bin/hee), not its target -- so
+# TOOL_ROOT computed from a symlinked PATH entry pointed at the wrong
+# directory, and every extension command (hee-cred, hee-pve-*, etc)
+# silently failed with "unknown command" UNLESS run from inside this
+# repo (where TARGET_ROOT happened to also be correct). Broke the
+# entire "only ever hee command, from anywhere" workflow. Resolve the
+# real symlink target before deriving TOOL_ROOT.
 SELF="$0"
 case "$SELF" in
   /*) ;;
   *) SELF="$(command -v -- "$SELF" 2>/dev/null || echo "$SELF")" ;;
 esac
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
 SELF_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd)"
 TOOL_ROOT="$(cd "${SELF_DIR}/../.." 2>/dev/null && pwd)"
 
