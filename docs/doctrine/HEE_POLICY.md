@@ -383,7 +383,7 @@ effect of issue triage.
 ### 13. Compact Reference Notation (structured work files)
 
 **Requirement**: contracts, blueprints, and doctrine YAML reference other
-issues/PRs with a compact `tick:`/`pr:` token, not a markdown link
+issues/PRs with a compact `issue:`/`pr:` token, not a markdown link
 
 **Rationale**, per Spencer's review on pr:223@human-execution-engine: a full
 `[text](url)` markdown link is the right shape for prose meant for a human
@@ -393,11 +393,20 @@ actual content for a reader's attention, and not meaningfully more useful
 to tooling than a short token would be. Work files want a real k:v pair,
 not a link.
 
+**Naming, corrected 2026-08-25**: this notation originally used `tick:` for
+GitHub issues. Spencer caught a real clash: `hee-ticket` is a separate,
+already-real system (a local, git-tracked, idea→footgun→dogfood work
+pipeline under `.hee/tickets/`) — "tick" as a root belongs exclusively to
+that system, not to a GitHub-issue shorthand. Renamed `tick:` → `issue:`
+everywhere (this doc and the 2 real files that had used it,
+`blueprints/shift-init-v1.yaml` and `contracts/shift-metrics-v1.contract.yaml`)
+to remove the ambiguity, not just here.
+
 **Notation**:
 
-- In-org issue: `tick:<N>@<repo>` — e.g. `tick:225@human-execution-engine`
+- In-org issue: `issue:<N>@<repo>` — e.g. `issue:225@human-execution-engine`
 - In-org PR: `pr:<N>@<repo>` — e.g. `pr:223@human-execution-engine`
-- Cross-org: `tick:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
+- Cross-org: `issue:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
   segment is present specifically when it isn't
   `Twin-Cities-Open-Systems`
 - Commit: `commit:<sha>@<repo>`
