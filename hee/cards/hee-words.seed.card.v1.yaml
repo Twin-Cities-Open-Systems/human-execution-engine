@@ -74,6 +74,19 @@ spec:
         issue:/pr: notation and full markdown links carry any real
         expectation of clickability, and only in the contexts each is
         actually scoped to.
+    issued:
+      definition: "a work item is tracked by a real, external
+        git-hosting issue system (GitHub Issues, on this repo or any
+        other real repo) -- distinct from hee-ticket, HEE's own
+        internal, local, git-tracked idea->footgun->dogfood pipeline
+        under .hee/tickets/."
+      note: "Spencer's direct disambiguation, 2026-08-25: 'issued'
+        specifically means gitserver-tracked, not hee-ticket-tracked.
+        Use this word when asking whether something has a real GitHub
+        issue open on it, to avoid conflating it with hee-ticket state
+        the way tick:/hee-ticket already collided once (see §13's
+        2026-08-25 naming correction in HEE_POLICY.md)."
+      status: canon
   needs_dif: true
   dif:
     - split into dictionary and thesaurus hee-objs
