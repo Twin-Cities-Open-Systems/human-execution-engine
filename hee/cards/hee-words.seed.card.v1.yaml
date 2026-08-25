@@ -30,6 +30,23 @@ spec:
         each in its own real voice) -- leaning on this glossary rather
         than inventing a new, uncoordinated term.
       status: canon
+    silcrow:
+      definition: "the § character (the section sign/section mark glyph).
+        Chosen as HEE's canonical name for it over 'section sign' --
+        Spencer's direct call, 2026-08-25."
+      status: canon
+    section_mark:
+      definition: "the act of citing a specific numbered section of a
+        doctrine document using a silcrow, e.g. writing '§11' to mark
+        HEE Policy's 11th section."
+      status: canon
+    pinpoint_citation:
+      definition: "the resulting reference itself, e.g. '§11' or
+        '§11's scope' -- a citation precise enough to point at one
+        specific section rather than the whole document."
+      status: canon
+      note: "used throughout docs/doctrine/HEE_POLICY.md already
+        (e.g. §10, §13); this just names the convention."
   needs_dif: true
   dif:
     - split into dictionary and thesaurus hee-objs
