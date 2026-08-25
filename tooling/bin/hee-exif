@@ -44,8 +44,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENT_SIG = REPO_ROOT / "tools" / "agent-signature.sh"
 
 # Real, confirmed legal name (Spencer, 2026-08-25) -- the registered
-# MN entity name, not the domain. Default only; --copyright overrides.
-DEFAULT_COPYRIGHT = "Twin Cities Open Systems - Operations LLC"
+# MN entity name, not the domain. Deliberately NOT auto-applied as a
+# --copyright default (real mistake, caught the same day): copyright
+# vests in whoever actually created the work (17 U.S.C. Sec 102) --
+# writing this org's name onto a photo someone else took is a false
+# legal claim, not a formatting choice. --copyright must be passed
+# explicitly, only when real authorship/assignment is actually known.
+TCOS_LEGAL_NAME = "Twin Cities Open Systems - Operations LLC"
 
 
 def run(cmd, **kw):
@@ -135,6 +140,56 @@ def cmd_sign(args):
     print(f"hee-exif: wrote signature to {args.file}")
 
 
+def gpg_sign_one(file, key, dry_run):
+    """Real detached GPG signature (file.jpg.asc), same convention
+    already used elsewhere in this repo (hee/cards/*.asc) -- not a
+    custom EXIF-embedded crypto scheme. A detached .asc survives the
+    metadata-stripping most photo hosts/re-exports do to EXIF; plain
+    `gpg --verify` checks it.
+
+    Real bug, found and fixed the same day: an earlier version of this
+    function wrote a sha256 reference into the file's own EXIF
+    *after* signing, as a "here's a checkable signature" pointer --
+    but that write mutates the very bytes just signed, invalidating
+    the signature (a self-referential-hash problem: the file's hash
+    can't include a correct note about its own hash). Fix: don't
+    touch the file at all here. The .asc sidecar sitting next to it
+    IS the pointer -- same as the existing hee/cards/*.asc precedent,
+    no embedded reference needed. Run this LAST regardless, after any
+    `hee-exif sign` call, so nothing signs, then still gets modified
+    by something else afterward."""
+    asc_path = file + ".asc"
+    gpg_cmd = ["gpg", "--batch", "--yes", "--detach-sign", "--armor", "--output", asc_path]
+    if key:
+        gpg_cmd += ["--local-user", key]
+    gpg_cmd.append(file)
+
+    if dry_run:
+        print(f"hee-exif gpg-sign --dry-run: {file}")
+        print(f"  would run: {' '.join(gpg_cmd)}")
+        return True
+
+    proc = run(gpg_cmd)
+    if proc.returncode != 0:
+        print(f"hee-exif: gpg sign failed for {file}:\n{proc.stderr}", file=sys.stderr)
+        return False
+
+    verify = run(["gpg", "--verify", asc_path, file])
+    if verify.returncode != 0:
+        print(f"hee-exif: wrote {asc_path} but self-check verify failed:\n{verify.stderr}", file=sys.stderr)
+        return False
+
+    print(f"hee-exif: wrote {asc_path}, verified good")
+    print(f"verify yourself with: gpg --verify {asc_path} {file}")
+    return True
+
+
+def cmd_gpg_sign(args):
+    ok = all([gpg_sign_one(f, args.key, args.dry_run) for f in args.files])
+    if not ok:
+        sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-exif")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -146,12 +201,19 @@ def main():
     s = sub.add_parser("sign", help="write the real agent-instance-signature block + optional Artist/Copyright")
     s.add_argument("file")
     s.add_argument("--artist", default=None)
-    s.add_argument("--copyright", default=None)
+    s.add_argument("--copyright", default=None,
+                    help=f"only set when real authorship/assignment is known -- not auto-applied. "
+                         f"The real org legal name, if it ever legitimately applies, is: {TCOS_LEGAL_NAME!r}")
     s.add_argument("--force", action="store_true", help="overwrite an already-set Artist/Copyright")
     s.add_argument("--dry-run", action="store_true")
 
+    g = sub.add_parser("gpg-sign", help="real detached GPG signature (file.asc) -- supports bulk, pass multiple files")
+    g.add_argument("files", nargs="+")
+    g.add_argument("--key", default=None, help="gpg --local-user selector (fingerprint or user-id); default gpg signing key if omitted")
+    g.add_argument("--dry-run", action="store_true")
+
     args = ap.parse_args()
-    {"read": cmd_read, "sign": cmd_sign}[args.cmd](args)
+    {"read": cmd_read, "sign": cmd_sign, "gpg-sign": cmd_gpg_sign}[args.cmd](args)
 
 
 if __name__ == "__main__":
