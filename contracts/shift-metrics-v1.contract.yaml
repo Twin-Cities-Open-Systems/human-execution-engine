@@ -2,7 +2,7 @@
 version: shift-metrics-v1
 name: shift-metrics
 title: Fleet Identity Shift Metrics Contract
-status: proposed
+status: ratified
 
 intent:
   - "require that every shift run under shift-schedule-v1 records a
