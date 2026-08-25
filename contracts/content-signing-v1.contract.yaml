@@ -1,0 +1,77 @@
+# path: contracts/content-signing-v1.contract.yaml
+version: content-signing-v1
+name: content-signing
+title: Content Signing Contract (lab / prod)
+status: proposed
+
+intent:
+  - "give every published artifact (media, pages, generated content -- not
+    just messages/comments, which agent-instance-signature-v1 already
+    covers) a real, checkable signature, using the same GPG infra this
+    org already has, not a new scheme"
+  - "make explicit who signs what, once lab->prod promotion is a real
+    thing and not everything is signed by whoever happened to build it"
+  - "reuse tooling/bin/hee-exif's real gpg-sign (detached .asc, same
+    convention as hee/cards/*.asc) for media; the same detached-signature
+    pattern applies unchanged to any other file type"
+
+boundaries:
+  governs: "signing of published artifacts (media files, generated pages,
+    any content meant to be verifiable after publication)"
+  does_not_govern: "inter-agent SendMessage traffic or agent-authored
+    GitHub comments -- covered by
+    contracts/agent-instance-signature-v1.contract.yaml, which this
+    contract is a sibling/extension of, not a replacement for"
+
+rules:
+  lab_tier:
+    who_signs: "whichever agent/operator actually built the artifact in
+      lab -- their own real key, no exceptions"
+    rationale: "lab is a build/dev tier; the signer is simply whoever did
+      the work, same as commit authorship"
+  prod_tier:
+    who_signs: "whoever actually promotes/approves the artifact for
+      production -- Spencer or the agent, decided case by case per
+      artifact, not automatic or default to one party"
+    rationale: "promotion to prod is a real decision point (real-world
+      consequence, not just a build step) -- the signature should
+      reflect who actually made that call, not just who built the lab
+      version"
+  universal:
+    - "every operator, human or agent, signs their own real work with
+      their own real key -- never sign on someone else's behalf, never
+      proxy-sign"
+    - "a lab-tier signature does not carry over to prod automatically --
+      promotion is its own signing event, even if the content is
+      byte-identical"
+
+origin: >
+  Spencer, 2026-08-25, after the real spencer.media.lab.tcos.us Tux
+  Tattoo gallery shipped with working, independently-verified GPG
+  signatures per photo (tooling/bin/hee-exif gpg-sign) and real
+  in-browser verification (openpgp.js) per photo in the page itself:
+  "I like the idea of you signing the lab, and then I'll sign the prod.
+  some prod stuff you will sign, some I will sign. all oper's will sign
+  their own works." Explicitly deferred until the lab mechanism was
+  proven working, not written speculatively.
+
+mechanism:
+  tool: "tooling/bin/hee-exif gpg-sign <file> [<file2> ...] [--key ID]"
+  format: "detached, ASCII-armored GPG signature (file.ext.asc), same
+    convention already used for hee/cards/*.asc -- not a custom
+    EXIF-embedded scheme (see tooling/bin/hee-exif's own real gpg-sign
+    bug/fix history for why: embedding a self-referential hash inside
+    the signed file invalidates the signature)"
+  verification: "gpg --verify file.ext.asc file.ext -- or, for a
+    real published web page, live in-browser verification (openpgp.js)
+    against the signer's real public key, as built into
+    spencer.media.lab.tcos.us"
+
+status_of_this_contract: "proposed -- not yet CI-enforced. Real prod
+  promotion tooling (see fleet-ops#295, lab->prod pipeline tracking,
+  also backlogged 2026-08-25) doesn't exist yet, so 'who signs prod' is
+  a real per-artifact human decision today, not an automated gate."
+
+extension_path:
+  - "if prod promotion becomes a real automated pipeline (fleet-ops#295),
+    extend this contract's prod_tier rule rather than starting a new one"
