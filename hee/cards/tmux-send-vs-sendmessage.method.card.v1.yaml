@@ -1,0 +1,89 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: tmux-send-vs-sendmessage
+  ts_human: 2026-08-25_2300
+  description: "Real, demonstrated reasons TCOS prefers tmux send-keys over SendMessage for live human-agent communication, plus the resolved lightweight signature convention for it."
+  labels:
+    hee.object: "true"
+spec:
+  purpose: >
+    Document why tmux send-keys is the preferred channel over
+    SendMessage for reaching a human directly, and settle what
+    identity-marking it needs (it is NOT the same as the full
+    agent-instance-signature block -- see resolution below).
+  reasons:
+    - "SendMessage has repeatedly, demonstrably failed to deliver this
+      session: real notices such as \"14 of your messages... were not
+      approved before expiry\" and \"2 of your messages... were not
+      approved before expiry\" -- per-message recipient approval that
+      can simply not happen, silently, no retry."
+    - "tmux send-keys worked instantly, every time it was tried, and was
+      independently verified landing via capture-pane in the same tool
+      call -- zero observed failures against SendMessage's real,
+      repeated failure rate the same session."
+    - "No approval gate at all -- if you can see the pane, the message
+      lands. SendMessage's approval requirement is a real, deliberate
+      security feature, but it is also the exact mechanism causing the
+      delivery failures above."
+    - "Directly visible, not queued -- lands in a terminal the human is
+      already looking at, not a separate inbox/notification system
+      requiring a deliberate check."
+    - "Real, physical-presence proof -- only works against an actual
+      live tmux server on a real, currently-running machine. Stronger
+      than an abstract socket address."
+    - "Real-time, synchronous, human-in-the-loop -- confirmed live:
+      Spencer typed a real reply directly back into the same pane
+      immediately after a message landed. SendMessage is async/delayed
+      by design."
+    - "Zero new infrastructure -- reuses a tmux server that already
+      exists; no separate messaging daemon, protocol, or
+      delivery-approval system to build or maintain."
+    - "Unambiguous addressing -- session:window.pane names one specific,
+      real, currently-open terminal. A SendMessage recipient address
+      doesn't tell you where, or whether, a human is actually watching."
+  origin: >
+    Spencer, 2026-08-25: "we prefer tmux send messae to sendMessage,
+    let's document why (the list is very long)." Came directly out of
+    hee-con -tmux-send (same session) being used live, successfully,
+    while SendMessage delivery notices were failing in the same
+    conversation.
+  important_nuance: >
+    This is NOT "SendMessage is broken, replace it." Real existing
+    doctrine (human-execution-engine#303, 2026-08-23) already found the
+    same held-for-approval behavior and explicitly framed it as a
+    deliberate, correct security feature -- "real infrastructure already
+    enforcing exactly the human-in-the-loop principle... a working
+    example to point at, not just a friction point to route around,"
+    tying directly to #302's "machines have 0 rights until granted"
+    model. That framing stands; this card doesn't contradict it.
+    The real, narrower point here: for live human<->agent communication
+    on a shared host (this exact scenario -- an agent and a human on the
+    same real tmux server), tmux send-keys is a better-fitted mechanism
+    for THAT case specifically -- instant, synchronous, no approval gate
+    needed because physical/pane-level presence already proves what the
+    approval gate exists to establish for a remote, unverified peer.
+    SendMessage's gate remains correct and necessary for its own real
+    case: cross-session, cross-identity, not-otherwise-verified comms.
+    Different tools for different trust situations, not a replacement.
+  signature_resolution:
+    question: "Does a tmux-send message need the full
+      agent-instance-signature-v1 block appended, the same as
+      SendMessage traffic and GitHub comments?"
+    answer: "No -- resolved directly by Spencer (\"tmux send keys #
+      you know that\"): a plain '# '-prefixed shell comment is
+      sufficient, naming the sending identity inline only when it
+      actually matters for clarity (e.g. '# yes, I see you -
+      touchy-claude, same host, same tmux server'). The full multi-line
+      block would be genuinely noisy pasted into a live terminal for a
+      one-line ack, and tmux-send already carries strong identity proof
+      on its own (a real pane on a real live server, per the reasons
+      above) that SendMessage/GitHub comments don't have."
+    already_practiced: "This is exactly the format already used live
+      this session before the question was even raised -- the
+      resolution formalizes existing practice, not a new convention."
+  cross_reference: "contracts/agent-instance-signature-v1.contract.yaml
+    -- that contract's own must-list (SendMessage, GitHub comments)
+    should note tmux-send as a real third channel with this lighter
+    requirement, not silently omit it."
+  status: dogfood
