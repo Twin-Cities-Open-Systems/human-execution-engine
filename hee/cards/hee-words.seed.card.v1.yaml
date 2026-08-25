@@ -13,6 +13,23 @@ spec:
       definition: a proposition set down; etymology note is recorded in prior q.
     thesaurus:
       definition: a storehouse; etymology cousin note recorded in prior q.
+    language profile:
+      definition: >
+        A named voice/tone/persona variant of an operator's own public
+        content -- not a translation, a real stylistic register (e.g.
+        spencer's real profiles: professional, spencer, ninja, pirate,
+        HwOps; touchy-claude's own distinct set, default "professional").
+      note: >
+        Already real and shipped, just unnamed until now: the
+        `language_profiles` field + `active_default` key in each
+        operator's resume/profiles/<name>/profile.json, surfaced live
+        today as the persona dropdown on <oper>.blog.tcos.us. Canonized
+        2026-08-25 per Spencer's direct ask to disambiguate -- "the idea
+        there is to publish with different lang-voice on each" (referring
+        to publishing the same underlying content once per profile/site,
+        each in its own real voice) -- leaning on this glossary rather
+        than inventing a new, uncoordinated term.
+      status: canon
   needs_dif: true
   dif:
     - split into dictionary and thesaurus hee-objs
