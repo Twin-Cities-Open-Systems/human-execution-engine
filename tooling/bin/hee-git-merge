@@ -81,6 +81,7 @@ them is cosmetic only.
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -391,6 +392,18 @@ def group_by_epic(ready):
     all_refs = set()
     for pr in ready:
         all_refs |= find_issue_refs(pr)
+
+    if all_refs:
+        quota_tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-quota")
+        if os.path.exists(quota_tool):
+            proc = subprocess.run([sys.executable, quota_tool, "warn", "--threshold", "20"],
+                                   capture_output=True, text=True)
+            if proc.returncode != 0:
+                print(proc.stderr, file=sys.stderr)
+                print("hee-git-merge: skipping epic-grouping -- GraphQL quota too low to finish "
+                      f"cleanly ({len(all_refs)} issues to resolve). Run '{quota_tool} status' to check.",
+                      file=sys.stderr)
+                return {}, ready
 
     epic_titles = {}  # (repo, num) -> title, only if type == Epic
     refs = sorted(all_refs)
