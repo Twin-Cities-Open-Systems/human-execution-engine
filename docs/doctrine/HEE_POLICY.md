@@ -154,6 +154,19 @@ git push origin --delete feature/merged-branch  # Remote
   `tick:`/`pr:` notation from §13 instead, not markdown links — see §13
   for why
 
+**External-Link Target Policy** (real, rendered TCOS web pages — not
+markdown citations above, which have no `target` attribute at all):
+
+- Any `<a>` pointing off of TCOS's own real properties (i.e. not
+  `tcos.us`, `lab.tcos.us`, or their subdomains, and not our own GitHub
+  org) must open in a new tab: `target="_blank" rel="noopener"`
+- Rationale, Spencer 2026-08-25: a reference/citation link (an artist's
+  real profile, a source we're crediting) should never navigate the
+  reader away from the page they're on
+- Navigation within our own real properties (e.g. a "back to tcos.us"
+  link on a `lab.tcos.us` page) stays in the same tab — this policy is
+  about leaving the site, not about every link
+
 **Ordered-Steps Requirement**:
 
 - Any field representing a sequence of steps (a ceremony, a procedure, a
