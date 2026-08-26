@@ -151,8 +151,13 @@ def link_epic(repo, number, epic_repo, epic_number):
     parent = ids["p"]["issue"]["id"]
     child = ids["c"]["issue"]["id"]
     mutation = 'mutation($p:ID!,$c:ID!){ addSubIssue(input:{issueId:$p, subIssueId:$c}){ subIssue{number} } }'
-    subprocess.run(["gh", "api", "graphql", "-f", f"query={mutation}", "-f", f"p={parent}", "-f", f"c={child}"],
-                    capture_output=True, text=True, check=True)
+    proc = subprocess.run(["gh", "api", "graphql", "-f", f"query={mutation}", "-f", f"p={parent}", "-f", f"c={child}"],
+                           capture_output=True, text=True)
+    if proc.returncode != 0:
+        if "may only have one parent" in proc.stderr or "duplicate sub-issues" in proc.stderr:
+            print(f"  epic -> {epic_repo}#{epic_number} (already linked, idempotent)")
+            return
+        sys.exit(f"hee-fields: link_epic {repo}#{number} -> {epic_repo}#{epic_number} failed:\n{proc.stderr}")
 
 
 def apply_one(item, ctx):
