@@ -1,0 +1,14 @@
+id: '0002'
+created_at: '2026-08-24T01:50:42Z'
+description: 'merge batch: Twin-Cities-Open-Systems/.github#23, Twin-Cities-Open-Systems/.github#25,
+  Twin-Cities-Open-Systems/fleet-ops#207, Twin-Cities-Open-Systems/fleet-ops#209,
+  Twin-Cities-Open-Systems/fleet-ops#213'
+status: open
+stage: dogfood
+stage_history:
+- stage: idea
+  at: '2026-08-24T01:50:42Z'
+- stage: footgun
+  at: '2026-08-24T06:17:08Z'
+- stage: dogfood
+  at: '2026-08-24T06:17:16Z'

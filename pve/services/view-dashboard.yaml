@@ -1,0 +1,9 @@
+hostname: tcos-view-quagmire  # org-role-char, fleet-ops#76 lineage; hee-name pool=family-guy scope=pve-lxc
+template: alpine-3.23-default_20260116_amd64.tar.xz
+template_storage: local
+storage: vmdata
+cores: 1
+memory_mb: 512
+disk_gb: 4
+bridge: vmbr0
+unprivileged: true

@@ -1,0 +1,141 @@
+#!/bin/sh
+# hee-con -- connect to IRC using a real native client, persistent in tmux.
+# Also: send a real message into an existing tmux pane (-tmux-send).
+#
+# Real trigger (2026-08-22): Spencer wanted `./hee con -irc <channel>` after
+# a one-shot raw-socket #tclug check (join, read the roster, quit -- see
+# hee-lg's sibling read-only pattern) wasn't what he actually needed. His own
+# words: "give me the native every time" -- this launches a real, established
+# IRC client (irssi, falling back to weechat) rather than reimplementing the
+# protocol, and leaves it running in a detached tmux session so the
+# connection is persistent, not a snapshot.
+#
+# usage:
+#   hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
+#   hee-con -tmux-send 'message' -target <session:window.pane>
+#
+# design:
+#   - real native client (irssi/weechat), not a custom protocol client
+#   - detached tmux session -- survives after this command returns;
+#     attach with: tmux attach -t <session>
+#   - if a session with that name is already running, attaches info
+#     instead of starting a second, conflicting connection
+#
+# Real trigger for -tmux-send (2026-08-25): Spencer confirmed a real,
+# shared tmux server (this session runs on the same host, same tmux
+# server, as his own real terminal) and explicitly invited using
+# `tmux send-keys` into his pane -- proposed making it a real hee
+# command rather than an ad-hoc raw tmux call each time. -target is
+# REQUIRED, never guessed or defaulted to "whatever pane looks right"
+# -- sending into the wrong pane is a real, not-hypothetical footgun.
+
+set -eu
+
+usage() {
+  cat <<'TXT'
+hee-con -- connect to IRC with a real native client, persistent in tmux;
+           or send a real message into an existing tmux pane
+
+usage:
+  hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
+  hee-con -tmux-send 'message' -target <session:window.pane>
+
+defaults:
+  -network irc.libera.chat
+  -session irc-<channel, # stripped>
+  -nick    hee<pid>
+
+-tmux-send has no defaults -- -target is always required, sending into
+the wrong pane is a real footgun, not a hypothetical one.
+TXT
+}
+
+network="irc.libera.chat"
+session=""
+nick=""
+channel=""
+tmux_message=""
+tmux_target=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -irc) channel="${2:-}"; shift 2 ;;
+    -network) network="${2:-}"; shift 2 ;;
+    -session) session="${2:-}"; shift 2 ;;
+    -nick) nick="${2:-}"; shift 2 ;;
+    -tmux-send) tmux_message="${2:-}"; shift 2 ;;
+    -target) tmux_target="${2:-}"; shift 2 ;;
+    -h|--help|help) usage; exit 0 ;;
+    *) echo "hee-con: unknown arg: $1" 1>&2; usage; exit 1 ;;
+  esac
+done
+
+if [ -n "$tmux_message" ]; then
+  if [ -z "$tmux_target" ]; then
+    echo "hee-con: -tmux-send requires -target <session:window.pane> -- never guessed" 1>&2
+    exit 1
+  fi
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "hee-con: tmux not found" 1>&2
+    exit 1
+  fi
+  if ! tmux has-session -t "$tmux_target" 2>/dev/null; then
+    echo "hee-con: no such tmux target: ${tmux_target}" 1>&2
+    exit 1
+  fi
+  tmux send-keys -t "$tmux_target" "$tmux_message" Enter
+  echo "hee-con: sent to ${tmux_target}: ${tmux_message}"
+  exit 0
+fi
+
+if [ -z "$channel" ]; then
+  echo "hee-con: -irc <channel> is required" 1>&2
+  usage
+  exit 1
+fi
+
+case "$channel" in
+  "#"*) ;;
+  *) channel="#${channel}" ;;
+esac
+
+[ -z "$session" ] && session="irc-$(printf '%s' "$channel" | tr -d '#')"
+[ -z "$nick" ] && nick="hee$$"
+
+client_cmd=""
+client_name=""
+if command -v irssi >/dev/null 2>&1; then
+  client_name="irssi"
+  client_cmd="irssi -c ${network} -n ${nick}"
+elif command -v weechat >/dev/null 2>&1; then
+  client_name="weechat"
+  client_cmd="weechat"
+else
+  echo "hee-con: no native IRC client found (irssi or weechat)" 1>&2
+  echo "hee-con: install one first, e.g.: sudo apt install irssi" 1>&2
+  exit 1
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "hee-con: tmux not found -- required to run a persistent session" 1>&2
+  exit 1
+fi
+
+if tmux has-session -t "$session" 2>/dev/null; then
+  echo "hee-con: session '${session}' is already running"
+  echo "hee-con: attach with: tmux attach -t ${session}"
+  exit 0
+fi
+
+tmux new-session -d -s "$session" "$client_cmd"
+sleep 2
+
+if [ "$client_name" = "irssi" ]; then
+  tmux send-keys -t "$session" "/join ${channel}" Enter
+else
+  echo "hee-con: started weechat -- join ${channel} manually (/connect + /join)" 1>&2
+fi
+
+echo "hee-con: '${session}' started -- ${client_name} connecting to ${network} as ${nick}, joining ${channel}"
+echo "hee-con: attach with: tmux attach -t ${session}"
+echo "hee-con: detach without killing it: Ctrl-b then d"

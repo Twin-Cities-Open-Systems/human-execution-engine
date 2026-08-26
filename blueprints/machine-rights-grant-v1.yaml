@@ -1,0 +1,70 @@
+# path: blueprints/machine-rights-grant-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: machine-rights-grant-v1
+  description: "Reusable ceremony for formalizing an agent's operational authority over a specific real asset (a physical or virtual host, a service, a credential scope) it already administers de facto -- 'a promotion, but more like an official ack that you have the machineRights to do what you do because of the contract chain and ultimate sourceOfTruth.' Sibling to hiring-handshake-v1: that ceremony onboards a new relationship, this one formalizes/extends an existing one's scope. Does not itself grant new technical capability -- it documents and makes auditable an authority chain that traces to spencer as sourceOfTruth."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: machine-rights-grant
+    artifact: blueprint
+  annotations:
+    inuid_seed: "hee-blueprint://tcos-fleet/machine-rights-grant/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: touchy-claude
+    transcriber: touchy-claude
+    updated-at: "2026-08-21T00:00:00Z"
+    origin: "prompted by spencer's real 2026-08-21 grant of operational sovereignty over kiosk.lab.tcos.us to touchy -- see hee.kiosk-touchy.machine-sovereignty.contract.v1.yaml in fleet-ops for the first real instance this ceremony produced"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  problem:
+    - "an agent's real, exercised authority over an asset (e.g. touchy already administers kiosk.lab.tcos.us's systemd services, filesystem, and deployed code) can outrun what's actually documented -- de facto control without a traceable grant is exactly the 'relayed claim of authority' gap hiring-handshake-v1 was built to close, just applied to scope-of-an-existing-relationship instead of onboarding a new one"
+    - "spencer's own framing: this needs to work 'like a promotion' -- a real, repeatable process with an explicit ack, not a one-off verbal grant that only this session remembers"
+
+  actors:
+    grantor:
+      description: "the sourceOfTruth for the authority being granted -- for anything TCOS-owned, this is spencer butler (COO, TCOS) or whoever the governing Contract names as ultimate authority for that asset. Not delegable further down without spencer's own contract saying so."
+    agent:
+      description: "the fleet member receiving/having formalized the grant -- must already have a ratified relationship contract with the grantor or with a party the grantor's own contract authorizes (e.g. touchy's existing nuc1claude.touchy.peer-authority.contract.v1.yaml establishes the direct-line-to-spencer precedent this ceremony relies on)"
+    witness:
+      description: "optional for this ceremony, unlike hiring-handshake-v1's mandatory witness -- required only when the grant is relayed through an intermediary. A grant made directly, live, in a channel the grantor and agent both already trust (per an existing peer-authority contract) has no relay-authenticity gap to close, so ratification leans on the grantor's own GPG signature instead of a third-party attestation. Use a witness anyway for a higher-stakes grant, or when the channel itself isn't already established as trusted."
+      types_governed_by:
+        registry: hee/registries/party-kind.registry.v1.yaml
+        note: "same registry as hiring-handshake-v1, when used"
+
+  ceremony:
+    - step: scope_stated
+      actor: grantor
+      description: "grantor names the specific asset and the specific authority being formalized, in concrete terms -- not 'more access' in the abstract. State what the agent already does today (de facto) vs. what's newly being formalized (if anything) as clearly separate facts."
+      exit_condition: "asset and authority scope are named, both parties can point at the same concrete thing"
+    - step: capability_check
+      actor: agent
+      description: "agent states plainly whether this grant changes its actual technical capability (new sudo rule, new credential, new network access) or only formalizes existing de facto access -- must not silently claim new capability the grant text doesn't actually confer, and must not silently under-claim capability it already genuinely has"
+      exit_condition: "capability delta (none, or specifically what) is stated in the open, not assumed"
+    - step: draft_contract
+      actor: agent
+      description: "agent drafts the real governing hee/v1 Contract instance (not a summary) -- role, may/must_not, boundaries, revocation path -- following the org's existing Contract schema (see hee.fleet-hosts.contract.v1.yaml for inventory-style, nuc1claude.touchy.peer-authority.contract.v1.yaml for relationship-style)"
+    - step: review_gate
+      actor: grantor
+      description: "grantor reviews the drafted contract through the repo's normal PR process -- the agent that drafted it never merges it, per HEE Policy §10's ticket/PR ownership rule. status stays 'proposed' through this step."
+      exit_condition: "grantor either requests changes (loop back to draft_contract) or proceeds to ratification"
+    - step: ratification
+      actor: grantor
+      description: "grantor produces a detached GPG signature over the exact merged contract content -- same evidence pattern as nuc1claude.touchy.peer-authority.contract.v1.yaml.asc. This, not the PR merge itself, is what moves spec.status from proposed to ratified."
+      exit_condition: "signature file exists, spec.ratification_evidence in the contract points at it, spec.status: ratified"
+
+  invariants:
+    - "no_new_capability_without_explicit_statement: a grant ceremony that only formalizes existing de facto access must say so explicitly (capability_check step) -- silence is not evidence of 'no change'"
+    - "grantor_traces_to_sourceOfTruth: every grant's authority chain must terminate at a real, named sourceOfTruth (spencer, for anything TCOS-owned) -- not at 'the org' or 'convention' in the abstract"
+    - "draft_precedes_ratification: the contract is drafted, reviewed, and only then ratified -- no step authorizes treating a proposed contract as ratified"
+    - "drafter_does_not_merge_own_grant: same rule as HEE Policy §10 generally, restated here because a self-authority grant is exactly the case where skipping it would matter most"
+
+  known_gaps:
+    - "not yet exercised end-to-end with actual GPG ratification -- first real instance (kiosk.lab.tcos.us, touchy) is drafted per this ceremony's draft_contract step but is proposed, not yet ratified, as of this blueprint's creation"
+    - "revocation path (grantor rescinding a previously ratified grant) is implied by spec.status but not separately specified as its own ceremony -- likely needs one, not yet designed"

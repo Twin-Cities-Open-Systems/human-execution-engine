@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+sub="${1:-check}"
+case "$sub" in
+  check|"")
+    shift || true
+    exec "$(dirname "$0")/hee-tools-check" "$@"
+    ;;
+  update)
+    shift
+    exec "$(dirname "$0")/hee-tools-update" "$@"
+    ;;
+  *)
+    echo "usage: hee tools [check|update]" >&2
+    exit 2
+    ;;
+esac

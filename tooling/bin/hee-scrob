@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""hee-scrob -- terse, punk-as-fuck now-playing scrobble, real Plex source.
+
+Real trigger (2026-08-22): "terse and hee and very spencer for when I
+/scrob in #tclug" -- fleet-ops#129's long-standing scrobbler gap
+finally getting built. Real Plex server: plex.crooked.tcos.us, docker
+on nuc-1. Then extended, same conversation: "song/show year, ts of
+point at scrobble and text (thousands of .srt files in media/) and
+cool short description and punk as fuck" -- for video content, pulls
+the real subtitle line active at the exact playback position from the
+real .srt sitting next to the media file. No invented dialogue --
+if there's no real .srt, there's no subtitle line in the output.
+
+Real fix (2026-08-22, same session): TV episodes were only showing the
+episode's own title ("LASIK Instinct"), silently dropping the real
+show name and season/episode -- Plex's `title` attribute on an
+episode Video element is the *episode* title, not the show's; the show
+name lives in `grandparentTitle`, season in `parentIndex`, episode
+number in `index`. Real ask: "needs the TV show, s N e N year device
+friendly name." Device names got the same real fix -- reverse-DNS
+mostly fails on this LAN (no PTR records), so Plex's raw self-reported
+device title ("LG 32LM570BPUA") was showing instead of a real human
+name. No API to pull that mapping live (Home Assistant's reachable but
+needs a token nobody has yet) -- so a real, local override file
+instead of fabricating one: ~/.config/hee/device-names.txt, one
+"raw-name = Friendly Name" pair per line, checked before falling back
+to whatever Plex/reverse-DNS gave us.
+
+Designed to be wired as an irssi alias that pipes stdout into a channel:
+  SCROB = "EXEC -o ~/.local/bin/hee-scrob"
+then just `/scrob` in the channel.
+
+Auth: reads PLEX_TOKEN from the environment -- never hardcoded, never
+printed. Real path once hee-cred (HEE#279) has it sealed:
+  hee cred -pass plex-token -exec hee-scrob
+
+Usage:
+  hee-scrob [-server URL]
+"""
+import argparse
+import os
+import re
+import socket
+import sys
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+DEFAULT_SERVER = "https://plex.crooked.tcos.us"
+DEFAULT_TOKEN_FILE = Path.home() / ".config" / "hee" / "plex-token"
+DEVICE_NAMES_FILE = Path.home() / ".config" / "hee" / "device-names.txt"
+
+
+def read_token() -> str:
+    """Real fallback for EXEC-spawned shells: irssi's EXEC only inherits
+    env vars present when irssi itself launched, and doesn't source
+    .profile -- so PLEX_TOKEN set after the fact never reaches /SCROB
+    without a full session restart. A real file, checked second, avoids
+    needing one."""
+    env_token = os.environ.get("PLEX_TOKEN")
+    if env_token:
+        return env_token
+    if DEFAULT_TOKEN_FILE.exists():
+        return DEFAULT_TOKEN_FILE.read_text().strip()
+    return ""
+
+
+def read_device_names() -> dict:
+    """Real, local, human-maintained override -- 'raw = Friendly' per
+    line, '#' comments allowed. Nothing invented if a raw name isn't
+    in here; the raw value just passes through unchanged."""
+    mapping = {}
+    if not DEVICE_NAMES_FILE.exists():
+        return mapping
+    for line in DEVICE_NAMES_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        raw, friendly = line.split("=", 1)
+        mapping[raw.strip()] = friendly.strip()
+    return mapping
+
+
+def fmt_ts(ms: int) -> str:
+    s = max(ms, 0) // 1000
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _srt_dialogue(block: str, ts_re) -> str:
+    lines = block.strip().splitlines()
+    dialogue = [l for l in lines if l.strip() and not ts_re.search(l) and not l.strip().isdigit()]
+    return " ".join(dialogue).strip()
+
+
+def _srt_blocks(srt_path: Path):
+    text = srt_path.read_text(errors="replace")
+    ts_re = re.compile(
+        r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
+    )
+    parsed = []
+    for block in text.split("\n\n"):
+        m = ts_re.search(block)
+        if not m:
+            continue
+        h1, m1, s1, ms1, h2, m2, s2, ms2 = map(int, m.groups())
+        start = ((h1 * 3600 + m1 * 60 + s1) * 1000) + ms1
+        end = ((h2 * 3600 + m2 * 60 + s2) * 1000) + ms2
+        parsed.append((start, end, _srt_dialogue(block, ts_re)))
+    return parsed, ts_re
+
+
+def srt_line_at_offset(blocks, offset_ms: int):
+    """Real, discrete lookup at one exact moment -- returns the real
+    dialogue active there, or None. No fabricated line when the moment
+    genuinely falls in a silent gap between subtitle blocks -- an
+    empty result there is correct, not a bug."""
+    for start, end, text in blocks:
+        if start <= offset_ms <= end:
+            return text or None
+    return None
+
+
+def srt_context(srt_path: Path, offset_ms: int, current_only: bool = False):
+    """Real trigger: "need 00:00:00 for scrob and for tv/movie 5s
+    before, cur, 5s after, discrete things" -- three independent,
+    fixed-offset lookups (offset-5000, offset, offset+5000), not
+    whatever subtitle block happens to be structurally adjacent. Each
+    one is real and separately correct if empty.
+
+    Real extension (2026-08-22): "now a switch for the current sub
+    titles" -- -current-only drops the before/after context and
+    returns just the exact-moment line, still real, still None if
+    that moment falls in a silent gap."""
+    if not srt_path.exists():
+        return None
+    blocks, _ = _srt_blocks(srt_path)
+    if current_only:
+        return srt_line_at_offset(blocks, offset_ms)
+    before = srt_line_at_offset(blocks, offset_ms - 5000)
+    current = srt_line_at_offset(blocks, offset_ms)
+    after = srt_line_at_offset(blocks, offset_ms + 5000)
+    parts = [p for p in (before, current, after) if p]
+    return " / ".join(parts) if parts else None
+
+
+def find_srt(media_file: str):
+    p = Path(media_file)
+    for candidate in [p.with_suffix(".en.srt"), p.with_suffix(".srt")]:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def now_playing(server: str, token: str, device_names: dict, current_only: bool = False):
+    url = f"{server}/status/sessions?X-Plex-Token={token}"
+    req = urllib.request.Request(url, headers={"Accept": "application/xml"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        body = r.read()
+    root = ET.fromstring(body)
+
+    video = root.find("Video")
+    track = root.find("Track")
+
+    def device_name(el):
+        """Real hostname of the playing device, not just Plex's
+        self-reported friendly title -- reverse-DNS the Player's real
+        connecting IP first, fall back to the title Plex gives us if
+        that fails (most devices on this network won't have PTR
+        records, same real gap as everything else tonight). Then check
+        the local device-names.txt override for a real human-assigned
+        friendly name over whatever raw value came out of either path."""
+        player = el.find("Player")
+        if player is None:
+            return None
+        raw = None
+        address = player.get("address")
+        if address:
+            try:
+                raw = socket.gethostbyaddr(address)[0]
+            except (socket.herror, socket.gaierror):
+                pass
+        if not raw:
+            raw = player.get("title")
+        if raw and raw in device_names:
+            return device_names[raw]
+        return raw
+
+    if video is not None:
+        year = video.get("year") or video.get("parentYear") or ""
+        offset = int(video.get("viewOffset") or 0)
+        part = video.find("./Media/Part")
+        srt_text = None
+        if part is not None:
+            media_file = part.get("file")
+            if media_file:
+                srt_path = find_srt(media_file)
+                if srt_path:
+                    srt_text = srt_context(srt_path, offset, current_only)
+
+        if video.get("type") == "episode":
+            show = video.get("grandparentTitle") or "?"
+            season = video.get("parentIndex")
+            episode = video.get("index")
+            se = f"s{int(season):02d}e{int(episode):02d}" if season and episode else ""
+            ep_title = video.get("title") or ""
+            display = f"{show} {se} - {ep_title}".strip() if ep_title else f"{show} {se}".strip()
+            return {"kind": "video", "title": display, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video)}
+
+        title = video.get("title") or "?"
+        return {"kind": "video", "title": title, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video)}
+
+    if track is not None:
+        artist = track.get("grandparentTitle") or track.get("originalTitle") or "?"
+        title = track.get("title") or "?"
+        album = track.get("parentTitle") or ""
+        year = track.get("parentYear") or track.get("year") or ""
+        offset = int(track.get("viewOffset") or 0)
+        return {"kind": "track", "artist": artist, "title": title, "album": album, "year": year, "ts": fmt_ts(offset), "device": device_name(track)}
+
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-scrob")
+    ap.add_argument("-server", default=DEFAULT_SERVER)
+    ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
+    args = ap.parse_args()
+
+    token = read_token()
+    if not token:
+        sys.exit(f"hee-scrob: no token -- set $PLEX_TOKEN or write one to {DEFAULT_TOKEN_FILE}")
+
+    device_names = read_device_names()
+
+    try:
+        r = now_playing(args.server, token, device_names, args.current_only)
+    except Exception as e:
+        sys.exit(f"hee-scrob: fetch failed: {e}")
+
+    if not r:
+        print("np: nothing. silence is punk too.")
+        return
+
+    dev = f" ({r['device']})" if r.get("device") else ""
+    if r["kind"] == "track":
+        yr = f" ({r['year']})" if r["year"] else ""
+        alb = f" [{r['album']}]" if r["album"] else ""
+        print(f"np: {r['artist']} - {r['title']}{yr}{alb} @ {r['ts']}{dev}")
+    else:
+        yr = f" ({r['year']})" if r["year"] else ""
+        line = f' -- {r["line"]}' if r["line"] else ""
+        print(f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}")
+
+
+if __name__ == "__main__":
+    main()

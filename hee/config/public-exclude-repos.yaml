@@ -1,0 +1,18 @@
+# Real, oper-managed hard-exclude list for anything hee tooling renders
+# to a public surface (hee-publish, dashboards, gopher pages, etc).
+#
+# Real trigger (2026-08-24): Spencer, reviewing the real Roadmap
+# Coverage dashboard before it goes public -- "private repos status
+# are cool, exclude only tcos-plan-private (hard exclude in config
+# that drives hee tools, oper can manage as needed)." Most private
+# repos are fine to reference by name/count publicly (fleet-ops,
+# thesis-engine, etc); tcos-plan-private specifically holds real
+# personal/business content (see tcos-plan-private/hee/pills/) that
+# never belongs on a public surface regardless of repo-privacy state.
+#
+# This is a hard exclude, separate from and in addition to any real
+# per-repo .private check a tool already does -- add a repo here for
+# "never show this, period," not for ordinary private/public handling.
+
+hard_exclude_repos:
+  - Twin-Cities-Open-Systems/tcos-plan-private

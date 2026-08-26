@@ -1,0 +1,12 @@
+id: '0004'
+created_at: '2026-08-24T06:48:09Z'
+description: 'merge batch: Twin-Cities-Open-Systems/dotfiles#2, Twin-Cities-Open-Systems/dotfiles#3'
+status: open
+stage: dogfood
+stage_history:
+- stage: idea
+  at: '2026-08-24T06:48:09Z'
+- stage: footgun
+  at: '2026-08-24T06:48:46Z'
+- stage: dogfood
+  at: '2026-08-24T06:48:47Z'
