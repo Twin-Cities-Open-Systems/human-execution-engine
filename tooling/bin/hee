@@ -13,7 +13,9 @@ hee — tiny router (POSIX sh)
 usage:
   hee lint [--mode warn|error]
   hee hooks install [--repo <path>]
-  hee git merge [-r <regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
+  hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
+  hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
+  hee contract review [--dump [json]] [--gopher-menu]
   hee help
 
 design:
@@ -102,6 +104,32 @@ case "${cmd}" in
           fi
         fi
         exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  ssh)
+    sub="${1:-help}"
+    shift 2>/dev/null || true
+    case "${sub}" in
+      send-keys)
+        exec "${TOOL_ROOT}/tooling/bin/hee-ssh-send-keys" "$@"
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  contract)
+    sub="${1:-help}"
+    shift 2>/dev/null || true
+    case "${sub}" in
+      review)
+        exec "${TOOL_ROOT}/tooling/bin/hee-contract-review" "$@"
         ;;
       *)
         usage

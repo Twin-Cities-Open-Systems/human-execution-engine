@@ -93,6 +93,12 @@ import sys
 import time
 from pathlib import Path
 
+# library/py lives in this tool's own repo -- derive from this script's
+# own location, not cwd (this tool operates org-wide, not against a
+# single target repo).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_range import resolve_spec  # noqa: E402
+
 # Real disk cache for fetch_pr_detail -- one GraphQL `gh pr view` call
 # per candidate is the actual GraphQL cost driver here (confirmed via
 # hee-quota's pre-flight gate above), and it's genuinely redundant
@@ -323,11 +329,19 @@ def fetch_pr_detail(repo_full, number, use_cache=True):
     return data
 
 
-def matches(pr, pattern):
-    if pattern is None:
-        return True
-    hay = f"{pr.get('title', '')}\n{pr.get('body', '')}"
-    return bool(re.search(pattern, hay, re.IGNORECASE))
+def filter_prs(prs, spec):
+    """SPEC is None (no filter), a PR-number id/range list (123 / 45-50 /
+    1,2,3), or a regex against title+body -- same selection mechanism as
+    hee-ticket -close (library/py/hee_range), so a change to the matching
+    rules only needs to happen in one place."""
+    if spec is None:
+        return prs
+    return resolve_spec(
+        spec,
+        prs,
+        get_id=lambda pr: str(pr["number"]),
+        get_haystack=lambda pr: f"{pr.get('title', '')}\n{pr.get('body', '')}",
+    )
 
 
 DEP_RE = re.compile(
@@ -777,6 +791,18 @@ def group_by_epic(ready):
     for pr in ready:
         all_refs |= find_issue_refs(pr)
 
+    if all_refs:
+        quota_tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-quota")
+        if os.path.exists(quota_tool):
+            proc = subprocess.run([sys.executable, quota_tool, "warn", "--threshold", "20"],
+                                   capture_output=True, text=True)
+            if proc.returncode != 0:
+                print(proc.stderr, file=sys.stderr)
+                print("hee-git-merge: skipping epic-grouping -- GraphQL quota too low to finish "
+                      f"cleanly ({len(all_refs)} issues to resolve). Run '{quota_tool} status' to check.",
+                      file=sys.stderr)
+                return {}, ready
+
     epic_titles = {}  # (repo, num) -> title, only if type == Epic
     refs = sorted(all_refs)
     if refs:
@@ -840,7 +866,9 @@ def print_run_summary(stats, total_candidates):
 
 def main():
     ap = argparse.ArgumentParser(prog="hee-git-merge")
-    ap.add_argument("-r", "--regex", default=None)
+    ap.add_argument("-r", "--regex", default=None,
+                     help="PR number id/range list (123 / 45-50 / 1,2,3), "
+                          "or a regex against title+body")
     ap.add_argument("--org", default="Twin-Cities-Open-Systems")
     ap.add_argument("--author", default="touchy-claude",
                      help="filter by login, or 'all' for every open PR org-wide")
@@ -864,7 +892,7 @@ def main():
     author = None if args.author == "all" else args.author
     print(f"hee-git-merge: searching {args.org} for open PRs from {args.author}...")
     prs = fetch_prs(args.org, author)
-    candidates = [pr for pr in prs if matches(pr, args.regex)]
+    candidates = filter_prs(prs, args.regex)
 
     if not candidates:
         print(f"No open PRs from {args.author} in {args.org}"

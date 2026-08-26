@@ -1,0 +1,31 @@
+=== hee/cards -- 21 files ===
+
+kind: Card  (15)
+  2026-02-18_2011__hee-indexing.candidate.card.v1.yaml
+  contracts-stack.gcic-dric.card.v1.yaml  [needs_dif, status=wip]
+  ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-refresh.2026-02-11_0340.card.v1.yaml
+  ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-sync.card.v1.yaml  [status={'cards_added': ['hee/cards/rg-scan.authority.seed.card.v1.yaml', 'hee/cards/hee-words.promote-human.seed.card.v1.yaml'], 'docs_updated': ['hee/cards/gpt-prompting-guide.md'], 'policy_present': ['waivers.txt']}]
+  editor.vscode-specials.yaml  [needs_dif]
+  hee-words.promote-human.seed.card.v1.yaml
+  hee-words.seed.card.v1.yaml  [needs_dif]
+  mets.card.v1.yaml
+  oper-health.halt.card.v1.yaml  [needs_dif]
+  opus.layout.card.v1.yaml  [needs_dif, status=wip]
+  preflight.method.card.v1.yaml  [needs_dif]
+  rg-scan.authority.seed.card.v1.yaml
+  rg-scan.card.v1.yaml
+  shellboss.argv-contracts.card.v1.yaml
+  spencer-blank-generation-lyric.card.v1.yaml
+
+kind: Pill  (2)
+  library-sh-tinies.wip.yaml
+  uiboss-repohub-next.wip.yaml
+
+markdown-doc  (2)
+  gpt-prompting-guide.md
+  handoff..pr.134.v2.md
+
+detached-signature  (2)
+  spencer-blank-generation-lyric.card.v1.yaml.asc
+  spencer-blank-generation-lyric.card.v1.yaml.spencer.asc
+
