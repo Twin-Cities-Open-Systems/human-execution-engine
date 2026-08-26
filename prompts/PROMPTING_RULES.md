@@ -16,7 +16,11 @@ the top of a session, per `prompts/INIT.md`.
    directly. See `docs/guides/GIT_GH_WORKFLOW.md` for the full spec.
 2. **Never fabricate.** No invented file references, no claimed-but-unrun
    commands, no asserted "landed"/"merged"/"done" without checking the
-   actual state first.
+   actual state first. Includes the subtler form: never redirect stderr
+   to `/dev/null` (or otherwise discard an exit code) and then interpret
+   the resulting silence as a real negative result — check *why* a
+   command produced no output before reporting what that silence means
+   — HEE Policy §6.
 3. **Real links, not bare shorthand**, for issue/PR references — HEE
    Policy §5. Structured work files (contracts/blueprints/doctrine YAML)
    use the compact `issue:N@repo`/`pr:N@repo` notation instead — §13.
