@@ -25,12 +25,25 @@ design:
 TXT
 }
 
-# resolve TOOL_ROOT from this script path
+# resolve TOOL_ROOT from this script's REAL path, not the PATH entry
+# used to invoke it. Real bug (2026-08-25): `command -v` on $0 returns
+# a symlink's own path (e.g. ~/.local/bin/hee), not its target -- so
+# TOOL_ROOT computed from a symlinked PATH entry pointed at the wrong
+# directory, and every extension command (hee-cred, hee-pve-*, etc)
+# silently failed with "unknown command" UNLESS run from inside this
+# repo (where TARGET_ROOT happened to also be correct). Broke the
+# entire "only ever hee command, from anywhere" workflow. Resolve the
+# real symlink target before deriving TOOL_ROOT.
 SELF="$0"
 case "$SELF" in
   /*) ;;
   *) SELF="$(command -v -- "$SELF" 2>/dev/null || echo "$SELF")" ;;
 esac
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
 SELF_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd)"
 TOOL_ROOT="$(cd "${SELF_DIR}/../.." 2>/dev/null && pwd)"
 
@@ -71,6 +84,25 @@ case "${cmd}" in
     shift 2>/dev/null || true
     case "${sub}" in
       merge)
+        # Real fix: "help" anywhere at the end (not just right after
+        # "merge") should work -- rotate args left-to-right $#-1 times
+        # so the true last arg lands at front, then swap it for
+        # --help, preserving every arg before it in original order.
+        if [ "$#" -gt 0 ]; then
+          eval "_last=\${$#}"
+          if [ "${_last}" = "help" ]; then
+            _n=$#
+            _i=1
+            while [ "${_i}" -lt "${_n}" ]; do
+              _first="$1"
+              shift
+              set -- "$@" "${_first}"
+              _i=$((_i + 1))
+            done
+            shift
+            set -- "$@" --help
+          fi
+        fi
         exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
         ;;
       *)
@@ -112,6 +144,29 @@ case "${cmd}" in
   *)
     ext_target="${TARGET_ROOT}/tooling/bin/hee-${cmd}"
     ext_tool="${TOOL_ROOT}/tooling/bin/hee-${cmd}"
+
+    # Real, general fix: "help" as the LAST arg -- at any depth, e.g.
+    # "hee pve-health status help", not just right after the command
+    # name -- must work the same as --help. Most argparse-based hee-*
+    # tools only recognize --help/-h, and Spencer's real ask was "help
+    # as last arg... hate having to move the verb around": rotate args
+    # left $#-1 times so the true last one lands at front, swap it for
+    # --help, everything before it keeps its original order.
+    if [ "$#" -gt 0 ]; then
+      eval "_last=\${$#}"
+      if [ "${_last}" = "help" ]; then
+        _n=$#
+        _i=1
+        while [ "${_i}" -lt "${_n}" ]; do
+          _first="$1"
+          shift
+          set -- "$@" "${_first}"
+          _i=$((_i + 1))
+        done
+        shift
+        set -- "$@" --help
+      fi
+    fi
 
     if [ -x "${ext_target}" ]; then
       exec "${ext_target}" "$@"

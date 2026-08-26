@@ -41,7 +41,9 @@ Usage:
                      every open PR from --author across the org.
   --org             GitHub org to search (default: Twin-Cities-Open-Systems)
   --author          filter to PRs by this login (default: touchy-claude)
-  --action          merge (default) or approve
+  --action          merge (default), approve, batch, optimize, or prime
+                     (prime: warm the PR-detail disk cache, no merge/
+                     prompts/ordering -- real prep before a heavy run)
   --squash          squash-merge on 'y' when --action=merge (default)
   --merge           real merge commit on 'y' instead of squash
   --rebase          rebase-merge on 'y' instead of squash
@@ -206,18 +208,122 @@ def check_quota(candidates, use_cache=True):
         sys.exit(1)
 
 
+def _real_quota(pool):
+    """0-token: gh api rate_limit costs nothing against any pool. Real
+    remaining count, or None if the check itself fails (never block
+    real work on a quota-check failure)."""
+    proc = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout)["resources"][pool]["remaining"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _pick_source():
+    """Real smart sourcing (Spencer's ask): fetch_pr_detail's one real
+    call is GraphQL-only today, but a REST equivalent exists (2 calls
+    instead of 1 -- pulls/{n} + check-runs -- costing core-pool budget
+    instead). Core is near-always near-full while graphql is the one
+    that's repeatedly hit 0 tonight (confirmed live, fleet-ops#269) --
+    route to REST once graphql is thin, even though it costs 2x the
+    real call count, because core has real headroom graphql doesn't.
+    Checked once per run (module-level cache), not per PR -- the quota
+    check itself is free but re-running it 76 times adds real latency
+    for no real benefit within one run's timeframe."""
+    global _SOURCE_CACHE
+    if _SOURCE_CACHE is not None:
+        return _SOURCE_CACHE
+    graphql = _real_quota("graphql")
+    _SOURCE_CACHE = "rest" if graphql is not None and graphql < 200 else "graphql"
+    if _SOURCE_CACHE == "rest":
+        print(f"hee-git-merge: graphql pool thin ({graphql} remaining) -- "
+              f"routing PR detail fetches through REST instead (real core-pool budget).",
+              file=sys.stderr)
+    return _SOURCE_CACHE
+
+
+_SOURCE_CACHE = None
+
+
+def _fetch_pr_detail_rest(repo_full, number):
+    """Real REST equivalent -- 2 calls (pulls/{n}, check-runs) instead
+    of GraphQL's 1, trading call count for a pool that actually has
+    headroom when graphql doesn't. reviewDecision isn't a real REST
+    field (GraphQL aggregates it server-side) -- reduced here from the
+    real per-reviewer review list: any real CHANGES_REQUESTED wins
+    over an APPROVED, matching GitHub's own latest-review-per-reviewer
+    logic closely enough for this tool's real use (a human still makes
+    the actual call before approving/merging, this just orders/flags)."""
+    pr = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/pulls/{number}"],
+        capture_output=True, text=True,
+    )
+    if pr.returncode != 0:
+        return {}
+    try:
+        p = json.loads(pr.stdout)
+    except json.JSONDecodeError:
+        return {}
+
+    reviews = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/pulls/{number}/reviews", "--paginate"],
+        capture_output=True, text=True,
+    )
+    review_decision = "REVIEW_REQUIRED"
+    if reviews.returncode == 0:
+        try:
+            latest = {}
+            for r in json.loads(reviews.stdout):
+                if r.get("state") in ("APPROVED", "CHANGES_REQUESTED"):
+                    latest[r["user"]["login"]] = r["state"]
+            states = set(latest.values())
+            if "CHANGES_REQUESTED" in states:
+                review_decision = "CHANGES_REQUESTED"
+            elif "APPROVED" in states:
+                review_decision = "APPROVED"
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    checks = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/commits/{p['head']['sha']}/check-runs"],
+        capture_output=True, text=True,
+    )
+    rollup = []
+    if checks.returncode == 0:
+        try:
+            rollup = [{"conclusion": c.get("conclusion"), "state": c.get("status")}
+                      for c in json.loads(checks.stdout).get("check_runs", [])]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return {
+        "additions": p.get("additions"),
+        "deletions": p.get("deletions"),
+        "changedFiles": p.get("changed_files"),
+        "mergeable": "MERGEABLE" if p.get("mergeable") else (
+            "CONFLICTING" if p.get("mergeable") is False else "UNKNOWN"),
+        "reviewDecision": review_decision,
+        "statusCheckRollup": rollup,
+    }
+
+
 def fetch_pr_detail(repo_full, number, use_cache=True):
     if use_cache:
         cached = _pr_cache_get(repo_full, number)
         if cached is not None:
             return cached
-    try:
-        data = gh_json([
-            "pr", "view", str(number), "--repo", repo_full,
-            "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
-        ])
-    except SystemExit:
-        return {}
+    if _pick_source() == "rest":
+        data = _fetch_pr_detail_rest(repo_full, number)
+    else:
+        try:
+            data = gh_json([
+                "pr", "view", str(number), "--repo", repo_full,
+                "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
+            ])
+        except SystemExit:
+            return {}
     if use_cache and data:
         _pr_cache_put(repo_full, number, data)
     return data
@@ -256,7 +362,7 @@ def explicit_deps(pr):
     return {(repo_full, int(n)) for n in DEP_RE.findall(body)}
 
 
-def content_deps(candidates, repo_full):
+def content_deps(candidates, repo_full, progress=None):
     """Real, generic same-repo heuristic: PR B depends on PR A if A's
     diff adds a file whose basename appears as a literal string in B's
     diff. Only runs within one repo -- cross-repo text overlap isn't a
@@ -268,8 +374,10 @@ def content_deps(candidates, repo_full):
 
     added_files = {}   # pr number -> set of basenames this PR adds
     diffs = {}          # pr number -> full diff text
-    for pr in same_repo:
+    for i, pr in enumerate(same_repo, 1):
         num = pr["number"]
+        if progress:
+            print(f"  [{i}/{len(same_repo)}] {repo_full}#{num}...", end=" ", flush=True)
         files_proc = subprocess.run(
             ["gh", "pr", "view", str(num), "--repo", repo_full, "--json=files"],
             capture_output=True, text=True,
@@ -289,6 +397,8 @@ def content_deps(candidates, repo_full):
             capture_output=True, text=True,
         )
         diffs[num] = diff_proc.stdout if diff_proc.returncode == 0 else ""
+        if progress:
+            print("done")
 
     deps = {(repo_full, pr["number"]): set() for pr in same_repo}
     for b in same_repo:
@@ -321,8 +431,14 @@ def compute_deps(candidates):
 
     deps = {(pr["_repo_full"], pr["number"]): explicit_deps(pr) for pr in candidates}
 
-    for repo_full in {pr["_repo_full"] for pr in candidates}:
-        for key, ds in content_deps(candidates, repo_full).items():
+    # Real UX fix, live-flagged (Spencer): this phase went silent after
+    # the fetch-detail loop finished, looked hung/dead on a 75-candidate
+    # run. content_deps does 2 more real gh calls per multi-PR repo --
+    # real, visible progress here, not just at the earlier fetch step.
+    repos = sorted({pr["_repo_full"] for pr in candidates})
+    print(f"hee-git-merge: checking cross-PR dependencies across {len(repos)} repo(s)...")
+    for repo_full in repos:
+        for key, ds in content_deps(candidates, repo_full, progress=True).items():
             deps[key] |= ds
 
     # only keep edges to PRs actually in this candidate set
@@ -756,7 +872,7 @@ def main():
     ap.add_argument("--org", default="Twin-Cities-Open-Systems")
     ap.add_argument("--author", default="touchy-claude",
                      help="filter by login, or 'all' for every open PR org-wide")
-    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize"], default="merge")
+    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize", "prime"], default="merge")
     ap.add_argument("--batch-size", type=int, default=5,
                      help="max PRs per batch under --action batch (default 5)")
     method = ap.add_mutually_exclusive_group()
@@ -800,6 +916,16 @@ def main():
     if n_cache_hits:
         print(f"hee-git-merge: {n_cache_hits}/{len(candidates)} served from the "
               f"{PR_CACHE_TTL}s cache -- that many real GraphQL calls skipped.")
+
+    if args.action == "prime":
+        # Real, deliberately minimal: the fetch-detail loop above already
+        # writes every result to the real disk cache as a side effect --
+        # priming is just "run that loop, skip the expensive dependency-
+        # ordering phase (order_candidates' N^2 same-repo gh calls) that
+        # nothing here needs." No merge, no prompts, no ordering.
+        print(f"hee-git-merge: primed {len(candidates)} PR(s) into the "
+              f"{PR_CACHE_TTL}s disk cache ({n_cache_hits} were already warm).")
+        return
 
     candidates, deps = order_candidates(candidates)
 
