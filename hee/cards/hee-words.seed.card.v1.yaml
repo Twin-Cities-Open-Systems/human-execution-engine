@@ -30,6 +30,22 @@ spec:
         each in its own real voice) -- leaning on this glossary rather
         than inventing a new, uncoordinated term.
       status: canon
+    data density:
+      definition: >
+        Maximize the real information actually carried per unit of a
+        medium -- per pixel, per packet, per string -- rather than
+        leaving room unused when real data could fill it.
+      note: >
+        The complement of `sqz`/`min_power_max_proof`: those are about
+        not wasting space on padding or excess mechanism; this is
+        about not leaving space empty when a real fact could go there
+        instead. Same coin, opposite face. Real trigger, 2026-08-26:
+        found live that hee-exif sign only wrote Artist/Copyright into
+        EXIF, when the same real fact (who made this, who owns it)
+        could also ride along in IPTC and XMP -- same file, same
+        bytes moved, more real data landing per photo. "densify" is
+        the verb form: apply this by default, not as an afterthought.
+      status: canon
   needs_dif: true
   dif:
     - split into dictionary and thesaurus hee-objs
