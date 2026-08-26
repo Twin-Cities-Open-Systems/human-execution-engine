@@ -42,9 +42,9 @@ command | cat
 command > file.txt
 
 # INCORRECT: Pager invocation allowed
-git --no-pager log         # Prevents pager invocation
-man page                   # May invoke pager
-command                    # May invoke pager
+git log                     # No --no-pager -- may invoke pager
+man page                    # May invoke pager
+command                     # May invoke pager
 ```
 
 ### 2. Branch Management Policy
