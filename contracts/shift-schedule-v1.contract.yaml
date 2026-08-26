@@ -2,7 +2,7 @@
 version: shift-schedule-v1
 name: shift-schedule
 title: Fleet Identity Shift Schedule Contract
-status: proposed
+status: ratified
 
 intent:
   - define the check-in/check-out boundary a fleet identity operates under

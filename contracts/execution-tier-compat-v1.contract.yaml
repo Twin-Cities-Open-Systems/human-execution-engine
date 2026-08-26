@@ -1,0 +1,64 @@
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: execution-tier-compat
+  description: "Real schema for tracking which execution tier (0-token deterministic, narrow local-LLM gate, full Claude reasoning, human-only) each forward-queue item needs, and what tool gap (if any) blocks it. Built 2026-08-24 per Spencer's ask: what do we need to build tool-wise to satisfy everything in the forward queue, to inform prio/effort and better assign work by mode/agent/LLM compatibility."
+  labels:
+    hee.object: "true"
+    hee.contract.type: schema
+    domain: hee
+    scope: capacity-planning
+    topic: execution-tier-compat
+    artifact: contract
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-24T00:00:00Z"
+
+spec:
+  intent:
+    - "One place to see, per forward-queue item, which execution tier it needs and whether that tier is actually built yet."
+    - "Tier classification is derived FROM the real compute/* labels already applied to the item's own tracking issue -- not re-asserted here as a second, independently-maintained field. Same one-source-of-truth principle as primitives-entry-schema's tracking_ref design (primitives#6)."
+    - "This feeds prio/effort decisions on the real TCOS Roadmap project (Priority/Effort fields already exist there) and work-assignment across agent/LLM modes -- it does not duplicate or replace those fields."
+
+  related:
+    - contract: "primitives-entry-schema (primitives repo, primitives#6)"
+      relationship: "This contract's tracking_ref/derive-from-labels design is directly modeled on that one's own-tools.yaml tracking_ref field -- same principle, applied to forward-queue capacity planning instead of tool-version provenance."
+    - registry: "primitives/own-tools.yaml"
+      relationship: "Real tie-in, not just shared pattern: every tool listed there is itself a candidate execution_tier_compat entry once it has a real tracking_ref issue with a compute/* label -- own-tools.yaml answers 'what tool is this and where does it live,' this registry answers 'what tier does it run at and is anything blocking that.' Population from own-tools.yaml is a real future pass, not done automatically -- the two files are not merged, to avoid the same two-sources-of-truth risk primitives-entry-schema already explicitly avoided."
+
+  tiers:
+    - id: compute/0-token
+      description: "Pure deterministic tooling, zero LLM call at runtime. Already the cheapest, fastest, safest tier -- prefer this whenever the work is mechanical."
+      built_examples: ["hee-quota", "hee-filter", "hee-publish", "hee-gen-manpages", "hee-fields"]
+    - id: compute/ollama
+      description: "Narrow predicate-gate evaluation (yes/no, <100ms) -- candidate for a local model instead of Claude. Real thesis exists (hee/docs/local-llm-architecture.md, HEE#352); nothing deployed yet as of 2026-08-24."
+      built_examples: []
+    - id: compute/claude-cli
+      description: "Needs real reasoning/judgment -- a full agentic session, not a gate or a script. Currently only proven with Claude; HEE#365 tracks whether a non-Claude agentic CLI can do this too (unverified)."
+      built_examples: ["most real HEE/fleet-ops work tonight"]
+    - id: compute/human-only
+      description: "Physical, legal, or high-stakes-irreversible work. No agent or model executes this alone, regardless of tier maturity elsewhere."
+      built_examples: []
+
+  entry_fields:
+    tracking_ref:
+      type: string
+      required: true
+      format: "owner/repo#N"
+      description: "the real issue this entry describes -- tier is read live off its compute/* label(s), not copied here"
+    required_tier:
+      type: string
+      required: true
+      description: "one of tiers[].id -- snapshot at time of entry, for quick scanning; re-derive from the live label if it looks stale"
+    blocking_tool_gap:
+      type: string
+      required: false
+      description: "what needs to be built before this item can move at its required tier -- null/omitted if nothing is blocking"
+    notes:
+      type: string
+      required: false
+
+  file_shape:
+    description: "Real instance lives in hee/registries/execution-tier-compat.registry.v1.yaml -- kind: Registry, spec.entries as the real, live-tracked list, same shape as primitives' four registries."
+    real_kind: Registry

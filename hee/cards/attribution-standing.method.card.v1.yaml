@@ -1,0 +1,48 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: attribution-standing
+  ts_human: 2026-08-25_1630
+  description: "Real, loud credit to anyone/anything with a legitimate claim of standing (creator, photographer, prior author) -- not optional politeness, the same correctness discipline applied to who-did-what."
+  labels:
+    hee.object: "true"
+spec:
+  purpose: >
+    Attribution is not a nice-to-have layered on top of accurate work --
+    it is part of what "correct" means. A page that gets every fact
+    right but silently omits or buries who actually created something
+    is not fully correct.
+  requirements:
+    - credit anyone/anything with real, legitimate standing -- an
+      artist, a photographer, a prior author, a source -- prominently,
+      not in quiet fine print
+    - when unsure who holds a real claim (e.g. copyright on a photo),
+      determine it correctly before asserting anything -- see
+      real-law requirement below, don't default to convenience
+    - if an attribution turns out to be wrong once made, correct it
+      visibly and promptly, the same as any other factual error
+    - applies everywhere, not just published web content -- doctrine
+      credits, tool authorship, citations
+  real_law_requirement: >
+    Legal claims of ownership (copyright, etc) must follow the law as
+    it actually exists, not organizational convenience. Copyright
+    vests automatically in the actual creator at the moment of
+    creation (17 U.S.C. Sec 102 for US works) -- writing a different
+    party's name into a copyright field does not transfer or create
+    ownership, it just makes a false claim.
+  origin: >
+    Spencer, 2026-08-25, publishing the first real spencer.media
+    gallery: caught a real mistake where a tool defaulted to writing
+    TCOS's own legal name as Copyright on a 2001 photo neither Spencer
+    nor TCOS created -- the photographer/tattoo artist is the real
+    rights holder. Corrected immediately once flagged. His own framing
+    of the standing rule: "we will give attribs to everything that has
+    standing, that is core to hee but more important to TCOS," and
+    "if it ain't correct, it ain't hee."
+  status: dogfood
+  known_instances:
+    - "spencer.media.lab.tcos.us Tux Tattoo gallery: real, prominent
+      copyright credit to Jason \"Skitch\" King (tattoo design +
+      photography), corrected from an initial wrong default"
+    - "tooling/bin/hee-exif: --copyright is never auto-applied, must be
+      passed explicitly, only when real authorship/assignment is known"

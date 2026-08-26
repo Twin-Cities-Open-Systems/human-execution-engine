@@ -20,3 +20,9 @@ Tools:
   YAML record per ticket in `.hee/tickets/` (sibling of `.hee/spool/`'s existing phase-tracking
   records, not a new convention). Prototype/dogfood, not yet declared standard practice over
   GitHub Issues. See `examples/hee-ticket-output.md`.
+- tooling/bin/hee-stat    : stat(1)'s `-c FORMAT` interface, applied to namespaced
+  resources instead of the filesystem -- `hee stat -c %W gh/OWNER/REPO` for a repo's
+  real creation epoch, same convention as `stat -c %W somefile`. First namespace: `gh/`
+  (GitHub users/repos, via `gh api`). Real specifiers reuse `stat`'s actual semantics
+  (`%W`=birth time, `%Y`=mtime, `%U`=owner, `%n`=name) plus two TCOS convenience
+  aliases (`%REPO`, `%ORG`). See `examples/hee-stat-output.md`.

@@ -29,7 +29,13 @@ import sys
 from urllib.parse import urlparse
 
 
-def fetch_gopher(url: str) -> str:
+def fetch_gopher(url: str) -> bytes:
+    """Real fix (2026-08-22): returns raw bytes now, not a decoded str.
+    Binary item types (I, 9 -- images, other binaries) were getting
+    UTF-8-decoded with errors="replace", which silently corrupts any
+    byte sequence that isn't valid UTF-8 -- destroys real PNG data
+    irreversibly. Text callers decode themselves; binary output goes
+    straight to stdout.buffer untouched."""
     parsed = urlparse(url)
     if parsed.scheme != "gopher":
         sys.exit(f"hee-net: not a gopher:// URL: {url}")
@@ -48,7 +54,7 @@ def fetch_gopher(url: str) -> str:
             if not chunk:
                 break
             chunks.append(chunk)
-    return b"".join(chunks).decode(errors="replace")
+    return b"".join(chunks)
 
 
 def fetch_finger(query: str) -> str:
@@ -82,7 +88,15 @@ def main():
     if args.proto == "gopher":
         if not args.url:
             sys.exit("hee-net: -url required for -proto gopher")
-        print(fetch_gopher(args.url))
+        data = fetch_gopher(args.url)
+        # Real, honest binary-vs-text split: try UTF-8 first (menus and
+        # text files decode cleanly); anything that doesn't is real
+        # binary content (images, etc.) -- write those raw bytes
+        # straight to stdout.buffer, never through print()/text decode.
+        try:
+            sys.stdout.write(data.decode("utf-8"))
+        except UnicodeDecodeError:
+            sys.stdout.buffer.write(data)
     elif args.proto == "finger":
         if not args.query:
             sys.exit("hee-net: -query required for -proto finger")

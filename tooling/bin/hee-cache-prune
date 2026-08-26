@@ -1,0 +1,19 @@
+#!/bin/sh
+# hee-cache-prune -- prune stale entries from the real hee-* disk
+# caches (hee-filter's repo-visibility cache, hee-git-merge's PR-detail
+# cache). A TTL alone never deletes an entry nobody re-queries -- it
+# just sits forever. Real trigger: Spencer's ask, 2026-08-24, "keep
+# things clean" -- meant to be cron'd via bootstrap.mk's own
+# unprivileged-by-design mechanism (`make -f tooling/bootstrap.mk
+# install-cron`), not a one-off manually-copied script.
+#
+# Usage: hee-cache-prune [days, default 7]
+
+set -eu
+
+DAYS="${1:-7}"
+
+for dir in "$HOME/.config/hee/cache" "$HOME/.config/hee/gh-pr-cache"; do
+  [ -d "$dir" ] || continue
+  find "$dir" -type f -name '*.json' -mtime "+${DAYS}" -print -delete
+done

@@ -1,0 +1,40 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: no-bare-x-placeholder
+  ts_human: 2026-08-25_1200
+  description: "Never use a bare 'X' as a generic algebra-style placeholder in prose -- real brand-confusion/legal exposure, not a style nitpick."
+  labels:
+    hee.object: "true"
+spec:
+  purpose: >
+    Prevent a real trademark/brand-confusion footgun in any TCOS content
+    (chat, issue/PR bodies, docs, contracts, blog posts, and especially
+    anything public-facing) by banning bare "X" as a generic stand-in
+    variable.
+  requirements:
+    - never use "X" as a generic placeholder in prose (e.g. "who's
+      authorized to do X", "replace X with the real value")
+    - pick whatever reads naturally in context instead (Y, Z, FOO, "the
+      target", "the action", etc.)
+    - vary the substitute across a document -- don't mechanically default
+      to the same one replacement every time either
+    - applies everywhere, not just content near social-platform
+      discussion; it is a standing rule, not situational
+  origin: >
+    Spencer's direct correction, 2026-08-24, on fleet-ops#264, refined a
+    moment later: the first correction named "Y, or Z or FOO" as
+    examples, then explicitly clarified those were just examples, not a
+    fixed replacement list. The real reason is broader than
+    disambiguation from X.com (formerly Twitter) -- he called it "a
+    giant footgun waiting to happen on many levels including legal."
+    TCOS publishes real, public, legally-relevant content; an ambiguous
+    bare "X" in that content is a real trademark/brand-confusion
+    exposure.
+  status: dogfood
+  known_instances_fixed:
+    - "Twin-Cities-Open-Systems/thesis-engine#18: removed bare X placeholder in METHODOLOGY.md"
+  needs_dif: true
+  dif:
+    - no automated lint check yet -- currently relies on manual review
+      catching it, same gap this card exists to close
