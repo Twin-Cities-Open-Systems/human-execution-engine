@@ -1,0 +1,32 @@
+brian:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+chris:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+cleveland:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+lois:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+meg:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+peter:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+quagmire:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+stewie:
+  allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc

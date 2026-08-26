@@ -4,11 +4,27 @@ metadata:
   name: hee-words-seed
   ts_human: 2026-02-10_1851
 spec:
-  purpose: seed dictionary and thesaurus work; yaml first; render md via jinja later.
+  purpose: >-
+    seed dictionary and thesaurus work; yaml first, promote by direct edit to
+    the canonical target when a word is ready -- not a jinja render pipeline
+    (dropped 2026-08-24, legacy/bloat for current framework and strategies,
+    per spencer).
   words:
     opus:
       definition: generated outputs hierarchy and working surface for machine friends.
       note: place for rendered html, md, yaml, text, exif, img; grouped by cards, pills, contracts, plans, blueprints, evidence.
+    corpus:
+      definition: >-
+        the whole real body of what actually exists in a given repo (or,
+        extended, the org) -- source and generated content alike. distinct
+        from opus, which names the generated/rendered layer specifically: a
+        corpus is the larger whole an opus is rendered from and lives inside.
+      note: >-
+        real precedent is the CORPUS.md "what actually exists here" index
+        thesis -- currently repo-scoped and unproven by design (.github and
+        human-execution-engine only), see hee/cards/... promotion_note below.
+        status: thesis, not settled -- carried into the glossary promotion
+        with that framing intact, not upgraded to settled doctrine here.
     thesis:
       definition: a proposition set down; etymology note is recorded in prior q.
     thesaurus:
@@ -45,8 +61,81 @@ spec:
         could also ride along in IPTC and XMP -- same file, same
         bytes moved, more real data landing per photo. "densify" is
         the verb form: apply this by default, not as an afterthought.
+    silcrow:
+      definition: "the § character (the section sign/section mark glyph).
+        Chosen as HEE's canonical name for it over 'section sign' --
+        Spencer's direct call, 2026-08-25."
+      status: canon
+    section_mark:
+      definition: "the act of citing a specific numbered section of a
+        doctrine document using a silcrow, e.g. writing '§11' to mark
+        HEE Policy's 11th section."
+      status: canon
+    pinpoint_citation:
+      definition: "the resulting reference itself, e.g. '§11' or
+        '§11's scope' -- a citation precise enough to point at one
+        specific section rather than the whole document."
+      status: canon
+      note: "used throughout docs/doctrine/HEE_POLICY.md already
+        (e.g. §10, §13); this just names the convention."
+      how_to: >
+        General pattern, do it like this: cite a numbered doctrine
+        section with a silcrow + number (§11), a specific field/clause
+        within it with §11's scope (or similar possessive phrasing) --
+        never a bare number or "section 11" prose. This is the citation
+        form; it is separate from, and doesn't replace, the issue:/pr:
+        compact-reference notation (§13) or the Real-Link Requirement
+        (§5) -- those govern references to GitHub issues/PRs/commits,
+        a pinpoint citation is specifically for a section of a doctrine
+        doc like this one.
+      rendering: >
+        Verified, not assumed: a markdown link `[label](url)` renders
+        as a real clickable link in Claude Code's own web/app UI --
+        confirmed live for plain-text targets (.yaml, .asc; .md
+        presumed the same) but NOT for binary files (.jpg rendered as
+        dead text there, confirmed directly by Spencer). In a raw
+        tmux/terminal pane (cat, less, a plain shell), markdown syntax
+        is not interpreted at all -- `[label](url)` shows as literal
+        text, clickable or not, regardless of terminal capability,
+        unless something in the pipeline (a markdown-aware renderer
+        like glow/mdcat, or a tool deliberately emitting an OSC-8
+        hyperlink escape) converts it. A silcrow-style pinpoint
+        citation (`§11`) has no link semantics either way -- it's a
+        plain-text pointer meant to be read, not clicked; only the
+        issue:/pr: notation and full markdown links carry any real
+        expectation of clickability, and only in the contexts each is
+        actually scoped to.
+    issued:
+      definition: "a work item is tracked by a real, external
+        git-hosting issue system (GitHub Issues, on this repo or any
+        other real repo) -- distinct from hee-ticket, HEE's own
+        internal, local, git-tracked idea->footgun->dogfood pipeline
+        under .hee/tickets/."
+      note: "Spencer's direct disambiguation, 2026-08-25: 'issued'
+        specifically means gitserver-tracked, not hee-ticket-tracked.
+        Use this word when asking whether something has a real GitHub
+        issue open on it, to avoid conflating it with hee-ticket state
+        the way tick:/hee-ticket already collided once (see §13's
+        2026-08-25 naming correction in HEE_POLICY.md)."
       status: canon
   needs_dif: true
   dif:
     - split into dictionary and thesaurus hee-objs
     - add trace keys for each word
+  promoted:
+    opus:
+      target: Twin-Cities-Open-Systems/.github profile/GLOSSARY.md
+      promotion_note_2026_08_24: >-
+        promoted from this seed card to the canonical org glossary by direct
+        edit, per spencer's explicit direction -- confirmed .github as the
+        real, correct location (org's own README names profile/GLOSSARY.md
+        "the org's shared definitions/invariants"). mirrors the promotion
+        pattern in hee/registries/party-kind.registry.v1.yaml
+        (propose -> use -> promote via dedicated edit with inline note).
+    corpus:
+      target: Twin-Cities-Open-Systems/.github profile/GLOSSARY.md
+      promotion_note_2026_08_24: >-
+        promoted alongside opus, same ceremony -- carried in as thesis
+        status (not settled doctrine), matching the real CORPUS.md framing
+        already live in two open PRs. no term is active in the glossary
+        beyond what that file itself says, per the same registry precedent.

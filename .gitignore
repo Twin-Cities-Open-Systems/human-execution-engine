@@ -90,3 +90,4 @@ generated/html/
 
 # hee: env for pve api comms
 hee/docs/00-hee-deploy-env-setup.sh
+.claude/worktrees/
