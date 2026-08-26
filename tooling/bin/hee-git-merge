@@ -41,7 +41,9 @@ Usage:
                      every open PR from --author across the org.
   --org             GitHub org to search (default: Twin-Cities-Open-Systems)
   --author          filter to PRs by this login (default: touchy-claude)
-  --action          merge (default) or approve
+  --action          merge (default), approve, batch, optimize, or prime
+                     (prime: warm the PR-detail disk cache, no merge/
+                     prompts/ordering -- real prep before a heavy run)
   --squash          squash-merge on 'y' when --action=merge (default)
   --merge           real merge commit on 'y' instead of squash
   --rebase          rebase-merge on 'y' instead of squash
@@ -53,6 +55,9 @@ Per PR, prompts:
   N  skip (default -- just hit enter)
   s  skip (explicit, same as N)
   e  show the full diff (gh pr diff), then re-prompt the same PR
+  c  leave a real PR comment (gh pr comment) -- prompts for the note
+     text, posts it, then re-prompts the same PR (doesn't consume a
+     review verdict, so still open to y/N/s/e afterward)
 
 Already-APPROVED PRs are skipped automatically under --action=approve
 -- shown with a note, never re-prompted, never re-approved.
@@ -81,10 +86,58 @@ them is cosmetic only.
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+# library/py lives in this tool's own repo -- derive from this script's
+# own location, not cwd (this tool operates org-wide, not against a
+# single target repo).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_range import resolve_spec  # noqa: E402
+
+# Real disk cache for fetch_pr_detail -- one GraphQL `gh pr view` call
+# per candidate is the actual GraphQL cost driver here (confirmed via
+# hee-quota's pre-flight gate above), and it's genuinely redundant
+# across runs: the same PR's checks/review/mergeable state doesn't
+# change every few seconds, and multiple concurrent sessions under the
+# same shared GitHub identity are often reviewing overlapping PR sets.
+# ~/.config/hee/ matches hee-scrob's existing home-relative storage
+# convention, not a new one invented here -- and it's outside any git
+# repo on purpose, so a cache entry never needs gitignore coverage and
+# is naturally shared across every session on this account, not just
+# this process. Short TTL (60s) trades a small staleness window for a
+# real cut in GraphQL calls; --no-cache bypasses it entirely for a run
+# where you want to see the live state (e.g. right before merging).
+PR_CACHE_DIR = Path.home() / ".config" / "hee" / "gh-pr-cache"
+PR_CACHE_TTL = int(os.environ.get("HEE_PR_CACHE_TTL", "60"))
+
+
+def _pr_cache_path(repo_full, number):
+    return PR_CACHE_DIR / repo_full.replace("/", "__") / f"{number}.json"
+
+
+def _pr_cache_get(repo_full, number):
+    path = _pr_cache_path(repo_full, number)
+    try:
+        entry = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if time.time() - entry.get("cached_at", 0) > PR_CACHE_TTL:
+        return None
+    return entry.get("data")
+
+
+def _pr_cache_put(repo_full, number, data):
+    path = _pr_cache_path(repo_full, number)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"cached_at": time.time(), "data": data}))
+    except OSError:
+        pass  # cache is a real optimization, never a hard dependency
 
 
 def gh_json(args):
@@ -113,21 +166,182 @@ def fetch_prs(org, author):
     return gh_json(args)
 
 
-def fetch_pr_detail(repo_full, number):
+def check_quota(candidates, use_cache=True):
+    """Real pre-flight gate, same fix as hee-fields' (fleet-ops#269):
+    fetch_pr_detail below is one GraphQL `gh pr view` call per candidate
+    that isn't already cache-fresh -- know before burning calls into a
+    batch that's going to stall partway through, instead of finding out
+    reactively mid-run. hee-quota is a sibling tool, same repo; skip the
+    check entirely if it's not installed rather than hard-depend on it."""
+    quota_tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-quota")
+    if not os.path.exists(quota_tool):
+        return
+    proc = subprocess.run(
+        [sys.executable, quota_tool, "status", "--json"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return  # quota check itself failing shouldn't block the real work
     try:
-        return gh_json([
-            "pr", "view", str(number), "--repo", repo_full,
-            "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
-        ])
-    except SystemExit:
+        pools = json.loads(proc.stdout)
+        remaining = pools["graphql"]["remaining"]
+    except (json.JSONDecodeError, KeyError):
+        return
+    if use_cache:
+        n_uncached = sum(
+            1 for pr in candidates
+            if _pr_cache_get(
+                pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository"),
+                pr["number"],
+            ) is None
+        )
+    else:
+        n_uncached = len(candidates)
+    est = int(n_uncached * 1.2)  # same 20% pad hee-fields uses
+    if remaining < est:
+        print(f"hee-git-merge: {len(candidates)} candidate(s), {n_uncached} not cache-fresh, "
+              f"need an estimated ~{est} GraphQL calls to fetch detail, but only {remaining} "
+              f"remain. Run "
+              f"'{quota_tool} status' to check, or "
+              f"'{quota_tool} wait --pool graphql --min {est}' to block until it clears.",
+              file=sys.stderr)
+        sys.exit(1)
+
+
+def _real_quota(pool):
+    """0-token: gh api rate_limit costs nothing against any pool. Real
+    remaining count, or None if the check itself fails (never block
+    real work on a quota-check failure)."""
+    proc = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout)["resources"][pool]["remaining"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _pick_source():
+    """Real smart sourcing (Spencer's ask): fetch_pr_detail's one real
+    call is GraphQL-only today, but a REST equivalent exists (2 calls
+    instead of 1 -- pulls/{n} + check-runs -- costing core-pool budget
+    instead). Core is near-always near-full while graphql is the one
+    that's repeatedly hit 0 tonight (confirmed live, fleet-ops#269) --
+    route to REST once graphql is thin, even though it costs 2x the
+    real call count, because core has real headroom graphql doesn't.
+    Checked once per run (module-level cache), not per PR -- the quota
+    check itself is free but re-running it 76 times adds real latency
+    for no real benefit within one run's timeframe."""
+    global _SOURCE_CACHE
+    if _SOURCE_CACHE is not None:
+        return _SOURCE_CACHE
+    graphql = _real_quota("graphql")
+    _SOURCE_CACHE = "rest" if graphql is not None and graphql < 200 else "graphql"
+    if _SOURCE_CACHE == "rest":
+        print(f"hee-git-merge: graphql pool thin ({graphql} remaining) -- "
+              f"routing PR detail fetches through REST instead (real core-pool budget).",
+              file=sys.stderr)
+    return _SOURCE_CACHE
+
+
+_SOURCE_CACHE = None
+
+
+def _fetch_pr_detail_rest(repo_full, number):
+    """Real REST equivalent -- 2 calls (pulls/{n}, check-runs) instead
+    of GraphQL's 1, trading call count for a pool that actually has
+    headroom when graphql doesn't. reviewDecision isn't a real REST
+    field (GraphQL aggregates it server-side) -- reduced here from the
+    real per-reviewer review list: any real CHANGES_REQUESTED wins
+    over an APPROVED, matching GitHub's own latest-review-per-reviewer
+    logic closely enough for this tool's real use (a human still makes
+    the actual call before approving/merging, this just orders/flags)."""
+    pr = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/pulls/{number}"],
+        capture_output=True, text=True,
+    )
+    if pr.returncode != 0:
+        return {}
+    try:
+        p = json.loads(pr.stdout)
+    except json.JSONDecodeError:
         return {}
 
+    reviews = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/pulls/{number}/reviews", "--paginate"],
+        capture_output=True, text=True,
+    )
+    review_decision = "REVIEW_REQUIRED"
+    if reviews.returncode == 0:
+        try:
+            latest = {}
+            for r in json.loads(reviews.stdout):
+                if r.get("state") in ("APPROVED", "CHANGES_REQUESTED"):
+                    latest[r["user"]["login"]] = r["state"]
+            states = set(latest.values())
+            if "CHANGES_REQUESTED" in states:
+                review_decision = "CHANGES_REQUESTED"
+            elif "APPROVED" in states:
+                review_decision = "APPROVED"
+        except (json.JSONDecodeError, KeyError):
+            pass
 
-def matches(pr, pattern):
-    if pattern is None:
-        return True
-    hay = f"{pr.get('title', '')}\n{pr.get('body', '')}"
-    return bool(re.search(pattern, hay, re.IGNORECASE))
+    checks = subprocess.run(
+        ["gh", "api", f"repos/{repo_full}/commits/{p['head']['sha']}/check-runs"],
+        capture_output=True, text=True,
+    )
+    rollup = []
+    if checks.returncode == 0:
+        try:
+            rollup = [{"conclusion": c.get("conclusion"), "state": c.get("status")}
+                      for c in json.loads(checks.stdout).get("check_runs", [])]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return {
+        "additions": p.get("additions"),
+        "deletions": p.get("deletions"),
+        "changedFiles": p.get("changed_files"),
+        "mergeable": "MERGEABLE" if p.get("mergeable") else (
+            "CONFLICTING" if p.get("mergeable") is False else "UNKNOWN"),
+        "reviewDecision": review_decision,
+        "statusCheckRollup": rollup,
+    }
+
+
+def fetch_pr_detail(repo_full, number, use_cache=True):
+    if use_cache:
+        cached = _pr_cache_get(repo_full, number)
+        if cached is not None:
+            return cached
+    if _pick_source() == "rest":
+        data = _fetch_pr_detail_rest(repo_full, number)
+    else:
+        try:
+            data = gh_json([
+                "pr", "view", str(number), "--repo", repo_full,
+                "--json=additions,deletions,changedFiles,statusCheckRollup,reviewDecision,mergeable",
+            ])
+        except SystemExit:
+            return {}
+    if use_cache and data:
+        _pr_cache_put(repo_full, number, data)
+    return data
+
+
+def filter_prs(prs, spec):
+    """SPEC is None (no filter), a PR-number id/range list (123 / 45-50 /
+    1,2,3), or a regex against title+body -- same selection mechanism as
+    hee-ticket -close (library/py/hee_range), so a change to the matching
+    rules only needs to happen in one place."""
+    if spec is None:
+        return prs
+    return resolve_spec(
+        spec,
+        prs,
+        get_id=lambda pr: str(pr["number"]),
+        get_haystack=lambda pr: f"{pr.get('title', '')}\n{pr.get('body', '')}",
+    )
 
 
 DEP_RE = re.compile(
@@ -148,7 +362,7 @@ def explicit_deps(pr):
     return {(repo_full, int(n)) for n in DEP_RE.findall(body)}
 
 
-def content_deps(candidates, repo_full):
+def content_deps(candidates, repo_full, progress=None):
     """Real, generic same-repo heuristic: PR B depends on PR A if A's
     diff adds a file whose basename appears as a literal string in B's
     diff. Only runs within one repo -- cross-repo text overlap isn't a
@@ -160,8 +374,10 @@ def content_deps(candidates, repo_full):
 
     added_files = {}   # pr number -> set of basenames this PR adds
     diffs = {}          # pr number -> full diff text
-    for pr in same_repo:
+    for i, pr in enumerate(same_repo, 1):
         num = pr["number"]
+        if progress:
+            print(f"  [{i}/{len(same_repo)}] {repo_full}#{num}...", end=" ", flush=True)
         files_proc = subprocess.run(
             ["gh", "pr", "view", str(num), "--repo", repo_full, "--json=files"],
             capture_output=True, text=True,
@@ -181,6 +397,8 @@ def content_deps(candidates, repo_full):
             capture_output=True, text=True,
         )
         diffs[num] = diff_proc.stdout if diff_proc.returncode == 0 else ""
+        if progress:
+            print("done")
 
     deps = {(repo_full, pr["number"]): set() for pr in same_repo}
     for b in same_repo:
@@ -213,8 +431,14 @@ def compute_deps(candidates):
 
     deps = {(pr["_repo_full"], pr["number"]): explicit_deps(pr) for pr in candidates}
 
-    for repo_full in {pr["_repo_full"] for pr in candidates}:
-        for key, ds in content_deps(candidates, repo_full).items():
+    # Real UX fix, live-flagged (Spencer): this phase went silent after
+    # the fetch-detail loop finished, looked hung/dead on a 75-candidate
+    # run. content_deps does 2 more real gh calls per multi-PR repo --
+    # real, visible progress here, not just at the earlier fetch step.
+    repos = sorted({pr["_repo_full"] for pr in candidates})
+    print(f"hee-git-merge: checking cross-PR dependencies across {len(repos)} repo(s)...")
+    for repo_full in repos:
+        for key, ds in content_deps(candidates, repo_full, progress=True).items():
             deps[key] |= ds
 
     # only keep edges to PRs actually in this candidate set
@@ -298,6 +522,117 @@ def create_batch_ticket(batch):
     return proc.stdout.strip()
 
 
+# Reserved status colors -- the dataviz skill's real fixed 4-tier status
+# scale (good -> warning -> serious -> critical, references/palette.md's
+# #0ca30c/#fab219/#ec835a/#d03b3b), not an improvised red/yellow/green.
+# Never cycled, never reused as a generic 4th categorical slot.
+#
+# Real fix (2026-08-24, Spencer, live): colored *emoji* circles alone
+# don't reliably carry color in every terminal -- some fonts render
+# them as monochrome outline glyphs, so a colored-dot-only approach can
+# read as no color at all. Fixed with real ANSI escapes wrapping the
+# *text label* too, not just the dot -- the label paints in the same
+# reserved color the dot is trying to (and failing) to carry alone, so
+# color survives even where the emoji glyph doesn't render as color.
+#
+# Real second fix, same live session: still no color even after that --
+# root cause confirmed by reading spencer@kiosk's actual live pane env
+# (/proc/<pane_pid>/environ, not a freshly spawned shell's): TERM=
+# screen-256color, TERM_PROGRAM=tmux 3.4, COLORTERM unset. tmux inside
+# a screen-256color TERM doesn't pass 24-bit truecolor through by
+# default (needs an explicit `Tc`/`RGB` terminal-overrides entry this
+# session doesn't have) -- the \033[38;2;r;g;bm codes were real but
+# silently swallowed. Detects real capability instead of assuming it:
+# COLORTERM=truecolor/24bit -> 24-bit; "256color" in TERM (this box's
+# real case) -> the 256-palette index nearest each hex; anything else
+# with a real TERM -> basic 16-color. Skips ANSI entirely on a non-tty
+# or NO_COLOR (logs/pipes stay clean).
+import os as _os
+
+_TERM = _os.environ.get("TERM", "")
+_COLORTERM = _os.environ.get("COLORTERM", "")
+_COLOR_OK = sys.stdout.isatty() and not _os.environ.get("NO_COLOR")
+if not _COLOR_OK:
+    _COLOR_MODE = "none"
+elif _COLORTERM in ("truecolor", "24bit"):
+    _COLOR_MODE = "true"
+elif "256color" in _TERM:
+    _COLOR_MODE = "256"
+elif _TERM and _TERM != "dumb":
+    _COLOR_MODE = "16"
+else:
+    _COLOR_MODE = "none"
+_RESET = "\033[0m" if _COLOR_MODE != "none" else ""
+
+
+def _rgb_to_256(r, g, b):
+    # Nearest step in xterm's 6x6x6 color cube (indices 16-231); these
+    # four status hexes are all saturated enough that the grayscale
+    # ramp (232-255) is never a closer match, so it's not checked.
+    steps = (0, 95, 135, 175, 215, 255)
+
+    def nearest(v):
+        return min(range(6), key=lambda i: abs(steps[i] - v))
+
+    ri, gi, bi = nearest(r), nearest(g), nearest(b)
+    return 16 + 36 * ri + 6 * gi + bi
+
+
+def _rgb_to_16(r, g, b):
+    # Coarsest real fallback -- picks the closer of the plain/bright
+    # variant of the nearest primary, good enough to keep the four
+    # tiers visually distinct on a bare 16-color terminal.
+    bright = (r + g + b) > 380
+    if r >= g and r >= b:
+        return 91 if bright else 31
+    if g >= r and g >= b:
+        return 92 if bright else 32
+    return 93 if bright else 33
+
+
+def _code(hexstr):
+    if _COLOR_MODE == "none":
+        return ""
+    r, g, b = (int(hexstr[i:i + 2], 16) for i in (0, 2, 4))
+    if _COLOR_MODE == "true":
+        return f"\033[38;2;{r};{g};{b}m"
+    if _COLOR_MODE == "256":
+        return f"\033[38;5;{_rgb_to_256(r, g, b)}m"
+    return f"\033[{_rgb_to_16(r, g, b)}m"
+
+
+GOOD_HEX, WARNING_HEX, SERIOUS_HEX, CRITICAL_HEX = "0ca30c", "fab219", "ec835a", "d03b3b"
+
+
+def paint(text, hexstr):
+    return f"{_code(hexstr)}{text}{_RESET}" if _COLOR_MODE != "none" else text
+
+
+def good(text):
+    return paint(text, GOOD_HEX)
+
+
+def warning(text):
+    return paint(text, WARNING_HEX)
+
+
+def serious(text):
+    return paint(text, SERIOUS_HEX)
+
+
+def critical(text):
+    return paint(text, CRITICAL_HEX)
+
+
+# Dot glyph + real color together -- always paired with a painted text
+# label at each call site too, per the skill's icon+label rule (a status
+# color never carries meaning on the glyph alone).
+DOT_GOOD = paint("\U0001F7E2", GOOD_HEX)
+DOT_WARNING = paint("\U0001F7E1", WARNING_HEX)
+DOT_SERIOUS = paint("\U0001F7E0", SERIOUS_HEX)
+DOT_CRITICAL = paint("\U0001F534", CRITICAL_HEX)
+
+
 def checks_summary(pr):
     rollup = pr.get("statusCheckRollup") or []
     if not rollup:
@@ -310,13 +645,63 @@ def checks_summary(pr):
     return f"checks: {len(states)} pending/mixed"
 
 
+DOT_BY_TIER = {"good": DOT_GOOD, "warning": DOT_WARNING,
+               "serious": DOT_SERIOUS, "critical": DOT_CRITICAL}
+PAINT_BY_TIER = {"good": good, "warning": warning,
+                  "serious": serious, "critical": critical}
+
+
+def pr_status_tier(pr):
+    """Worst-of-four real signals (checks, review, mergeable) on the fixed
+    good/warning/serious/critical scale -- critical beats serious beats
+    warning beats good, so one blocking signal colors the whole line."""
+    rollup = pr.get("statusCheckRollup") or []
+    states = [c.get("conclusion") or c.get("state") or "?" for c in rollup]
+    checks_failing = any(s in ("FAILURE", "failure", "ERROR", "error") for s in states)
+    checks_passing = bool(states) and all(s in ("SUCCESS", "success") for s in states)
+    review = pr.get("reviewDecision") or "NONE"
+    mergeable = pr.get("mergeable") or "UNKNOWN"
+
+    if checks_failing or mergeable == "CONFLICTING":
+        return "critical"
+    if review == "CHANGES_REQUESTED":
+        return "serious"
+    if checks_passing and review == "APPROVED" and mergeable == "MERGEABLE":
+        return "good"
+    return "warning"
+
+
+def pr_status_dot(pr):
+    return DOT_BY_TIER[pr_status_tier(pr)]
+
+
+def _painted_checks_summary(pr):
+    text = checks_summary(pr)
+    if text.startswith("checks: FAILING"):
+        return critical(text)
+    if text.startswith("checks:") and "passing" in text:
+        return good(text)
+    return warning(text)
+
+
+def _painted_review(pr):
+    review = pr.get("reviewDecision") or "NONE"
+    if review == "APPROVED":
+        return good(review)
+    if review == "CHANGES_REQUESTED":
+        return serious(review)
+    return warning(review)
+
+
 def print_synopsis(pr, repo_full):
+    tier = pr_status_tier(pr)
+    title_line = f"[{repo_full}#{pr['number']}] {pr['title']}"
     print()
-    print(f"[{repo_full}#{pr['number']}] {pr['title']}")
+    print(f"{DOT_BY_TIER[tier]} {PAINT_BY_TIER[tier](title_line)}")
     print(f"  {pr['url']}")
     print(f"  +{pr.get('additions', '?')} -{pr.get('deletions', '?')}  "
-          f"{pr.get('changedFiles', '?')} files  {checks_summary(pr)}  "
-          f"review: {pr.get('reviewDecision') or 'NONE'}")
+          f"{pr.get('changedFiles', '?')} files  {_painted_checks_summary(pr)}  "
+          f"review: {_painted_review(pr)}")
     body = (pr.get("body") or "").strip().splitlines()
     if body:
         print(f"  {body[0][:100]}")
@@ -328,9 +713,22 @@ def do_merge(repo_full, number, method, delete_branch):
         args.append("--delete-branch")
     proc = subprocess.run(["gh", *args], capture_output=True, text=True)
     if proc.returncode == 0:
-        print(f"  merged ({method}).")
-    else:
-        print(f"  MERGE FAILED:\n{proc.stderr}")
+        print(f"  {DOT_GOOD} {good(f'merged ({method}).')}")
+        return True
+    print(f"  {DOT_CRITICAL} {critical('MERGE FAILED:')}\n{proc.stderr}")
+    return False
+
+
+def do_comment(repo_full, number, body):
+    proc = subprocess.run(
+        ["gh", "pr", "comment", str(number), "--repo", repo_full, "--body", body],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0:
+        print(f"  {DOT_GOOD} {good('note posted.')}")
+        return True
+    print(f"  {DOT_CRITICAL} {critical('COMMENT FAILED:')}\n{proc.stderr}")
+    return False
 
 
 def do_approve(repo_full, number):
@@ -339,9 +737,10 @@ def do_approve(repo_full, number):
         capture_output=True, text=True,
     )
     if proc.returncode == 0:
-        print("  approved.")
-    else:
-        print(f"  APPROVE FAILED:\n{proc.stderr}")
+        print(f"  {DOT_GOOD} {good('approved.')}")
+        return True
+    print(f"  {DOT_CRITICAL} {critical('APPROVE FAILED:')}\n{proc.stderr}")
+    return False
 
 
 def estimate_agents(ready):
@@ -382,26 +781,51 @@ def group_by_epic(ready):
     """Real epic grouping: for each ready PR, resolve its real issue
     references and check which (if any) are actually type=Epic --
     reuses the 'Cross-ref: HEE#NNN' convention already in real use
-    tonight, not a new format. One gh issue view per unique referenced
-    issue, cached, not per PR."""
+    tonight, not a new format. Real sqz: was one `gh issue view` per
+    unique referenced issue -- N separate calls in a loop, the exact
+    pattern hee-fields' set_project_fields/link_epic collapsed via
+    GraphQL alias batching the same night this was written and missed
+    here at first. One aliased GraphQL query resolves every unique
+    (repo, num) pair in a single call instead."""
     all_refs = set()
     for pr in ready:
         all_refs |= find_issue_refs(pr)
 
+    if all_refs:
+        quota_tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hee-quota")
+        if os.path.exists(quota_tool):
+            proc = subprocess.run([sys.executable, quota_tool, "warn", "--threshold", "20"],
+                                   capture_output=True, text=True)
+            if proc.returncode != 0:
+                print(proc.stderr, file=sys.stderr)
+                print("hee-git-merge: skipping epic-grouping -- GraphQL quota too low to finish "
+                      f"cleanly ({len(all_refs)} issues to resolve). Run '{quota_tool} status' to check.",
+                      file=sys.stderr)
+                return {}, ready
+
     epic_titles = {}  # (repo, num) -> title, only if type == Epic
-    for repo_full, num in all_refs:
-        proc = subprocess.run(
-            ["gh", "issue", "view", str(num), "--repo", repo_full, "--json", "title,type"],
-            capture_output=True, text=True,
-        )
-        if proc.returncode != 0:
-            continue
-        try:
-            data = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            continue
-        if (data.get("type") or {}).get("name") == "Epic":
-            epic_titles[(repo_full, num)] = data["title"]
+    refs = sorted(all_refs)
+    if refs:
+        parts = []
+        for i, (repo_full, num) in enumerate(refs):
+            owner, name = repo_full.split("/")
+            parts.append(
+                f'r{i}: repository(owner: "{owner}", name: "{name}") '
+                f'{{ issue(number: {num}) {{ title issueType {{ name }} }} }}'
+            )
+        query = "{ " + " ".join(parts) + " }"
+        proc = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                               capture_output=True, text=True)
+        if proc.returncode == 0:
+            try:
+                data = json.loads(proc.stdout)["data"]
+            except (json.JSONDecodeError, KeyError):
+                data = {}
+            for i, (repo_full, num) in enumerate(refs):
+                node = data.get(f"r{i}")
+                issue = node.get("issue") if node else None
+                if issue and (issue.get("issueType") or {}).get("name") == "Epic":
+                    epic_titles[(repo_full, num)] = issue["title"]
 
     by_epic = {}
     no_epic = []
@@ -415,13 +839,40 @@ def group_by_epic(ready):
     return by_epic, no_epic
 
 
+def print_run_summary(stats, total_candidates):
+    """Real ask from Spencer, live: "need more inform[ative] status" --
+    the old summary was just the auto-skip count. Reports every real
+    outcome the loop tracked, colored by tier, so a run that stopped
+    partway (EOF, Ctrl-C) or ran to completion both leave a clear record
+    of what actually happened, not just what didn't."""
+    acted, auto_skipped = stats["acted"], stats["auto_skipped"]
+    commented, deferred, failed = stats["commented"], stats["deferred"], stats["failed"]
+    seen = auto_skipped + acted + failed + deferred
+    print(f"\n--- run summary: {seen}/{total_candidates} candidate(s) seen ---")
+    if acted:
+        print(f"  {DOT_GOOD} {good(str(acted) + ' actioned')} (approved/merged this run)")
+    if auto_skipped:
+        print(f"  {DOT_GOOD} {good(str(auto_skipped) + ' already approved')} (auto-skipped, no re-approval)")
+    if commented:
+        print(f"  {DOT_GOOD} {good(str(commented) + ' note(s) posted')}")
+    if deferred:
+        print(f"  {DOT_SERIOUS} {serious(str(deferred) + ' deferred')} (you skipped -- still open)")
+    if failed:
+        print(f"  {DOT_CRITICAL} {critical(str(failed) + ' FAILED')} (see errors above)")
+    remaining = total_candidates - seen
+    if remaining:
+        print(f"  {DOT_WARNING} {warning(f'{remaining} not reached')} (run stopped early)")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-git-merge")
-    ap.add_argument("-r", "--regex", default=None)
+    ap.add_argument("-r", "--regex", default=None,
+                     help="PR number id/range list (123 / 45-50 / 1,2,3), "
+                          "or a regex against title+body")
     ap.add_argument("--org", default="Twin-Cities-Open-Systems")
     ap.add_argument("--author", default="touchy-claude",
                      help="filter by login, or 'all' for every open PR org-wide")
-    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize"], default="merge")
+    ap.add_argument("--action", choices=["merge", "approve", "batch", "optimize", "prime"], default="merge")
     ap.add_argument("--batch-size", type=int, default=5,
                      help="max PRs per batch under --action batch (default 5)")
     method = ap.add_mutually_exclusive_group()
@@ -433,20 +884,48 @@ def main():
     delbranch.add_argument("--delete-branch", action="store_true", dest="delete_branch")
     delbranch.add_argument("--no-delete-branch", action="store_false", dest="delete_branch")
     ap.set_defaults(delete_branch=True)
+    ap.add_argument("--no-cache", action="store_false", dest="use_cache", default=True,
+                     help=f"skip the {PR_CACHE_TTL}s PR-detail cache, always fetch live "
+                          f"(e.g. right before an actual merge)")
     args = ap.parse_args()
 
     author = None if args.author == "all" else args.author
+    print(f"hee-git-merge: searching {args.org} for open PRs from {args.author}...")
     prs = fetch_prs(args.org, author)
-    candidates = [pr for pr in prs if matches(pr, args.regex)]
+    candidates = filter_prs(prs, args.regex)
 
     if not candidates:
         print(f"No open PRs from {args.author} in {args.org}"
               + (f" matching /{args.regex}/" if args.regex else "") + ".")
         return
 
-    for pr in candidates:
+    check_quota(candidates, use_cache=args.use_cache)
+
+    print(f"hee-git-merge: {len(candidates)} candidate(s) found, fetching detail...")
+    n_cache_hits = 0
+    for i, pr in enumerate(candidates, 1):
         repo_full = pr["repository"]["nameWithOwner"] if isinstance(pr.get("repository"), dict) else pr.get("repository")
-        pr.update(fetch_pr_detail(repo_full, pr["number"]))
+        print(f"  [{i}/{len(candidates)}] {repo_full}#{pr['number']}...", end=" ", flush=True)
+        was_cached = args.use_cache and _pr_cache_get(repo_full, pr["number"]) is not None
+        pr.update(fetch_pr_detail(repo_full, pr["number"], use_cache=args.use_cache))
+        if was_cached:
+            n_cache_hits += 1
+            print("cached")
+        else:
+            print("done")
+    if n_cache_hits:
+        print(f"hee-git-merge: {n_cache_hits}/{len(candidates)} served from the "
+              f"{PR_CACHE_TTL}s cache -- that many real GraphQL calls skipped.")
+
+    if args.action == "prime":
+        # Real, deliberately minimal: the fetch-detail loop above already
+        # writes every result to the real disk cache as a side effect --
+        # priming is just "run that loop, skip the expensive dependency-
+        # ordering phase (order_candidates' N^2 same-repo gh calls) that
+        # nothing here needs." No merge, no prompts, no ordering.
+        print(f"hee-git-merge: primed {len(candidates)} PR(s) into the "
+              f"{PR_CACHE_TTL}s disk cache ({n_cache_hits} were already warm).")
+        return
 
     candidates, deps = order_candidates(candidates)
 
@@ -457,12 +936,12 @@ def main():
         print(f"{len(candidates)} total open candidate(s), {len(ready)} approved+mergeable.")
         by_repo = estimate_agents(ready)
         if not by_repo:
-            print("No ready work -- 0 agents needed.")
+            print(f"{DOT_WARNING} {warning('No ready work -- 0 agents needed.')}")
             return
         print(f"\n{len(by_repo)} repo(s) with ready work -- real upper bound on useful "
               f"parallel agents (more per repo doesn't help, its own chain still serializes):")
         for repo_full, prs in sorted(by_repo.items()):
-            print(f"  {repo_full}: {len(prs)} PR(s) ready")
+            print(f"  {DOT_GOOD} {repo_full}: {good(f'{len(prs)} PR(s) ready')}")
         if len(by_repo) == 1:
             print("\nOne repo -- one agent, sequential, is the real answer here. "
                   "Pencil, not hyperscaler.")
@@ -483,7 +962,9 @@ def main():
             return
         print(f"\nBatch of {len(batch)} (dependency-complete, real order):")
         for pr in batch:
-            print(f"  [{pr['_repo_full']}#{pr['number']}] {pr['title']}")
+            tier = pr_status_tier(pr)
+            title_line = f"[{pr['_repo_full']}#{pr['number']}] {pr['title']}"
+            print(f"  {DOT_BY_TIER[tier]} {PAINT_BY_TIER[tier](title_line)}")
         ticket = create_batch_ticket(batch)
         if ticket:
             print(f"\nTracked: {ticket}")
@@ -493,7 +974,7 @@ def main():
         if args.action == "merge" else "approve only, no merge"
     print(f"{len(candidates)} candidate PR(s), action={args.action}, {action_desc}.")
 
-    skipped_approved = 0
+    stats = {"auto_skipped": 0, "acted": 0, "failed": 0, "deferred": 0, "commented": 0}
     for pr in candidates:
         repo_full = pr["_repo_full"]
 
@@ -501,28 +982,51 @@ def main():
         # approved PR is pure waste (GitHub's UI gives no clear signal it
         # already happened). Never re-prompt for one under --action=approve.
         if args.action == "approve" and pr.get("reviewDecision") == "APPROVED":
-            skipped_approved += 1
-            print(f"\n[{repo_full}#{pr['number']}] already approved -- skipping.")
+            stats["auto_skipped"] += 1
+            print(f"\n{DOT_GOOD} [{repo_full}#{pr['number']}] {good('already approved')} "
+                  f"-- auto-skipped, no prompt shown.")
             continue
 
         while True:
             print_synopsis(pr, repo_full)
-            choice = input("  y/N/s/e > ").strip().lower()
+            try:
+                choice = input("  y/N/s/e/c > ").strip().lower()
+            except EOFError:
+                print(f"\n  {DOT_CRITICAL} {critical('no stdin (EOF)')} -- can't prompt here, "
+                      f"stopping rather than silently skip the rest.")
+                print_run_summary(stats, len(candidates))
+                return
+            except KeyboardInterrupt:
+                print(f"\n  {DOT_SERIOUS} {serious('stopped (Ctrl-C)')} -- rest of this batch untouched.")
+                print_run_summary(stats, len(candidates))
+                return
             if choice == "y":
                 if args.action == "approve":
-                    do_approve(repo_full, pr["number"])
+                    ok = do_approve(repo_full, pr["number"])
                 else:
-                    do_merge(repo_full, pr["number"], args.method, args.delete_branch)
+                    ok = do_merge(repo_full, pr["number"], args.method, args.delete_branch)
+                stats["acted" if ok else "failed"] += 1
                 break
             elif choice == "e":
                 subprocess.run(["gh", "pr", "diff", str(pr["number"]), "--repo", repo_full])
                 continue
+            elif choice == "c":
+                try:
+                    note = input("  note > ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print(f"  {DOT_WARNING} {warning('no note entered')} -- nothing posted.")
+                    continue
+                if not note:
+                    print(f"  {DOT_WARNING} {warning('empty note')} -- nothing posted.")
+                elif do_comment(repo_full, pr["number"], note):
+                    stats["commented"] += 1
+                continue
             else:
-                print("  skipped.")
+                stats["deferred"] += 1
+                print(f"  {DOT_SERIOUS} {serious('skipped')} -- you deferred this one, still open.")
                 break
 
-    if skipped_approved:
-        print(f"\n({skipped_approved} PR(s) already approved, auto-skipped -- no re-approval.)")
+    print_run_summary(stats, len(candidates))
 
 
 if __name__ == "__main__":

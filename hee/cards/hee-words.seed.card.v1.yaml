@@ -4,16 +4,66 @@ metadata:
   name: hee-words-seed
   ts_human: 2026-02-10_1851
 spec:
-  purpose: seed dictionary and thesaurus work; yaml first; render md via jinja later.
+  purpose: >-
+    seed dictionary and thesaurus work; yaml first, promote by direct edit to
+    the canonical target when a word is ready -- not a jinja render pipeline
+    (dropped 2026-08-24, legacy/bloat for current framework and strategies,
+    per spencer).
   words:
     opus:
       definition: generated outputs hierarchy and working surface for machine friends.
       note: place for rendered html, md, yaml, text, exif, img; grouped by cards, pills, contracts, plans, blueprints, evidence.
+    corpus:
+      definition: >-
+        the whole real body of what actually exists in a given repo (or,
+        extended, the org) -- source and generated content alike. distinct
+        from opus, which names the generated/rendered layer specifically: a
+        corpus is the larger whole an opus is rendered from and lives inside.
+      note: >-
+        real precedent is the CORPUS.md "what actually exists here" index
+        thesis -- currently repo-scoped and unproven by design (.github and
+        human-execution-engine only), see hee/cards/... promotion_note below.
+        status: thesis, not settled -- carried into the glossary promotion
+        with that framing intact, not upgraded to settled doctrine here.
     thesis:
       definition: a proposition set down; etymology note is recorded in prior q.
     thesaurus:
       definition: a storehouse; etymology cousin note recorded in prior q.
+    language profile:
+      definition: >
+        A named voice/tone/persona variant of an operator's own public
+        content -- not a translation, a real stylistic register (e.g.
+        spencer's real profiles: professional, spencer, ninja, pirate,
+        HwOps; touchy-claude's own distinct set, default "professional").
+      note: >
+        Already real and shipped, just unnamed until now: the
+        `language_profiles` field + `active_default` key in each
+        operator's resume/profiles/<name>/profile.json, surfaced live
+        today as the persona dropdown on <oper>.blog.tcos.us. Canonized
+        2026-08-25 per Spencer's direct ask to disambiguate -- "the idea
+        there is to publish with different lang-voice on each" (referring
+        to publishing the same underlying content once per profile/site,
+        each in its own real voice) -- leaning on this glossary rather
+        than inventing a new, uncoordinated term.
+      status: canon
   needs_dif: true
   dif:
     - split into dictionary and thesaurus hee-objs
     - add trace keys for each word
+  promoted:
+    opus:
+      target: Twin-Cities-Open-Systems/.github profile/GLOSSARY.md
+      promotion_note_2026_08_24: >-
+        promoted from this seed card to the canonical org glossary by direct
+        edit, per spencer's explicit direction -- confirmed .github as the
+        real, correct location (org's own README names profile/GLOSSARY.md
+        "the org's shared definitions/invariants"). mirrors the promotion
+        pattern in hee/registries/party-kind.registry.v1.yaml
+        (propose -> use -> promote via dedicated edit with inline note).
+    corpus:
+      target: Twin-Cities-Open-Systems/.github profile/GLOSSARY.md
+      promotion_note_2026_08_24: >-
+        promoted alongside opus, same ceremony -- carried in as thesis
+        status (not settled doctrine), matching the real CORPUS.md framing
+        already live in two open PRs. no term is active in the glossary
+        beyond what that file itself says, per the same registry precedent.

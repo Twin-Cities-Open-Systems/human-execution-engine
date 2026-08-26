@@ -1,0 +1,43 @@
+apiVersion: hee/v1
+kind: Pill
+metadata:
+  name: tmux-ui-render-stack-highlight
+  description: "Highlight: glow+bat+jq+yq as the TTY render stack. Recovered from a private working repo (tcos-plan-private) 2026-08-24 as part of the fleet-ops#272 recovery epic -- this is HEE's own design thinking, not TCOS-private business content, so the migration is a straight move. tooling/bin/hee-print (recovered in the same batch) is the real implementation of this pill's render-policy block below."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: ui
+    topic: tmux-ui
+    artifact: highlight
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-13T00:00:00-06:00"
+    recovered_utc: "2026-08-24T00:00:00Z"
+
+spec:
+  highlight:
+    claim: "The TTY render stack (glow + bat + jq + yq) makes a tmux-based UI feel inevitable; the feature mostly writes itself."
+    why_it_works:
+      - "Markdown becomes a native UI surface (glow)."
+      - "Raw text becomes readable without ceremony (bat/batcat)."
+      - "JSON/YAML become first-class inspection outputs (jq/yq)."
+      - "Pairs well with simple cat+EOF ingestion and script-driven execution."
+    implications:
+      - "A tmux UI should autodetect file types and render consistently."
+      - "HEE objects/pills remain human-friendly while still machine-parseable."
+      - "UI can be assembled from existing primitives instead of a bespoke frontend."
+
+  tmux_ui_contract_seed:
+    render_policy:
+      - match: "*.md"
+        cmd: "glow -p"
+      - match: "*.yaml"
+        cmd: "yq -P"
+      - match: "*.yml"
+        cmd: "yq -P"
+      - match: "*.json"
+        cmd: "jq ."
+      - match: "*"
+        cmd: "bat -p --paging=never"
+    real_implementation: "tooling/bin/hee-print -- recovered in the same batch, implements exactly this render_policy."

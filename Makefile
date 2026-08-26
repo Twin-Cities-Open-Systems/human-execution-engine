@@ -51,14 +51,18 @@ uninstall-cli:
 .PHONY: install-man
 install-man:
 	@mkdir -p "$(MAN1DIR)"
-	@gzip -c "$(REPO_ROOT)/man/hee.1" >"$(MAN1DIR)/hee.1.gz"
-	@echo "🟢 installed: $(MAN1DIR)/hee.1.gz"
+	@for m in "$(REPO_ROOT)"/man/*.1; do \
+	  gzip -c "$$m" >"$(MAN1DIR)/$$(basename $$m).gz"; \
+	  echo "🟢 installed: $(MAN1DIR)/$$(basename $$m).gz"; \
+	done
 	@echo "🟦 test: MANPATH=$(MAN1DIR:%/man1=%/man):\$$MANPATH man hee"
 
 .PHONY: uninstall-man
 uninstall-man:
-	@rm -f "$(MAN1DIR)/hee.1.gz"
-	@echo "🟦 removed (if present): $(MAN1DIR)/hee.1.gz"
+	@for m in "$(REPO_ROOT)"/man/*.1; do \
+	  rm -f "$(MAN1DIR)/$$(basename $$m).gz"; \
+	done
+	@echo "🟦 removed (if present): all $(MAN1DIR)/*.gz from man/"
 
 .PHONY: install-bash-completion
 install-bash-completion:

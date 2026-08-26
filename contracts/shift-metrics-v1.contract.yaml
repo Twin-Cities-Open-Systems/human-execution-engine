@@ -2,12 +2,12 @@
 version: shift-metrics-v1
 name: shift-metrics
 title: Fleet Identity Shift Metrics Contract
-status: proposed
+status: ratified
 
 intent:
   - "require that every shift run under shift-schedule-v1 records a
     minimal, honest set of metrics at shift_close"
-  - "stay deliberately thin -- tick:217@human-execution-engine's CORE section calls the metrics
+  - "stay deliberately thin -- issue:217@human-execution-engine's CORE section calls the metrics
     schema itself tbd; this contract fixes the floor, not the final shape"
 
 actors:
@@ -66,3 +66,13 @@ blocked_behavior:
       - enumerate_missing_evidence_bounded
     must_not:
       - ack_only
+
+needs_dif: true
+dif:
+  - "define the full metrics schema -- issue:217@human-execution-engine's
+    CORE section calls this tbd; this contract only fixes the floor"
+  - "define the org's broader metrics strategy -- no strategy doc exists
+    yet, this contract is scoped to shifts only and shouldn't be read as
+    the final word on what HEE measures org-wide"
+  - "candidate for near-term review/expansion once the above land, not a
+    long-term-stable ratification like agent-instance-signature-v1"

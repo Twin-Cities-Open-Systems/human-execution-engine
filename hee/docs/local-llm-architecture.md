@@ -46,3 +46,15 @@ If you would like to move forward with the installation, we can map out the exac
 * [15] [https://www.youtube.com](https://www.youtube.com/watch?v=T8v8Rxr8rMM)
 * [16] [https://www.youtube.com](https://www.youtube.com/watch?v=lNGNRIJ708k&t=1642)
 
+
+---
+
+## Follow-up
+
+Real four-question dissection (HEE#325's method) run against this thesis in [HEE#352](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/352), full writeup on that issue. Summary:
+
+The thesis survives, but narrower than framed above. "A local LLM relieves Claude budget pressure" overstates the size of the win -- most of the real relief for tonight's actual problem came from deterministic tooling (`hee-quota`, a disk cache, `hee-sqz`) that needs *zero* inference, local or remote, and is strictly better than routing the same decision to a small model when it's available (100% deterministic vs. probably-right). The genuine niche for Ollama/llama.cpp here is narrower: the residual slice of decisions that are *fuzzy* (not reducible to a regex/threshold) but *simple* enough that a 3-8B quantized model's judgment is trustworthy for the stakes involved.
+
+**Recommendation: don't build the LXC yet.** Standing up infra (LXC, optional GPU passthrough) before any concrete candidate call site is proven from real dogfooding is exactly the kind of premature infra this org's own doctrine argues against elsewhere. Revisit as a single centralized primitive (e.g. `hee-gate "<predicate prompt>"` -> 0/1, one Ollama endpoint, reused across tools) once a real, recurring fuzzy-but-simple gate actually shows up in practice -- not speculatively.
+
+The timeless part of the thesis (route cheap, low-stakes judgment to an abundant-but-less-capable resource; reserve the scarce, expensive one for judgment that needs it) is real and predates any of this tech -- same shape as an apprentice handling routine measurements so a master craftsman's time goes to the hard calls. What doesn't port: throughput. This is a real but *modest* lever at the latency this org actually operates at, not the general-purpose budget fix the doc's framing implies.

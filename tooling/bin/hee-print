@@ -1,0 +1,105 @@
+#!/bin/sh
+# hee-print: render files nicely for terminal surfaces (tmux-ui, shellboss, humans)
+# POSIX sh, no prompts.
+
+usage() {
+  cat <<'USAGE'
+usage:
+  hee-print [--no-header] [--] <file>...
+  hee-print [--no-header] --stdin [--hint md|yaml|json|text]
+
+behavior:
+  .md/.markdown -> glow -p (if available)
+  .yml/.yaml    -> yq -P   (if available)
+  .json         -> jq .    (if available)
+  other         -> bat/batcat -p --paging=never (if available) else cat
+USAGE
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+pick_bat() {
+  if have bat; then echo bat; return; fi
+  if have batcat; then echo batcat; return; fi
+  echo ""
+}
+
+render_md() {
+  if have glow; then glow -p "$1"; else cat "$1"; fi
+}
+
+render_yaml() {
+  if have yq; then yq -P "$1"; else cat "$1"; fi
+}
+
+render_json() {
+  if have jq; then jq . < "$1"; else cat "$1"; fi
+}
+
+render_other() {
+  B="$(pick_bat)"
+  if [ -n "$B" ]; then
+    "$B" -p --paging=never "$1"
+  else
+    cat "$1"
+  fi
+}
+
+render_by_ext() {
+  f="$1"
+  case "$f" in
+    *.md|*.markdown) render_md "$f" ;;
+    *.yml|*.yaml)    render_yaml "$f" ;;
+    *.json)          render_json "$f" ;;
+    *)               render_other "$f" ;;
+  esac
+}
+
+no_header=0
+stdin_mode=0
+hint=""
+
+# arg parse
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-header) no_header=1; shift ;;
+    --stdin) stdin_mode=1; shift ;;
+    --hint) hint="${2:-}"; shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) echo "unknown flag: $1" >&2; usage; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+if [ "$stdin_mode" -eq 1 ]; then
+  tmp="${TMPDIR:-/tmp}/hee-print.$$"
+  cat > "$tmp"
+  # best-effort hint routing
+  case "$hint" in
+    md)   render_md "$tmp" ;;
+    yaml) render_yaml "$tmp" ;;
+    json) render_json "$tmp" ;;
+    *)    render_other "$tmp" ;;
+  esac
+  rm -f "$tmp"
+  exit 0
+fi
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 2
+fi
+
+for f in "$@"; do
+  if [ ! -f "$f" ]; then
+    echo "missing file: $f" >&2
+    continue
+  fi
+  if [ "$no_header" -eq 0 ] && [ $# -gt 1 ]; then
+    echo ""
+    echo "### $f"
+    echo ""
+  fi
+  render_by_ext "$f"
+done
