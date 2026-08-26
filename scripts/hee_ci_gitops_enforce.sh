@@ -28,10 +28,15 @@ grep -q "set -euo pipefail" scripts/hee_git_ops.sh || fail "hee_git_ops.sh must 
 grep -q "set -euo pipefail" scripts/hee_ci_gitops_enforce.sh || fail "hee_ci_gitops_enforce.sh must use 'set -euo pipefail'"
 
 # Prompts must reference the guarded script.
+# prompts/PROMPTING_RULES.md and prompts/AGENT_STATE_HANDOFF.md were
+# removed 2026-08-25 -- both were pure restatements of rules already
+# canonical in docs/doctrine/HEE_POLICY.md and blueprints/shift-init-v1.yaml
+# respectively, drifting stale (a leftover tick: reference in
+# PROMPTING_RULES.md was found out of sync with the real rename). INIT.md
+# is the single canonical entry point per Spencer's "top of the tree"
+# framing.
 prompt_files=(
   "prompts/INIT.md"
-  "prompts/PROMPTING_RULES.md"
-  "prompts/AGENT_STATE_HANDOFF.md"
 )
 
 missing_prompt=0
