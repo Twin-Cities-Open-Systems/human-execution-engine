@@ -30,7 +30,7 @@ repos:
       - id: hee-policy-compliance
         name: HEE Policy Compliance Check
         entry: |
-          bash -c 'echo "🔍 Checking HEE policy compliance..." && if [ -f "docs/HEE_POLICY.md" ]; then echo "✅ HEE policy file found"; else echo "❌ HEE policy file missing"; exit 1; fi && if [ -f "prompts/PROMPTING_RULES.md" ]; then echo "✅ Prompting rules found"; else echo "❌ Prompting rules missing"; exit 1; fi'
+          bash -c 'echo "🔍 Checking HEE policy compliance..." && if [ -f "docs/HEE_POLICY.md" ]; then echo "✅ HEE policy file found"; else echo "❌ HEE policy file missing"; exit 1; fi && if [ -f "prompts/INIT.md" ]; then echo "✅ Init entry point found"; else echo "❌ Init entry point missing"; exit 1; fi'
         language: system
         files: '.*'
         pass_filenames: false

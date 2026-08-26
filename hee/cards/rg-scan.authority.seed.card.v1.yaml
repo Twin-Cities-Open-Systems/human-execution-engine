@@ -46,6 +46,33 @@ spec:
         - "wu tang clan wu-tang forever :: reunited"
       notes:
         - treat as reference marker; more fields later (artist/title/year/etc)
+    stale_lab_prod_reference:
+      purpose: find self-referential lab/staging text that survives verbatim
+        into a prod deploy -- hostnames, "not yet promoted", "no commit
+        SHA" style freshness banners built for the lab copy of a page.
+      cmd_argv:
+        - rg
+        - -n
+        - --hidden
+        - --glob
+        - '!.git/'
+        - --glob
+        - '!**/node_modules/**'
+        - --glob
+        - '!**/vendor/**'
+        - --glob
+        - '!**/.venv/**'
+        - '\.lab\.tcos\.us|lab preview|not yet promoted|no real commit|not yet git-tracked'
+      origin: >
+        Real trigger, 2026-08-26: the spencer.media tattoo gallery's
+        static HTML was copied verbatim from its lab container to prod
+        and still said "lab preview, not yet promoted to
+        spencer.media.tcos.us" on the live prod page itself --
+        resume#23. Run this before any lab->prod promotion.
+      notes:
+        - run this as part of hee-filter's future "strip stale
+          lab/staging self-references" check once that lands
+          (human-execution-engine#331) -- manual for now
   needs_iter: true
   iter:
     - add globs for large binary dirs as they show up
