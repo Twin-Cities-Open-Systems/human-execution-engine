@@ -32,7 +32,12 @@ Usage:
                         [--force] [--dry-run]
       --force overwrites an already-set Artist/Copyright; without it,
       an existing real value is left alone and reported, never guessed
-      over.
+      over. Artist/Copyright are mirrored into IPTC/XMP equivalents
+      too (IPTC:By-line/XMP:Creator/XMP:ImageCreatorName for Artist;
+      IPTC:CopyrightNotice/XMP:Rights for Copyright) -- real prior art
+      from Spencer's own 2020 exif-update.sh, since different
+      platforms only read one of the three metadata standards for the
+      same real-world fact.
   hee-exif regen-pubkey <target-html> <var-name> <github-login>
       Front-loads a GPG public key from the real canonical source
       (github.com/<login>.gpg) into a `var <var-name> = "...";` JS
@@ -135,6 +140,19 @@ def cmd_sign(args):
     exif_args.append(f"-UserComment={comment}")
     report.append(f"UserComment: {comment}")
 
+    # Real prior art, found live 2026-08-26 (Spencer's own 2020
+    # exif-update.sh): different platforms/tools read different
+    # metadata standards for the same real-world fact -- some only
+    # check legacy EXIF, others only IPTC or XMP. Mirroring
+    # Artist/Copyright across all three is what actually makes
+    # attribution show up everywhere, not just in exiftool's own dump.
+    # Gate stays on the primary EXIF tag's existing value, same
+    # never-guess-over-a-real-value rule as before -- if that one's
+    # already set, none of its mirrors get touched either.
+    MIRROR_TAGS = {
+        "Artist": ["IPTC:By-line", "XMP:Creator", "XMP:ImageCreatorName"],
+        "Copyright": ["IPTC:CopyrightNotice", "XMP:Rights"],
+    }
     for tag, value in (("Artist", args.artist), ("Copyright", args.copyright)):
         if value is None:
             continue
@@ -144,6 +162,9 @@ def cmd_sign(args):
             continue
         exif_args.append(f"-{tag}={value}")
         report.append(f"{tag}: {value}" + (" (overwriting real existing value!)" if current else ""))
+        for mirror in MIRROR_TAGS[tag]:
+            exif_args.append(f"-{mirror}={value}")
+            report.append(f"{mirror}: {value}")
 
     if args.dry_run:
         print("hee-exif sign --dry-run, would write:")
