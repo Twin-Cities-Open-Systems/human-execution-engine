@@ -50,7 +50,7 @@ by the safe-charset check before it ever reaches `shlex`/`subprocess`.
 
 - No real MTA/mail-server wiring -- this reads a message from stdin,
   same real interface procmail uses, but nothing delivers mail to it
-  yet. That's `mx-N.tcos.us`'s dependency, not this tool's.
+  yet. That's `mxN.tcos.us`'s dependency, not this tool's.
 - No `regex` capture-group substitution beyond `{match}` (the whole
   matched text) -- `plus_of`'s `{tag}` is the only structured extraction
   today. Add named groups if a real rule needs more.

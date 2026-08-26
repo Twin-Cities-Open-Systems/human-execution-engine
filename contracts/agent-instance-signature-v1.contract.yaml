@@ -2,7 +2,7 @@
 version: agent-instance-signature-v1
 name: agent-instance-signature
 title: Agent Instance Signature Contract
-status: proposed
+status: ratified
 
 intent:
   - "make every inter-agent message and every agent-authored public post
