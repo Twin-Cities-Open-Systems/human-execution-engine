@@ -33,11 +33,31 @@ Usage:
       --force overwrites an already-set Artist/Copyright; without it,
       an existing real value is left alone and reported, never guessed
       over.
+  hee-exif regen-pubkey <target-html> <var-name> <github-login>
+      Front-loads a GPG public key from the real canonical source
+      (github.com/<login>.gpg) into a `var <var-name> = "...";` JS
+      constant in target-html. Real trigger (2026-08-26, Spencer):
+      "front load that var from gh/oper.gpg instead" of hand-copying a
+      key once -- covers a future key rotation with a re-run, not
+      another manual copy-paste. Has to embed at generation time, not
+      fetch client-side: github.com/*.gpg has no CORS headers,
+      confirmed live.
+  hee-exif embed-exif <target-html> <var-name> <photo-dir>
+                       [--exclude field1,field2,...]
+      Embeds real, complete (non-blank) exiftool output for every
+      .jpg/.jpeg in photo-dir into a `var <var-name> = {...};` JS
+      constant in target-html, keyed by filename (no extension).
+      --exclude defaults to fields tied to the *local copy* used for
+      extraction, not the real photo (paths, local access/modify/inode
+      timestamps, permissions) -- override if a target has different
+      needs.
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -190,6 +210,86 @@ def cmd_gpg_sign(args):
         sys.exit(1)
 
 
+def _replace_js_var(target_html, var_name, new_value_literal, kind):
+    """Shared substitution core for regen-pubkey/embed-exif. Uses a
+    function as re.sub's repl, not a string -- a real bug hit and
+    fixed live (2026-08-26): a string repl gets its own backslash
+    escapes re-processed by the re module (for \\g<name> group refs),
+    which silently corrupts literal backslash sequences (e.g. "\\n" in
+    an armored key, or inside a JSON string value) into something else
+    entirely. A function's return value is inserted as-is."""
+    with open(target_html, "r", encoding="utf-8") as f:
+        content = f.read()
+    pattern = re.compile(r"var " + re.escape(var_name) + r" = (?:\"[^\"]*\"|\{.*?\});", re.DOTALL)
+    new_content, n = pattern.subn(lambda m: "var " + var_name + " = " + new_value_literal + ";", content)
+    if n != 1:
+        sys.exit(f"hee-exif {kind}: expected exactly 1 match for '{var_name}' in {target_html}, found {n}")
+    with open(target_html, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+
+def _js_string_literal(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+def cmd_regen_pubkey(args):
+    url = f"https://github.com/{args.github_login}.gpg"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            armored = r.read().decode().rstrip("\n") + "\n"
+    except Exception as e:
+        sys.exit(f"hee-exif regen-pubkey: fetch failed for {url}: {e}")
+    if "BEGIN PGP PUBLIC KEY BLOCK" not in armored:
+        sys.exit(f"hee-exif regen-pubkey: fetched content for {args.github_login} doesn't look like a real key")
+    _replace_js_var(args.target_html, args.var_name, _js_string_literal(armored), "regen-pubkey")
+    print(f"hee-exif regen-pubkey: {args.var_name} <- {url} (refreshed)")
+
+
+EXIF_LOCAL_ARTIFACT_FIELDS = {
+    "SourceFile", "Directory", "FileAccessDate",
+    "FileInodeChangeDate", "FileModifyDate", "FilePermissions",
+}
+
+
+def _is_blank(v):
+    if v is None:
+        return True
+    if isinstance(v, str) and v.strip() == "":
+        return True
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return True
+    return False
+
+
+def cmd_embed_exif(args):
+    require_exiftool()
+    exclude = set(EXIF_LOCAL_ARTIFACT_FIELDS)
+    if args.exclude:
+        exclude |= set(args.exclude.split(","))
+
+    proc = run(["exiftool", "-json", args.photo_dir])
+    if proc.returncode != 0:
+        sys.exit(f"hee-exif embed-exif: exiftool failed: {proc.stderr}")
+    # exiftool's JSON can contain raw control characters in text fields
+    # (e.g. UserComment) that aren't valid strict JSON.
+    data = json.loads(proc.stdout, strict=False)
+
+    out = {}
+    for d in data:
+        name = d.get("FileName", "")
+        if not name.lower().endswith((".jpg", ".jpeg")):
+            continue
+        photo_id = name.rsplit(".", 1)[0]
+        out[photo_id] = {k: v for k, v in d.items() if k not in exclude and not _is_blank(v)}
+
+    if not out:
+        sys.exit(f"hee-exif embed-exif: no .jpg/.jpeg files found in {args.photo_dir}, refusing to embed nothing")
+
+    embed = json.dumps(out, separators=(",", ":"), ensure_ascii=False)
+    _replace_js_var(args.target_html, args.var_name, embed, "embed-exif")
+    print(f"hee-exif embed-exif: embedded {len(out)} photo(s), {len(embed)} bytes, into {args.var_name}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-exif")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -212,8 +312,22 @@ def main():
     g.add_argument("--key", default=None, help="gpg --local-user selector (fingerprint or user-id); default gpg signing key if omitted")
     g.add_argument("--dry-run", action="store_true")
 
+    rp = sub.add_parser("regen-pubkey", help="front-load a GPG public key from github.com/<login>.gpg into a JS var in a target HTML file")
+    rp.add_argument("target_html")
+    rp.add_argument("var_name")
+    rp.add_argument("github_login")
+
+    ee = sub.add_parser("embed-exif", help="embed real, non-blank exiftool output for every photo in a dir into a JS var in a target HTML file")
+    ee.add_argument("target_html")
+    ee.add_argument("var_name")
+    ee.add_argument("photo_dir")
+    ee.add_argument("--exclude", default=None, help="comma-separated extra field names to exclude, added to the default local-artifact exclusion list")
+
     args = ap.parse_args()
-    {"read": cmd_read, "sign": cmd_sign, "gpg-sign": cmd_gpg_sign}[args.cmd](args)
+    {
+        "read": cmd_read, "sign": cmd_sign, "gpg-sign": cmd_gpg_sign,
+        "regen-pubkey": cmd_regen_pubkey, "embed-exif": cmd_embed_exif,
+    }[args.cmd](args)
 
 
 if __name__ == "__main__":
