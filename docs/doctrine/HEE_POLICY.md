@@ -637,6 +637,39 @@ load-bearing throughout this session's epoch-0 work.
   box, macOS), that's an explicit, stated exception at the point of
   use — not a default anyone should assume without saying so
 
+### 17. Prod Promotion Requires Human Sign-off
+
+**Requirement**: a lab-to-prod promotion step is never run as an
+automatic consequence of syncing/building lab content. Prod is only
+ever updated after the human who owns that surface has actually
+reviewed lab and explicitly said to proceed -- not after a script
+finishes, not after CI is green, not because lab "looked done."
+
+**Rationale**: real incident, [fleet-ops#312](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/312)
+(2026-08-26) -- a deploy script synced lab then pushed the identical
+bytes to prod in the same run, with no checkpoint in between. Spencer,
+direct: "I did not approve that, I wanted to check first." He had real
+issues queued to review on lab before it went live; the auto-promotion
+denied him that window entirely. The underlying gap had already been
+raised once (Spencer: "you are deploying straigt to prod, why?",
+deferred as a follow-up rather than fixed) -- deferring it is what let
+the real incident happen.
+
+**Enforcement**:
+
+- Any tool that promotes lab content to a public surface MUST expose
+  "build/sync to lab" and "promote to prod" as two separate, explicitly
+  invoked steps -- never one command that does both. `resume`'s
+  `tux-tattoo/deploy.sh lab` / `deploy.sh promote` split (post-#312) is
+  the real reference implementation.
+- "Promote" is never re-run automatically because lab changed again --
+  a new lab change re-opens the review, it doesn't extend a prior
+  approval.
+- This does not require a *ratified* sign-off scheme (no new contract,
+  no formal ceremony) -- a plain "go" from the human who owns the
+  surface, given after they've actually looked, satisfies this. What's
+  prohibited is skipping that step, not the lightness of it.
+
 ### HEE Rule Violation Documentation
 
 **Process**:
