@@ -88,6 +88,13 @@ doctor:
 	@echo "🟦 bash type -a hee (if bash available):"
 	@bash -lc 'type -a hee 2>/dev/null || echo "🟦 (none)"' || true
 	@echo "🟦 hash-clear (interactive shell): hash -d hee || hash -r"
+	@echo "🟦 gh git-credential helper (avoids the HTTPS username/password"
+	@echo "   footgun -- GitHub doesn't accept password auth for git ops):"
+	@if git config --get-all credential.helper 2>/dev/null | grep -q "gh auth git-credential"; then \
+	  echo "🟢 configured"; \
+	else \
+	  echo "🟠 not configured -- run: gh auth setup-git"; \
+	fi
 	@echo "🟦 git unfuck quick hints:"
 	@echo "  git status -sb"
 	@echo "  git reflog"
