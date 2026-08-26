@@ -35,7 +35,7 @@ GIT_DIR := $(HOME_DIR)/git
 
 .PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
         health-all-repos pull-all-repos refresh-all-repos \
-        link-cache-prune install-cron reset-tooling
+        link-cache-prune install-cron reset-tooling restore-secrets
 
 bootstrap: clone-repo link-hee
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
@@ -192,4 +192,60 @@ reset-tooling: clone-repo
 		"$(CLONE_DIR)/tooling/bin/hee-reset-tooling" --yes --canonical "$(CLONE_DIR)/tooling/bin"; \
 	else \
 		"$(CLONE_DIR)/tooling/bin/hee-reset-tooling" --canonical "$(CLONE_DIR)/tooling/bin"; \
+	fi
+
+# Real "restore secrets/dotfiles from a renamed-aside backup homedir" --
+# real trigger (2026-08-26): a fresh-homedir wipe ("mv spencer
+# spencer-old") ran, but nothing restored .ssh/.gnupg/.config/gh/
+# dotfiles-src into the new homedir afterward. Spencer hand-typed the
+# restore live via tmux send-keys, then, direct: "do not do this again
+# that hard way." This target is that "again" made real, not another
+# one-off.
+#
+# Deliberately narrow -- .ssh, .gnupg, .config/gh, dotfiles-src (then
+# runs install-dotfiles.sh -a) -- the real, load-bearing identity/
+# credential surface, not a blanket homedir copy. A blanket copy would
+# defeat the actual point of a fresh homedir: leftover stray
+# tooling/cruft coming back along with the credentials.
+#
+# Dry-run by default (same real safety pattern as reset-tooling above)
+# -- CONFIRM=yes actually copies. Never overwrites an item already
+# present at the destination. BACKUP_DIR defaults to the sibling
+# "$(HOME)-old" the mv-aside convention creates.
+#   make -f tooling/bootstrap.mk restore-secrets                # dry run
+#   make -f tooling/bootstrap.mk restore-secrets CONFIRM=yes
+BACKUP_DIR ?= $(HOME_DIR)-old
+RESTORE_ITEMS := .ssh .gnupg .config/gh dotfiles-src
+
+restore-secrets:
+	@if [ ! -d "$(BACKUP_DIR)" ]; then \
+		echo "bootstrap.mk: no backup dir at $(BACKUP_DIR) -- nothing to restore" 1>&2; \
+		exit 1; \
+	fi; \
+	for item in $(RESTORE_ITEMS); do \
+		src="$(BACKUP_DIR)/$$item"; dst="$(HOME_DIR)/$$item"; \
+		if [ ! -e "$$src" ]; then \
+			echo "bootstrap.mk: $$item: not in backup, skipping"; \
+			continue; \
+		fi; \
+		if [ -e "$$dst" ]; then \
+			echo "bootstrap.mk: $$item: already present at $$dst, skipping (never overwrites)"; \
+			continue; \
+		fi; \
+		if [ "$(CONFIRM)" = "yes" ]; then \
+			mkdir -p "$$(dirname "$$dst")"; \
+			cp -a "$$src" "$$dst"; \
+			echo "bootstrap.mk: restored $$item"; \
+		else \
+			echo "bootstrap.mk: [dry run] would restore $$item ($$src -> $$dst)"; \
+		fi; \
+	done; \
+	if [ "$(CONFIRM)" = "yes" ]; then \
+		chmod 700 "$(HOME_DIR)/.ssh" "$(HOME_DIR)/.gnupg" "$(HOME_DIR)/.config/gh" 2>/dev/null || true; \
+		if [ -f "$(HOME_DIR)/dotfiles-src/install-dotfiles.sh" ]; then \
+			( cd "$(HOME_DIR)/dotfiles-src" && bash install-dotfiles.sh -a ); \
+		fi; \
+		echo "bootstrap.mk: restore complete -- open a fresh shell (exec bash -l) to pick up PATH/dotfiles changes"; \
+	else \
+		echo "bootstrap.mk: dry run only -- re-run with CONFIRM=yes to actually restore"; \
 	fi
