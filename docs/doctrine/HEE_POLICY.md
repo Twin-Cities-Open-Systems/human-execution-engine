@@ -683,6 +683,40 @@ the real incident happen.
   surface, given after they've actually looked, satisfies this. What's
   prohibited is skipping that step, not the lightness of it.
 
+### 18. Issues Get Every Real Field Filled, Not Just a Title
+
+**Requirement**: an issue is not considered filed until `type`,
+`priority`, and any other real fields the tracker offers are actually
+set -- not left at their default, not deferred to "backfill later."
+A title and body alone are an incomplete issue, not a lightweight one.
+
+**Rationale**: real, repeated pattern this session and the ones before
+it -- issues that read as Epics or Incidents by title
+([fleet-ops#298](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/298),
+[#300](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/300))
+sat with `issueType: null`; [HEE#341](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/341)
+exists solely to backfill type/Priority/Effort/Target-Date/epic across
+the whole org after the fact; contracts sat with no `status` field at
+all ([fleet-ops#210](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/210)).
+Every one of these is the same mistake at a different layer: filing
+first, structuring later, and "later" not reliably happening. Spencer,
+direct: "should be policy to always fill out all issue fields... or
+you will have more cleanup."
+
+**Enforcement**:
+
+- When filing an issue via `gh issue create`, set `--label`, the real
+  issue type (Task/Bug/Feature/Epic/Incident, once assigned via the
+  GitHub UI/API), and any project fields (Priority, Effort,
+  Target-Date) the same session, not as a follow-up.
+- `hee-fields` (tooling/bin/hee-fields, real GraphQL field-setting,
+  [PR#348](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/348))
+  is the real tool for this -- use it rather than leaving fields unset
+  because the CLI path is less obvious than the web UI's.
+- A backfill pass existing (HEE#341) does not satisfy this policy going
+  forward -- it's a one-time cleanup for the debt that already
+  accumulated, not a substitute for filling fields at file-time.
+
 ### HEE Rule Violation Documentation
 
 **Process**:
