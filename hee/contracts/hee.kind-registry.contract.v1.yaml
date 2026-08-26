@@ -28,6 +28,7 @@ spec:
 
   observed_kinds:
     Skill: "proposed 2026-08-14 -- a reusable, invokable PROCEDURE (narrower/more operational than a Blueprint, which is doctrine/principle-level). First real usage: hee/skills/ratify-contract-v1.skill.yaml, capturing the contract-ratification workflow that emerged from actually fixing a real sign-then-mutate ordering bug the same night. Pending promotion to active_kinds once reviewed -- same bar as Registry's promotion below, not skipped."
+    RegNs: "proposed 2026-02-13, recovered from a private working repo (tcos-plan-private) and brought into this registry 2026-08-24 -- a first-class registry namespace for known-good regex and other reusable string atoms (quote/lyric/now-playing/etc.), keyed by purpose tag so scattered patterns become queryable and attestable instead of re-derived per-script. No real HEE-side usage yet (only the one seed proposal it originated from) -- needs at least one real consumer before promotion to active_kinds, same bar as Skill above."
 
   promotion_note_2026_08_13: "Registry promoted from observed to active: hee/registries/dir-groups.registry.v1.yaml already used kind=Registry in production before this registry recognized it -- a pre-existing gap, not a new proposal. This file itself also failed its own envelope schema (missing required metadata.labels.hee.object) until this same edit; fixed together rather than left inconsistent while depending on it."
 

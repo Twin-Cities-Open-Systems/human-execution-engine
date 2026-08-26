@@ -1,0 +1,53 @@
+# path: blueprints/org-foundation-design-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: org-foundation-design-v1
+  description: "Reusable design ceremony for laying out a durable organization's founding pillars, business model, and initial multi-entity structure before any filing happens. Extracted and genericized 2026-08-24 from a real, private, org-specific foundation/newco-formation DIF pair (tcos-plan-private) as part of the fleet-ops#272 recovery epic -- the actual pillar names, entity names, and identifiers were not carried over, only the reusable design shape. The original, org-specific instance stays private and unchanged."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: org-foundation-design
+    artifact: blueprint
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    recovered_utc: "2026-08-24T00:00:00Z"
+    origin_note: "genericized from a private tcos-plan-private DIF pair; see fleet-ops#272"
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  rules:
+    - "Design now; plan; verify; footgun-check; then plan execution -- in that order, never skipping ahead to execution."
+    - "No placeholders in the sense of silent gaps. An unresolved point is an explicit open_question, not a TBD left to rot."
+    - "Sensitive identifiers (tax IDs, legal entity numbers, etc.) are never invented or searched for speculatively -- they're supplied by a real human when the real filing happens, not designed around in advance."
+
+  intent:
+    endurance: "the organization is meant to outlast any single founder -- structure should harden toward that, not assume one person's continued involvement."
+    founder_note: "a founder originates roles/positions over time; the design should make that transition explicit rather than silently assume it never happens."
+
+  ceremony:
+    - step: name_the_pillars
+      description: "enumerate the organization's founding pillars -- the small number of things it exists to serve or protect. This blueprint doesn't prescribe what they are; only that each one gets a real definition, a stated reason it matters, and an explicit open_questions list."
+      exit_condition: "every pillar has: definition, why_it_matters, open_questions, and footguns"
+    - step: define_business_model
+      description: "state the model in one sentence, and the member/participant benefit modes (e.g. profit, learning, or a blend) -- explicit rather than assumed"
+      exit_condition: "a go/no-go rule exists for killing an underperforming venture, and a rule exists for how proceeds are allocated when one is sold"
+    - step: draft_entity_structure
+      description: "propose a candidate multi-entity structure (e.g. a top-level treasury/holding entity plus one or more operating/holding subsidiaries) -- explicitly a candidate to iterate, not a final answer"
+      exit_condition: "each entity has a stated role, and liability walls (what must never be co-mingled between entities) are named even if not yet finalized"
+    - step: dif_iterate
+      description: "iterate the whole draft against real open_questions and footguns until no silent gaps remain"
+      exit_condition: "every open_question is either answered or explicitly deferred with a named reason"
+
+  invariants:
+    - "design_precedes_execution: no filing, account-opening, or other execution step happens before this ceremony's draft_entity_structure and dif_iterate steps are both real, not stubbed."
+    - "no_silent_placeholders: every unresolved point is a named open_question, never a bare TBD with no owner."
+    - "identifiers_supplied_not_invented: real legal/tax identifiers come from the human running the ceremony when the real filing happens, never fabricated or guessed at design time."
+
+  known_gaps:
+    - "this blueprint captures the design ceremony's shape, not a template for what a good pillar list looks like -- the org-specific instance this was extracted from has its own real, private pillar list that isn't reproduced here."
+    - "not yet exercised end-to-end as a standalone ceremony run separate from the org-specific instance it was extracted from, which is itself still mid-DIF per fleet-ops#272."

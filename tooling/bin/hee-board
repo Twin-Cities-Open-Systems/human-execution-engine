@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""hee-board -- real, 0-token curated filtered views over the TCOS Roadmap
+project, since GitHub Projects v2 has no view-creation mutation in its
+GraphQL schema (confirmed live, 2026-08-24: zero ProjectV2View fields in
+the mutation type) -- UI-only, can't be built once and reused by a
+script. This is the functional equivalent: one real item-list fetch,
+then curated slices printed as plain text. 0-token by design -- pure
+deterministic filtering, no LLM call.
+
+Usage:
+  hee-board p0                 -- P0 items across every repo
+  hee-board unassigned-epics   -- real Epics with no sub-issues linked
+  hee-board off-project        -- open issues not yet on the Project board
+  hee-board stale --days N     -- items with no update in N days (default 30)
+"""
+import argparse
+import json
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+
+PROJECT_OWNER = "Twin-Cities-Open-Systems"
+PROJECT_NUMBER = 1
+
+
+def gh_json(args):
+    proc = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"hee-board: gh {' '.join(args)} failed:\n{proc.stderr}")
+    return json.loads(proc.stdout)
+
+
+def fetch_items():
+    return gh_json(["project", "item-list", str(PROJECT_NUMBER), "--owner", PROJECT_OWNER,
+                     "--format", "json", "--limit", "300"])["items"]
+
+
+def fmt(it):
+    c = it.get("content", {})
+    repo = it.get("repository", "").rstrip("/").split("/")[-1]
+    return f"{repo}#{c.get('number')}  {c.get('title', '(no title)')[:70]}"
+
+
+def cmd_p0(items, args):
+    for it in sorted(items, key=lambda i: i.get("repository", "")):
+        if it.get("priority") == "P0":
+            print(fmt(it))
+
+
+def cmd_off_project(items, args):
+    # off-project items don't show up in item-list at all by definition --
+    # real answer needs the same live audit pattern as full_backfill_audit.py,
+    # not just filtering this list. Flag that honestly instead of silently
+    # returning nothing.
+    print("hee-board: 'off-project' needs a real org-wide issue search, not just "
+          "this Project's own item list (items missing from the board can't be "
+          "found by listing the board) -- run the full backfill audit script instead.",
+          file=sys.stderr)
+    sys.exit(2)
+
+
+def cmd_stale(items, args):
+    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    for it in items:
+        c = it.get("content", {})
+        updated = c.get("updatedAt")
+        if not updated:
+            continue
+        ts = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+        if ts < cutoff:
+            print(f"{fmt(it)}  (last update {updated})")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("p0")
+    sub.add_parser("off-project")
+    s = sub.add_parser("stale")
+    s.add_argument("--days", type=int, default=30)
+    args = ap.parse_args()
+
+    if args.cmd == "off-project":
+        cmd_off_project(None, args)
+        return
+
+    items = fetch_items()
+    {"p0": cmd_p0, "stale": cmd_stale}[args.cmd](items, args)
+
+
+if __name__ == "__main__":
+    main()

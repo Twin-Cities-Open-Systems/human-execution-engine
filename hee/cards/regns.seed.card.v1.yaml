@@ -1,0 +1,45 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: regns-seed
+  description: "Seed proposal for kind: RegNs -- see hee.kind-registry.contract.v1.yaml's observed_kinds for status. Recovered from a private working repo 2026-08-24 and genericized (no private examples retained) for public consumption -- see fleet-ops#272 for the recovery epic."
+  labels:
+    hee.object: "true"
+    hee.state: candidate
+    domain: hee
+    scope: governance
+    topic: regns
+    artifact: card
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-13T00:00:00-06:00"
+    recovered_utc: "2026-08-24T00:00:00Z"
+spec:
+  summary: >-
+    A first-class registry namespace for known-good regex and other reusable
+    string atoms (quotes, lyrics, now-playing snippets, etc). Goal: make
+    scattered regex + string fragments queryable, reusable, and attestable
+    across consumers (DNS tooling, log parsers, Prometheus rules, etc)
+    instead of re-derived ad hoc per-script.
+  principles:
+    - "Regex is first-class, not an incidental string literal buried in a script."
+    - "Prefer a small number of tiny, reusable tools over one-off tooling per use case."
+    - "Known-good patterns must be addressable by stable keys and purpose tags, not re-typed from memory."
+  model_ideas:
+    kind_name_candidates: ["RegNs", "RegNS", "RegexNS", "KindRegNs"]
+    record_types:
+      regex:
+        required_fields: ["key", "purpose", "pattern", "engine", "tests"]
+        purpose_examples: ["dns", "prom", "logs", "triage", "parsing"]
+      quote:
+        required_fields: ["key", "quote", "context", "source"]
+      lyric:
+        required_fields: ["key", "lyric", "artist", "track", "year", "source_hash"]
+      now_playing:
+        required_fields: ["value", "ts"]
+  needs_dif: true
+  dif:
+    - "confirm the kind name (RegNs vs alternatives above) before it graduates past observed_kinds"
+    - "find or create a first real consumer object -- promotion needs real usage, not a second proposal"
+    - "decide whether tests: on a regex record is a literal test-case list or a pointer to a real test file"

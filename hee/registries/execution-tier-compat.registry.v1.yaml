@@ -1,0 +1,64 @@
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: execution-tier-compat
+  description: "Real, live-tracked list of forward-queue items (TCOS Roadmap project Status = 'Near Future Todo' / 'In Future'), each mapped to its required execution tier and any real blocking tool gap. Schema: contracts/execution-tier-compat-v1.contract.yaml."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: capacity-planning
+    topic: execution-tier-compat-registry
+    artifact: registry
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    updated-at: "2026-08-24T16:45:00Z"
+
+spec:
+  ts_human: 2026-08-24_1645
+
+  invariants:
+    - "Every entry's required_tier must match a real compute/* label on tracking_ref at time of last review -- re-check the live label before trusting this file if it looks old."
+    - "Real forward-queue snapshot as of 2026-08-24: 7 items, all Status='Near Future Todo', zero in 'In Future' (pulled live via the TCOS Roadmap project GraphQL API, not estimated)."
+
+  entries:
+    - tracking_ref: "Twin-Cities-Open-Systems/human-execution-engine#216"
+      required_tier: compute/claude-cli
+      blocking_tool_gap: null
+      notes: "IMPLEMENTATION_MANUAL -- real authored-content work, no tool gap, just needs a real writing pass."
+
+    - tracking_ref: "Twin-Cities-Open-Systems/fleet-ops#201"
+      required_tier: compute/claude-cli
+      blocking_tool_gap: "glass-browser has no authenticated profile/allowed-task mechanism yet -- real UI-automation gap, not a reasoning gap. See feedback_ui_gap_to_glass_ops-style tracking."
+      notes: "Squarespace domain-invite acceptance blocked on this specifically."
+
+    - tracking_ref: "Twin-Cities-Open-Systems/fleet-ops#200"
+      required_tier: compute/human-only
+      blocking_tool_gap: null
+      notes: "Board Ops hardware hacking (Ducky Ops keyboard) -- physical work, agent's role is limited to tracking/documenting, not executing."
+
+    - tracking_ref: "Twin-Cities-Open-Systems/tcos-www#25"
+      required_tier: compute/claude-cli
+      blocking_tool_gap: null
+      notes: "Smooth UI/UX -- standard real design+code work, no tool gap."
+
+    - tracking_ref: "Twin-Cities-Open-Systems/tcos-www#15"
+      required_tier: compute/claude-cli
+      blocking_tool_gap: null
+      notes: "Competing epoch counters (2038 rollover) -- real feature build, no tool gap."
+
+    - tracking_ref: "Twin-Cities-Open-Systems/human-execution-engine#248"
+      required_tier: compute/claude-cli
+      blocking_tool_gap: "Real SNMP tooling doesn't exist yet (hee-net covers finger/gopher only, not snmp) -- needed before the MIB (PEN 66550) can actually be served, not just designed."
+      notes: "Epic: OWNER-ROOT-MIB. Design/authoring is claude-cli tier; once built, real SNMP polling could move to compute/0-token."
+
+    - tracking_ref: "Twin-Cities-Open-Systems/human-execution-engine#210"
+      required_tier: compute/claude-cli
+      blocking_tool_gap: null
+      notes: "Kernel-level HEE verification (IMA/EVM). Research/design is claude-cli tier; real deployment of any kernel module or IMA/EVM policy is compute/human-only regardless -- flagged, not double-labeled, since the contract's tiers are meant to be additive per real-world risk, not just per-task-shape."
+
+  example_entries:
+    - tracking_ref: "Twin-Cities-Open-Systems/human-execution-engine#000"
+      required_tier: compute/0-token
+      blocking_tool_gap: null
+      notes: "Illustrative only -- not a real tracked item."

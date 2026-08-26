@@ -1,0 +1,8 @@
+# name  kind    desired
+go      tar     1.26.0
+yq      bin     4.50.1
+jq      pkg     any
+bat     pkg     any
+glow    pkg     any
+rg      pkg     any
+tmux    pkg     any

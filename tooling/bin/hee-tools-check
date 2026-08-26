@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+# Resolve manifest relative to this script, so it works from any CWD.
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
+MANIFEST="${1:-$DEFAULT_MANIFEST}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+vline() {
+  n="$1"
+  if have "$n"; then
+    if "$n" --version >/dev/null 2>&1; then
+      ver=$("$n" --version | head -n 1)
+    elif "$n" -V >/dev/null 2>&1; then
+      ver=$("$n" -V | head -n 1)
+    else
+      ver="(version-flag-unknown)"
+    fi
+    printf "🟢 + %-8s %s\n" "$n" "$ver"
+  else
+    printf "🔴 - %-8s missing\n" "$n"
+  fi
+}
+
+echo "### hee-tools-check"
+echo "manifest: $MANIFEST"
+echo ""
+
+# name kind desired (ignore kind/desired for now; check presence+version string)
+while IFS= read -r line; do
+  case "$line" in
+    ""|\#*) continue ;;
+  esac
+  set -- $line
+  name="$1"
+  vline "$name"
+done < "$MANIFEST"

@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""hee-worktree -- per-session git worktree, no extra clone.
+
+Real trigger (2026-08-24): a real, live collision -- multiple concurrent
+touchy-claude sessions sharing one working directory
+(~/git/human-execution-engine), each running `git checkout <their-branch>`
+against the same single HEAD. One session got yanked mid-task onto
+another's branch, unnoticed until a diff looked wrong. Spencer's ask:
+"a clean simple solution to avoid these collision without using more
+diskapce."
+
+Real, verified answer: `git worktree`. A worktree checks out a branch
+into its own directory while sharing the *same* .git/objects store as
+the main clone -- proven live before building this: a fresh worktree
+cost 4.9M (working files only) against the main clone's 14M full size,
+and both branches were genuinely checked out simultaneously with zero
+conflict. Not a new idea either -- `git worktree list` already showed
+another real session using this exact pattern
+(~/.claude/jobs/*/tmp/hee-respawn-doctrine).
+
+This tool just makes the convention consistent instead of every session
+picking its own ad hoc worktree path.
+
+Usage:
+  hee-worktree start BRANCH [--from BASE]   # create (or reuse) a
+                                             # worktree, print its path
+  hee-worktree list                         # git worktree list, as-is
+  hee-worktree done BRANCH                  # remove the worktree
+                                             # (branch itself is untouched
+                                             # -- still real, still
+                                             # pushed/PR-able)
+
+Path convention: a sibling directory to the repo root,
+<repo-root>.worktrees/<sanitized-branch-name> -- deliberately NOT nested
+inside the tracked tree, so it can't confuse `git ls-files`/status in the
+main clone.
+"""
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+def die(msg):
+    sys.exit(f"hee-worktree: {msg}")
+
+
+def repo_root() -> Path:
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if out.returncode != 0:
+        die("not inside a git repo")
+    return Path(out.stdout.strip())
+
+
+def sanitize(branch: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", branch)
+
+
+def worktrees_root(root: Path) -> Path:
+    d = root.parent / f"{root.name}.worktrees"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def run(args):
+    return subprocess.run(["git", *args], capture_output=True, text=True)
+
+
+def cmd_start(branch: str, base: str):
+    root = repo_root()
+    path = worktrees_root(root) / sanitize(branch)
+    if path.exists():
+        print(str(path))
+        return
+
+    # branch may already exist (resuming) or need creating fresh
+    exists = run(["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]).returncode == 0
+    if exists:
+        out = run(["worktree", "add", str(path), branch])
+    else:
+        out = run(["worktree", "add", "-b", branch, str(path), base])
+    if out.returncode != 0:
+        die(f"git worktree add failed:\n{out.stderr}")
+    print(str(path))
+
+
+def cmd_list():
+    out = run(["worktree", "list"])
+    print(out.stdout, end="")
+
+
+def cmd_done(branch: str):
+    root = repo_root()
+    path = worktrees_root(root) / sanitize(branch)
+    if not path.exists():
+        die(f"no worktree for '{branch}' at {path}")
+    out = run(["worktree", "remove", str(path)])
+    if out.returncode != 0:
+        die(f"git worktree remove failed (uncommitted changes?):\n{out.stderr}")
+    print(f"hee-worktree: removed {path} -- branch '{branch}' itself is untouched")
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=False)
+    sub = ap.add_subparsers(dest="cmd")
+
+    p_start = sub.add_parser("start", add_help=False)
+    p_start.add_argument("branch")
+    p_start.add_argument("--from", dest="base", default="main")
+
+    p_done = sub.add_parser("done", add_help=False)
+    p_done.add_argument("branch")
+
+    sub.add_parser("list", add_help=False)
+
+    args = ap.parse_args()
+
+    if args.cmd == "start":
+        cmd_start(args.branch, args.base)
+    elif args.cmd == "list":
+        cmd_list()
+    elif args.cmd == "done":
+        cmd_done(args.branch)
+    else:
+        print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

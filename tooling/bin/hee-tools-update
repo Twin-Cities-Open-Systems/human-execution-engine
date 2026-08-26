@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
+MANIFEST="${1:-$DEFAULT_MANIFEST}"
+EVD_DIR="${2:-hee/evidence/tools}"
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+OUT="$EVD_DIR/tools-update.$TS.log"
+
+mkdir -p "$EVD_DIR" "$HOME/.local/bin" "$HOME/.local/go"
+
+log() { printf "%s\n" "$*" | tee -a "$OUT" >/dev/null; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+install_go_tar() {
+  gov="$1"
+  arch="amd64"
+  os="linux"
+  t="go${gov}.${os}-${arch}.tar.gz"
+  url="https://go.dev/dl/${t}"
+  tmp="${TMPDIR:-/tmp}/${t}"
+  dest="$HOME/.local/go/${gov}"
+
+  log "== go install ${gov} =="
+  log "curl $url"
+  curl -fsSL -o "$tmp" "$url"
+  log "sha256:"
+  sha256sum "$tmp" | tee -a "$OUT" >/dev/null
+
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  tar -C "$dest" -xzf "$tmp"
+
+  ln -sf "$dest/go/bin/go" "$HOME/.local/bin/go"
+  ln -sf "$dest/go/bin/gofmt" "$HOME/.local/bin/gofmt"
+
+  if have go; then
+    log "go version: $(go version)"
+  else
+    log "🔴 go not on PATH; add ~/.local/bin to PATH"
+  fi
+}
+
+install_yq_bin() {
+  yqv="$1"
+  arch="amd64"
+  os="linux"
+  url="https://github.com/mikefarah/yq/releases/download/v${yqv}/yq_${os}_${arch}"
+  out="$HOME/.local/bin/yq"
+
+  log "== yq install v${yqv} =="
+  log "curl $url -> $out"
+  curl -fsSL -o "$out" "$url"
+  chmod +x "$out"
+  log "yq version: $(yq --version || true)"
+}
+
+log "### hee-tools-update"
+log "manifest: $MANIFEST"
+log "out: $OUT"
+log ""
+
+while IFS= read -r line; do
+  case "$line" in
+    ""|\#*) continue ;;
+  esac
+  set -- $line
+  name="$1"; kind="$2"; desired="$3"
+
+  case "$name:$kind" in
+    go:tar)
+      install_go_tar "$desired"
+      ;;
+    yq:bin)
+      if have yq; then
+        cur="$(yq --version | sed -n 's/.*version v\{0,1\}\([0-9.]\+\).*/\1/p' | head -n 1)"
+        log "yq current: ${cur:-unknown} desired: $desired"
+        if [ "${cur:-}" != "$desired" ]; then
+          install_yq_bin "$desired"
+        else
+          log "yq ok"
+        fi
+      else
+        install_yq_bin "$desired"
+      fi
+      ;;
+    jq:pkg|bat:pkg|glow:pkg|rg:pkg|tmux:pkg)
+      if have "$name"; then
+        log "== $name ok (present) =="
+      else
+        log "== $name missing =="
+        log "hint (debian/ubuntu): sudo apt install $name"
+      fi
+      ;;
+    *)
+      log "🟡 unknown manifest entry: $name $kind $desired"
+      ;;
+  esac
+done < "$MANIFEST"
+
+log ""
+log "done"

@@ -1,0 +1,70 @@
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: tcos-mna-hee-sale-deal
+  description: "HEE asset transfer to TCOS with free-to-read covenant; governance + evidence + valuation method. Recovered from a private working repo (tcos-plan-private) 2026-08-24 and promoted here as the canonical copy -- see fleet-ops#272 for the recovery epic. Content unchanged from the original: contains no private identifiers, dollar figures, or personal names, so no sanitization was needed beyond the location move itself."
+  labels:
+    hee.object: "true"
+    domain: tcos
+    scope: mna
+    topic: hee-sale
+    artifact: contract
+  annotations:
+    inuid: "698e3412-47e8-832f-ad2d-25fb3c63f0af"
+    created_utc: "2026-02-13T07:59:53Z"
+    recovered_utc: "2026-08-24T00:00:00Z"
+spec:
+  intent:
+    - "TCOS must own HEE day-1 of TCOS FY2026 (target: 2026-03-01)."
+    - "HEE remains free-to-read forever; TCOS must never charge for access to read HEE."
+    - "This must not preclude TCOS from earning revenue from services/products built on HEE."
+  assets_transferred:
+    - id: hee-ip
+      includes:
+        - "copyright/IP in HEE authored by seller"
+        - "repo admin/control (GitHub org/user ownership + settings control)"
+      excludes:
+        - "third-party contributor IP not owned by seller (licensed per repo license)"
+    - id: hee-brand
+      status: "TBD"
+      includes:
+        - "trademark(s) (if/when filed) + assignment/recordation evidence"
+        - "domains/social handles (if any) + transfer evidence"
+  covenant_free_to_read:
+    must:
+      - "No paywall for reading HEE content."
+      - "License changes are protected actions (see governance)."
+    allowed_revenue:
+      - "support/consulting"
+      - "managed CI/gates + hosted tooling"
+      - "certification/audits"
+      - "implementation services (margin expansion as a service)"
+  governance:
+    protected_actions:
+      p0:
+        - "change license terms"
+        - "transfer trademark ownership"
+        - "transfer repo ownership to non-TCOS entity"
+        - "remove/disable validation gates in strict mode"
+    evidence_required:
+      - "written decision artifact (hee-obj) with inuid + timestamps"
+      - "signing evidence bundle (TBD) for real-world transactions"
+    note:
+      - "Use p-tiers (p0 highest) for authority limits; never 'benefits' language, use entitlements."
+  valuation_method:
+    rule:
+      - "All valuation claims must be explained in docs/math BEFORE being encoded into math/."
+    placeholder:
+      - "Replacement cost (cost-to-recreate) + adoption evidence + revenue channel option value."
+      - "Prefer milestone/earnout unlocks over big upfront numbers."
+  compliance_preflight:
+    must:
+      - "Securities attorney review before any investor money moves."
+      - "CPA/tax review for barter/meal compensation and related-party transfers."
+    reg_d:
+      - "Track 506(b)/506(c) decision as a hee-obj with evidence."
+  open_questions:
+    - "Trademark timing: file under TCOS entity vs personal + assignment later."
+    - "Entity routing: TCOS LLC vs Hold as the owning entity for HEE."
+    - "Cap table / units: LLC units vs corp shares; preferred/convertible instruments policy."
+    - "Define 'margin' measurement + audit method for margin-expansion service contracts."

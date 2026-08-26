@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""hee-pwgen -- real, cryptographically secure password generator.
+
+Real trigger: "./hee -pwgen 8" -- not baked into any hee-* tool yet;
+hee-cred's -seal step deliberately relies on the human typing their own
+password, this is the separate, real "just generate one" case (used
+tonight for the soju bouncer user, written straight to a private file,
+never printed to a shared/logged surface if you pipe it there
+yourself).
+
+Uses Python's `secrets` module -- real CSPRNG, not `random` (which is
+not cryptographically secure and shouldn't generate anything
+credential-shaped).
+
+Usage:
+  hee-pwgen [LENGTH]   # default 20 if omitted -- 8 works but is short
+                        # for anything beyond a quick local test
+"""
+import secrets
+import string
+import sys
+
+DEFAULT_LENGTH = 20
+ALPHABET = string.ascii_letters + string.digits
+
+
+def main():
+    length = DEFAULT_LENGTH
+    if len(sys.argv) > 1:
+        try:
+            length = int(sys.argv[1])
+        except ValueError:
+            sys.exit(f"hee-pwgen: '{sys.argv[1]}' is not a real integer length")
+        if length < 1:
+            sys.exit("hee-pwgen: length must be at least 1")
+
+    if length < 12:
+        print(f"hee-pwgen: warning: {length} chars is short for anything beyond a quick local test", file=sys.stderr)
+
+    print("".join(secrets.choice(ALPHABET) for _ in range(length)))
+
+
+if __name__ == "__main__":
+    main()

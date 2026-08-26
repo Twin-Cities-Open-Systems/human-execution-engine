@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""hee-scan -- real regex scan over a named real target, one true regex.
+
+Real trigger (2026-08-22): "./hee -scan storage -r 'hygien|foo|bar{3,}'
+# only valid regex ever, our 1 true regex" -- generalizes the ad-hoc
+`rg` calls run by hand tonight into a real tool, and standardizes on
+ripgrep's own regex dialect (Rust regex, real PCRE-like syntax
+including quantifiers like `{3,}`) as the one dialect used everywhere
+in the hee-* tools that search text -- same choice hee-srtscan already
+made, kept consistent here rather than picking a second one.
+
+Targets are named, not raw paths, so "where does -r search" stays a
+real, explicit, growable list instead of everyone needing to remember
+absolute paths:
+  storage -> /mnt/nuc1-pool/storage/docs
+  media   -> /mnt/nuc1-pool/media
+
+Usage:
+  hee-scan -target NAME -r REGEX
+  hee-scan -list-targets
+"""
+import argparse
+import json
+import subprocess
+import sys
+
+TARGETS = {
+    "storage": "/mnt/nuc1-pool/storage/docs",
+    "media": "/mnt/nuc1-pool/media",
+}
+
+
+def scan(root: str, pattern: str):
+    proc = subprocess.run(
+        ["/usr/bin/rg", "--json", "-i", "--", pattern, root],
+        capture_output=True, text=True,
+    )
+    # Real, same session: mixed real file ownership means some files
+    # aren't readable by this account -- rg reports that on stderr and
+    # returns non-1/0, but real matches from readable files still come
+    # through on stdout. Only a genuinely missing/empty root is fatal.
+    if proc.returncode not in (0, 1, 2):
+        sys.exit(f"hee-scan: rg failed: {proc.stderr}")
+    skipped = proc.stderr.count("Permission denied")
+    if skipped:
+        print(f"hee-scan: {skipped} real file(s) not readable by this account, skipped", file=sys.stderr)
+
+    hits = 0
+    for line in proc.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "match":
+            continue
+        hits += 1
+        path = event["data"]["path"]["text"]
+        line_no = event["data"]["line_number"]
+        text = event["data"]["lines"]["text"].rstrip("\n")
+        print(f"{path}:{line_no}: {text}")
+
+    if hits == 0:
+        print(f"hee-scan: no match for '{pattern}' under {root}", file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-scan")
+    ap.add_argument("-target", metavar="NAME")
+    ap.add_argument("-r", dest="regex", metavar="REGEX")
+    ap.add_argument("-list-targets", action="store_true")
+    args = ap.parse_args()
+
+    if args.list_targets:
+        for name, path in TARGETS.items():
+            print(f"{name} -> {path}")
+        return
+
+    if not args.target or not args.regex:
+        sys.exit("hee-scan: -target NAME and -r REGEX required (or -list-targets)")
+
+    if args.target not in TARGETS:
+        sys.exit(f"hee-scan: unknown target '{args.target}' -- see -list-targets")
+
+    scan(TARGETS[args.target], args.regex)
+
+
+if __name__ == "__main__":
+    main()
