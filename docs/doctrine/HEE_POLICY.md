@@ -151,7 +151,7 @@ git push origin --delete feature/merged-branch  # Remote
 - **Scope note**: this requirement covers GitHub content and chat/agent
   output — prose meant for a human or a general renderer. Structured
   work files (contracts, blueprints, doctrine YAML) use the compact
-  `tick:`/`pr:` notation from §13 instead, not markdown links — see §13
+  `issue:`/`pr:` notation from §13 instead, not markdown links — see §13
   for why
 
 **Ordered-Steps Requirement**:
@@ -383,7 +383,7 @@ effect of issue triage.
 ### 13. Compact Reference Notation (structured work files)
 
 **Requirement**: contracts, blueprints, and doctrine YAML reference other
-issues/PRs with a compact `tick:`/`pr:` token, not a markdown link
+issues/PRs with a compact `issue:`/`pr:` token, not a markdown link
 
 **Rationale**, per Spencer's review on pr:223@human-execution-engine: a full
 `[text](url)` markdown link is the right shape for prose meant for a human
@@ -393,11 +393,20 @@ actual content for a reader's attention, and not meaningfully more useful
 to tooling than a short token would be. Work files want a real k:v pair,
 not a link.
 
+**Naming, corrected 2026-08-25**: this notation originally used `tick:` for
+GitHub issues. Spencer caught a real clash: `hee-ticket` is a separate,
+already-real system (a local, git-tracked, idea→footgun→dogfood work
+pipeline under `.hee/tickets/`) — "tick" as a root belongs exclusively to
+that system, not to a GitHub-issue shorthand. Renamed `tick:` → `issue:`
+everywhere (this doc and the 2 real files that had used it,
+`blueprints/shift-init-v1.yaml` and `contracts/shift-metrics-v1.contract.yaml`)
+to remove the ambiguity, not just here.
+
 **Notation**:
 
-- In-org issue: `tick:<N>@<repo>` — e.g. `tick:225@human-execution-engine`
+- In-org issue: `issue:<N>@<repo>` — e.g. `issue:225@human-execution-engine`
 - In-org PR: `pr:<N>@<repo>` — e.g. `pr:223@human-execution-engine`
-- Cross-org: `tick:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
+- Cross-org: `issue:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
   segment is present specifically when it isn't
   `Twin-Cities-Open-Systems`
 - Commit: `commit:<sha>@<repo>`
@@ -408,13 +417,62 @@ not a link.
   machine-parsed doctrine YAML — not to prose docs (`docs/`, `README.md`)
   or chat/agent output, which stay under §5's real-link rule
 - The token is mechanically expandable to a full URL
-  (`tick:N@repo` → `https://github.com/Twin-Cities-Open-Systems/repo/issues/N`)
+  (`issue:N@repo` → `https://github.com/Twin-Cities-Open-Systems/repo/issues/N`)
   by any tooling that wants one — nothing is lost by using the short form
   in the source file
 - This is a new convention as of 2026-08-18, applied first in
   `blueprints/shift-init-v1.yaml` and its companion contracts — not yet
   retrofitted across the rest of the repo, tracked as future cleanup, not
   claimed as done everywhere
+
+### 14. Signature Policy (agent identity + published content)
+
+**Status: pending ratification.** This section describes what
+`contracts/agent-instance-signature-v1.contract.yaml` and
+`contracts/content-signing-v1.contract.yaml` require. Both are staged
+(`status: ratified`, unsigned) as of this writing and take effect the
+moment Spencer's real GPG signature lands on each — not before. This
+section is written now so it can land in the same commit as, or
+immediately after, the signatures, rather than lagging behind them.
+
+**Agent identity signatures — SendMessage traffic and GitHub comments**:
+
+- Every SendMessage delivery and every GitHub issue/PR comment written
+  by an agent identity must carry the full `agent-instance-signature-v1`
+  block (session_id, host, gh_actor, timestamp), per
+  `contracts/agent-instance-signature-v1.contract.yaml`
+- Rationale: same-account concurrent sessions are otherwise
+  indistinguishable from each other (§10's "Known platform constraint"
+  above) — the signature is what lets a reader tell which real session
+  did what
+- **tmux send-keys is a real, lighter-weight exception**: a plain `# `
+  -prefixed comment is sufficient there, not the full block — resolved
+  directly by Spencer and recorded in
+  `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`. The
+  distinction: a live tmux pane on a real, currently-running server
+  already proves physical/session identity the way the full block exists
+  to establish for a remote, unverified peer (SendMessage, a GitHub
+  comment) — see that card's `important_nuance` for how this reconciles
+  with `human-execution-engine#303`'s framing of SendMessage's approval
+  gate as a deliberate security feature, not a flaw being routed around
+
+**Content signatures — published artifacts**:
+
+- Per `contracts/content-signing-v1.contract.yaml`: lab-published
+  artifacts are signed (GPG detached `.asc`) by whoever built them; a
+  prod promotion is signed by whoever actually performs the promotion
+  (Spencer or an agent, case-by-case, never assumed) — everyone signs
+  their own work, never proxy-signs for someone else
+- EXIF `Artist`/`Copyright` fields are set only when real
+  authorship/assignment is actually known — never auto-defaulted to the
+  org's name. See `hee/cards/attribution-standing.method.card.v1.yaml`
+  for the real mistake (crediting TCOS for a photo TCOS didn't create)
+  this rule exists to prevent
+- A signature is computed over final bytes — anything that mutates a
+  file after signing (including writing a hash-of-itself back into its
+  own metadata) invalidates that file's own signature. Verify with
+  `gpg --verify` immediately after signing, every time, rather than
+  trusting the signing step's own exit status
 
 ### HEE Rule Violation Documentation
 

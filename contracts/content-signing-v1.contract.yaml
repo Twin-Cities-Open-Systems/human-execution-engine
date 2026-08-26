@@ -2,7 +2,7 @@
 version: content-signing-v1
 name: content-signing
 title: Content Signing Contract (lab / prod)
-status: proposed
+status: ratified
 
 intent:
   - "give every published artifact (media, pages, generated content -- not
