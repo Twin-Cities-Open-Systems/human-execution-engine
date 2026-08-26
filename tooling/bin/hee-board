@@ -12,6 +12,11 @@ Usage:
   hee-board unassigned-epics   -- real Epics with no sub-issues linked
   hee-board off-project        -- open issues not yet on the Project board
   hee-board stale --days N     -- items with no update in N days (default 30)
+  hee-board open-prs           -- every real open PR org-wide, via `gh search
+                                   prs` (not the Project board -- most open
+                                   PRs, esp. Dependabot ones, are never added
+                                   to it, so board-scoped commands above would
+                                   silently miss almost all of them)
 """
 import argparse
 import json
@@ -59,6 +64,19 @@ def cmd_off_project(items, args):
     sys.exit(2)
 
 
+def cmd_open_prs(items, args):
+    # Real, deliberate departure from every other command here: this does
+    # NOT use fetch_items() (the Project board's item list) at all -- most
+    # open PRs, especially Dependabot ones, are never added to the board,
+    # so a board-scoped query would silently under-report. `gh search prs`
+    # queries GitHub's real PR index directly, org-wide, in one call.
+    prs = gh_json(["search", "prs", "--owner", PROJECT_OWNER, "--state", "open",
+                   "--json", "number,repository,title", "--limit", "300"])
+    for pr in sorted(prs, key=lambda p: (p["repository"]["name"], p["number"])):
+        print(f"{pr['repository']['name']}#{pr['number']}  {pr['title'][:70]}")
+    print(f"\n{len(prs)} open PR(s) total.", file=sys.stderr)
+
+
 def cmd_stale(items, args):
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
     for it in items:
@@ -76,12 +94,16 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("p0")
     sub.add_parser("off-project")
+    sub.add_parser("open-prs")
     s = sub.add_parser("stale")
     s.add_argument("--days", type=int, default=30)
     args = ap.parse_args()
 
     if args.cmd == "off-project":
         cmd_off_project(None, args)
+        return
+    if args.cmd == "open-prs":
+        cmd_open_prs(None, args)
         return
 
     items = fetch_items()
