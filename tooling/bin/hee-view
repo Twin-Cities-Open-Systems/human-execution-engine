@@ -64,6 +64,43 @@ def dns_check(dns_host, name="ns1.lab.tcos.us"):
     return out.strip() if code == 0 and out.strip() else None
 
 
+def inbound_status():
+    # Real trigger (2026-08-26): tcos.us/api/contact + /api/apply write
+    # real applicant/investor/press submissions straight into the private
+    # Twin-Cities-Open-Systems/inbound repo as issues -- confirmed live,
+    # 8 open (unanswered, some 5+ days old) the day this was added, zero
+    # prior monitoring. Spencer: "looks like some new stuff there and I
+    # am expecting more soon, need to monitor." Deliberately just an open
+    # count + oldest-open age here, not a spam/real-applicant judgment
+    # call -- that's inbound#12's real, still-open design question.
+    code, out, err = sh(["gh", "issue", "list", "--repo", "Twin-Cities-Open-Systems/inbound",
+                         "--state", "open", "--json", "number,title,createdAt", "--limit", "100"])
+    if code != 0:
+        return None
+    # Real submissions from the worker are titled "Contact (...): ..." or
+    # "Application: ... — ...". Anything else (e.g. inbound#12, "Design a
+    # real spam-handling workflow policy...") is a meta/tracking issue in
+    # the same repo, not an unprocessed submission -- exclude it, or the
+    # oldest-open figure below is misleading (confirmed live, 2026-08-26:
+    # #12 itself was being counted as the "oldest open submission").
+    return [i for i in json.loads(out) if i["title"].startswith(("Contact (", "Application:"))]
+
+
+def print_inbound(issues):
+    if issues is None:
+        print("🔴 inbound: unreachable (gh issue list failed)")
+        return
+    n = len(issues)
+    if n == 0:
+        print("🟢 inbound: 0 open submissions")
+        return
+    oldest = min(issues, key=lambda i: i["createdAt"])
+    from datetime import datetime, timezone
+    age_days = (datetime.now(timezone.utc) - datetime.fromisoformat(oldest["createdAt"].replace("Z", "+00:00"))).days
+    flag = "🔴" if age_days >= 3 else "🟡"
+    print(f"{flag} inbound: {n} open submission(s), oldest {age_days}d old (#{oldest['number']}) -- https://github.com/Twin-Cities-Open-Systems/inbound/issues")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-view")
     ap.add_argument("--pve-host", default="10.0.0.153")
@@ -102,6 +139,8 @@ def main():
     dns = dns_check(args.dns_host)
     flag = "🟢" if dns else "🔴"
     print(f"{flag} dns (ns1): {dns or 'no answer'}")
+
+    print_inbound(inbound_status())
 
 
 if __name__ == "__main__":
