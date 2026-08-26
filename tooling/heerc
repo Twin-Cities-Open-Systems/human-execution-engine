@@ -1,0 +1,20 @@
+# heerc -- minimal, identity-agnostic shell environment for HEE.
+#
+# Real trigger (2026-08-26): hee's PATH resolution depended entirely on
+# spencer's personal dotfiles happening to add ~/.local/bin to PATH --
+# broke for a fresh homedir before dotfiles got reinstalled, and would
+# break the same way for any identity (touchy-claude, a future oper)
+# that doesn't run spencer's exact personal dotfiles. This decouples
+# "can bare `hee` resolve" from "did this identity install full
+# personal dotfiles."
+#
+# Sourced by dotfiles' .bashrc when this repo happens to be cloned
+# (guarded -- an oper using dotfiles without hee cloned is unaffected,
+# per Spencer directly: "oper can still use dotfiles without hee").
+# Deliberately minimal: PATH only, no aliases/prompt/other opinion --
+# those stay in personal dotfiles, not here.
+
+case ":${PATH}:" in
+  *":${HOME}/.local/bin:"*) ;;
+  *) PATH="${HOME}/.local/bin:${PATH}" ;;
+esac
