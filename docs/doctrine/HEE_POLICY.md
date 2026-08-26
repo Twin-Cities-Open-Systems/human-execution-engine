@@ -474,6 +474,75 @@ immediately after, the signatures, rather than lagging behind them.
   `gpg --verify` immediately after signing, every time, rather than
   trusting the signing step's own exit status
 
+### 15. External Data Sourcing Policy
+
+**Requirement**: a strict, real three-tier order for any external data a
+tool/feature needs — **(1) default/preferred: free, open intel that is
+not scraped; (2) paid, when the value is genuinely justified; (3)
+scraping, the actual last resort after every other option has been
+considered, which should never actually happen**
+
+**Rationale**, per Spencer directly (2026-08-24, deciding how to source
+comp/skill-market data for a real resume-badge feature), in his own
+words and order: "free openintel > scrape or pay every single time" →
+"avoid scrape like the plague, nasty business is that one" → precise
+correction of a first-pass summary of this policy that mis-ordered paid
+vs. scrape: "default(prefered) free open intel that is not scraped
+paid(when val is justified), scrape is last resort after every other
+thing we can think of, should never ever happen." Paid is a legitimate,
+reasonably-reached-for middle tier (a real cost/value call, not gated
+behind an exhaustive search first) — scraping sits *below* paid, not
+alongside it, and carries real, ongoing exposure this org already takes
+seriously elsewhere (ToS violations, legal risk, brittleness to the
+target site's own changes).
+
+**Already real, existing practice, now made explicit**: `thesis-engine`
+already sources macro data this way — FRED for credit-spread/bond index
+data, BLS/FRED for CPI/PPI/yield-curve data — real, free, government-
+licensed sources, no scraping, no paid vendor. This policy names that
+existing discipline instead of leaving it an unstated habit.
+
+**Enforcement**:
+
+- Default: a free, openly-licensed real source — government stats
+  agencies (BLS, FRED, Census, and equivalents), public datasets, or a
+  project's own official open API — obtained through its real, sanctioned
+  channel, not scraped just because it happens to be free to view
+- Paid is acceptable whenever its value is genuinely justified — a real
+  cost/value judgment call, not something that requires proving no free
+  option exists first
+- Scraping is the true last resort, reached for only after every other
+  real option has actually been considered and ruled out — and the
+  standing expectation is that this should never actually happen; if a
+  real need seems to leave no free or paid option, surface that as an
+  explicit decision point for Spencer rather than defaulting to scraping
+
+**Downloaded artifact integrity is a separate, mandatory requirement —
+sourcing tier doesn't excuse skipping it.** Per Spencer directly
+(2026-08-24, after a binary was fetched and used without checksum
+verification): "make sure we are getting and verify sums and shit for
+things we download." A free/open source being trustworthy in principle
+doesn't mean any individual download wasn't corrupted in transit or
+served from a compromised mirror/CDN — checksum verification catches
+that regardless of tier.
+
+- Before running or trusting any downloaded binary/artifact, fetch its
+  publisher's own checksum file (not a third-party mirror's) and verify
+  the download against it (`sha256sum -c`, or equivalent)
+- Pin the exact version being used (a real, current release tag checked
+  directly — e.g. via the project's own release API — not guessed or
+  assumed from memory)
+- A detached cryptographic signature (GPG, cosign, etc.), when the
+  publisher provides one, is a stronger guarantee than a checksum alone
+  and should be preferred when available — note explicitly when a
+  project does *not* publish one, rather than silently treating checksum
+  verification as equivalent
+- Real worked example: `gitleaks` v8.30.1 ([human-execution-engine#337](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/337))
+  — version confirmed via the real GitHub releases API, binary verified
+  against the publisher's own `gitleaks_8.30.1_checksums.txt` before use
+  (`sha256sum -c`, confirmed `OK`); no detached signature is published
+  for this project, noted as a real limitation rather than assumed away
+
 ### HEE Rule Violation Documentation
 
 **Process**:
