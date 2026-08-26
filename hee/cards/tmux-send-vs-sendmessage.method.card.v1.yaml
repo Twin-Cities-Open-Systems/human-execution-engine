@@ -86,4 +86,29 @@ spec:
     -- that contract's own must-list (SendMessage, GitHub comments)
     should note tmux-send as a real third channel with this lighter
     requirement, not silently omit it."
+  dogfood_shell_addendum:
+    scope: "Extends this card from message-delivery to action-execution:
+      when an agent needs to DO something inside spencer@kiosk's
+      unprivileged dogfood shell specifically (not just message Spencer),
+      prefer tmux send-keys into his real, live pane over a silent
+      `sudo -u spencer` side-channel."
+    origin: "Spencer, 2026-08-26: \"we now prefer tmux send for comms
+      when working in my spencer@kiosk unpriv dogfood shell\" -- raised
+      live while diagnosing a real hee-toolchain staleness issue in
+      that account."
+    why: "spencer@kiosk is permanently unprivileged by design -- that's
+      the whole point of the dogfood account (see fleet-ops precedent:
+      never propose sudo or a privileged workaround for it). An agent
+      reaching in via `sudo -u spencer` to act as him, invisibly, cuts
+      against that same design intent even when the action itself is
+      benign (e.g. a git pull) -- it happens outside his own terminal,
+      unseen. tmux send-keys into his real pane keeps every action
+      visible in the same live session he's actually watching, same
+      transparency rationale as the message-delivery case above, just
+      applied to command execution instead of chat."
+    practice: "Prefer `tmux send-keys -t <session:window.pane> '<cmd>'
+      Enter` against spencer@kiosk's real pane over `sudo -u spencer
+      bash -c '...'`. Reserve the sudo side-channel for read-only
+      diagnosis (e.g. checking file state before acting) where landing
+      a command in his live pane would be noise, not signal."
   status: dogfood
