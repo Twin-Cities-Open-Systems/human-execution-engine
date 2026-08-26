@@ -93,6 +93,35 @@ doctor:
 	@echo "  git reflog"
 	@echo "  git branch --show-current"
 	@echo "  if you need a rescue branch first: git checkout -b rescue/$$(date +%Y%m%d-%H%M%S)"
+	@$(MAKE) --no-print-directory doctor-env
+
+# Real identity-env check, same real fields tools/agent-signature.sh
+# reads (contracts/agent-instance-signature-v1.contract.yaml) -- not a
+# separately-invented env scheme. Works the same for a human operator
+# shell and an agent shell: CLAUDE_CODE_SESSION_ID being unset just
+# means "this is a human," reported plainly, not an error.
+.PHONY: doctor-env
+doctor-env:
+	@echo "🔵 doctor-env (real identity fields, human or agent)"
+	@if [ -n "$$CLAUDE_CODE_SESSION_ID" ]; then \
+	  echo "🟢 identity: agent session (CLAUDE_CODE_SESSION_ID set)"; \
+	else \
+	  echo "🟦 identity: human operator shell (CLAUDE_CODE_SESSION_ID unset)"; \
+	fi
+	@echo "🟦 CLAUDE_CODE_SESSION_ID=$${CLAUDE_CODE_SESSION_ID:-<unset>}"
+	@echo "🟦 CLAUDE_PID=$${CLAUDE_PID:-<unset, would default to \$$\$$>}"
+	@if [ -n "$$TMUX" ]; then \
+	  echo "🟢 tmux: attached (TMUX_SESSION=$${TMUX_SESSION:-unknown} TMUX_PANE=$${TMUX_PANE:-unknown})"; \
+	else \
+	  echo "🟦 tmux: not attached"; \
+	fi
+	@echo "🟦 CLAUDE_CODE_MESSAGING_SOCKET=$${CLAUDE_CODE_MESSAGING_SOCKET:-<unset>}"
+	@printf "🟦 gh auth: "; \
+	  gh auth status >/dev/null 2>&1 && gh auth status 2>&1 | grep -oP 'account \K\S+' | head -1 || echo "🟠 not logged in (gh auth login)"
+	@printf "🟦 gpg default signing key: "; \
+	  gpg --list-secret-keys --keyid-format long 2>/dev/null | grep -q '^sec' && echo "present" || echo "🟠 none found (gpg --full-generate-key or import one)"
+	@echo "🟦 real signature block this identity would produce:"
+	@bash "$(REPO_ROOT)/tools/agent-signature.sh" 2>/dev/null | sed 's/^/  /' || echo "  🟠 tools/agent-signature.sh failed"
 
 .PHONY: test-drive
 test-drive:
