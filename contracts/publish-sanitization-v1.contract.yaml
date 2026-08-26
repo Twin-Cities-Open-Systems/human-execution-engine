@@ -1,0 +1,46 @@
+# path: contracts/publish-sanitization-v1.contract.yaml
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: publish-sanitization
+  description: "Mandatory content-safety gate for any pipeline that takes internal activity/session/repo content and renders it toward a public-facing surface (blog, activity page, social/fifth-project output). Real trigger: hee-publish (HEE#331) was found, before merge, to have no repo-visibility filter -- would have reproduced the already-documented tcos-www/generate-public-site.py incident (a private repo's activity leaking onto the public site)."
+  labels:
+    hee.object: "true"
+    hee.contract.type: publish-safety
+    domain: hee
+    scope: governance
+    topic: publish-sanitization
+    artifact: contract
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-24T00:00:00Z"
+
+spec:
+  intent:
+    - "No internal content reaches a public-facing surface without passing a real, mandatory safety gate -- not a checklist item someone can forget, a tool refusal someone has to actively override."
+    - "Prefer fail-closed: if the gate can't run, refuse to publish rather than silently skip the check."
+
+  actors:
+    identity:
+      must:
+        - "before any publish step, verify every source repo's real, current visibility (live check, never a hardcoded/cached allowlist) -- exclude anything not confirmed public"
+        - "before any publish step, run the real content-sanitization scan (tcos-audit's ruleset -- bank/SSN/EIN-shaped numbers, credential-shaped tokens, currency-near-vendor, hardcoded home paths, or its real successor) against the actual rendered output"
+        - "on any real scan finding, refuse to publish and report the finding -- fixing the content or confirming a false positive is a human/OPER decision, not something to route around"
+        - "if the scanner is genuinely unavailable, refuse to publish by default; an explicit override must produce a loud, visible warning in the output itself, never a silent pass"
+    must_not:
+      - "assume a repo's visibility from a hardcoded list without a live re-check at publish time"
+      - "treat 'the scanner found nothing' as equivalent to 'a human reviewed this' -- the scan is a floor, not a substitute for real editorial judgment on genuinely new content classes it wasn't built to catch"
+
+  boundaries:
+    governs: "any tool or pipeline step that moves content from an internal/private source toward a public-facing destination -- hee-publish, tcos-www's generate-public-site.py, the resume/blog pipeline's write+deploy steps, and any future equivalent"
+    does_not_govern: "content that never leaves a private repo/surface"
+
+  real_precedent:
+    - "tcos-www/generate-public-site.py's ACTIVITY_REPOS incident (2026-08-14) -- fleet-ops briefly public, leaked onto the public activity page, caught by Spencer, not by any automated check"
+    - "hee-publish (HEE#331), same night this contract was written -- same class of gap, caught before merge this time because this contract's real mandate was being built at the same time"
+
+  known_gaps:
+    - "the content scan (tcos-audit's ruleset) is regex/entropy-based, not exhaustive -- real PII classes it won't catch (a real person's name in prose, informal business specifics) still need real editorial review, not just tool trust"
+    - "tcos-www's own generate-public-site.py has not yet been updated to use a live visibility check instead of its hardcoded ACTIVITY_REPOS list -- same real gap this contract closes for hee-publish, not yet closed there"
+    - "not yet wired into CI -- enforcement today is the tool refusing to run, not a merge-time check independent of the tool's own code being correct"

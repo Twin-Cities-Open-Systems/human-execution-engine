@@ -1,0 +1,14 @@
+id: 8
+created_at: '2026-08-25T22:42:56Z'
+description: 'merge batch: Twin-Cities-Open-Systems/human-execution-engine#294, Twin-Cities-Open-Systems/human-execution-engine#351,
+  Twin-Cities-Open-Systems/human-execution-engine#353, Twin-Cities-Open-Systems/human-execution-engine#356,
+  Twin-Cities-Open-Systems/human-execution-engine#357'
+status: open
+stage: dogfood
+stage_history:
+- stage: idea
+  at: '2026-08-25T22:42:56Z'
+- stage: footgun
+  at: '2026-08-25T22:45:30Z'
+- stage: dogfood
+  at: '2026-08-25T22:45:30Z'

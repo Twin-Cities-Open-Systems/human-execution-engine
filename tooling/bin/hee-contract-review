@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+"""hee-contract-review: smart-sorted contract review, needed-first.
+
+Real trigger (2026-08-22, Spencer): "get a smart list based prio and
+effort fields, a real guess to but the needed at the top of the list" +
+"screen friendly tui" + "local gopher."
+
+Most real contracts don't have explicit priority/effort fields (checked
+live: only fleet.dir-layout even mentions "effort" in prose, none have
+real spec.priority/spec.effort keys) -- so this makes an honest,
+labeled GUESS from real signal instead of failing or pretending
+certainty: status (missing/proposed ranks above ratified/completed),
+age (older unratified = more overdue), and a keyword bump for
+financial/sovereignty/security-flavored names (real stakes, not just
+process).
+
+Modes:
+  hee-contract-review            interactive curses TUI (default)
+  hee-contract-review --dump     plain text, sorted list, no TUI (scripting/testing)
+  hee-contract-review --dump json   same data as real JSON (kubectl -o json style)
+  hee-contract-review --gopher-menu   real RFC1436 gopher menu text on stdout
+  hee-contract-review --action sign --key <gpg-key-id> --signer '<name>'
+      Real mass-sign mode, extending this tool per HEE#309. Loops every
+      status=proposed contract needed-first, prompts y/N/s/e per one
+      (same shape as hee-git-merge's own prompt), stages the final
+      content (status -> ratified, evidence field) then runs
+      `gpg --detach-sign` on THIS terminal -- your own gpg-agent, your
+      own key. An agent cannot run this step on your behalf; it can only
+      build the tool that makes running it yourself, for a whole queue
+      at once, fast.
+"""
+import curses
+import glob
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+URGENT_KEYWORDS = ("financial", "sovereignty", "security")
+
+
+def find_contracts():
+    # Real gap fixed 2026-08-24: only hee/contracts/ was scanned, missing
+    # root contracts/*.yaml entirely -- where several real contracts
+    # built this same session live (treasury-invariants,
+    # publish-sanitization, the M&A sale-deal contract). Both patterns
+    # now scanned; also covers hee/gcic/contracts (HEE#301's real "5
+    # locations" finding) via the -path glob matching any *contracts/ dir.
+    #
+    # Second real bug, found live testing this same fix: /home/claude/git
+    # holds both the main checkout AND every worktree
+    # (human-execution-engine.worktrees/<name>/...), each with its own
+    # physical copy of every contract file -- naive path scanning
+    # double-counted every contract once per worktree. Worktrees are
+    # ephemeral personal working copies, never the canonical/committed
+    # source of truth for a signature -- excluded from the scan entirely,
+    # and results deduped by (repo, relative-path) as a second safety net
+    # in case two non-worktree clones of the same repo ever coexist.
+    paths = []
+    for pattern in ("*/contracts/*.yaml", "*/hee/contracts/*.yaml"):
+        for root in subprocess.run(
+            ["find", "/home/claude/git", "-path", pattern,
+             "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*",
+             "-not", "-path", "*.worktrees*"],
+            capture_output=True, text=True,
+        ).stdout.splitlines():
+            paths.append(root)
+
+    seen = {}
+    for p in paths:
+        m = re.search(r"/git/([^/]+)/(.+\.yaml)$", p)
+        key = (m.group(1), m.group(2)) if m else p
+        seen.setdefault(key, p)  # first real (non-worktree) hit wins
+    return sorted(seen.values())
+
+
+def load(path):
+    text = open(path).read()
+    if yaml:
+        try:
+            return yaml.safe_load(text)
+        except Exception:
+            pass
+    # minimal fallback if pyyaml isn't available -- just enough fields
+    name = re.search(r'name:\s*"?([^\n"]+)"?', text)
+    status = re.search(r'status:\s*(\S+)', text)
+    updated = re.search(r'updated-at:\s*"?([^\n"]+)"?', text)
+    return {
+        "metadata": {"name": name.group(1) if name else None},
+        "spec": {"status": status.group(1) if status else None},
+        "_updated_raw": updated.group(1) if updated else None,
+    }
+
+
+def guess(doc, path):
+    meta = doc.get("metadata", {}) or {}
+    spec = doc.get("spec", {}) or {}
+    ann = meta.get("annotations", {}) or {}
+    name = meta.get("name") or path
+    status = (spec.get("status") or "").lower()
+    updated = ann.get("updated-at") or doc.get("_updated_raw")
+
+    age_days = None
+    if updated:
+        try:
+            ts = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            age_days = (datetime.now(timezone.utc) - ts).days
+        except Exception:
+            pass
+
+    # priority guess (0-10, higher = more needed)
+    reasons = []
+    if not status:
+        prio = 8
+        reasons.append("no status field at all")
+    elif status in ("proposed",):
+        prio = 6
+        reasons.append("proposed, not yet ratified")
+    elif status in ("not_implemented",):
+        prio = 7
+        reasons.append("not_implemented")
+    elif status in ("in_progress", "partially_implemented"):
+        prio = 4
+        reasons.append(f"status={status}")
+    elif status in ("ratified", "completed"):
+        prio = 1
+        reasons.append(f"status={status}, likely just needs nothing or a vocab check")
+    else:
+        prio = 5
+        reasons.append(f"unrecognized status={status}")
+
+    if age_days is not None and age_days > 5:
+        prio = min(10, prio + 1)
+        reasons.append(f"{age_days}d old")
+
+    if any(k in name.lower() for k in URGENT_KEYWORDS):
+        prio = min(10, prio + 2)
+        reasons.append("financial/sovereignty/security in name")
+
+    # effort guess (1-3, lower = quicker) -- most contracts are read+sign
+    effort = 1
+    effort_reason = "read + sign, no real complexity signal"
+    body_len = len(str(spec))
+    if body_len > 800:
+        effort = 2
+        effort_reason = "longer spec body, may need real reading"
+
+    return {
+        "name": name,
+        "path": path,
+        "status": status or "(none)",
+        "age_days": age_days,
+        "priority": prio,
+        "priority_why": "; ".join(reasons),
+        "effort": effort,
+        "effort_why": effort_reason,
+        "url": github_url(path),
+    }
+
+
+def github_url(path):
+    # Real bug, found live: this only matched the literal "hee/contracts/"
+    # prefix, so every root-level contracts/*.yaml (the pattern
+    # find_contracts() was just fixed to also scan) silently fell through
+    # to the raw local path instead of a real GitHub link. (?:hee/)? makes
+    # that prefix optional instead of hardcoding one specific shape.
+    m = re.search(r"/git/([^/]+)/((?:hee/)?contracts/.+\.yaml)$", path)
+    if not m:
+        return path
+    repo, rel = m.groups()
+    return f"https://github.com/Twin-Cities-Open-Systems/{repo}/blob/main/{rel}"
+
+
+def collect():
+    rows = []
+    for p in find_contracts():
+        try:
+            doc = load(p)
+            rows.append(guess(doc, p))
+        except Exception as e:
+            rows.append({
+                "name": p, "path": p, "status": "PARSE ERROR", "age_days": None,
+                "priority": 9, "priority_why": f"failed to parse: {e}",
+                "effort": 1, "effort_why": "", "url": github_url(p),
+            })
+    rows.sort(key=lambda r: (-r["priority"], r["effort"]))
+    return rows
+
+
+def dump_text(rows):
+    print(f"{len(rows)} contracts, most-needed first (guessed prio desc, effort asc):\n")
+    for r in rows:
+        print(f"[P{r['priority']}/E{r['effort']}] {r['name']}  ({r['status']})")
+        print(f"    why: {r['priority_why']}")
+        print(f"    {r['url']}")
+        print()
+
+
+def dump_json(rows):
+    # k8s-list-shaped (apiVersion/kind/items), matching HEE's own real
+    # apiVersion: hee/v1 convention already used across cards/contracts --
+    # not full k8s object bloat, just the list envelope + flat items.
+    doc = {
+        "apiVersion": "hee/v1",
+        "kind": "ContractReviewList",
+        "items": rows,
+    }
+    print(json.dumps(doc, indent=2))
+
+
+def gopher_menu(rows, host="man.tcos.us", port="7070"):
+    lines = [f"iSmart-sorted contract review -- guessed prio/effort, needed first\t\t{host}\t{port}"]
+    for r in rows:
+        label = f"[P{r['priority']}/E{r['effort']}] {r['name']} ({r['status']})"
+        lines.append(f"i{label}\t\t{host}\t{port}")
+        lines.append(f"i  {r['priority_why']}\t\t{host}\t{port}")
+    print("\r\n".join(lines))
+    print(".")
+
+
+def run_tui(rows):
+    def _main(stdscr):
+        curses.curs_set(0)
+        idx = 0
+        top = 0
+        while True:
+            stdscr.clear()
+            h, w = stdscr.getmaxyx()
+            stdscr.addstr(0, 0, f"hee contract review -- {len(rows)} contracts, needed-first (j/k move, enter detail, q quit)"[:w-1])
+            visible = h - 2
+            if idx < top:
+                top = idx
+            if idx >= top + visible:
+                top = idx - visible + 1
+            for i, r in enumerate(rows[top:top + visible]):
+                real_i = top + i
+                line = f"[P{r['priority']}/E{r['effort']}] {r['name']} ({r['status']})"[:w-1]
+                attr = curses.A_REVERSE if real_i == idx else curses.A_NORMAL
+                stdscr.addstr(i + 1, 0, line, attr)
+            stdscr.refresh()
+            c = stdscr.getch()
+            if c in (ord("q"), 27):
+                break
+            elif c in (ord("j"), curses.KEY_DOWN):
+                idx = min(len(rows) - 1, idx + 1)
+            elif c in (ord("k"), curses.KEY_UP):
+                idx = max(0, idx - 1)
+            elif c in (10, 13, curses.KEY_ENTER):
+                r = rows[idx]
+                stdscr.clear()
+                stdscr.addstr(0, 0, r["name"][:w-1], curses.A_BOLD)
+                stdscr.addstr(2, 0, f"status: {r['status']}"[:w-1])
+                stdscr.addstr(3, 0, f"priority {r['priority']} -- {r['priority_why']}"[:w-1])
+                stdscr.addstr(4, 0, f"effort {r['effort']} -- {r['effort_why']}"[:w-1])
+                stdscr.addstr(6, 0, r["url"][:w-1])
+                stdscr.addstr(8, 0, "press any key to go back")
+                stdscr.refresh()
+                stdscr.getch()
+    curses.wrapper(_main)
+
+
+def stage_for_ratification(path, keyid, signer):
+    """Same real staging logic as tools/hee/ratify-contract.sh, generalized
+    to loop over a queue. Real order-of-operations bug this prevents: sign
+    BEFORE editing status/evidence and the signature no longer matches the
+    committed bytes -- stage the FINAL content first, sign second, never
+    touch the file again after."""
+    text = open(path).read()
+    if "status: proposed" not in text:
+        return False, "no 'status: proposed' found -- already ratified or unexpected format, not touching it"
+    text = text.replace("status: proposed", "status: ratified", 1)
+    asc_name = path.split("/")[-1] + ".asc"
+    if "ratification_required_from:" in text:
+        text = text.replace(
+            "ratification_required_from:",
+            f'ratification_evidence: "{asc_name} -- detached GPG signature, key {keyid} ({signer}), covers the exact ratified content in this file"\n  ratification_required_from:',
+            1,
+        )
+    open(path, "w").write(text)
+    return True, asc_name
+
+
+def do_sign(path, keyid, signer):
+    """Real GPG signing -- runs on THIS terminal, using whoever's secret
+    key gpg-agent actually has loaded. Never something an agent runs
+    against a human's key; this tool prepares, the human's own terminal
+    session signs. That's why this is `--action sign` run by Spencer
+    himself, not something done on his behalf."""
+    ok, result = stage_for_ratification(path, keyid, signer)
+    if not ok:
+        print(f"  SKIP: {result}")
+        return
+    print(f"  staged: status -> ratified, evidence -> {result}")
+    proc = subprocess.run(["gpg", "--detach-sign", "--armor", "--local-user", keyid, path])
+    if proc.returncode != 0:
+        print(f"  GPG SIGN FAILED for {path} -- content is staged as ratified but unsigned. "
+              f"Fix the gpg issue and re-run: gpg --detach-sign --armor --local-user {keyid} '{path}'", file=sys.stderr)
+        return
+    print(f"  signed: {path}.asc")
+
+
+def run_sign_mode(rows, keyid, signer):
+    pending = [r for r in rows if r["status"] == "proposed"]
+    if not pending:
+        print("hee-contract-review: nothing with status=proposed -- nothing to sign.")
+        return
+    print(f"{len(pending)} contract(s) with status=proposed, needed-first order.\n"
+          f"Signing key: {keyid} ({signer})\n"
+          "y = stage + sign now (runs gpg on THIS terminal, your key)\n"
+          "N = skip (default)   s = skip (explicit)   e = show full file, re-prompt\n")
+    for r in pending:
+        while True:
+            print(f"\n[P{r['priority']}/E{r['effort']}] {r['name']}  ({r['url']})")
+            ans = input("  y/N/s/e> ").strip().lower()
+            if ans in ("", "n", "s"):
+                print("  skipped")
+                break
+            if ans == "e":
+                print(open(r["path"]).read())
+                continue
+            if ans == "y":
+                do_sign(r["path"], keyid, signer)
+                break
+            print("  unrecognized, try again")
+
+
+def main():
+    rows = collect()
+    if "--action" in sys.argv:
+        i = sys.argv.index("--action")
+        action = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        if action != "sign":
+            sys.exit(f"hee-contract-review: unknown --action '{action}' (only 'sign' exists)")
+        if "--key" not in sys.argv or "--signer" not in sys.argv:
+            sys.exit("hee-contract-review --action sign --key <gpg-key-id> --signer '<name>' [--dry-run]")
+        keyid = sys.argv[sys.argv.index("--key") + 1]
+        signer = sys.argv[sys.argv.index("--signer") + 1]
+        run_sign_mode(rows, keyid, signer)
+    elif "--dump" in sys.argv:
+        i = sys.argv.index("--dump")
+        fmt = sys.argv[i + 1] if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-") else "text"
+        dump_json(rows) if fmt == "json" else dump_text(rows)
+    elif "--gopher-menu" in sys.argv:
+        gopher_menu(rows)
+    else:
+        run_tui(rows)
+
+
+if __name__ == "__main__":
+    main()
