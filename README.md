@@ -34,6 +34,44 @@ Doctrine is **standing, non-terminal**, and validated **strictly**.
 
 ---
 
+## Skin in the Game
+
+When TCOS participates in an external network or community as more than
+a one-off lookup, it runs real, owned, persistent infrastructure — not
+an ephemeral client session borrowed for the moment.
+
+**Real trigger**: deciding how to rejoin `#tclug` on Libera.Chat.
+A one-shot read-only probe (join, read the roster, quit) answered "is
+anyone there" — real, honest, and correctly scoped for that question.
+It does not answer "does TCOS have a real presence here," and it was
+never meant to. An ephemeral irssi session in a tmux pane, gone the
+moment the pane dies, is a client, not a presence. A persistent bouncer
+(ZNC, soju) — logged, always-connected, survivable across disconnects —
+is real infrastructure with real skin in the game, the same "own the
+tools, don't just borrow them" ethos as the dependency-removal Epic
+(`fleet-ops#208`) and `primitives`, applied to network presence instead
+of software dependencies.
+
+**Enforcement**: a read-only check (`hee lg`, `hee con`'s probe mode) is
+never mistaken for a presence commitment. Standing up real infrastructure
+(a bouncer, a relay, a leaf node) is a real decision with its own scope,
+account, and logging surface — not a default, and not implied by the
+existence of a client tool. Scope it explicitly before building it.
+
+**Prefer no remote storage, ever — except media.** Local storage is the
+default; shared NFS is the exception, used only when something is
+genuinely, technically shared state across hosts, never reached for as
+a convenience. Real trigger, same session: a personal, per-user script
+defaulted toward shared storage before the actual right answer — a
+single host's local filesystem, placed per that host's own real
+hierarchy (`hier(7)`, reconciled against XDG for the unprivileged-user
+case: `~/.local/bin`, not `/usr/local/bin`, not NFS) — got named
+directly. The one standing, named exception is media (large binary
+assets that genuinely benefit from one shared copy, e.g.
+`/mnt/nuc1-pool/storage/media/`) — everything else defaults local.
+
+---
+
 ## Repository Layout
 
 ### `blueprints/`
