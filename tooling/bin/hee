@@ -16,6 +16,7 @@ usage:
   hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
   hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
   hee contract review [--dump [json]] [--gopher-menu]
+  hee list
   hee help
 
 design:
@@ -23,6 +24,31 @@ design:
   - TARGET root comes from current git repo (cwd)
   - extension: hee <cmd> tries tooling/bin/hee-<cmd> in target repo first, then tool repo
 TXT
+}
+
+# List every real hee-<cmd> extension actually found on disk, in both
+# search roots -- real trigger: "hee list" had no answer, a user could
+# only discover commands by reading source or already knowing the name.
+list_commands() {
+  echo "built-in:"
+  echo "  lint, hooks install, git merge, ssh send-keys, contract review, list, help"
+  echo ""
+  echo "extensions found:"
+  found=""
+  for root in "${TARGET_ROOT}" "${TOOL_ROOT}"; do
+    d="${root}/tooling/bin"
+    [ -d "${d}" ] || continue
+    for f in "${d}"/hee-*; do
+      [ -x "${f}" ] || continue
+      name="$(basename "${f}")"
+      case " ${found} " in
+        *" ${name} "*) continue ;;
+      esac
+      found="${found} ${name}"
+      echo "  ${name}"
+    done
+  done
+  [ -z "${found}" ] && echo "  (none found in ${TARGET_ROOT}/tooling/bin or ${TOOL_ROOT}/tooling/bin)"
 }
 
 # resolve TOOL_ROOT from this script's REAL path, not the PATH entry
@@ -39,6 +65,14 @@ case "$SELF" in
   /*) ;;
   *) SELF="$(command -v -- "$SELF" 2>/dev/null || echo "$SELF")" ;;
 esac
+# Resolve symlinks -- a `hee` symlinked onto PATH (e.g.
+# ~/.local/bin/hee -> <repo>/tooling/bin/hee, the real bootstrap.mk
+# install pattern) must resolve TOOL_ROOT from the real repo, not the
+# symlink's own directory. Real bug, found live 2026-08-24/25
+# dogfooding tooling/bootstrap.mk against spencer@kiosk (found twice,
+# independently, on two branches -- same root cause). realpath/readlink -f
+# over a hand-rolled loop, per the GNU Tools Preference Policy
+# (HEE_POLICY.md #16).
 if command -v realpath >/dev/null 2>&1; then
   SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
 elif command -v readlink >/dev/null 2>&1; then
@@ -110,6 +144,10 @@ case "${cmd}" in
         exit 0
         ;;
     esac
+    ;;
+  list)
+    list_commands
+    exit 0
     ;;
   ssh)
     sub="${1:-help}"
