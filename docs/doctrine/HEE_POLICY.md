@@ -717,6 +717,60 @@ you will have more cleanup."
   forward -- it's a one-time cleanup for the debt that already
   accumulated, not a substitute for filling fields at file-time.
 
+### 19. Canonization Policy (doctrine-vs-practice drift)
+
+**Requirement**: when stated documentation and actual real precedent
+contradict each other, the contradiction gets surfaced and reconciled
+through a real procedure — never silently papered over by picking one
+side, and never left standing as an unremarked contradiction
+
+**Rationale**: fast-moving, high-level concept work outruns its own
+documentation as a matter of course, not as a failure — a design
+principle gets written down, then real practice (a recovered legacy
+script, a pragmatic workaround, a decision made in chat and never
+back-filled into the doc) diverges from it before anyone revisits the
+page. Left alone, this produces exactly the failure mode found
+2026-08-21: `glass-browser/README.md` stated "no password flow exists
+anywhere in this repo, on purpose," while `do-login.mjs` — a real,
+already-in-use scripted password flow, recovered from an earlier
+identity 2026-08-16 — sat right next to it, undocumented and
+uncontradicted-in-the-open. Neither the old doc nor the new practice
+was wrong to have existed; the drift between them just never got
+resolved.
+
+**Enforcement — the actual procedure, Spencer's own framing**:
+
+1. **Surface the tension explicitly, don't pick a side quietly.** State
+   both what the doc says and what practice actually does, as a real
+   named contradiction — not "the doc is outdated" (presumes the doc
+   loses) and not silently following whichever one the current task
+   happens to need (presumes practice wins by default).
+2. **Review both the old standard's reasoning and current practice's
+   reasoning.** The old doc's principle existed for a real reason
+   (here: minimizing where credentials could leak); so did the
+   departure from it (here: Xwayland/xdotool synthetic input proved
+   unreliable enough that a real Playwright-driven login flow was
+   worth building). Understand why each side exists before choosing
+   between them.
+3. **Reason toward the best of both, not a unilateral pick.** The
+   resolution doesn't have to be "old wins" or "new wins" — it can (and
+   often should) preserve what made the old principle sound while
+   adopting what made the new practice necessary. The glass-browser
+   resolution keeps the old boundary that ongoing *task* files never
+   touch credentials, while adopting the new pattern that *bootstrap*
+   scripts are the sanctioned, scripted way a session gets established
+   in the first place.
+4. **The human makes the actual call when it's a real decision, not a
+   mechanical fix.** Present the reconciliation options plainly;
+   don't resolve a genuine design tradeoff unilaterally just because a
+   plausible synthesis exists.
+5. **Canonize and move on.** Update the doc to state the resolved rule,
+   dated and attributed, with enough of the reasoning kept that a
+   future re-read of the doc explains itself rather than reading as an
+   arbitrary decree. Then the tension is closed — this isn't a standing
+   review process to revisit, it's a one-time reconciliation per drift
+   found.
+
 ### HEE Rule Violation Documentation
 
 **Process**:

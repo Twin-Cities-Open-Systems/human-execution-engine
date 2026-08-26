@@ -34,6 +34,13 @@ the top of a session, per `prompts/INIT.md`.
    implementation — real, not stylistic (`sed -i` requires an explicit
    suffix argument on BSD, optional on GNU; `date -d` is GNU-only) —
    HEE Policy's GNU Tools Preference Policy.
+7. **When a doc's stated design contradicts real precedent already in
+   use, surface both sides and reconcile — don't silently pick one.**
+   Review why the old standard existed and why current practice
+   diverged, reason toward the best of both rather than a unilateral
+   pick, let the human decide on a genuine tradeoff, then canonize the
+   resolution back into the doc with its reasoning kept — HEE Policy
+   §19.
 
 ## Authority Invariants
 

@@ -52,7 +52,7 @@ built from, not a finished proposal to just execute.
 1. **First real bit**: ask Spencer directly about `tools/` vs
    `tooling/` and `hee/` vs `.hee/` — the two real, load-bearing
    overlaps, not the small stragglers. Same canonization discipline as
-   every other real drift found this session (HEE Policy §14):
+   every other real drift found this session (HEE Policy §19):
    surface, don't guess, resolve, write the reasoning back.
 2. **Second real bit**: a real `docs/` sub-survey — 104 files is too
    large to characterize in this pass; needs its own real inventory
