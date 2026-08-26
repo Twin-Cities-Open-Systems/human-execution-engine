@@ -300,6 +300,22 @@ reason it doesn't
   blocked on a decision, needs triage)
 - Close tickets as soon as their work is actually done — don't let
   finished or stale work sit open
+- **Only whoever opened a ticket or PR closes/merges it.** Real sysadmin
+  practice, not HEE-invented: it's a guard against the opener's own
+  reviewer clicking through too fast, not a judgment on the work itself
+  — approving is not the same act as merging, and reviewing everything
+  in bulk (the normal mode when a human is behind on review) makes an
+  accidental merge easy without this. This is a **default, not an
+  absolute** — deviate freely with an **explicit** exception from the
+  opener in the moment ("go ahead and merge/close this one"), never
+  inferred from silence, a prior approval, or "they'll probably want
+  this merged." An agent's own work is closed/merged by the human who
+  requested it or by the agent that opened it, never by a different
+  agent filling in. Prompted by
+  [`human-execution-engine#249`](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/249#pullrequestreview-4996249864) —
+  Spencer approved but deliberately didn't merge his own contracted
+  agent's PR, precisely because review-approval and having-read-every-line
+  aren't the same thing, and merge authority should track the latter.
 
 **Known platform constraint: GitHub blocks self-approval, always**
 
