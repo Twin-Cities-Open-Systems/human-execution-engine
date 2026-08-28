@@ -34,13 +34,28 @@ BIN_DIR := $(HOME_DIR)/.local/bin
 GIT_DIR := $(HOME_DIR)/git
 
 .PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
-        health-all-repos pull-all-repos refresh-all-repos \
+        health-all-repos pull-all-repos refresh-all-repos print-governance-reminder \
         link-cache-prune install-cron reset-tooling restore-secrets install-dotfiles
 
-bootstrap: clone-repo link-hee install-dotfiles
+# Real trigger (2026-08-28): an agent session ran raw git commit/merge
+# repeatedly across three repos before ever reading PROMPTING_RULES.md --
+# the rules were real and canonical the whole time, just never surfaced
+# at the one moment (env bootstrap/refresh) every identity actually
+# passes through. Spencer, direct: "must not be missed again... you
+# guys act like idiots otherwise." Printed, not just linked, so it
+# can't be silently scrolled past the way a bare path can.
+print-governance-reminder:
+	@echo ""
+	@echo "bootstrap.mk: ORG GOVERNANCE -- read prompts/PROMPTING_RULES.md before any git/gh mutation."
+	@echo "  Rule #1: every git/gh mutation goes through scripts/hee_git_ops.sh <op> --act --reason \"...\""
+	@echo "  with HEE_TOOL_MODE=ACT set. Raw git commit/push/merge by an agent is not allowed."
+	@echo "  Full file: $(CLONE_DIR)/prompts/PROMPTING_RULES.md"
+	@echo ""
+
+bootstrap: clone-repo link-hee install-dotfiles print-governance-reminder
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
-bootstrap-all: clone-all-repos link-hee install-dotfiles
+bootstrap-all: clone-all-repos link-hee install-dotfiles print-governance-reminder
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready, all org repos cloned -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
 DOTFILES_DIR := $(GIT_DIR)/dotfiles
@@ -176,7 +191,7 @@ pull-all-repos:
 		fi; \
 	done
 
-refresh-all-repos: health-all-repos pull-all-repos
+refresh-all-repos: health-all-repos pull-all-repos print-governance-reminder
 	@echo "bootstrap.mk: refresh complete -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
 link-cache-prune: clone-repo
