@@ -51,24 +51,75 @@ command                     # May invoke pager
 
 **Requirement**: ALL changes MUST use feature branches
 
+**Rewritten 2026-08-27**, then **corrected again same day** after Spencer's
+review of the first rewrite caught two more real problems — matching this
+section's own history of drift, worth stating plainly rather than
+smoothing over: the *original* text here required `feature/`-prefixed
+branches deleted immediately post-merge, while real practice was 71
+`touchy/`-prefixed branches kept post-merge as an audit trail versus 5
+real `feature/` branches (canonized as the org's own "Logic Loop" example,
+`GLOSSARY.md`). The *first rewrite* fixed that but introduced two new
+problems Spencer flagged directly: it hardcoded one machine's real
+identity (`touchy`) as if it were a universal literal prefix rather than
+an example of a pattern, and its example commands used raw `git`/`gh`
+instead of the required wrapper (`prompts/PROMPTING_RULES.md` rule 1).
+Both fixed below.
+
 **Enforcement**:
 
-- Never commit directly to main branch
-- Feature branches named: `feature/description-of-work`
-- Delete merged branches immediately to prevent confusion
-- All changes made on feature branches only
+- Never commit directly to main branch.
+- Branches used for real, ongoing agent-driven work are named
+  `<host-or-session-identity>/description-of-work` and are **kept after
+  merge** as an audit trail — this is the dominant real pattern in this
+  org, not an exception. The identity segment is real, not decorative:
+  it's whatever host/session actually did the work (`touchy` is the real,
+  currently-dominant example — the kiosk host this convention was
+  observed on, 71 real branches) — but the rule is the *pattern*, not the
+  literal string `touchy`. Don't read this as requiring every branch
+  everywhere to say `touchy/...` regardless of which machine or session
+  produced it.
+  - This is namespacing, not attribution — who/what actually did the
+    work is already tracked for real elsewhere (commit author, PR
+    assignee, the `Model:`/co-author trailer convention) and the branch
+    prefix isn't a second copy of that record. It exists to keep
+    concurrent sessions' branches visually distinct in `git branch -a`.
+- `feature/`-prefixed branches remain valid for standard, short-lived
+  engineering work and follow the standard squash-merge-and-delete flow
+  (see `human-execution-engine/prompts/PROMPTING_RULES.md`,
+  which also carries the org-wide commit/merge conventions).
+- Whichever prefix is used, all changes are made on a branch, never
+  directly on `main`.
+- **All git/gh mutations below go through `scripts/hee_git_ops.sh`**
+  (`--act --reason "..."`, `HEE_TOOL_MODE=ACT` set) per
+  `prompts/PROMPTING_RULES.md` rule 1 — raw `git`/`gh` mutation commands
+  are not a real agent workflow, regardless of what the rest of this
+  section's prose examples might look like out of context.
 
-**Workflow**:
+**Workflow (identity-prefixed, kept post-merge)**:
 
 ```bash
-git checkout -b feature/work-description
-# Make changes, commit frequently
-git push origin feature/work-description
-gh pr create --base main --head feature/work-description
-# Wait for merge, then cleanup
-git checkout main && git pull origin main
-git branch -D feature/merged-branch  # Local
-git push origin --delete feature/merged-branch  # Remote
+export HEE_TOOL_MODE=ACT
+scripts/hee_git_ops.sh branch-create --act --reason "start work" <host-or-session-id>/work-description
+# Make changes, commit frequently:
+scripts/hee_git_ops.sh add --act --reason "stage changes" <paths...>
+scripts/hee_git_ops.sh commit --act --reason "commit" -m "..."
+scripts/hee_git_ops.sh push --act --reason "push branch"
+scripts/hee_git_ops.sh pr-create --act --reason "open PR" --base main --title "..." --body "..."
+# Merge via the dedicated merge tool, not a raw `gh pr merge` --
+# no --delete-branch: this prefix is kept.
+hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-branch
+```
+
+**Workflow (feature/, deleted post-merge)**:
+
+```bash
+export HEE_TOOL_MODE=ACT
+scripts/hee_git_ops.sh branch-create --act --reason "start work" feature/work-description
+scripts/hee_git_ops.sh add --act --reason "stage changes" <paths...>
+scripts/hee_git_ops.sh commit --act --reason "commit" -m "..."
+scripts/hee_git_ops.sh push --act --reason "push branch"
+scripts/hee_git_ops.sh pr-create --act --reason "open PR" --base main --title "..." --body "..."
+hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --delete-branch
 ```
 
 ### 3. State Preservation Policy
@@ -109,21 +160,13 @@ git push origin --delete feature/merged-branch  # Remote
 
 ### 5. Documentation Policy
 
-**Requirement**: Documentation is paramount - no undefined references
-
-**Enforcement**:
-
-- No references to non-existent files/tools
-- All README examples must work immediately
-- API documentation must reflect actual implementation
-- Specs must be canonical and complete
-
-**Documentation Standards**:
-
-- Use relative paths for portability
-- Include file references and cross-links for navigation
-- Design for smooth handoffs and team onboarding
-- Maintain consistency with existing documentation patterns
+**Superseded 2026-08-27**: the doc-type taxonomy, authority levels, and
+placeholder/real-link rules that used to open this section are now defined
+once, live and current, in `docs/DOCUMENTATION_POLICY.md` -- read that
+instead of this section for those. What's left below are specific,
+real, dated technical rules that file doesn't cover (link formatting
+detail, external-link targets, ordered-steps encoding) — kept here rather
+than duplicated there.
 
 **Real-Link Requirement**:
 
@@ -180,14 +223,25 @@ markdown citations above, which have no `target` attribute at all):
 
 ### 6. Command Safety Policy
 
-**Requirement**: PRE-VALIDATION required for all commands
+**Rewritten 2026-08-27**: this section previously required `bash -n`
+syntax validation "for all shell commands" — also canonized as part of the
+org's own "Logic Loop" example (`GLOSSARY.md`): not actually run before
+most real one-off commands in real sessions. Rather than keep stating a
+rule that isn't followed, or start mechanically enforcing `bash -n` on
+every command (which the org has never actually wanted enough to do),
+this scopes the requirement down to what's real: judgment, not a blanket
+gate, and the two dated incidents below, which *are* the actual, currently
+enforced discipline (restated compactly in
+`prompts/PROMPTING_RULES.md` rule 2).
 
 **Enforcement**:
 
-- Syntax validation with `bash -n` for all shell commands
-- Path verification before file operations
-- Git state verification before repository operations
-- No execution without explicit validation
+- Use `bash -n` (or equivalent dry-run/syntax-check) for complex,
+  multi-step, or destructive commands you're not confident are correct —
+  not a blanket requirement for every command.
+- Path verification before file operations; git state verification before
+  repository operations, when the operation is destructive or hard to
+  reverse.
 - **Never redirect stderr to `/dev/null` (or otherwise discard a
   command's exit code) when the command's result is about to be
   interpreted or reported as fact.** Real incident, 2026-08-21:
@@ -888,17 +942,21 @@ as [[primitives#5]] and `fleet-ops#208`'s primitives epic, not built yet.
 
 ## References
 
-- [HEE Definition](HEE.md)
-- ~~Prompting Rules (`../prompts/PROMPTING_RULES.md`)~~ — **deprecated**,
-  per Spencer 2026-08-18: the relative path resolves to `docs/prompts/`,
-  which 404s. A same-named file exists at the true repo root
-  (`prompts/PROMPTING_RULES.md`) but is an intentionally-empty CI
-  placeholder ("exists to satisfy CI documentation invariants... keep
-  CI green"), no real content either way. The ceremony this reference
-  would have covered is superseded by the `shift-init-v1` blueprint
-  instead. Removed rather than backfilled.
-- [State Capsule Guide](STATE_CAPSULE_GUIDE.md)
-- [Troubleshooting Guide](TROUBLESHOOTING.md)
+- [Prompting Rules](../../prompts/PROMPTING_RULES.md) — the compact,
+  agent-facing summary of this policy, read at the top of every session
+  per `prompts/INIT.md`. **Corrected 2026-08-27**: this entry previously
+  called the file deprecated/an empty CI placeholder, true as of
+  2026-08-18 but stale since — the file was rewritten with real content
+  on 2026-08-26 and has been live and current since. This reference was
+  never updated after that, which is itself worth noting: even a
+  back-reference inside live doctrine can drift silently if nothing
+  re-checks it.
+- [Documentation Policy](../DOCUMENTATION_POLICY.md) — doc-type taxonomy
+  and authority levels; §5 above only covers what that file doesn't.
+- [State Capsule Guide](../STATE_CAPSULE_GUIDE.md) (path corrected
+  2026-08-27 -- was missing the `../`, pointing at a nonexistent
+  `docs/doctrine/STATE_CAPSULE_GUIDE.md`)
+- [Troubleshooting Guide](../TROUBLESHOOTING.md) (same correction)
 
 ---
 

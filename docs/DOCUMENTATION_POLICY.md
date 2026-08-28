@@ -62,15 +62,17 @@ Writing a Thesis is not a demotion; presenting one *as* a Duople
 (settled fact) when it hasn't earned that status is the actual
 mistake.
 
-### 2. Human vs. machine — never "agent" as the stand-in for either
+### 2. Human vs. machine — prefer the real pair, `agent`/`oper`, not generic "agent(s)"
 
-When documentation is describing or contrasting what a **human** does
-versus what a **machine** does, say "human" and "machine" explicitly.
-Do not use "agent" for either side of that distinction — "agent" is
-already used org-wide for both human and machine identities in other
-contexts, so using it here is genuinely ambiguous, not just informal.
-(Separate from this: "agent" as a vendor-neutral naming choice in
-code/config/identity labels — e.g. preferring it over a
+**Sharpened 2026-08-27** (Spencer, direct): this used to only say what
+*not* to do; it now names the real replacement. When process or
+documentation prose distinguishes what a **human** does from what a
+**machine** does, use the canonized pair from `GLOSSARY.md` — `Agent`
+(machine-rights party) and `Oper` (human-rights party) — rather than
+generic, unqualified "agent(s)" trying to cover both. Same shape of rule
+as the org's existing "no vendor names in generic docs" convention, one
+level further. (Separate from this: "agent" as a vendor-neutral naming
+choice in code/config/identity labels — e.g. preferring it over a
 vendor-specific name like "claude" — is a different concern at a
 different layer and is unaffected by this rule.)
 

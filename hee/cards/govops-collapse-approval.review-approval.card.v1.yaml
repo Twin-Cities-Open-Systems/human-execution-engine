@@ -1,0 +1,30 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: govops-collapse-approval
+  ts_human: 2026-08-27_2000
+  description: "Spencer's real approval of the governance-ops 3-file collapse, captured retroactively as the first real instance of the review-approval card schema."
+  labels:
+    hee.object: "true"
+    card.type: review-approval
+spec:
+  repo: human-execution-engine
+  path: docs/governance/operations/changes/2026-08-27_collapse-three-governance-ops-files.md
+  text: "I approve of your changes"
+  author: spencer
+  approved_at: "2026-08-27T20:00:00Z"
+  origin: >
+    Real dogfood instance, not synthetic test data (per
+    docs/DOCUMENTATION_POLICY.md rule 6): Spencer's actual chat approval
+    of the GOVOPS-20260827-001 change record, said directly while
+    reviewing that session's instruction-set consolidation work via
+    view.lab.tcos.us. Captured here after the fact as the first real
+    review-approval card, designed the same session it approves --
+    the schema didn't exist yet when this approval was given, so this
+    card is a retroactive record of a real event, not a live capture.
+  known_instances:
+    - "GOVOPS-20260827-001 (docs/governance/operations/changes/2026-08-27_collapse-three-governance-ops-files.md):
+      the change record itself already cites this approval inline
+      ('Approved-by: Spencer Butler (direct chat confirmation,
+      2026-08-27...)') -- this card is the structured, greppable
+      counterpart to that prose citation, not a replacement for it."

@@ -31,7 +31,12 @@ otherwise.
    (check-in/check-out, the shift-ticket lifecycle) and
    [`contracts/shift-metrics-v1.contract.yaml`](../contracts/shift-metrics-v1.contract.yaml)
    (what gets recorded). Both `status: proposed`.
-4. All git/gh mutations go through `scripts/hee_git_ops.sh` with `--act` and
+4. Session start is gated: `ci/git/hee-preflight.sh` must exit 0 before any
+   work begins (also enforced in CI). Broken state is not background noise
+   -- if it fails, remediation is the task, not a side note. (Folded in
+   from the retired `docs/doctrine/hee-session-entry.md`, 2026-08-27 --
+   same real gate, that file was just stale and never updated.)
+5. All git/gh mutations go through `scripts/hee_git_ops.sh` with `--act` and
    `HEE_TOOL_MODE=ACT` set -- see `docs/guides/GIT_GH_WORKFLOW.md`. If asked
    to mutate without that mode set, the correct response is:
    `BLOCKER: Mutation requested but HEE_TOOL_MODE!=ACT or --act missing. Refusing.`
