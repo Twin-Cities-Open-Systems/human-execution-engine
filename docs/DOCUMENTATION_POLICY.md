@@ -189,3 +189,38 @@ new mechanism is its own explicitly-scoped request, decided on its own,
 never smuggled in under a page-deploy instruction. Real precedent:
 `todo.html`, built 2026-08-27 by cloning `follow-up.html`'s exact head/
 CSS/script scaffold rather than designing new chrome for it.
+
+### 8. Real API tokens/secrets always go through `hee-cred`, never a plaintext file
+
+**Added 2026-08-28**, real trigger: while pursuing a real Cloudflare
+API token for a real DNS zone dump, an agent created a plaintext `.env`
+file (account ID + a placeholder token field) as a stopgap — the wrong
+mechanism. This org already has a real one:
+[`hee-cred`](../man/tools/hee-cred.1.md) (`tooling/bin/hee-cred`) —
+GPG-encrypted, git-trackable ciphertext (`.hee/secrets/<account>.gpg`),
+exec-only retrieval (`-pass <account> -exec <cmd>`, secret handed to
+the child process via `$HEE_CRED_PASS`, never printed, never in argv).
+Sealing (`-seal <account> -recipients <gpgid,...>`) deliberately
+refuses to run without a real interactive TTY — a real, load-bearing
+safety property, not a gap to work around with a script or a
+non-interactive stopgap.
+
+**Standing rule**: any real API token, password, or similar secret
+this org's tooling needs gets sealed via `hee-cred -seal`, retrieved
+via `hee-cred -pass ... -exec ...`, and referenced by its real account
+name in docs/scripts — never written to a `.env`, a config file, a
+chat message, or any other plaintext location, even temporarily or as
+a placeholder-to-be-filled-in-later. An agent that needs a credential
+it doesn't have asks the real human directly and waits for it to be
+sealed properly, rather than improvising a parallel storage mechanism.
+
+**Known real gap, not yet reconciled**: `hee-cred`'s own docs reference
+a second, separate tool, `fleet-ops/bin/seal-secret.sh`, for
+multi-recipient one-off secret sealing — not yet unified into one tool.
+Real, separate open question surfaced 2026-08-28: real sealed
+credentials likely already exist for this org (Spencer: "there are a
+few to several"), but in a home directory (`/home/touchy`,
+`/home/spencer`) this particular sandboxed session's own account
+cannot read (`Permission denied`, confirmed directly) — not a "nothing
+sealed yet" finding, a real access gap. Don't assume a clean slate
+just because one session's search comes back empty.
