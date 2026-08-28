@@ -8,14 +8,36 @@ that. slick hee view for all." Reuses hee-pve-health's real data
 (shells out to it --json, doesn't reimplement pvesh calls) and adds
 HAProxy + DNS checks in one terse report.
 
+Real trigger for --sites (2026-08-28, Spencer): "first thing may be to
+build a complete site map, setup monitor (simple) with hee view -sites
+(or similar) to make sure we get 200's everywhere, condense view
+(adding -nerd to that will be verbose as fuck)" -- reuses the real,
+already-established --nerd split (condensed by default, full per-URL
+detail only with --nerd) rather than inventing new verbosity flags.
+Default source is the real, live profile/SITEMAP.yaml on .github's
+main branch -- pass --sitemap to check a local copy instead.
+
 Usage:
   hee-view [--pve-host IP] [--haproxy-host IP] [--dns-host IP]
+  hee-view --sites [--sitemap URL_OR_PATH] [--nerd]
 """
 import argparse
 import json
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+DEFAULT_SITEMAP_URL = (
+    "https://raw.githubusercontent.com/Twin-Cities-Open-Systems/"
+    ".github/main/profile/SITEMAP.yaml"
+)
 
 
 def sh(cmd):
@@ -64,6 +86,88 @@ def dns_check(dns_host, name="ns1.lab.tcos.us"):
     return out.strip() if code == 0 and out.strip() else None
 
 
+def load_sitemap(source):
+    # Real trigger (2026-08-28, Spencer): "the sitemap and url tracking
+    # in ci and then hee view can pull from that" -- default source is
+    # the real, live profile/SITEMAP.yaml on .github's main branch, not
+    # a local copy that can silently drift from what's actually committed.
+    if yaml is None:
+        return None, "PyYAML not installed (pip install pyyaml)"
+    try:
+        if source.startswith("http://") or source.startswith("https://"):
+            with urllib.request.urlopen(source, timeout=5) as r:
+                text = r.read().decode()
+        else:
+            with open(source, encoding="utf-8") as f:
+                text = f.read()
+    except (urllib.error.URLError, OSError) as e:
+        return None, str(e)
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        return None, f"invalid YAML: {e}"
+    sites = data.get("sites") if isinstance(data, dict) else None
+    if not sites:
+        return None, "sitemap has no 'sites' list"
+    return sites, None
+
+
+def _fetch(url, method):
+    req = urllib.request.Request(url, method=method, headers={"User-Agent": "hee-view/1.0"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return r.status
+
+
+def sites_check(sites):
+    # Real gotcha, found dogfooding this against the real sitemap
+    # (2026-08-28): Cloudflare-fronted sites here return a real 403 to a
+    # bare HEAD request (WAF/bot-protection rule), even though a real
+    # browser -- or `curl` with its default GET -- gets a real 200. Try
+    # HEAD first (cheaper), fall back to a real GET on any non-2xx/3xx
+    # before calling it a failure, so this doesn't cry wolf about sites
+    # that are actually fine.
+    results = []
+    for entry in sites:
+        url = entry["url"]
+        start = time.monotonic()
+        code = None
+        error = None
+        for method in ("HEAD", "GET"):
+            try:
+                code = _fetch(url, method)
+            except urllib.error.HTTPError as e:
+                code = e.code  # a real HTTP error status (404, etc) is still a real answer
+            except Exception as e:
+                code = None
+                error = str(e)
+            if code and 200 <= code < 400:
+                error = None
+                break
+        elapsed_ms = round((time.monotonic() - start) * 1000)
+        results.append({"url": url, "code": code, "elapsed_ms": elapsed_ms,
+                         "note": entry.get("note", ""), "error": error})
+    return results
+
+
+def print_sites_condensed(results):
+    def is_ok(r):
+        return bool(r["code"]) and 200 <= r["code"] < 400
+    ok = [r for r in results if is_ok(r)]
+    bad = [r for r in results if not is_ok(r)]
+    for r in bad:
+        why = r["error"] or f"HTTP {r['code']}"
+        print(f"🔴 site {r['url']}: {why}")
+    flag = "🟢" if not bad else "🔴"
+    print(f"{flag} sites: {len(ok)}/{len(results)} real URLs answering 200-399")
+
+
+def print_sites_nerd(results):
+    for r in results:
+        flag = "🟢" if r["code"] and 200 <= r["code"] < 400 else "🔴"
+        status = r["error"] or r["code"] or "no answer"
+        print(f"{flag} {r['url']:55} {status!s:10} {r['elapsed_ms']:5}ms  {r['note']}")
+
+
 def inbound_status():
     # Real trigger (2026-08-26): tcos.us/api/contact + /api/apply write
     # real applicant/investor/press submissions straight into the private
@@ -107,7 +211,11 @@ def main():
     ap.add_argument("--haproxy-host", default="10.0.0.160")
     ap.add_argument("--dns-host", default="10.0.0.194")
     ap.add_argument("--nerd", action="store_true",
-                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals")
+                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals; also full per-URL --sites detail")
+    ap.add_argument("--sites", action="store_true",
+                     help="check every real URL in the site map answers 200-399")
+    ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
+                     help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
     args = ap.parse_args()
 
     print("=== tcos lab -- hee view ===")
@@ -140,8 +248,31 @@ def main():
     flag = "🟢" if dns else "🔴"
     print(f"{flag} dns (ns1): {dns or 'no answer'}")
 
+    sites_ok = True
+    if args.sites:
+        sites, err = load_sitemap(args.sitemap)
+        if err:
+            print(f"🔴 sites: sitemap unavailable ({err})")
+            sites_ok = False
+        else:
+            results = sites_check(sites)
+            if args.nerd:
+                print_sites_nerd(results)
+            else:
+                print_sites_condensed(results)
+            sites_ok = all(r["code"] and 200 <= r["code"] < 400 for r in results)
+
     print_inbound(inbound_status())
+
+    # Real exit code, --sites only: a scheduled CI run needs an actual
+    # pass/fail signal, not just a report nobody's watching. The other
+    # checks stay report-only (matches this tool's existing, deliberate
+    # "informational, not a gate" behavior) -- only --sites changes this,
+    # since it's the one being wired into real CI (fleet-ops#295).
+    if args.sites and not sites_ok:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
