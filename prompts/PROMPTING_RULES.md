@@ -75,6 +75,18 @@ loaded, read this file directly rather than assume it did.
    - Never hardcode a real user's home path (`/home/spencer/...`) into a
      shared init/bootstrap script or template -- use `$HOME` so it works on
      any machine, user, or automated node.
+11. **Color/status output goes through the Claude Code `dataviz` skill's
+    rules, always -- never bare red/green.** Real trigger, 2026-08-28: an
+    agent session built a plain ✅/❌ status table (and had been echoing
+    hee-view's 🔴/🟡/🟢 dots uncritically all session) before ever loading
+    the skill. Spencer, direct: "this red is anti spencer." Status colors
+    (good/warning/serious/critical) ship with an icon + label, never color
+    alone, and any real palette gets run through the skill's
+    `scripts/validate_palette.js` before shipping -- see `UI_UX_REVIEW.md`/
+    `STATUS_AND_PRIORITIES.md` in `thesis-engine` for prior real findings
+    from the same validator. Applies org-wide, not just chart code: plain
+    chat/table output using red/green as the only distinguishing cue is
+    the same failure mode.
 
 ## Authority Invariants
 
