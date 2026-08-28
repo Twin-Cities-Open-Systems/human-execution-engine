@@ -8,8 +8,7 @@ One real implementation, so SITEMAP.yaml validation, hee-view --sites,
 and any future tool that needs to classify a *.tcos.us hostname share
 the same pattern instead of N slightly-different copies.
 
-Real shape, confirmed against every known-real hostname this session
-(see the org's .github/profile/SITEMAP.yaml and SITEMAP-PROPOSED.yaml):
+Real shape:
   <service>.tcos.us                    -- e.g. foo.tcos.us (shared slot)
   <person>.<service>.tcos.us           -- e.g. spencer.media.tcos.us
   <service>.lab.tcos.us                -- lab mirror, no person
@@ -19,41 +18,51 @@ Real shape, confirmed against every known-real hostname this session
 <person> covers both an Oper name (spencer) and an Agent name
 (touchy-claude) -- this module can't and doesn't try to tell which:
 that classification lives in SITEMAP metadata, not the DNS label
-itself. SERVICES is deliberately a plain set, not baked into the
-regex by hand, so adding a new service is a one-line change here, not
-a regex rewrite.
+itself.
 
-Real, deliberate exclusions -- not a gap: rtfm.tcos.us/man.tcos.us
-(external DigitalOcean infra, outside this pattern entirely) and dead
-names like www.tcos.us/resume.tcos.us correctly fail to match. A
-non-match doesn't mean "invalid" on its own -- callers decide what an
-unmatched host means (external infra, typo, needs a new SERVICES
-entry); this module only classifies, it doesn't judge.
+Real correction #1, same session, Spencer direct: an earlier version
+restricted <service> to a hardcoded alternation (blog|media|foo|man)
+-- "the process to add a new service will include updating a regex?
+that sound like a poor regex... make a regex that will work for
+anything we may want to add, that is the whole point." <service> now
+matches generically, the same DNS-label shape as <person> -- adding a
+real service (or a per-person sandbox under one) needs zero code
+changes. Known/intentional service names live only in
+test_hee_hostmap.py, as real example data proving the pattern still
+classifies them correctly -- not as a matching constraint.
+
+Real correction #2, same session, caught by this module's own test
+suite: a single combined regex for "(person.)?service(.lab)?.tcos.us"
+is genuinely ambiguous once <service> is unrestricted -- for
+"ns1.lab.tcos.us", Python's re greedily matches person=ns1,
+service=lab, env=None (a real, fully-matching parse) and never
+backtracks to try person=None, service=ns1, env=lab, because it
+already found *a* match. classify_host() below resolves this by
+splitting on the ".lab.tcos.us" / ".tcos.us" suffix FIRST
+(deterministic, no ambiguity), then parsing whatever's left as
+(person.)?service -- not by tuning one regex to get luckier.
+
+This module answers "does this hostname have the right shape," not
+"is this a real, provisioned host" -- that's SITEMAP.yaml's job
+(existence), not this module's (shape). A non-match here means the
+apex/service form doesn't apply at all (wrong TLD, extra labels,
+malformed) -- everything else, real or not, matches structurally and
+judging realness happens elsewhere.
 """
 import re
 
-SERVICES = {"blog", "media", "foo"}
-
 _LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 
-
-def _build_hostname_re(services):
-    service_alt = "|".join(sorted(services))
-    return re.compile(
-        rf"^(?:(?P<person>{_LABEL})\.)?"
-        rf"(?P<service>{service_alt})"
-        rf"(?:\.(?P<env>lab))?"
-        rf"\.tcos\.us$"
-    )
-
-
-HOSTNAME_RE = _build_hostname_re(SERVICES)
-APEX_RE = re.compile(r"^(?:(?P<env>lab)\.)?tcos\.us$")
+# Unambiguous on their own -- no <service>-vs-env overlap to resolve.
+APEX_RE = re.compile(r"^(?:lab\.)?tcos\.us$")
+_PREFIX_RE = re.compile(rf"^(?:(?P<person>{_LABEL})\.)?(?P<service>{_LABEL})$")
 
 # Clean slug paths only -- no extension, no trailing slash, no
 # "/index.html" ugliness. '/' (root) and '/a/b/c' are valid; anything
 # with a dot or an empty path segment is not.
 PATH_SLUG_RE = re.compile(rf"^/(?:{_LABEL}(?:/{_LABEL})*)?$")
+
+_SUFFIXES = (("lab", ".lab.tcos.us"), (None, ".tcos.us"))
 
 
 def classify_host(host):
@@ -63,19 +72,24 @@ def classify_host(host):
     Returns a dict (apex: person=service=None; service host: person
     may be None) with keys person/service/env, or None if HOST
     matches neither shape. Case-insensitive; HOST should not include
-    a scheme or path.
+    a scheme or path. Matching is shape-only -- a real dict result
+    doesn't mean the host is actually live; check SITEMAP.yaml for
+    that.
     """
     host = host.lower()
-    m = APEX_RE.match(host)
-    if m:
-        return {"person": None, "service": None, "env": m.group("env")}
-    m = HOSTNAME_RE.match(host)
-    if m:
-        return {
-            "person": m.group("person"),
-            "service": m.group("service"),
-            "env": m.group("env"),
-        }
+    if APEX_RE.match(host):
+        return {"person": None, "service": None, "env": "lab" if host.startswith("lab.") else None}
+    for env, suffix in _SUFFIXES:
+        if host.endswith(suffix):
+            prefix = host[: -len(suffix)]
+            m = _PREFIX_RE.match(prefix)
+            if m:
+                return {
+                    "person": m.group("person"),
+                    "service": m.group("service"),
+                    "env": env,
+                }
+            return None
     return None
 
 
