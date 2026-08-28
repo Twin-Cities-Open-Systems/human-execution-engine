@@ -58,19 +58,19 @@ operation (a `git status`, a `gh api` call), not an LLM call, or the
 [fleet-ops#208](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/208)
 for the tracked discipline of keeping checks on the cheap side of that
 line.
-: DECISION_FRAMEWORK.md -- formalize this session's real logic)
+
 ## How to apply this at any scale
 
 Before any decision — whether it's a single word in a doctrine file or an
-org-wide rollout — run it through, in order:
-1. What's actually verified right now, versus assumed? (Rule 1)
-2. Does this already have a correct home or precedent? (Rules 2-4)
-3. What's the real blast radius if this is wrong? (Rule 5)
-4. Am I the right party to act, or does this route elsewhere? (Rule 6)
-5. Is the outcome recorded somewhere durable? (Rule 7)
-6. Am I stating confidence honestly? (Rule 8)
-7. Is this constructed correctly before I run it, not after? (Rule 9)
+org-wide rollout — start with what's actually verified right now, versus
+assumed (Rule 1).
 
-None of these are new. They're what already happened, written down so the
-next decision — at either scale — doesn't have to rediscover the same
-method from scratch.
+**Status, honestly (2026-08-27):** Rule 1 is the only rule this document
+has ever actually extracted from a real decision. An earlier draft of this
+section referenced Rules 2 through 9 as if they already existed; they were
+never written, and a stray mid-edit fragment sat in the file next to them.
+Both are removed here rather than backfilled with invented rules — per
+this same framework's own Rule 1, a claim that something exists should be
+verified, not relayed. Add Rule 2 onward the same way Rule 1 was written:
+extracted from a real decision, with the real example that produced it,
+not drafted in advance of practice.

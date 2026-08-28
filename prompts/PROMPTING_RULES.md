@@ -5,6 +5,17 @@ The authoritative *policy* prose lives in `docs/doctrine/HEE_POLICY.md` —
 this file is the compact, agent-facing summary an agent actually reads at
 the top of a session, per `prompts/INIT.md`.
 
+**This file is org-wide canonical, not just for this repo** — every other
+TCOS repo's `CLAUDE.md` pulls it in via `@~/git/human-execution-engine/prompts/PROMPTING_RULES.md`.
+That import is a **real, required assumption that every repo is checked
+out under `~/git/<repo>`** (this org's own convention, per `bin/init-org.sh`'s
+`WORKSPACE_DIR="${HOME}/git"`) — `~` is the most portable path form
+Claude Code's `@import` actually supports (confirmed: no `$HOME`/env-var
+expansion, no workspace-relative mechanism). On a machine that doesn't
+follow that layout, the import silently fails to resolve and this file
+won't be in context for other repos' sessions — if you're not sure it
+loaded, read this file directly rather than assume it did.
+
 ## The rules
 
 1. **Every git/gh mutation goes through the wrapper.** Raw `git commit`,
@@ -41,6 +52,29 @@ the top of a session, per `prompts/INIT.md`.
    pick, let the human decide on a genuine tradeoff, then canonize the
    resolution back into the doc with its reasoning kept — HEE Policy
    §19.
+
+8. **Commit format and merge flow.** Conventional Commits
+   (`type(scope): concise imperative description`; `feat`/`fix`/`chore`/`docs`)
+   for every commit and PR title. Merge via `gh pr merge --squash`; add
+   `--delete-branch` only for `feature/`-prefixed branches -- `touchy/`-prefixed
+   branches are kept post-merge as an audit trail by design (see HEE Policy
+   §2). Absorbed from the org's old `WORKFLOW.md`, 2026-08-27.
+9. **Issue hierarchy.** Epic (org roadmap, multi-repo, spans quarters) ->
+   Feature (one discrete capability) -> Sub-issue (PR-bound tactical work,
+   keeps its own labels -- labels don't inherit from the parent).
+10. **Three real footguns, absorbed from the org's old
+   `ORGANIZATION_BOOTSTRAP.md`, 2026-08-27:**
+   - Never run a destructive git clean (`git clean -fdx`, `git reset --hard`)
+     immediately after a `git stash pop` in a multi-repo/headless script --
+     the just-popped changes sit uncommitted and get purged as noise. Use
+     `pull --rebase` or an isolated branch instead of a trailing reset.
+   - Any pre-commit hook that runs `git diff`/`git status` internally needs
+     a recursion guard (`TCOS_HOOK_RUNNING` env var, checked and set at the
+     top, `exit 0` if already set) -- without it, the hook re-triggers
+     itself until the shell hits its subshell-depth limit and crashes.
+   - Never hardcode a real user's home path (`/home/spencer/...`) into a
+     shared init/bootstrap script or template -- use `$HOME` so it works on
+     any machine, user, or automated node.
 
 ## Authority Invariants
 
