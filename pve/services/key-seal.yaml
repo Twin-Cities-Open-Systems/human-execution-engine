@@ -1,0 +1,25 @@
+status: planned, not provisioned  # stub only -- Spencer, 2026-08-27: "not designed or built today"
+hostname: tcos-keyseal-TBD  # org-role-char, fleet-ops#76 lineage; hee-name pool=family-guy scope=pve-lxc -- real name assigned at real provisioning time, not guessed here
+template: alpine-3.23-default_20260116_amd64.tar.xz  # TBD -- confirm at real design time, not assumed to match view/inbound just because it's the current default
+template_storage: local
+storage: vmdata
+cores: TBD
+memory_mb: TBD
+disk_gb: TBD
+bridge: vmbr0
+unprivileged: true
+
+# Purpose (real, not yet built): a dedicated container for sealing/storing
+# real secrets -- starting with the Windows 11 Pro license key Spencer can
+# seal, extending the org's own already-real GPG-signing/sealing
+# convention (fleet-ops/hee/contracts/*.yaml.asc, HEE_POLICY.md section 14)
+# to a proper home instead of secrets living in scattered env vars/JSON
+# files (e.g. the real data/schwab-tokens.json pattern already flagged as
+# sensitive elsewhere).
+#
+# This is arguably the highest-consequence container discussed this
+# session -- getting secrets storage wrong has outsized real cost. Needs
+# its own dedicated design pass (real threat model, real access boundary,
+# real backup story once the backup container/SOP exists) before any real
+# provisioning -- same "off-limits until properly configured" posture as
+# the backup USB drives. Do not provision from this stub as-is.

@@ -1,0 +1,24 @@
+status: planned, not provisioned  # stub only -- Spencer, 2026-08-27: "don't want to build it today, just prep it"
+kind: vm  # NOT an lxc container -- every other file in this directory is
+          # pct/lxc; Windows needs real qm/KVM. Confirmed 2026-08-27 via
+          # `qm list` on pve: zero QEMU/KVM VMs exist in this fleet today.
+          # `hee-pve-deploy` and this directory's tooling only know `pct`
+          # -- provisioning this for real needs a real qm code path, not
+          # assumed to already work just because this file exists.
+hostname: tcos-win11-TBD  # org-role-char naming convention, real name assigned at real provisioning time
+os: Windows 11 Pro
+license: >-
+  real, valid, Spencer's own -- NOT stored here or anywhere in this repo in
+  plaintext. Same secret-handling standard as everything else -- tcos-audit
+  custody, or the planned key-seal container once that's real (see
+  pve/services/key-seal.yaml) -- not a YAML field.
+storage: TBD
+disk_gb: TBD
+memory_mb: TBD
+cores: TBD
+iso_source: TBD
+bridge: vmbr0
+
+# Purpose: a real Windows 11 Pro workstation, using Spencer's own valid
+# license. Not built today -- this file exists so the resource is
+# planned/reserved, nothing more. Do not provision from this stub as-is.
