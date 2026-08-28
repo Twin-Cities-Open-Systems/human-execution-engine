@@ -18,3 +18,13 @@ case ":${PATH}:" in
   *":${HOME}/.local/bin:"*) ;;
   *) PATH="${HOME}/.local/bin:${PATH}" ;;
 esac
+
+# Real footgun, 2026-08-28: an agent session ran raw mutating git across
+# three repos before ever reading PROMPTING_RULES.md's rule #1 (all
+# git/gh mutation goes through scripts/hee_git_ops.sh, not raw git).
+# One-line-per-shell reminder, not the full file -- this file stays
+# minimal by design (PATH only, no other opinion); the real content
+# lives in bootstrap.mk's print-governance-reminder and the file itself.
+if [ -f "${HOME}/git/human-execution-engine/prompts/PROMPTING_RULES.md" ]; then
+  echo "heerc: read prompts/PROMPTING_RULES.md -- git/gh mutations go through scripts/hee_git_ops.sh, never raw git." >&2
+fi
