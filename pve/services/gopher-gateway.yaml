@@ -1,0 +1,39 @@
+hostname: tcos-gopher-gateway  # real, provisioned 2026-08-28, vmid 109, ip 10.0.0.172
+template: alpine-3.23-default_20260116_amd64.tar.xz
+template_storage: local
+storage: vmdata
+cores: 1
+memory_mb: 256
+disk_gb: 4
+bridge: vmbr0
+unprivileged: true
+
+# Real trigger: man.tcos.us's real content lives on a real Gopher
+# server (RFC 1436) on foo.tcos.us's real DigitalOcean box (root
+# access confirmed live 2026-08-28, spencer's own real trusted SSH key)
+# -- haproxy can't translate that to HTML (TCP/HTTP proxy only, no
+# protocol translation). bin/gopher_gateway.py IS Spencer's own real,
+# already-working /usr/local/bin/gopher2html.py from that box, ported
+# here rather than reimplemented ("foo has gopher html app I think,
+# compare" -- it was genuinely better than a first hand-rolled
+# attempt: RFC 4266 URLs, real image content-types, a real open-relay
+# guard). Only real change: points at the remote upstream instead of a
+# colocated local gophernicus. Plus a real raw-TCP Gopher passthrough
+# via socat for gopher://man.lab.tcos.us itself. Spencer, direct:
+# "clean separtion between ip space on foo and man" -- dedicated
+# container/IP, not sharing view's webroot like the other lab mirrors,
+# so lab never repeats the real "man falls through to foo's vhost by
+# accident" bug found live on the real box (real cert-mismatch
+# confirmed live too -- man.tcos.us's own HTTPS actually serves
+# foo.tcos.us's page).
+#
+# Not covered by hee-pve-deploy (container creation only, no real
+# app-deploy step) -- real setup after container creation:
+#   1. apk add --no-cache python3 socat
+#   2. push bin/gopher_gateway.py to /opt/gopher-gateway/gopher_gateway.py
+#   3. push bin/gopher-gateway.initd to /etc/init.d/gopher-gateway, chmod +x
+#   4. push bin/gopher-tcp-relay.initd to /etc/init.d/gopher-tcp-relay, chmod +x
+#   5. rc-update add gopher-gateway default && rc-service gopher-gateway start
+#   6. rc-update add gopher-tcp-relay default && rc-service gopher-tcp-relay start
+#   7. haproxy: real ACL+backend for man.lab.tcos.us -> 10.0.0.172:8070
+#      (HTTP) + DNS A record + real TCP passthrough for port 70

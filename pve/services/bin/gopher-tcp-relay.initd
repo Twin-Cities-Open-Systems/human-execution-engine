@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+# gopher-tcp-relay -- real raw Gopher (port 70) passthrough to the
+# real upstream (foo.tcos.us:70), so gopher://man.lab.tcos.us works
+# directly, not just the HTML render. Pure TCP relay, no translation
+# needed -- haproxy could do this part too, but keeping it colocated
+# with the gateway keeps this one container self-contained.
+# (human-execution-engine/pve/services/gopher-gateway.yaml)
+
+name="gopher-tcp-relay"
+command="/usr/bin/socat"
+command_args="TCP-LISTEN:70,fork,reuseaddr TCP:foo.tcos.us:70"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+depend() {
+    need net
+}
