@@ -2,9 +2,41 @@
 # hee: tiny POSIX router (global tool root + local target repo)
 # - TOOL_ROOT derived from this script location ($0)
 # - TARGET_ROOT derived from cwd (git repo) if available
-# - extension: try target repo tooling/bin/hee-<cmd>, then tool repo tooling/bin/hee-<cmd>
+# - extension: try target repo tooling/bin/hee-<cmd>, then tool repo
+#   tooling/bin/hee-<cmd>, then every other repo under WORKSPACE_ROOT
 
 set -u
+
+# WORKSPACE_ROOT -- this org's own convention (bin/init-org.sh's
+# WORKSPACE_DIR="${HOME}/git", documented in every repo's CLAUDE.md) that
+# every repo lives under one flat workspace dir. Used as a last-resort
+# extension search so a repo-local command (e.g. .github's hee-make) is
+# reachable from anywhere, not just from inside that one repo -- real
+# trigger, Spencer direct 2026-08-28: "hee tools work from any dir, bake
+# that in the command... I am not going to go cd all over the place.
+# make the tool work for us."
+WORKSPACE_ROOT="${HOME}/git"
+
+# find_workspace_extension CMD -- scan every repo under WORKSPACE_ROOT
+# (skipping TARGET_ROOT/TOOL_ROOT, already checked by the caller) for
+# tooling/bin/hee-CMD. First match wins, directory-listing order -- fine
+# for the single-digit number of repos that define repo-local extensions
+# today; revisit with an explicit collision check if that ever changes.
+find_workspace_extension() {
+  _fwe_cmd="$1"
+  [ -d "${WORKSPACE_ROOT}" ] || return 1
+  for _fwe_repo in $(find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+    case "${_fwe_repo}" in
+      "${TARGET_ROOT}" | "${TOOL_ROOT}") continue ;;
+    esac
+    _fwe_cand="${_fwe_repo}/tooling/bin/hee-${_fwe_cmd}"
+    if [ -x "${_fwe_cand}" ]; then
+      printf '%s\n' "${_fwe_cand}"
+      return 0
+    fi
+  done
+  return 1
+}
 
 usage() {
   cat <<'TXT'
@@ -48,7 +80,30 @@ list_commands() {
       echo "  ${name}"
     done
   done
-  [ -z "${found}" ] && echo "  (none found in ${TARGET_ROOT}/tooling/bin or ${TOOL_ROOT}/tooling/bin)"
+  # workspace-wide: repo-local extensions from every other repo under
+  # WORKSPACE_ROOT, annotated by repo so "where did this come from" is
+  # never a mystery. These differ from the two roots above only in that
+  # they're now reachable from anywhere, not just from inside their own
+  # repo -- same fix as the resolution logic below.
+  if [ -d "${WORKSPACE_ROOT}" ]; then
+    for repo in $(find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+      case "${repo}" in
+        "${TARGET_ROOT}" | "${TOOL_ROOT}") continue ;;
+      esac
+      d="${repo}/tooling/bin"
+      [ -d "${d}" ] || continue
+      for f in "${d}"/hee-*; do
+        [ -x "${f}" ] || continue
+        name="$(basename "${f}")"
+        case " ${found} " in
+          *" ${name} "*) continue ;;
+        esac
+        found="${found} ${name}"
+        echo "  ${name}  ($(basename "${repo}"))"
+      done
+    done
+  fi
+  [ -z "${found}" ] && echo "  (none found in ${TARGET_ROOT}/tooling/bin, ${TOOL_ROOT}/tooling/bin, or any repo under ${WORKSPACE_ROOT})"
 }
 
 # resolve TOOL_ROOT from this script's REAL path, not the PATH entry
@@ -211,6 +266,10 @@ case "${cmd}" in
     fi
     if [ -x "${ext_tool}" ]; then
       exec "${ext_tool}" "$@"
+    fi
+    ext_workspace="$(find_workspace_extension "${cmd}")"
+    if [ -n "${ext_workspace}" ] && [ -x "${ext_workspace}" ]; then
+      exec "${ext_workspace}" "$@"
     fi
 
     echo "🟡 🟦 b # WARN: unknown command: ${cmd}" 1>&2
