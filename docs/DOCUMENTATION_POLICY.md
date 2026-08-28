@@ -123,3 +123,69 @@ with directly, three things happen **while building it, not after**:
    entry. This is a real run's real output, not a hand-written mockup
    of what output might look like — the whole point is that a human
    reading it can trust it reflects what actually happens.
+
+### 7. Every public-facing page is a real, maximized metadata surface
+
+**Added 2026-08-27** (Spencer, direct, several messages in the same
+session): "all pages must be OG compliant," "we want to take full
+advantage of OG, exif data for any and all img we host, and anything
+else we can think of to make our data more dense," "we spread our name
+through every possible 'free/passive' means possible," "bake in 'seo'
+by default." Not aspirational — a standing requirement for every page
+this org publishes, checked the same way a broken link or an unfilled
+placeholder would be.
+
+Concretely, every page the org publishes (view.lab, any future public
+site) ships with:
+
+1. **Full Open Graph tags** — `og:site_name`, `og:title`,
+   `og:description`, `og:type`, `og:url`, plus `twitter:card`. A
+   `title` alone is not compliance.
+2. **Baked-in SEO** — a real `<meta name="description">` (not a
+   truncated copy-paste of the body) and a `<link rel="canonical">`
+   pointing at the page's own real, stable URL.
+3. **EXIF metadata on every hosted image** — real, filled-in fields
+   (at minimum description/credit/copyright), not stripped-and-blank.
+   Applies the moment this org hosts its first real image asset, not
+   deferred until it feels relevant.
+4. **A real favicon** — a placeholder ("not blank") is acceptable only
+   as an explicitly-marked stopgap while a real icon set is still an
+   open decision; it is never acceptable to ship with no `<link
+   rel="icon">` at all.
+5. **Real, non-fabricated values only** — every field above is either a
+   real fact about the page (a real URL, a real description of what the
+   page actually is) or, where no real value exists yet (an unchosen
+   favicon, an unpicked license), an honestly-labeled placeholder that
+   says so — never an invented value that merely looks complete. Same
+   "never fabricate" standard as everywhere else in this org's doctrine,
+   applied to metadata specifically because metadata is exactly the
+   kind of field a human won't glance-check the way they'd check body
+   text.
+
+Real, shipped precedent: `bin/render-review.py` (`.github`) — every
+page it generates carries this full block, plus a real `lu:`
+(last-updated: ISO timestamp, human-readable, live delta),
+commit-or-honestly-uncommitted label, and looked-up (not assumed)
+`LICENSE` detection. The org's 6 hand-authored `view.lab` pages
+(`index.html`, `roadmap.html`, `review.html`, `follow-up.html`,
+`ian.html`, `todo.html`) were retrofitted with (or, for `todo.html`,
+built from scratch already carrying) the same block the same day this
+rule was written — see [`.github`#42](https://github.com/Twin-Cities-Open-Systems/.github/issues/42)
+for the related real gap that surfaced doing that (those pages have no
+local git source of record yet, so their `commit:`/`license:` fields
+are honest placeholders, not real per-page values — rule 5 applies:
+that's a real limitation to disclose, not paper over).
+
+**"Deploy a new page" means reuse, not invent.** Standing definition,
+added the same day as the rest of this rule: whenever the real
+instruction is to "deploy a new page" (or a gallery, or a blog index —
+any new content surface on an existing site), that means take the
+current site's real design system as-is — site-bar, theme toggle,
+font-size toggle, the metadata block above, the same CSS custom
+properties — and reuse it verbatim for the new content. It does **not**
+license adding a new UI mechanism (comments, search, pagination, a new
+color token) as a side effect of "just" deploying a page. A genuinely
+new mechanism is its own explicitly-scoped request, decided on its own,
+never smuggled in under a page-deploy instruction. Real precedent:
+`todo.html`, built 2026-08-27 by cloning `follow-up.html`'s exact head/
+CSS/script scaffold rather than designing new chrome for it.
