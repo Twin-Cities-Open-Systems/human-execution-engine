@@ -864,6 +864,59 @@ as [[primitives#5]] and `fleet-ops#208`'s primitives epic, not built yet.
   independently-verified fact — the distinction matters until the tool
   call itself is as inspectable as a shell command
 
+### 22. DNS Configuration Policy (search domains, ndots, resolver order)
+
+**Requirement**: every real TCOS infra host's `/etc/resolv.conf` (or
+equivalent) sets:
+
+- `search` listing every real, currently-active domain the host or its
+  LAN peers actually use, **the host's own domain first** — not just
+  the domain being configured, and never dropping a domain because it
+  looks unfamiliar or legacy. Two real domains coexist on the TCOS LAN
+  today: `lab.tcos.us` (TCOS org infra -- pve, ns1, the LXC fleet) and
+  `crooked.tcos.us` (Spencer's personal home-lab, hosted on nuc-1 --
+  Plex, Sonarr, Home Assistant). Neither is legacy or a fallback; a
+  host's search list includes both, ordered by which domain the host
+  itself belongs to.
+- `options ndots:1` set **explicitly**, not left implicit. This is
+  glibc's own default, but writing it out documents the intent instead
+  of relying on an unstated default -- and explicitly rules out the
+  common `ndots:5`-style anti-pattern (popularized by Kubernetes) where
+  even real external single-dot FQDNs get tried against internal search
+  domains first, adding latency for no benefit on a LAN this size.
+- `nameserver` lines in a real, deliberate order: the LAN's own
+  authoritative internal DNS first (`ns1.lab.tcos.us`, `10.0.0.194`),
+  then the LAN-wide Pi-hole (`10.0.0.72`), then a public resolver last
+  (`1.1.1.1`) as the real fallback.
+
+**Rationale**: real trigger, 2026-08-29 -- auditing `pve` and `ns1`
+(fleet-ops#243) found both TCOS infra hosts still carrying stale
+`*.crooked.tcos.us` hostnames (the wrong domain for what they *are* --
+they're TCOS infra, not Spencer's personal home-lab) and `pve`'s
+`resolv.conf` had no internal resolver at all (`search crooked.tcos.us`
+/ `nameserver 8.8.8.8` only) -- meaning short-name LAN resolution
+(`ssh ns1`, `ssh bastion`) never worked from pve itself, and the host's
+own hostname didn't match real DNS (`hostname -f` returning a name with
+no matching record). Fixed by adding the missing real `pve` A record to
+`db.lab.tcos.us`, correcting both hosts' actual hostnames, and writing
+a real, explicit `resolv.conf`.
+
+**Not the same as**: deciding one domain is more real than the other.
+The fix here was moving two TCOS-infra hosts onto the domain they
+actually belong to (`lab.tcos.us`) -- not deprecating `crooked.tcos.us`,
+which stays real, active, and must keep resolving correctly on the LAN
+for nuc-1 and anything else that's genuinely part of Spencer's personal
+home-lab. A clearer real boundary between the two is expected to emerge
+once pve can take some real load off `nuc-1.crooked.tcos.us` -- not yet
+done, stated direction only.
+
+**Enforcement**: when standing up or auditing a real TCOS infra host,
+check `hostname -f` matches a real DNS record before anything else, then
+check `/etc/resolv.conf` against this policy's real shape. `dotfiles`
+carries the corresponding client-side convention for personal/dev
+machines -- see its own README for the current real shape, since that
+one covers per-person machines rather than fleet infra hosts.
+
 ### HEE Rule Violation Documentation
 
 **Process**:
