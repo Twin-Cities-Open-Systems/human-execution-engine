@@ -1,0 +1,116 @@
+#!/bin/sh
+# hee-repo-refresh -- real per-repo health-check/pull worker for
+# bootstrap.mk's health-all-repos and pull-all-repos targets. Extracted
+# into its own script, rather than embedded inline in the Makefile
+# recipe twice, so the GNU-parallel path and the sequential fallback
+# path call the exact same real logic instead of two copies that can
+# silently drift -- HEE#415, Spencer direct 2026-08-28: "add gnu
+# parallel to this tool." Real trigger for parallelizing at all: with
+# ~19-24 real repos each doing a real git fetch/pull over the network,
+# the old one-at-a-time loop was a real, avoidable wall-clock cost,
+# confirmed live refreshing both claude@kiosk and spencer@kiosk.
+#
+# Deliberately its own script (not a Makefile-only trick) so it can be
+# invoked identically two ways: `parallel hee-repo-refresh health ::: $repos`
+# (concurrent) or a plain `for d in $repos; do hee-repo-refresh health "$d"; done`
+# (sequential fallback when GNU parallel isn't installed) -- bootstrap.mk
+# picks whichever via `command -v parallel`.
+#
+# Usage: hee-repo-refresh <health|pull|hygiene> [<repo-dir>|all]
+# health/pull print one real 🟢/🟡/🟠/🔴-prefixed line to stdout -- same
+# format the old inline Makefile loop produced, byte-for-byte, so
+# parallel output (each job's single line prints atomically, GNU
+# parallel's own default --group behavior) reads exactly the way the
+# sequential output always did. hygiene (added for
+# fleet-ops/hosts/spencer/bin/hee-git-hygiene-report.sh's real,
+# distinct check -- dirty-file-count + no-upstream-branch-count across
+# ALL local branches, not just the current one) prints nothing at all
+# for a clean repo, matching that script's original silent-unless-a-
+# problem behavior exactly.
+#
+# Real trigger (2026-08-29), Spencer direct, live via `hee repo-refresh
+# health` with no dir and a confusing usage error: this was only ever
+# built as bootstrap.mk's per-repo worker, never usable standalone
+# through the real `hee` dispatcher without already knowing to pass a
+# specific repo path. Omitting <repo-dir>, or passing the literal `all`,
+# now fans out over every real repo under ${HEE_GIT_ROOT:-$HOME/git}
+# itself -- same find + parallel/sequential-fallback logic bootstrap.mk's
+# health-all-repos/pull-all-repos already use, just callable directly.
+
+set -u
+
+MODE="${1:?usage: hee-repo-refresh <health|pull|hygiene> [<repo-dir>|all]}"
+DIR="${2:-all}"
+
+if [ "$DIR" = "all" ]; then
+  GIT_ROOT="${HEE_GIT_ROOT:-$HOME/git}"
+  SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  repos="$(find "$GIT_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"
+  if command -v parallel >/dev/null 2>&1; then
+    parallel "$SELF" "$MODE" ::: $repos
+  else
+    for d in $repos; do "$SELF" "$MODE" "$d"; done
+  fi
+  exit 0
+fi
+
+R=$(basename "$DIR")
+
+[ -d "$DIR/.git" ] || exit 0
+
+case "$MODE" in
+  health)
+    git -C "$DIR" fetch --quiet 2>/dev/null
+    branch=$(git -C "$DIR" branch --show-current 2>/dev/null)
+    status=$(git -C "$DIR" status --porcelain 2>/dev/null)
+    tracked_dirty=$(printf '%s\n' "$status" | grep -v '^??' | grep -c . || true)
+    untracked=$(printf '%s\n' "$status" | grep -c '^??' || true)
+    upstream=$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+    if [ -n "$upstream" ]; then
+      set -- $(git -C "$DIR" rev-list --left-right --count "HEAD...$upstream" 2>/dev/null)
+      ahead=${1:-0}; behind=${2:-0}
+    else
+      ahead=0; behind=0
+    fi
+    untracked_note=""
+    [ "$untracked" != "0" ] && untracked_note=" ($untracked untracked, fine to pull through)"
+    if [ "$tracked_dirty" != "0" ] && [ "$behind" != "0" ]; then
+      echo "🔴 $R: dirty ($tracked_dirty uncommitted) AND $behind behind $branch -- resolve by hand first"
+    elif [ "$tracked_dirty" != "0" ]; then
+      echo "🟠 $R: dirty ($tracked_dirty uncommitted) on $branch"
+    elif [ "$ahead" != "0" ] && [ "$behind" != "0" ]; then
+      echo "🟠 $R: diverged ($ahead ahead / $behind behind $branch)"
+    elif [ -z "$upstream" ]; then
+      echo "🟡 $R: no upstream tracking branch ($branch)$untracked_note"
+    elif [ "$behind" != "0" ]; then
+      echo "🟡 $R: $behind behind $branch -- pull-all-repos will fast-forward$untracked_note"
+    else
+      echo "🟢 $R: clean, up to date ($branch)$untracked_note"
+    fi
+    ;;
+  pull)
+    tracked_dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | grep -v '^??' | grep -c . || true)
+    if [ "$tracked_dirty" != "0" ]; then
+      echo "🟠 $R: skipped -- $tracked_dirty uncommitted change(s) to tracked files, not touching"
+      exit 0
+    fi
+    out=$(git -C "$DIR" pull --ff-only 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      echo "🟢 $R: $(printf '%s\n' "$out" | tail -1)"
+    else
+      echo "🔴 $R: pull failed -- $(printf '%s\n' "$out" | tail -1)"
+    fi
+    ;;
+  hygiene)
+    dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    no_upstream=$(git -C "$DIR" for-each-ref --format='%(refname:short) %(upstream)' refs/heads 2>/dev/null | awk '$2==""' | wc -l | tr -d ' ')
+    if [ "$dirty" -gt 0 ] || [ "$no_upstream" -gt 0 ]; then
+      echo "$R: ${dirty} uncommitted file(s), ${no_upstream} branch(es) with no upstream"
+    fi
+    ;;
+  *)
+    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene)" >&2
+    exit 2
+    ;;
+esac
