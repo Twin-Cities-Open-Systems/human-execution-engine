@@ -864,6 +864,57 @@ as [[primitives#5]] and `fleet-ops#208`'s primitives epic, not built yet.
   independently-verified fact — the distinction matters until the tool
   call itself is as inspectable as a shell command
 
+### 21. Tool-Maturity Language Ladder: shfn → sh → bash → py → go
+
+**Requirement**: a new real tool starts at the least-capable language that
+can actually do the job (a `library/bash/*.shfn.bash` sourced function),
+and only graduates to a more capable language (`sh`/`bash` standalone
+script, then `python3` in `tooling/bin/`, then eventually a real `hee`
+subcommand once `cmd/hee/` exists) when it's actually outgrown the tier
+it's on -- never started at a heavier language "to be safe" or "for
+consistency" when a lighter one already does the real job.
+
+**Rationale**: real, working convention this whole session -- every new
+tool built used exactly this ladder without anyone having to be told
+(`hee-repo-refresh`/`hee-og-check` as `sh`, `hee-fields` as Python, the
+GNU-parallel work reusing existing `sh` scripts rather than reaching for
+a heavier language). It was already documented at length, just not in
+governance: `docs/guides/OPERATOR_GUIDE.md`'s "The tool-maturity
+convention" section, and `hee/cards/uiboss-repohub-next.wip.yaml`. Real
+trigger for canonizing it here, 2026-08-29: Spencer, after approving the
+nuc-1 hardware-report script (deliberately plain `sh`, no `dmidecode`
+dependency, matching this ladder), direct: "we will make this a more
+generic script in the programing convention of shfn->...go/rust/c/etc,"
+then "our programing convention should be in governance, confirm." It
+wasn't -- this section is that confirmation, acted on rather than just
+answered.
+
+**Enforcement**:
+
+- `library/bash/*.shfn.bash` -- a function you `source`, not a standalone
+  script (`source library/bash/rg.scan.shfn.bash` then call `rg_scan
+  '<pattern>'`). The real starting tier for something small, reusable,
+  and cheap to prove out.
+- `tooling/bin/*` (`sh`/`bash`, no `.shfn.` suffix) -- a standalone script
+  you run directly, once the tool needs to be invoked on its own rather
+  than sourced into another script's shell.
+- `tooling/bin/*.py` -- once real data structures, JSON/YAML parsing, or
+  logic too awkward in shell is actually needed, not by default.
+- Real `hee` subcommand (`cmd/hee/`, currently a stub, not built yet for
+  most tools) -- the eventual destination for a mature, heavily-used
+  tool. This is where things are headed, not a requirement to preemptively
+  build there.
+- Go/Rust/C (or any language beyond this list) is a real, later step for
+  a tool that's outgrown Python -- performance, distribution as a single
+  binary, or similar -- not named further here because none of this
+  org's real tools have needed it yet; add the next rung when one
+  actually does, don't pre-build the ladder past current real need.
+- Two tools solving similar problems living in different tiers
+  (`library/bash/cards.scan.shfn.bash`'s fast count vs.
+  `tooling/bin/scan-hee-cards.py`'s full classification, per
+  `OPERATORS.md`) is expected, not a sign one should replace the other --
+  each stays at the tier its own real job actually needs.
+
 ### HEE Rule Violation Documentation
 
 **Process**:
