@@ -864,6 +864,49 @@ as [[primitives#5]] and `fleet-ops#208`'s primitives epic, not built yet.
   independently-verified fact — the distinction matters until the tool
   call itself is as inspectable as a shell command
 
+### 23. Sidecar File Convention
+
+**Requirement**: real auxiliary data about a file -- a signature, embedded
+metadata worth a plain-text record, or similar -- is written as a real
+sidecar file next to the original (`<filename>.<ext>`), never only left
+buried inside the original's own binary/opaque format.
+
+**Real, established instances**:
+
+- `.asc` -- detached GPG signatures (ASCII-armored), already real,
+  established practice across this org's signed-evidence workflows
+  (contract ratification, `seal-secret.sh`-sealed material) -- see the
+  Glossary's `Ratify` entry.
+- `.exif` -- real image EXIF metadata, written out as a plain sidecar
+  next to the source image rather than left only in the binary. Real
+  trigger, 2026-08-29: Spencer, direct, while planning a real shared
+  images store on nuc-1 (`/mnt/nuc1-pool/storage/docs/shared/images/`):
+  "write[e] exif next to file" -- so metadata survives and stays
+  inspectable even if a downstream copy of the image gets its EXIF
+  stripped (a common, real thing that happens when images are shared
+  further).
+
+**Rationale**: a sidecar keeps real auxiliary data in an open, greppable,
+diffable, tool-agnostic form next to the thing it describes -- the same
+"committed evidence, never opaque" discipline already applied to signed
+secrets, extended to any other real per-file metadata worth keeping
+independently of whatever tool originally produced it.
+
+**Enforcement**: when a real workflow generates auxiliary data tied to
+one specific file (a signature, extracted metadata, a checksum, etc.),
+default to a `<filename>.<ext>` sidecar next to the original rather than
+inventing a separate index/database for it, unless a real, stated reason
+argues otherwise. New sidecar types get added to this list as real
+precedent for them shows up -- this isn't meant to enumerate every kind
+in advance.
+
+**Open, not yet settled**: Spencer, same session, floated `.asc.meta` --
+a second-order sidecar carrying real metadata *about* a `.asc` signature
+(signer, purpose, date) that doesn't fit inside the bare ASCII-armored
+signature itself -- explicitly flagged as tentative ("if we need more
+data, unsure"), not a real, dated precedent yet. Noted here so it isn't
+lost, not canonized as a requirement until an actual real use shows up.
+
 ### HEE Rule Violation Documentation
 
 **Process**:
