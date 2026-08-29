@@ -824,6 +824,16 @@ resolved.
    arbitrary decree. Then the tension is closed — this isn't a standing
    review process to revisit, it's a one-time reconciliation per drift
    found.
+6. **Doctrine PRs get reviewed and merged as soon as possible, not left
+   open.** Spencer, direct, 2026-08-29: "always merge/pull doctring
+   asap." Real trigger: multiple real doctrine PRs sitting open at once
+   this same session produced actual section-number collisions (three
+   separate branches independently claiming the same next section
+   number) -- a direct, avoidable cost of doctrine changes accumulating
+   unmerged. Merging is still gated on a real review actually landing
+   (branch protection requires `REVIEW_REQUIRED` to clear -- this rule
+   doesn't and can't override that), but once approval lands, merge and
+   pull immediately, without queuing it behind other work.
 
 ### 20. Mail Search Tooling Policy
 
