@@ -16,11 +16,17 @@
 # (sequential fallback when GNU parallel isn't installed) -- bootstrap.mk
 # picks whichever via `command -v parallel`.
 #
-# Usage: hee-repo-refresh <health|pull> <repo-dir>
-# Prints one real 🟢/🟡/🟠/🔴-prefixed line to stdout -- same format the
-# old inline Makefile loop produced, byte-for-byte, so parallel output
-# (each job's single line prints atomically, GNU parallel's own default
-# --group behavior) reads exactly the way the sequential output always did.
+# Usage: hee-repo-refresh <health|pull|hygiene> <repo-dir>
+# health/pull print one real 🟢/🟡/🟠/🔴-prefixed line to stdout -- same
+# format the old inline Makefile loop produced, byte-for-byte, so
+# parallel output (each job's single line prints atomically, GNU
+# parallel's own default --group behavior) reads exactly the way the
+# sequential output always did. hygiene (added for
+# fleet-ops/hosts/spencer/bin/hee-git-hygiene-report.sh's real,
+# distinct check -- dirty-file-count + no-upstream-branch-count across
+# ALL local branches, not just the current one) prints nothing at all
+# for a clean repo, matching that script's original silent-unless-a-
+# problem behavior exactly.
 
 set -u
 
@@ -74,8 +80,15 @@ case "$MODE" in
       echo "🔴 $R: pull failed -- $(printf '%s\n' "$out" | tail -1)"
     fi
     ;;
+  hygiene)
+    dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    no_upstream=$(git -C "$DIR" for-each-ref --format='%(refname:short) %(upstream)' refs/heads 2>/dev/null | awk '$2==""' | wc -l | tr -d ' ')
+    if [ "$dirty" -gt 0 ] || [ "$no_upstream" -gt 0 ]; then
+      echo "$R: ${dirty} uncommitted file(s), ${no_upstream} branch(es) with no upstream"
+    fi
+    ;;
   *)
-    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull)" >&2
+    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene)" >&2
     exit 2
     ;;
 esac
