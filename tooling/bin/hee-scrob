@@ -31,8 +31,13 @@ Designed to be wired as an irssi alias that pipes stdout into a channel:
 then just `/scrob` in the channel.
 
 Auth: reads PLEX_TOKEN from the environment -- never hardcoded, never
-printed. Real path once hee-cred (HEE#279) has it sealed:
-  hee cred -pass plex-token -exec hee-scrob
+printed. Real, sealed path via hee-cred (HEE#279), generic through the
+`hee` dispatcher so no absolute repo path is baked into an alias:
+  hee cred -pass plex-token -exec hee scrob
+hee-cred injects the decrypted value into $HEE_CRED_PASS (never
+$PLEX_TOKEN itself -- that's always the fixed env var name hee-cred
+uses, regardless of the sealed account's name), so read_token() checks
+that var too, not just $PLEX_TOKEN.
 
 Usage:
   hee-scrob [-server URL]
@@ -68,7 +73,7 @@ def read_token() -> str:
     .profile -- so PLEX_TOKEN set after the fact never reaches /SCROB
     without a full session restart. A real file, checked second, avoids
     needing one."""
-    env_token = os.environ.get("PLEX_TOKEN")
+    env_token = os.environ.get("PLEX_TOKEN") or os.environ.get("HEE_CRED_PASS")
     if env_token:
         return env_token
     if DEFAULT_TOKEN_FILE.exists():
