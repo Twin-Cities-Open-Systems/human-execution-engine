@@ -157,11 +157,6 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path):
 
     child_env = os.environ.copy()
     child_env[ENV_VAR] = secret
-    print(
-        f"hee-cred: decrypted '{account}', running: {exec_cmd} "
-        f"(secret passed via ${ENV_VAR} env var, not argv, not printed)",
-        file=sys.stderr,
-    )
     result = subprocess.run(exec_cmd, env=child_env, shell=False)
     sys.exit(result.returncode)
 
