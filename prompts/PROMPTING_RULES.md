@@ -87,6 +87,18 @@ loaded, read this file directly rather than assume it did.
     from the same validator. Applies org-wide, not just chart code: plain
     chat/table output using red/green as the only distinguishing cue is
     the same failure mode.
+12. **Every issue gets every real field filled at file-time, not just a
+    title and body** -- HEE Policy §18. When running `gh issue create`,
+    set `--label` plus the real issue type (Task/Bug/Feature/Epic/
+    Incident) and any project fields (Priority, Effort, Target-Date) the
+    same session, never deferred to a "backfill later." Real trigger,
+    2026-08-29: Spencer caught three issues filed this session
+    (fleet-ops#335, HEE#421, resume#36) with zero fields set beyond
+    title/body -- same repeated mistake §18 already names. Use
+    `tooling/bin/hee-fields set --repo <owner>/<repo> --number <N>
+    --type <T> --priority <P> --effort <E>` -- **`--repo` needs the full
+    `owner/repo` form**, a bare repo name 404s silently confusing (real
+    footgun hit fixing this same session).
 
 ## Authority Invariants
 
