@@ -32,10 +32,13 @@ HOME_DIR := $(HOME)
 CLONE_DIR := $(HOME_DIR)/git/$(REPO)
 BIN_DIR := $(HOME_DIR)/.local/bin
 GIT_DIR := $(HOME_DIR)/git
+HOOKS_DIR := $(HOME_DIR)/.claude/hooks
+CLAUDE_SETTINGS := $(HOME_DIR)/.claude/settings.json
 
 .PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
         health-all-repos pull-all-repos refresh-all-repos print-governance-reminder \
-        link-cache-prune install-cron reset-tooling restore-secrets install-dotfiles
+        link-cache-prune install-cron reset-tooling restore-secrets install-dotfiles \
+        link-hooks install-hooks
 
 # Real trigger (2026-08-28): an agent session ran raw git commit/merge
 # repeatedly across three repos before ever reading PROMPTING_RULES.md --
@@ -182,6 +185,37 @@ refresh-all-repos: health-all-repos pull-all-repos print-governance-reminder
 link-cache-prune: clone-repo
 	@mkdir -p "$(BIN_DIR)"
 	@ln -sf "$(CLONE_DIR)/tooling/bin/hee-cache-prune" "$(BIN_DIR)/hee-cache-prune"
+
+# Real Claude Code PreToolUse hook, source of truth in this repo (not
+# dotfiles -- dotfiles is scoped to shell/editor config per its own
+# README; this enforces this repo's own PROMPTING_RULES.md rule #3,
+# same category as hee/hee-cache-prune above). Symlinked, not copied,
+# same as link-hee -- an update to the script here is live for every
+# identity without a reinstall.
+link-hooks: clone-repo
+	@mkdir -p "$(HOOKS_DIR)"
+	@ln -sf "$(CLONE_DIR)/tooling/hooks/check-bare-issue-refs.py" "$(HOOKS_DIR)/check-bare-issue-refs.py"
+
+# Real trigger (2026-08-29): the hook itself was real and tested, but
+# only wired into claude@kiosk's own ~/.claude/settings.json by hand --
+# invisible to every other identity until this existed. Additive jq
+# merge into settings.json's real hooks.PreToolUse array (same real
+# "never clobber what's already there" discipline as install-cron's
+# crontab merge above) -- checks whether a hook with this exact command
+# already exists anywhere in PreToolUse before adding, so re-running is
+# a real no-op, not a growing duplicate list. Never touches any other
+# hook already configured.
+install-hooks: link-hooks
+	@mkdir -p "$$(dirname "$(CLAUDE_SETTINGS)")"; \
+	if [ ! -f "$(CLAUDE_SETTINGS)" ]; then echo '{}' > "$(CLAUDE_SETTINGS)"; fi; \
+	cmd="python3 $(HOOKS_DIR)/check-bare-issue-refs.py"; \
+	if jq -e --arg cmd "$$cmd" '[.hooks.PreToolUse[]?.hooks[]?.command] | index($$cmd)' "$(CLAUDE_SETTINGS)" >/dev/null 2>&1; then \
+		echo "bootstrap.mk: bare-issue-reference hook already installed in $(CLAUDE_SETTINGS)"; \
+	else \
+		tmp="$$(mktemp)"; \
+		jq --arg cmd "$$cmd" '.hooks //= {} | .hooks.PreToolUse //= [] | .hooks.PreToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": $$cmd, "timeout": 10, "statusMessage": "Checking for bare issue/PR shorthand..."}]}]' "$(CLAUDE_SETTINGS)" > "$$tmp" && mv "$$tmp" "$(CLAUDE_SETTINGS)"; \
+		echo "bootstrap.mk: installed bare-issue-reference hook into $(CLAUDE_SETTINGS)"; \
+	fi
 
 # Real, unprivileged-by-design cron install -- per Spencer's correction
 # 2026-08-24: user tools belong in $(BIN_DIR) (~/.local/bin, same as
