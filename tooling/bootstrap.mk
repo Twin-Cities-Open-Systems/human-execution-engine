@@ -136,60 +136,45 @@ status:
 # .hee/secrets/, which is untracked-by-design (gitignored) in every
 # repo that gets one -- treating that as blocking would make every
 # repo with a sealed credential permanently un-pullable by this target.
+#
+# Real per-repo logic lives in tooling/bin/hee-repo-refresh, not here --
+# HEE#415, Spencer direct 2026-08-28: "add gnu parallel to this tool."
+# With ~19-24 real repos each doing a real network fetch, the old
+# one-at-a-time loop was a real, avoidable wall-clock cost. When GNU
+# parallel is installed (`command -v parallel`), it fans the same
+# script out concurrently -- safe here because each repo is fully
+# independent, no shared state between them, and each job prints
+# exactly one line so parallel's default --group behavior already
+# keeps output atomic per repo (no mid-line interleaving to guard
+# against). Falls back to the original sequential for-loop, calling
+# the identical script, when parallel isn't present -- confirmed live
+# 2026-08-28 that it's not a given dependency on a fresh kiosk-class
+# host, so this is a real fallback path, not a hypothetical one.
 health-all-repos:
-	@for d in $$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do \
-		r=$$(basename "$$d"); \
-		[ -d "$$d/.git" ] || continue; \
-		git -C "$$d" fetch --quiet 2>/dev/null; \
-		branch=$$(git -C "$$d" branch --show-current 2>/dev/null); \
-		status=$$(git -C "$$d" status --porcelain 2>/dev/null); \
-		tracked_dirty=$$(echo "$$status" | grep -v '^??' | grep -c . || true); \
-		untracked=$$(echo "$$status" | grep -c '^??' || true); \
-		upstream=$$(git -C "$$d" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); \
-		if [ -n "$$upstream" ]; then \
-			set -- $$(git -C "$$d" rev-list --left-right --count "HEAD...$$upstream" 2>/dev/null); \
-			ahead=$${1:-0}; behind=$${2:-0}; \
-		else \
-			ahead=0; behind=0; \
-		fi; \
-		untracked_note=""; \
-		[ "$$untracked" != "0" ] && untracked_note=" ($$untracked untracked, fine to pull through)"; \
-		if [ "$$tracked_dirty" != "0" ] && [ "$$behind" != "0" ]; then \
-			echo "🔴 $$r: dirty ($$tracked_dirty uncommitted) AND $$behind behind $$branch -- resolve by hand first"; \
-		elif [ "$$tracked_dirty" != "0" ]; then \
-			echo "🟠 $$r: dirty ($$tracked_dirty uncommitted) on $$branch"; \
-		elif [ "$$ahead" != "0" ] && [ "$$behind" != "0" ]; then \
-			echo "🟠 $$r: diverged ($$ahead ahead / $$behind behind $$branch)"; \
-		elif [ -z "$$upstream" ]; then \
-			echo "🟡 $$r: no upstream tracking branch ($$branch)$$untracked_note"; \
-		elif [ "$$behind" != "0" ]; then \
-			echo "🟡 $$r: $$behind behind $$branch -- pull-all-repos will fast-forward$$untracked_note"; \
-		else \
-			echo "🟢 $$r: clean, up to date ($$branch)$$untracked_note"; \
-		fi; \
-	done
+	@repos="$$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"; \
+	if command -v parallel >/dev/null 2>&1; then \
+		parallel "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" health ::: $$repos; \
+	else \
+		for d in $$repos; do "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" health "$$d"; done; \
+	fi
 
 # Fast-forward only -- never touches a repo with uncommitted changes to
 # a *tracked* file or real local/upstream divergence (health-all-repos
 # flags those; fix by hand, this target won't guess). A repo with only
 # untracked files (e.g. a sealed .hee/secrets/ credential) still pulls
 # -- git itself only blocks a merge that would clobber a real change.
+# Same parallel/fallback design as health-all-repos above -- this one
+# mutates local branches, but still safe under `parallel` because that
+# safety comes from repo-independence (each `git pull` only ever
+# touches its own repo dir), not from anything parallel itself
+# guarantees.
 pull-all-repos:
-	@for d in $$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do \
-		r=$$(basename "$$d"); \
-		[ -d "$$d/.git" ] || continue; \
-		tracked_dirty=$$(git -C "$$d" status --porcelain 2>/dev/null | grep -v '^??' | grep -c . || true); \
-		if [ "$$tracked_dirty" != "0" ]; then \
-			echo "🟠 $$r: skipped -- $$tracked_dirty uncommitted change(s) to tracked files, not touching"; \
-			continue; \
-		fi; \
-		out=$$(git -C "$$d" pull --ff-only 2>&1); \
-		if [ $$? -eq 0 ]; then \
-			echo "🟢 $$r: $$(echo "$$out" | tail -1)"; \
-		else \
-			echo "🔴 $$r: pull failed -- $$(echo "$$out" | tail -1)"; \
-		fi; \
-	done
+	@repos="$$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"; \
+	if command -v parallel >/dev/null 2>&1; then \
+		parallel "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" pull ::: $$repos; \
+	else \
+		for d in $$repos; do "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" pull "$$d"; done; \
+	fi
 
 refresh-all-repos: health-all-repos pull-all-repos print-governance-reminder
 	@echo "bootstrap.mk: refresh complete -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
