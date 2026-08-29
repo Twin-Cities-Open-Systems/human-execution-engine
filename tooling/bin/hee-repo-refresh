@@ -16,7 +16,7 @@
 # (sequential fallback when GNU parallel isn't installed) -- bootstrap.mk
 # picks whichever via `command -v parallel`.
 #
-# Usage: hee-repo-refresh <health|pull|hygiene> <repo-dir>
+# Usage: hee-repo-refresh <health|pull|hygiene> [<repo-dir>|all]
 # health/pull print one real 🟢/🟡/🟠/🔴-prefixed line to stdout -- same
 # format the old inline Makefile loop produced, byte-for-byte, so
 # parallel output (each job's single line prints atomically, GNU
@@ -27,11 +27,33 @@
 # ALL local branches, not just the current one) prints nothing at all
 # for a clean repo, matching that script's original silent-unless-a-
 # problem behavior exactly.
+#
+# Real trigger (2026-08-29), Spencer direct, live via `hee repo-refresh
+# health` with no dir and a confusing usage error: this was only ever
+# built as bootstrap.mk's per-repo worker, never usable standalone
+# through the real `hee` dispatcher without already knowing to pass a
+# specific repo path. Omitting <repo-dir>, or passing the literal `all`,
+# now fans out over every real repo under ${HEE_GIT_ROOT:-$HOME/git}
+# itself -- same find + parallel/sequential-fallback logic bootstrap.mk's
+# health-all-repos/pull-all-repos already use, just callable directly.
 
 set -u
 
-MODE="${1:?usage: hee-repo-refresh <health|pull> <repo-dir>}"
-DIR="${2:?usage: hee-repo-refresh <health|pull> <repo-dir>}"
+MODE="${1:?usage: hee-repo-refresh <health|pull|hygiene> [<repo-dir>|all]}"
+DIR="${2:-all}"
+
+if [ "$DIR" = "all" ]; then
+  GIT_ROOT="${HEE_GIT_ROOT:-$HOME/git}"
+  SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  repos="$(find "$GIT_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"
+  if command -v parallel >/dev/null 2>&1; then
+    parallel "$SELF" "$MODE" ::: $repos
+  else
+    for d in $repos; do "$SELF" "$MODE" "$d"; done
+  fi
+  exit 0
+fi
+
 R=$(basename "$DIR")
 
 [ -d "$DIR/.git" ] || exit 0
