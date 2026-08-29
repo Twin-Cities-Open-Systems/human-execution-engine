@@ -137,9 +137,9 @@ status:
 # repo that gets one -- treating that as blocking would make every
 # repo with a sealed credential permanently un-pullable by this target.
 health-all-repos:
-	@for d in $(GIT_DIR)/*/; do \
+	@for d in $$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do \
 		r=$$(basename "$$d"); \
-		[ -d "$$d.git" ] || continue; \
+		[ -d "$$d/.git" ] || continue; \
 		git -C "$$d" fetch --quiet 2>/dev/null; \
 		branch=$$(git -C "$$d" branch --show-current 2>/dev/null); \
 		status=$$(git -C "$$d" status --porcelain 2>/dev/null); \
@@ -175,9 +175,9 @@ health-all-repos:
 # untracked files (e.g. a sealed .hee/secrets/ credential) still pulls
 # -- git itself only blocks a merge that would clobber a real change.
 pull-all-repos:
-	@for d in $(GIT_DIR)/*/; do \
+	@for d in $$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do \
 		r=$$(basename "$$d"); \
-		[ -d "$$d.git" ] || continue; \
+		[ -d "$$d/.git" ] || continue; \
 		tracked_dirty=$$(git -C "$$d" status --porcelain 2>/dev/null | grep -v '^??' | grep -c . || true); \
 		if [ "$$tracked_dirty" != "0" ]; then \
 			echo "🟠 $$r: skipped -- $$tracked_dirty uncommitted change(s) to tracked files, not touching"; \
