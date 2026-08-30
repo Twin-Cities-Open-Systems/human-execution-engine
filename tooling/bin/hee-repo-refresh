@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # hee-repo-refresh -- real per-repo health-check/pull worker for
 # bootstrap.mk's health-all-repos and pull-all-repos targets. Extracted
 # into its own script, rather than embedded inline in the Makefile
@@ -17,9 +17,9 @@
 # picks whichever via `command -v parallel`.
 #
 # Usage:
-#   hee-repo-refresh <health|pull|hygiene|refresh> <repo-dir>
-#   hee-repo-refresh <health|pull|hygiene|refresh> [all|-all]
-#   hee-repo-refresh <health|pull|hygiene|refresh> -repo <name>[,<name>...]
+#   hee-repo-refresh <health|pull|hygiene|prune|refresh> <repo-dir>
+#   hee-repo-refresh <health|pull|hygiene|prune|refresh> [all|-all]
+#   hee-repo-refresh <health|pull|hygiene|prune|refresh> -repo <name>[,<name>...]
 #
 # The bare <repo-dir> positional form (a real filesystem path) is what
 # bootstrap.mk's own health-all-repos/pull-all-repos targets pass
@@ -56,7 +56,7 @@ set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 GIT_ROOT="${HEE_GIT_ROOT:-$HOME/git}"
 
-MODE="${1:?usage: hee-repo-refresh <health|pull|hygiene|refresh> [<repo-dir>|all|-all|-repo <name-csv>]}"
+MODE="${1:?usage: hee-repo-refresh <health|pull|hygiene|prune|refresh> [<repo-dir>|all|-all|-repo <name-csv>]}"
 shift
 
 SCOPE_ARG="${1:-all}"
@@ -127,6 +127,36 @@ case "$SCOPE_ARG" in
           echo "🔴 $R: pull failed -- $(printf '%s\n' "$out" | tail -1)"
         fi
         ;;
+      prune)
+        # Real, deliberate: git branch --merged can't see squash-merged
+        # branches (squash creates a new commit, no shared ancestry with
+        # the original branch), so it silently misses almost everything
+        # under this org's real default merge flow (PROMPTING_RULES.md
+        # rule 8, gh pr merge --squash). GitHub's own real PR state is
+        # the only correct source of truth for "is this branch's work
+        # actually landed" -- checked here directly, not inferred from
+        # local git ancestry. Real trigger: 400+ stale local branches
+        # found across the fleet the same session this mode was added,
+        # 2026-08-30, Spencer direct: "automate that shit... that is how
+        # it was supposed to be."
+        default=$(git -C "$DIR" remote show origin 2>/dev/null | awk '/HEAD branch/{print $NF}')
+        [ -z "$default" ] && default="main"
+        origin_url=$(git -C "$DIR" remote get-url origin 2>/dev/null)
+        gh_repo=$(printf '%s\n' "$origin_url" | sed -E 's#.*[:/]([^/]+/[^/.]+)(\.git)?$#\1#')
+        [ -z "$gh_repo" ] && { echo "🔴 $R: no real origin remote, skipped"; exit 0; }
+        local_branches=$(git -C "$DIR" branch --format='%(refname:short)' | grep -v "^${default}\$")
+        [ -z "$local_branches" ] && { echo "🟢 $R: no stray local branches"; exit 0; }
+        merged=$(gh pr list --repo "$gh_repo" --state merged --limit 1000 --json headRefName -q '.[].headRefName' 2>/dev/null)
+        to_delete=$(comm -12 <(printf '%s\n' "$local_branches" | sort -u) <(printf '%s\n' "$merged" | sort -u))
+        [ -z "$to_delete" ] && { echo "🟢 $R: 0 real GitHub-confirmed-merged local branches to prune"; exit 0; }
+        current=$(git -C "$DIR" branch --show-current 2>/dev/null)
+        if printf '%s\n' "$to_delete" | grep -qx "$current"; then
+          git -C "$DIR" checkout "$default" --quiet 2>/dev/null
+        fi
+        count=$(printf '%s\n' "$to_delete" | wc -l | tr -d ' ')
+        printf '%s\n' "$to_delete" | xargs -I{} git -C "$DIR" branch -D {} >/dev/null 2>&1
+        echo "🟢 $R: pruned $count real GitHub-confirmed-merged local branch(es)"
+        ;;
       hygiene)
         dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
         no_upstream=$(git -C "$DIR" for-each-ref --format='%(refname:short) %(upstream)' refs/heads 2>/dev/null | awk '$2==""' | wc -l | tr -d ' ')
@@ -139,7 +169,7 @@ case "$SCOPE_ARG" in
         "$SELF" pull "$DIR"
         ;;
       *)
-        echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|refresh)" >&2
+        echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh)" >&2
         exit 2
         ;;
     esac
@@ -150,7 +180,7 @@ esac
 # Reached only for the all/-all/-repo scopes above -- $repos is a real,
 # space-separated list of repo dirs to fan out over.
 case "$MODE" in
-  health|pull|hygiene)
+  health|pull|hygiene|prune)
     if command -v parallel >/dev/null 2>&1; then
       parallel "$SELF" "$MODE" ::: $repos
     else
@@ -169,7 +199,7 @@ case "$MODE" in
     [ -f "$BOOTSTRAP_MK" ] && make -f "$BOOTSTRAP_MK" print-governance-reminder
     ;;
   *)
-    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|refresh)" >&2
+    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh)" >&2
     exit 2
     ;;
 esac
