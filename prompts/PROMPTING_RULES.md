@@ -93,12 +93,26 @@ loaded, read this file directly rather than assume it did.
     Incident) and any project fields (Priority, Effort, Target-Date) the
     same session, never deferred to a "backfill later." Real trigger,
     2026-08-29: Spencer caught three issues filed this session
-    (fleet-ops#335, HEE#421, resume#36) with zero fields set beyond
-    title/body -- same repeated mistake §18 already names. Use
+    (issue:335@fleet-ops, issue:421@human-execution-engine,
+    issue:36@resume) with zero fields set beyond title/body -- same
+    repeated mistake §18 already names. Use
     `tooling/bin/hee-fields set --repo <owner>/<repo> --number <N>
     --type <T> --priority <P> --effort <E>` -- **`--repo` needs the full
     `owner/repo` form**, a bare repo name 404s silently confusing (real
     footgun hit fixing this same session).
+13. **New tools start at the least-capable language that does the real
+    job, and graduate only when actually outgrown** -- HEE Policy §21,
+    the tool-maturity ladder: `library/bash/*.shfn.bash` (sourced
+    function) -> `tooling/bin/*` sh/bash (standalone script) ->
+    `tooling/bin/*.py` (real parsing/data structures needed) -> a real
+    `hee` subcommand (`cmd/hee/`, not built yet for most tools) -> Go/
+    Rust/C only once a tool has actually outgrown Python. Never start a
+    new tool at a heavier language "to be safe" or "for consistency."
+    Real, working convention all session before it was ever written down
+    as policy (`hee-repo-refresh`/`hee-check-og` as `sh`, `hee-fields` in
+    Python) -- previously documented only in `docs/guides/OPERATOR_GUIDE.md`,
+    not governance. Spencer, direct, 2026-08-29: "our programing
+    convention should be in governance, confirm."
 
 ## Authority Invariants
 
