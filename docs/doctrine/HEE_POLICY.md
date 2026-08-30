@@ -1021,6 +1021,74 @@ signature itself -- explicitly flagged as tentative ("if we need more
 data, unsure"), not a real, dated precedent yet. Noted here so it isn't
 lost, not canonized as a requirement until an actual real use shows up.
 
+### 24. Key and Secrets Management SOP
+
+**Requirement**: real GPG keys and sealed secrets follow one of two
+distinct real patterns, never conflated:
+
+1. **Personal identity keys** -- one real key per real person, used for
+   commit signing and public identity verification, consistent across
+   every host that person works from. Sourced from the person's own
+   real GitHub-registered key (`gh api users/<login>/gpg_keys`), not
+   generated fresh per machine. Saved as
+   `fleet-ops/keys/gh/<login>.gpg`.
+2. **Per-host secret-management keys** -- one real key *per host*, used
+   to seal/unseal that host's own local secrets (credentials, sealed
+   passwords). Already the real, established convention for
+   `touchy-claude` (its own real GitHub key metadata literally reads
+   "touchy-claude (touchy host, generated 2026-08-14)") -- generalized
+   here rather than left as an unstated precedent. A new host gets a
+   new key; never copy a secret-management key between hosts, even for
+   the same real person, since that widens the blast radius of a single
+   compromised machine to every host sharing that key.
+
+**Real trigger**: Spencer, direct, 2026-08-30, mid-task (rotating
+Dad TV's root password after achieving real persistent root SSH,
+issue: https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/87):
+"make sure this goes in governance as the sop for making and storing
+secrets." Refined through direct real questions the same session --
+"should [we] cp from kiosk, or new[?]", "one from gh is official, why
+need more?" -- resolved by checking real GitHub API data rather than
+guessing: Spencer's real official key is `inspector@tcos.us`
+(personal-identity key, pattern 1); his real kiosk key is a separate,
+already-existing per-host key (pattern 2) predating this policy;
+nuc-1 needed its own fresh key generated, not a copy of kiosk's, per
+the same pattern 2 rule.
+
+**Sealing a generated (not typed) secret**: `hee-cred -seal` deliberately
+refuses non-interactive/piped input (real, correct security behavior --
+prevents a secret leaking through an agent's own visible tool output).
+For a genuinely *generated* secret (`hee-pwgen` output, a freshly
+`ssh-keygen`'d private key) rather than a human-typed one, pipe directly
+into the same real `gpg --encrypt --armor -r ... -r ... -o ...` call
+`hee-cred` itself uses internally -- the same real exemption `-genfrom`
+already gets, extended to any machine-generated secret. The generated
+value must never pass through an agent's own visible output at any
+point in this chain.
+
+**Real, known, not-yet-solved gaps** (explicitly not resolved by this
+section -- tracked separately, not guessed here):
+
+- **Central key store**: Spencer, direct, same session: "secrets will
+  live on a bast server on pve" -- a real, stated future direction
+  (the existing real `bastion` LXC container, VMID 100 on pve) that
+  isn't built yet. Sealed secrets currently live scattered across
+  per-repo locations (`.hee/secrets/`, `fleet-ops/hosts/<name>/`) as a
+  real, known interim state.
+- **Key rights and ACLs**: Spencer, direct, same session: "we need
+  process for key rights and acls, that is gap." No real, stated
+  process yet exists for who should hold which real key, or what a
+  given key is actually authorized to seal/unseal. Tracked as real,
+  open work -- see the `HEE ACL` glossary entry for the related, but
+  distinct, access-control-mechanism concept this connects to.
+
+**Enforcement**: before sealing anything, know which of the two real
+patterns applies -- a personal identity (use the real GH-sourced key,
+one per person) or a host secret (use that host's own real key, never
+borrowed from another host). When in doubt, check `gh api
+users/<login>/gpg_keys` for the real, authoritative personal key before
+assuming which key someone "really" uses.
+
 ### HEE Rule Violation Documentation
 
 **Process**:
