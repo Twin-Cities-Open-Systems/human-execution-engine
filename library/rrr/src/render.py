@@ -195,9 +195,15 @@ def render(recipe: dict) -> Image.Image:
 
     draw = ImageDraw.Draw(canvas)
     if recipe.get("mark"):
-        draw_mark(draw, (w, h), recipe["mark"])
+        if accent:
+            draw_mark(draw, (w, h), recipe["mark"], color=accent)
+        else:
+            draw_mark(draw, (w, h), recipe["mark"])
     if recipe.get("badge"):
-        draw_badge(draw, (w, h), recipe["badge"])
+        if accent:
+            draw_badge(draw, (w, h), recipe["badge"], color=accent)
+        else:
+            draw_badge(draw, (w, h), recipe["badge"])
     text = recipe.get("glyph") or recipe.get("label")
     if text:
         draw_text(draw, (w, h), text, recipe.get("font_path"))
