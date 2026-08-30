@@ -1,0 +1,46 @@
+HEE-SCAN(1)                      User Commands                     HEE-SCAN(1)
+
+NAME
+       hee-scan - named-target regex scan via ripgrep
+
+SYNOPSIS
+       hee scan -target NAME -r REGEX
+       hee scan -list-targets
+
+DESCRIPTION
+       Runs  a  real ripgrep scan against a pre-configured named target direc‐
+       tory. "One true regex" -- ripgrep's own dialect, used consistently,  no
+       alternate regex engines.
+
+       Tolerates  per-file  permission  errors  on mixed-ownership filesystems
+       (ripgrep's exit code 2 on partial  permission  failure  is  treated  as
+       non-fatal;  a  real  skipped-file count is reported instead of aborting
+       the whole scan).
+
+OPTIONS
+       -target NAME
+              Which configured target to scan.
+
+       -r REGEX
+              Ripgrep-dialect regex to search for.
+
+       -list-targets
+              List configured target names instead of scanning.
+
+EXAMPLES
+              hee scan -list-targets
+              hee scan -target storage -r 'hygien|foo|bar{3,}'
+
+CAVEAT
+       Any 40-character git commit SHA-1 will produce a real 32-hex false pos‐
+       itive under a bare [0-9a-f]{32} pattern -- structural,  not  a  bug  in
+       this tool. Check context before treating a hit as a real secret.
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-srtscan(1), hee-cred(1)
+
+HEE                               2026-08-22                       HEE-SCAN(1)

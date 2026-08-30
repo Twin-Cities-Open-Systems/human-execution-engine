@@ -1,0 +1,36 @@
+HEE-NET(1)                       User Commands                      HEE-NET(1)
+
+NAME
+       hee-net - protocol-aware fetch: gopher, finger
+
+SYNOPSIS
+       hee net -proto gopher|finger -url URL
+       hee net -proto finger -query USER@HOST
+
+DESCRIPTION
+       Fetches  content  over an older, simpler real protocol instead of HTTP.
+       Real trigger: "use finger and our hee tools vs what  the  network  pro‐
+       vides."
+
+OPTIONS
+       -proto {gopher,finger}
+              Which protocol to speak. Required.
+
+       -url URL
+              Full gopher:// URL to fetch.
+
+       -query QUERY
+              Finger query, user@host form.
+
+EXAMPLES
+              hee net -proto gopher -url gopher://man.tcos.us:7070/
+              hee net -proto finger -query spencer@kiosk
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-con(1), hee-shell(1)
+
+HEE                               2026-08-22                        HEE-NET(1)
