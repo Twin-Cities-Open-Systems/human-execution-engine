@@ -1,11 +1,27 @@
 #!/bin/sh
 # hee-gen-manpages -- real 0-token man-page generator. Mechanically
 # extracts each tool's own --help/-h output (or, for shell scripts
-# without one, its header comment block) into man/<tool>.1.md.
+# without one, its header comment block) into man/<tool>.1.md, then
+# converts each into real roff man(1) format via pandoc.
 # No LLM reasoning per tool -- pure extraction, so this scales to all
 # 42+ tooling/bin/* entries at zero per-tool token cost. Re-run any
 # time tools change; output is deterministic from the tool's own
 # --help text, never hand-authored here.
+#
+# Real fix, 2026-08-30: this script previously had no --help of its
+# own, so `hee-gen-manpages --help` ran a full real generation pass
+# instead of printing usage -- slow enough to hit the per-tool 5s
+# timeout used when THIS tool is scanned by a run of itself. Caught
+# live, Spencer + touchy-claude, both independently hit the same
+# hang running it fresh.
+case "${1:-}" in
+  --help|-h)
+    echo "hee-gen-manpages -- generate man/tools/*.1.md and *.1 from each tool's --help"
+    echo "Usage: hee-gen-manpages"
+    echo "No arguments. Re-run after any tool change."
+    exit 0
+    ;;
+esac
 set -eu
 cd "$(dirname "$0")/../.."
 BIN_DIR="tooling/bin"
@@ -65,3 +81,20 @@ done
   done
 } > "$OUT_DIR/README.md"
 echo "index: $OUT_DIR/README.md"
+
+# Real md -> real roff man(1) conversion, 2026-08-30. The .1.md files
+# above are the real source; these .1 files are what a real `man`
+# command (or gophernicus, which serves plain real man-format text)
+# actually wants. Requires pandoc -- skip conversion with a clear
+# message rather than fail the whole run if it's not installed.
+if command -v pandoc >/dev/null 2>&1; then
+  for f in "$OUT_DIR"/*.1.md; do
+    n="$(basename "$f" .1.md)"
+    [ "$n" = "README" ] && continue
+    pandoc -s -t man "$f" -o "$OUT_DIR/$n.1" 2>/dev/null && \
+      echo "converted (real roff): $OUT_DIR/$n.1" || \
+      echo "SKIPPED roff conversion (pandoc error): $n" >&2
+  done
+else
+  echo "pandoc not found -- skipping real .1.md -> .1 roff conversion" >&2
+fi
