@@ -60,7 +60,20 @@ fi
 # .hee/secrets/ (named for that repo), not resume's -- hee-cred's
 # storage path is CWD-relative, so it must be invoked from there even
 # though the actual deploy target is the resume repo/directory.
+#
+# Real, serious bug found and fixed 2026-08-30: without an explicit
+# --branch, `wrangler pages deploy` infers the deployment's real branch
+# from whatever LOCAL git branch happens to be checked out in
+# $RESUME_DIR -- if that's not the project's real production branch,
+# Cloudflare silently deploys to a PREVIEW environment (its own
+# separate, Access-gated URL) instead of production, and the real
+# custom domain keeps serving whatever the last real production deploy
+# was. Confirmed live: a deploy from a stray feature branch went out as
+# environment=preview and never reached spencer.blog.tcos.us at all,
+# despite `wrangler` printing a clean, confident-looking success message.
+# --branch is hardcoded to the project's real production branch so this
+# always deploys for real, regardless of whatever branch is checked out.
 cd "$HOME/git/tcos-www"
 HEE_TOOL_MODE=ACT "$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
-  cd '$RESUME_DIR' && CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" npx wrangler pages deploy dist --project-name resume
+  cd '$RESUME_DIR' && CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" npx wrangler pages deploy dist --project-name resume --branch main
 "
