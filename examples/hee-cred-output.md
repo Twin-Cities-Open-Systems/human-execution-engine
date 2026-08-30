@@ -27,7 +27,6 @@ consuming command hashes it and only the hash is compared:
 ```
 $ hee-cred -pass spencer@kiosk -exec bash -c \
     'echo -n "$HEE_CRED_PASS" | sha256sum | cut -d" " -f1'
-hee-cred: decrypted 'spencer@kiosk', running: ['bash', '-c', '...'] (secret passed via $HEE_CRED_PASS env var, not argv, not printed)
 3130fe4a82fd07f20a7f02b4e4021c2ac46206eb70dc7602b55a68aba3f97cd8
 
 $ echo -n "s3kr1t-test-value-42" | sha256sum | cut -d" " -f1
@@ -36,6 +35,13 @@ $ echo -n "s3kr1t-test-value-42" | sha256sum | cut -d" " -f1
 
 Hashes match — round trip is correct, and at no point does the real
 value appear in this tool's own output.
+
+Re-verified 2026-08-29 against current `main`: `-pass -exec` no longer
+prints a `hee-cred: decrypted '<account>', running: [...]` diagnostic
+line before this — real trigger, that line leaked into an irssi
+channel via `hee-scrob`'s own `-exec` wiring
+(https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/431).
+Output above reflects current behavior, not the removed line.
 
 ## Real safety checks, all verified
 
