@@ -113,6 +113,14 @@ loaded, read this file directly rather than assume it did.
     Python) -- previously documented only in `docs/guides/OPERATOR_GUIDE.md`,
     not governance. Spencer, direct, 2026-08-29: "our programing
     convention should be in governance, confirm."
+14. **Default to Status Block for any multi-item progress/status report**:
+    short bulleted lines, each prefixed with an icon+label status marker
+    (✅/⏳/❌ or equivalent -- never a bare color, consistent with rule
+    #11's dataviz-skill requirement), real markdown links for every
+    issue/PR reference, no narrative padding around the list -- see the
+    `Status Block` glossary term (`.github/profile/GLOSSARY.md`) for the
+    real precedent this codifies. General chat-output convention, not
+    scoped to this repo.
 
 ## Authority Invariants
 
