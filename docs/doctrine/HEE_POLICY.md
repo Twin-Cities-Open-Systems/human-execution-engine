@@ -824,6 +824,16 @@ resolved.
    arbitrary decree. Then the tension is closed — this isn't a standing
    review process to revisit, it's a one-time reconciliation per drift
    found.
+6. **Doctrine PRs get reviewed and merged as soon as possible, not left
+   open.** Spencer, direct, 2026-08-29: "always merge/pull doctring
+   asap." Real trigger: multiple real doctrine PRs sitting open at once
+   this same session produced actual section-number collisions (three
+   separate branches independently claiming the same next section
+   number) -- a direct, avoidable cost of doctrine changes accumulating
+   unmerged. Merging is still gated on a real review actually landing
+   (branch protection requires `REVIEW_REQUIRED` to clear -- this rule
+   doesn't and can't override that), but once approval lands, merge and
+   pull immediately, without queuing it behind other work.
 
 ### 20. Mail Search Tooling Policy
 
@@ -916,6 +926,49 @@ check `/etc/resolv.conf` against this policy's real shape. `dotfiles`
 carries the corresponding client-side convention for personal/dev
 machines -- see its own README for the current real shape, since that
 one covers per-person machines rather than fleet infra hosts.
+
+### 23. Sidecar File Convention
+
+**Requirement**: real auxiliary data about a file -- a signature, embedded
+metadata worth a plain-text record, or similar -- is written as a real
+sidecar file next to the original (`<filename>.<ext>`), never only left
+buried inside the original's own binary/opaque format.
+
+**Real, established instances**:
+
+- `.asc` -- detached GPG signatures (ASCII-armored), already real,
+  established practice across this org's signed-evidence workflows
+  (contract ratification, `seal-secret.sh`-sealed material) -- see the
+  Glossary's `Ratify` entry.
+- `.exif` -- real image EXIF metadata, written out as a plain sidecar
+  next to the source image rather than left only in the binary. Real
+  trigger, 2026-08-29: Spencer, direct, while planning a real shared
+  images store on nuc-1 (`/mnt/nuc1-pool/storage/docs/shared/images/`):
+  "write[e] exif next to file" -- so metadata survives and stays
+  inspectable even if a downstream copy of the image gets its EXIF
+  stripped (a common, real thing that happens when images are shared
+  further).
+
+**Rationale**: a sidecar keeps real auxiliary data in an open, greppable,
+diffable, tool-agnostic form next to the thing it describes -- the same
+"committed evidence, never opaque" discipline already applied to signed
+secrets, extended to any other real per-file metadata worth keeping
+independently of whatever tool originally produced it.
+
+**Enforcement**: when a real workflow generates auxiliary data tied to
+one specific file (a signature, extracted metadata, a checksum, etc.),
+default to a `<filename>.<ext>` sidecar next to the original rather than
+inventing a separate index/database for it, unless a real, stated reason
+argues otherwise. New sidecar types get added to this list as real
+precedent for them shows up -- this isn't meant to enumerate every kind
+in advance.
+
+**Open, not yet settled**: Spencer, same session, floated `.asc.meta` --
+a second-order sidecar carrying real metadata *about* a `.asc` signature
+(signer, purpose, date) that doesn't fit inside the bare ASCII-armored
+signature itself -- explicitly flagged as tentative ("if we need more
+data, unsure"), not a real, dated precedent yet. Noted here so it isn't
+lost, not canonized as a requirement until an actual real use shows up.
 
 ### HEE Rule Violation Documentation
 
