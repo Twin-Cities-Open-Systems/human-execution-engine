@@ -1,0 +1,73 @@
+/* tc-grid: generic, reusable Card-grid dashboard engine (CSS half).
+   Expects tc-tokens.css for --surface/--line/--ink/etc, and the
+   dataviz status palette below for --tc-good/--tc-warning/etc. */
+:root {
+  --tc-good: #0ca30c; --tc-good-soft: #e2f6e0;
+  --tc-warning: #b8790a; --tc-warning-soft: #fbeed7;
+  --tc-serious: #c95a2e; --tc-serious-soft: #fbe4d9;
+  --tc-critical: #d03b3b; --tc-critical-soft: #fbdada;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tc-good: #4ecb5b; --tc-good-soft: #10331a;
+    --tc-warning: #e0a634; --tc-warning-soft: #362609;
+    --tc-serious: #e37c4c; --tc-serious-soft: #3a2313;
+    --tc-critical: #ef5a5a; --tc-critical-soft: #3a1414;
+  }
+}
+:root[data-theme="dark"] {
+  --tc-good: #4ecb5b; --tc-good-soft: #10331a;
+  --tc-warning: #e0a634; --tc-warning-soft: #362609;
+  --tc-serious: #e37c4c; --tc-serious-soft: #3a2313;
+  --tc-critical: #ef5a5a; --tc-critical-soft: #3a1414;
+}
+
+.tc-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--tc-cols, 4), 1fr);
+  gap: 14px;
+}
+
+.tc-card {
+  position: relative;
+  grid-column: span var(--w, 1);
+  grid-row: span var(--h, 1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.tc-card[draggable="true"] { cursor: grab; }
+.tc-card.tc-dragging { opacity: 0.4; }
+.tc-card.tc-drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+.tc-card-head { display: flex; align-items: center; gap: 8px; }
+.tc-card-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.tc-card-dot.good { background: var(--tc-good); }
+.tc-card-dot.warning { background: var(--tc-warning); }
+.tc-card-dot.serious { background: var(--tc-serious); }
+.tc-card-dot.critical { background: var(--tc-critical); }
+.tc-card-title { font-family: ui-monospace, monospace; font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.tc-card-body { font-size: 13px; color: var(--ink-dim); line-height: 1.5; }
+.tc-card-links { display: flex; gap: 10px; margin-top: 4px; }
+.tc-card-links a { font-size: 12px; color: var(--accent-ink); }
+
+.tc-resize-handle {
+  position: absolute; right: 4px; bottom: 4px; width: 14px; height: 14px;
+  cursor: nwse-resize; opacity: 0.5;
+  background: linear-gradient(135deg, transparent 40%, var(--ink-faint) 40%, var(--ink-faint) 55%, transparent 55%, transparent 70%, var(--ink-faint) 70%, var(--ink-faint) 85%, transparent 85%);
+}
+.tc-resize-handle:hover { opacity: 1; }
+
+/* Mobile: fixed, non-draggable single-column stack -- no exceptions.
+   tc-grid.js also refuses to attach any drag/resize listener below
+   this width, so this isn't just cosmetic. */
+@media (max-width: 640px) {
+  .tc-grid { display: flex; flex-direction: column; }
+  .tc-card { grid-column: unset; grid-row: unset; }
+  .tc-resize-handle { display: none; }
+}

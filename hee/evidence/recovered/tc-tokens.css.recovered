@@ -1,0 +1,54 @@
+/* SYNCED-FROM: tcos-www/css/site.css (canonical original -- this file
+   extracts just the theme-token contract for other repos/surfaces to
+   pull in verbatim). Real structure, proven across 3 independently
+   built surfaces before this file existed: a bare :root light default,
+   a @media(prefers-color-scheme:dark) block guarded by
+   :not([data-theme="light"]), and a :root[data-theme="dark"] block so
+   an explicit toggle wins over the OS preference either way. */
+:root {
+  --bg: #f2f5f4;
+  --surface: #ffffff;
+  --surface-2: #e7ece9;
+  --ink: #10161a;
+  --ink-dim: #4d5c5f;
+  --ink-faint: #8a9a9a;
+  --line: #d5dedb;
+  --accent: #a86c15;
+  --accent-ink: #7a4f10;
+  --accent-soft: #f4e6cd;
+  --ok: #21815c;
+  --ok-soft: #dcf0e6;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #090d11;
+    --surface: #10161b;
+    --surface-2: #161e24;
+    --ink: #e8eef0;
+    --ink-dim: #9bacae;
+    --ink-faint: #5c7072;
+    --line: #212b30;
+    --accent: #e2a748;
+    --accent-ink: #f6cd8b;
+    --accent-soft: #241c0e;
+    --ok: #4ecb96;
+    --ok-soft: #0f251c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #090d11;
+  --surface: #10161b;
+  --surface-2: #161e24;
+  --ink: #e8eef0;
+  --ink-dim: #9bacae;
+  --ink-faint: #5c7072;
+  --line: #212b30;
+  --accent: #e2a748;
+  --accent-ink: #f6cd8b;
+  --accent-soft: #241c0e;
+  --ok: #4ecb96;
+  --ok-soft: #0f251c;
+  color-scheme: dark;
+}
