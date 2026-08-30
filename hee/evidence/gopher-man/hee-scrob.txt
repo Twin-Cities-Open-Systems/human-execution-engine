@@ -1,0 +1,59 @@
+HEE-SCROB(1)                     User Commands                    HEE-SCROB(1)
+
+NAME
+       hee-scrob - terse now-playing scrobble, real Plex source
+
+SYNOPSIS
+       hee scrob [-server URL] [-current-only]
+
+DESCRIPTION
+       Queries  a  real Plex server's /status/sessions endpoint and prints one
+       line describing what's currently playing. For a TV episode, prints  the
+       real show name, season/episode, episode title, and year -- not just the
+       episode's  own  title  (Plex's title attribute on an episode element is
+       the episode title, not the show's; show name  lives  in  grandparentTi‐
+       tle).
+
+       For  video content, also pulls the real subtitle line active at the ex‐
+       act playback position from the .srt sitting next to the media file.  No
+       invented  dialogue -- if there's no real .srt, there's no subtitle line
+       in the output, and a moment that genuinely falls in a silent gap prints
+       nothing, correctly.
+
+       Device names: real hostname of the playing device via  reverse  DNS  on
+       the  player's  connecting  IP, falling back to Plex's own self-reported
+       title if that  fails.  A  local  override  file,  ~/.config/hee/device-
+       names.txt, takes priority over both when present.
+
+OPTIONS
+       -server URL
+              Plex server base URL (default https://plex.crooked.tcos.us).
+
+       -current-only
+              Skip the ±5s subtitle context, print only the exact-moment line.
+
+AUTHENTICATION
+       Reads PLEX_TOKEN from the environment, or from ~/.config/hee/plex-token
+       if  unset  (irssi's  EXEC  doesn't  inherit  env  vars  set after irssi
+       launched, so the file is the reliable path for that case). Never  hard‐
+       coded, never printed.
+
+EXAMPLES
+              hee scrob
+              np: Family Guy s20e01 - LASIK Instinct (2021) @ 00:10:40 (Dad TV)
+
+IRSSI INTEGRATION
+       Designed to sit behind an alias:
+
+              SCROB = "EXEC -o ~/.local/bin/hee scrob"
+
+       then just /SCROB in a channel.
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-qdb(1), hee-net(1)
+
+HEE                               2026-08-22                      HEE-SCROB(1)
