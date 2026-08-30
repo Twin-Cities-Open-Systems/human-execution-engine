@@ -7,7 +7,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 **RESULT: fail=29 warn=0 (mode=warn)**
 
 <details>
-<summary>BlueprintDoctrine (8)</summary>
+<summary>📘 BlueprintDoctrine (8)</summary>
 
 - 🔴 [ERROR] `blueprints/hee-intra-repo-layout-v1.yaml`
 - 🔴 [ERROR] `blueprints/machine-rights-grant-v1.yaml`
@@ -20,13 +20,13 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>Blueprint (1)</summary>
+<summary>📐 Blueprint (1)</summary>
 
 - 🔴 [ERROR] `blueprints/plan/plan-create.blueprint.yaml`
 
 </details>
 <details>
-<summary>Card (21)</summary>
+<summary>🃏 Card (21)</summary>
 
 - 🔴 [ERROR] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
 - 🔴 [ERROR] `hee/cards/attribution-standing.method.card.v1.yaml`
@@ -52,7 +52,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>Contract (7)</summary>
+<summary>📜 Contract (7)</summary>
 
 - 🟢 [OK] `contracts/execution-tier-compat-v1.contract.yaml`
 - 🟢 [OK] `contracts/publish-sanitization-v1.contract.yaml`
@@ -64,13 +64,13 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>GreenCard (1)</summary>
+<summary>🪪 GreenCard (1)</summary>
 
 - 🔴 [ERROR] `docs/TEMPLATES/jinja2/green-card.yaml`
 
 </details>
 <details>
-<summary>Measure (3)</summary>
+<summary>📏 Measure (3)</summary>
 
 - 🔴 [ERROR] `hee/measure/samples/measure__inventory.asset__sample__vehicle-vinlast6-xxxxxx.yaml`
 - 🔴 [ERROR] `hee/measure/samples/measure__inventory.stock__sample__2026-02-24-costco-l01-unknown.yaml`
@@ -78,7 +78,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>Pill (3)</summary>
+<summary>💊 Pill (3)</summary>
 
 - 🔴 [ERROR] `hee/cards/library-sh-tinies.wip.yaml`
 - 🔴 [ERROR] `hee/cards/uiboss-repohub-next.wip.yaml`
@@ -86,7 +86,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>Registry (3)</summary>
+<summary>🗂️ Registry (3)</summary>
 
 - 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/execution-tier-compat.registry.v1.yaml`
@@ -94,7 +94,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>Skill (1)</summary>
+<summary>🎓 Skill (1)</summary>
 
 - 🟢 [OK] `hee/skills/ratify-contract-v1.skill.yaml`
 
