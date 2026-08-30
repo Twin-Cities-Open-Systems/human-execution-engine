@@ -31,13 +31,29 @@ Designed to be wired as an irssi alias that pipes stdout into a channel:
 then just `/scrob` in the channel.
 
 Auth: reads PLEX_TOKEN from the environment -- never hardcoded, never
-printed. Real path once hee-cred (HEE#279) has it sealed:
-  hee cred -pass plex-token -exec hee-scrob
+printed. Real, sealed path via hee-cred (HEE#279), generic through the
+`hee` dispatcher so no absolute repo path is baked into an alias:
+  hee cred -pass plex-token -exec hee scrob
+hee-cred injects the decrypted value into $HEE_CRED_PASS (never
+$PLEX_TOKEN itself -- that's always the fixed env var name hee-cred
+uses, regardless of the sealed account's name), so read_token() checks
+that var too, not just $PLEX_TOKEN.
 
 Usage:
   hee-scrob [-server URL]
+  hee-scrob -discord   # post the same real line to Discord instead of stdout
+
+Discord posting (real trigger, 2026-08-29, Spencer direct: "yes hee
+scrob should do this"): reads the webhook URL from $HEE_CRED_PASS,
+the same real env var hee-cred -exec injects -- never a hardcoded
+URL, never printed. Real invocation:
+  hee cred -pass discord-webhook-scrob -exec hee-scrob -discord
+Posts the exact same text -discord would otherwise print to stdout --
+one real formatting path, not two that can drift. Skips posting (does
+not spam the channel) when nothing is actually playing.
 """
 import argparse
+import json
 import os
 import re
 import socket
@@ -57,7 +73,7 @@ def read_token() -> str:
     .profile -- so PLEX_TOKEN set after the fact never reaches /SCROB
     without a full session restart. A real file, checked second, avoids
     needing one."""
-    env_token = os.environ.get("PLEX_TOKEN")
+    env_token = os.environ.get("PLEX_TOKEN") or os.environ.get("HEE_CRED_PASS")
     if env_token:
         return env_token
     if DEFAULT_TOKEN_FILE.exists():
@@ -222,10 +238,42 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
     return None
 
 
+def format_line(r):
+    """Build the real np: line from a now_playing() result -- shared by
+    stdout printing and Discord posting, one real formatting path."""
+    dev = f" ({r['device']})" if r.get("device") else ""
+    if r["kind"] == "track":
+        yr = f" ({r['year']})" if r["year"] else ""
+        alb = f" [{r['album']}]" if r["album"] else ""
+        return f"np: {r['artist']} - {r['title']}{yr}{alb} @ {r['ts']}{dev}"
+    yr = f" ({r['year']})" if r["year"] else ""
+    line = f' -- {r["line"]}' if r["line"] else ""
+    return f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}"
+
+
+def post_discord(text):
+    webhook_url = os.environ.get("HEE_CRED_PASS")
+    if not webhook_url:
+        sys.exit("hee-scrob: -discord needs the webhook URL in $HEE_CRED_PASS -- "
+                  "run via: hee cred -pass <sealed-name> -exec hee-scrob -discord")
+    body = json.dumps({"content": text}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url, data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status not in (200, 204):
+                sys.exit(f"hee-scrob: discord post failed: HTTP {resp.status}")
+    except Exception as e:
+        sys.exit(f"hee-scrob: discord post failed: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-scrob")
     ap.add_argument("-server", default=DEFAULT_SERVER)
     ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
+    ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
     args = ap.parse_args()
 
     token = read_token()
@@ -240,18 +288,17 @@ def main():
         sys.exit(f"hee-scrob: fetch failed: {e}")
 
     if not r:
-        print("np: nothing. silence is punk too.")
+        if args.discord:
+            print("hee-scrob: nothing playing, skipping Discord post (silence isn't a message)")
+        else:
+            print("np: nothing. silence is punk too.")
         return
 
-    dev = f" ({r['device']})" if r.get("device") else ""
-    if r["kind"] == "track":
-        yr = f" ({r['year']})" if r["year"] else ""
-        alb = f" [{r['album']}]" if r["album"] else ""
-        print(f"np: {r['artist']} - {r['title']}{yr}{alb} @ {r['ts']}{dev}")
+    line = format_line(r)
+    if args.discord:
+        post_discord(line)
     else:
-        yr = f" ({r['year']})" if r["year"] else ""
-        line = f' -- {r["line"]}' if r["line"] else ""
-        print(f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}")
+        print(line)
 
 
 if __name__ == "__main__":

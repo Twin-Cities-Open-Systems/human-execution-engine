@@ -824,6 +824,16 @@ resolved.
    arbitrary decree. Then the tension is closed — this isn't a standing
    review process to revisit, it's a one-time reconciliation per drift
    found.
+6. **Doctrine PRs get reviewed and merged as soon as possible, not left
+   open.** Spencer, direct, 2026-08-29: "always merge/pull doctring
+   asap." Real trigger: multiple real doctrine PRs sitting open at once
+   this same session produced actual section-number collisions (three
+   separate branches independently claiming the same next section
+   number) -- a direct, avoidable cost of doctrine changes accumulating
+   unmerged. Merging is still gated on a real review actually landing
+   (branch protection requires `REVIEW_REQUIRED` to clear -- this rule
+   doesn't and can't override that), but once approval lands, merge and
+   pull immediately, without queuing it behind other work.
 
 ### 20. Mail Search Tooling Policy
 
@@ -914,6 +924,102 @@ answered.
   `tooling/bin/scan-hee-cards.py`'s full classification, per
   `OPERATORS.md`) is expected, not a sign one should replace the other --
   each stays at the tier its own real job actually needs.
+
+### 22. DNS Configuration Policy (search domains, ndots, resolver order)
+
+**Requirement**: every real TCOS infra host's `/etc/resolv.conf` (or
+equivalent) sets:
+
+- `search` listing every real, currently-active domain the host or its
+  LAN peers actually use, **the host's own domain first** — not just
+  the domain being configured, and never dropping a domain because it
+  looks unfamiliar or legacy. Two real domains coexist on the TCOS LAN
+  today: `lab.tcos.us` (TCOS org infra -- pve, ns1, the LXC fleet) and
+  `crooked.tcos.us` (Spencer's personal home-lab, hosted on nuc-1 --
+  Plex, Sonarr, Home Assistant). Neither is legacy or a fallback; a
+  host's search list includes both, ordered by which domain the host
+  itself belongs to.
+- `options ndots:1` set **explicitly**, not left implicit. This is
+  glibc's own default, but writing it out documents the intent instead
+  of relying on an unstated default -- and explicitly rules out the
+  common `ndots:5`-style anti-pattern (popularized by Kubernetes) where
+  even real external single-dot FQDNs get tried against internal search
+  domains first, adding latency for no benefit on a LAN this size.
+- `nameserver` lines in a real, deliberate order: the LAN's own
+  authoritative internal DNS first (`ns1.lab.tcos.us`, `10.0.0.194`),
+  then the LAN-wide Pi-hole (`10.0.0.72`), then a public resolver last
+  (`1.1.1.1`) as the real fallback.
+
+**Rationale**: real trigger, 2026-08-29 -- auditing `pve` and `ns1`
+(fleet-ops#243) found both TCOS infra hosts still carrying stale
+`*.crooked.tcos.us` hostnames (the wrong domain for what they *are* --
+they're TCOS infra, not Spencer's personal home-lab) and `pve`'s
+`resolv.conf` had no internal resolver at all (`search crooked.tcos.us`
+/ `nameserver 8.8.8.8` only) -- meaning short-name LAN resolution
+(`ssh ns1`, `ssh bastion`) never worked from pve itself, and the host's
+own hostname didn't match real DNS (`hostname -f` returning a name with
+no matching record). Fixed by adding the missing real `pve` A record to
+`db.lab.tcos.us`, correcting both hosts' actual hostnames, and writing
+a real, explicit `resolv.conf`.
+
+**Not the same as**: deciding one domain is more real than the other.
+The fix here was moving two TCOS-infra hosts onto the domain they
+actually belong to (`lab.tcos.us`) -- not deprecating `crooked.tcos.us`,
+which stays real, active, and must keep resolving correctly on the LAN
+for nuc-1 and anything else that's genuinely part of Spencer's personal
+home-lab. A clearer real boundary between the two is expected to emerge
+once pve can take some real load off `nuc-1.crooked.tcos.us` -- not yet
+done, stated direction only.
+
+**Enforcement**: when standing up or auditing a real TCOS infra host,
+check `hostname -f` matches a real DNS record before anything else, then
+check `/etc/resolv.conf` against this policy's real shape. `dotfiles`
+carries the corresponding client-side convention for personal/dev
+machines -- see its own README for the current real shape, since that
+one covers per-person machines rather than fleet infra hosts.
+
+### 23. Sidecar File Convention
+
+**Requirement**: real auxiliary data about a file -- a signature, embedded
+metadata worth a plain-text record, or similar -- is written as a real
+sidecar file next to the original (`<filename>.<ext>`), never only left
+buried inside the original's own binary/opaque format.
+
+**Real, established instances**:
+
+- `.asc` -- detached GPG signatures (ASCII-armored), already real,
+  established practice across this org's signed-evidence workflows
+  (contract ratification, `seal-secret.sh`-sealed material) -- see the
+  Glossary's `Ratify` entry.
+- `.exif` -- real image EXIF metadata, written out as a plain sidecar
+  next to the source image rather than left only in the binary. Real
+  trigger, 2026-08-29: Spencer, direct, while planning a real shared
+  images store on nuc-1 (`/mnt/nuc1-pool/storage/docs/shared/images/`):
+  "write[e] exif next to file" -- so metadata survives and stays
+  inspectable even if a downstream copy of the image gets its EXIF
+  stripped (a common, real thing that happens when images are shared
+  further).
+
+**Rationale**: a sidecar keeps real auxiliary data in an open, greppable,
+diffable, tool-agnostic form next to the thing it describes -- the same
+"committed evidence, never opaque" discipline already applied to signed
+secrets, extended to any other real per-file metadata worth keeping
+independently of whatever tool originally produced it.
+
+**Enforcement**: when a real workflow generates auxiliary data tied to
+one specific file (a signature, extracted metadata, a checksum, etc.),
+default to a `<filename>.<ext>` sidecar next to the original rather than
+inventing a separate index/database for it, unless a real, stated reason
+argues otherwise. New sidecar types get added to this list as real
+precedent for them shows up -- this isn't meant to enumerate every kind
+in advance.
+
+**Open, not yet settled**: Spencer, same session, floated `.asc.meta` --
+a second-order sidecar carrying real metadata *about* a `.asc` signature
+(signer, purpose, date) that doesn't fit inside the bare ASCII-armored
+signature itself -- explicitly flagged as tentative ("if we need more
+data, unsure"), not a real, dated precedent yet. Noted here so it isn't
+lost, not canonized as a requirement until an actual real use shows up.
 
 ### HEE Rule Violation Documentation
 
