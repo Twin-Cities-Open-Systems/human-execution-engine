@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""hee-ssh-trust-ca -- real, idempotent TrustedUserCAKeys setup for the
+tcos-ssh-ca SSH CA (see hee-ssh-send-keys for the cert-issuance half).
+
+Real trigger, 2026-08-30: trusting tcos-ssh-ca on kiosk and nuc-1 was
+done by hand -- raw sudo commands, a real duplicate-config bug (a
+working sshd_config.d/tcos-ssh-ca.conf drop-in already existed on
+kiosk since 2026-08-22, but a diagnostic that only grepped the main
+sshd_config missed it and appended a second, redundant
+TrustedUserCAKeys line straight into sshd_config itself). This tool
+exists so that mistake can't repeat: it checks both the main config
+and every real sshd_config.d/*.conf for an existing directive before
+writing anything.
+
+Real safety, matching this org's own established caution around
+hard-to-reverse system changes:
+- Dry-run by default. Nothing is written, and sshd is never reloaded,
+  without --yes.
+- Writes only a new sshd_config.d/<CONF_NAME> drop-in -- never edits
+  the main sshd_config directly.
+- Validates with `sshd -t` before reloading. Refuses to reload, and
+  leaves the new drop-in in place for real manual inspection, on any
+  validation failure.
+- Idempotent: if a real TrustedUserCAKeys line already points at the
+  real CA pubkey anywhere (main config or any drop-in), this is a
+  real no-op -- reports where it found it, changes nothing.
+
+Real, deliberate non-goal: this tool does not fetch or generate the CA
+pubkey itself. It assumes CA_PUBKEY already exists locally (matching
+hee-ssh-send-keys's own existing assumption) -- getting the real
+pubkey onto a new host is a separate, real, not-yet-built step.
+
+Usage:
+  hee-ssh-trust-ca [--yes] [--ca-pubkey PATH] [--conf-name NAME]
+"""
+import argparse
+import glob
+import os
+import subprocess
+import sys
+
+CA_PUBKEY_DEFAULT = "/etc/ssh/tcos-ssh-ca.pub"
+SSHD_CONFIG = "/etc/ssh/sshd_config"
+SSHD_CONFIG_D = "/etc/ssh/sshd_config.d"
+CONF_NAME_DEFAULT = "tcos-ssh-ca.conf"
+
+
+def real_uid_is_root():
+    return os.geteuid() == 0
+
+
+def find_existing_trust(ca_pubkey):
+    """Real check across the main config AND every real drop-in --
+    the exact gap that caused tonight's duplicate-config bug."""
+    candidates = [SSHD_CONFIG] + sorted(glob.glob(f"{SSHD_CONFIG_D}/*.conf"))
+    hits = []
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            text = open(path).read()
+        except PermissionError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if stripped.startswith("TrustedUserCAKeys") and ca_pubkey in stripped:
+                hits.append(f"{path}:{lineno}")
+    return hits
+
+
+def check_include_present():
+    if not os.path.exists(SSHD_CONFIG):
+        return False
+    text = open(SSHD_CONFIG).read()
+    return any(
+        line.strip().startswith("Include") and "sshd_config.d" in line
+        for line in text.splitlines()
+    )
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-ssh-trust-ca")
+    ap.add_argument("--yes", action="store_true", help="actually write + reload; default is dry-run")
+    ap.add_argument("--ca-pubkey", default=CA_PUBKEY_DEFAULT)
+    ap.add_argument("--conf-name", default=CONF_NAME_DEFAULT)
+    args = ap.parse_args()
+
+    if not os.path.exists(args.ca_pubkey):
+        sys.exit(f"hee-ssh-trust-ca: {args.ca_pubkey} not found locally -- "
+                  "this tool doesn't fetch it; place the real CA pubkey there first")
+
+    existing = find_existing_trust(args.ca_pubkey)
+    if existing:
+        print(f"hee-ssh-trust-ca: already trusted, real no-op. Found at: {', '.join(existing)}")
+        return
+
+    if not check_include_present():
+        sys.exit(f"hee-ssh-trust-ca: {SSHD_CONFIG} has no real 'Include {SSHD_CONFIG_D}/*.conf' "
+                  "directive -- a drop-in here would never be read. Not proceeding; "
+                  "this needs a real, manual look at the main config first.")
+
+    conf_path = os.path.join(SSHD_CONFIG_D, args.conf_name)
+    conf_line = f"TrustedUserCAKeys {args.ca_pubkey}\n"
+
+    print(f"Would write: {conf_path}")
+    print(f"  content: {conf_line.strip()}")
+    print(f"Would then run: sshd -t (validate), then reload sshd on success")
+
+    if not args.yes:
+        print("\nDry-run only -- rerun with --yes to actually apply.")
+        return
+
+    if not real_uid_is_root():
+        sys.exit("hee-ssh-trust-ca: --yes requires real root (writes under /etc/ssh) -- "
+                  "run via sudo")
+
+    os.makedirs(SSHD_CONFIG_D, exist_ok=True)
+    with open(conf_path, "w") as f:
+        f.write(conf_line)
+    os.chmod(conf_path, 0o644)
+    print(f"wrote: {conf_path}")
+
+    check = subprocess.run(["sshd", "-t"], capture_output=True, text=True)
+    if check.returncode != 0:
+        sys.exit(
+            f"hee-ssh-trust-ca: sshd -t failed after writing {conf_path} -- "
+            f"NOT reloading. Real drop-in left in place for manual inspection:\n"
+            f"{check.stderr}"
+        )
+    print("sshd -t: real syntax OK")
+
+    reload = subprocess.run(["systemctl", "reload", "sshd"], capture_output=True, text=True)
+    if reload.returncode != 0:
+        reload = subprocess.run(["systemctl", "reload", "ssh"], capture_output=True, text=True)
+    if reload.returncode != 0:
+        sys.exit(
+            f"hee-ssh-trust-ca: config is valid and written, but the real reload "
+            f"command failed -- reload sshd/ssh manually:\n{reload.stderr}"
+        )
+    print("sshd reloaded -- this host now trusts tcos-ssh-ca")
+
+
+if __name__ == "__main__":
+    main()
