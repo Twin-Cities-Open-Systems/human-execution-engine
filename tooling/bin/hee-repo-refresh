@@ -153,9 +153,36 @@ case "$SCOPE_ARG" in
         if printf '%s\n' "$to_delete" | grep -qx "$current"; then
           git -C "$DIR" checkout "$default" --quiet 2>/dev/null
         fi
-        count=$(printf '%s\n' "$to_delete" | wc -l | tr -d ' ')
-        printf '%s\n' "$to_delete" | xargs -I{} git -C "$DIR" branch -D {} >/dev/null 2>&1
-        echo "🟢 $R: pruned $count real GitHub-confirmed-merged local branch(es)"
+        deleted=0; skipped=0
+        while IFS= read -r b; do
+          [ -z "$b" ] && continue
+          # Real case found live 2026-08-30: a merged branch still
+          # checked out in a separate worktree (e.g. a /tmp scratch
+          # worktree from an earlier fix) can't be deleted until that
+          # worktree is removed first. Only auto-remove it when
+          # confirmed clean -- never discard real uncommitted work.
+          wt_path=$(git -C "$DIR" worktree list --porcelain 2>/dev/null | awk -v b="refs/heads/$b" '/^worktree /{p=$2} /^branch /{if ($2==b) print p}')
+          if [ -n "$wt_path" ]; then
+            if [ -z "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]; then
+              git worktree remove "$wt_path" 2>/dev/null
+            else
+              echo "🟠 $R: $b skipped -- checked out in $wt_path with real uncommitted changes"
+              skipped=$((skipped + 1))
+              continue
+            fi
+          fi
+          if git -C "$DIR" branch -D "$b" >/dev/null 2>&1; then
+            deleted=$((deleted + 1))
+          else
+            echo "🟠 $R: $b real GitHub-confirmed-merged but delete failed, left in place"
+            skipped=$((skipped + 1))
+          fi
+        done <<EOF
+$to_delete
+EOF
+        note=""
+        [ "$skipped" -gt 0 ] && note=" ($skipped skipped, see above)"
+        echo "🟢 $R: pruned $deleted real GitHub-confirmed-merged local branch(es)$note"
         ;;
       hygiene)
         dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
