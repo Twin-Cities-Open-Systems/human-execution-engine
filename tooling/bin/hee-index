@@ -63,9 +63,21 @@ mkdir -p "$(dirname "$OUT")"
     esac
     printf '%s\t%s\t%s\n' "$kind" "$status" "$path"
   done | sort | awk -F'\t' '
+    BEGIN {
+      icon["Blueprint"] = "\xF0\x9F\x93\x90"
+      icon["BlueprintDoctrine"] = "\xF0\x9F\x93\x98"
+      icon["Card"] = "\xF0\x9F\x83\x8F"
+      icon["Contract"] = "\xF0\x9F\x93\x9C"
+      icon["GreenCard"] = "\xF0\x9F\xAA\xAA"
+      icon["Measure"] = "\xF0\x9F\x93\x8F"
+      icon["Pill"] = "\xF0\x9F\x92\x8A"
+      icon["Registry"] = "\xF0\x9F\x97\x82\xEF\xB8\x8F"
+      icon["Skill"] = "\xF0\x9F\x8E\x93"
+    }
     function flush() {
       if (prev != "") {
-        printf "<details>\n<summary>%s (%d)</summary>\n\n%s\n</details>\n", prev, n, items
+        ic = (prev in icon) ? icon[prev] : "\xE2\x96\xAA"
+        printf "<details>\n<summary>%s %s (%d)</summary>\n\n%s\n</details>\n", ic, prev, n, items
       }
     }
     $1 != prev { flush(); items = ""; n = 0; prev = $1 }
