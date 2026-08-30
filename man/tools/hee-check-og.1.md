@@ -1,0 +1,17 @@
+# hee-check-og(1)
+
+hee-check-og -- real Open Graph / Twitter Card / title / canonical
+tag check, for a live URL or a local HTML file.
+
+Real trigger (2026-08-29): Spencer manually ran a curl+grep one-liner
+twice in the same session to check OG tags on live TCOS pages, then
+asked to "roll this into a hee tool." Real extraction logic lives in
+library/py/hee_ogtags (shared, not copy-pasted here) -- this script
+is just the CLI: fetch-or-read, then print what that library finds.
+
+Usage: hee-check-og <url-or-local-path> [--raw]
+  (default)  pretty key: value summary, deduplicated, easy to eyeball
+  --raw      exact matched tags, in document order, like the original
+             curl | grep -oE one-liner this replaces
+
+*(no --help/-h output -- generated from the script's own header comment)*
