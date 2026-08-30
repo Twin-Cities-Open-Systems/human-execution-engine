@@ -6,69 +6,96 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 **RESULT: fail=29 warn=0 (mode=warn)**
 
+<details>
+<summary>BlueprintDoctrine (8)</summary>
 
-## BlueprintDoctrine
-- [ERROR] `blueprints/hee-intra-repo-layout-v1.yaml`
-- [ERROR] `blueprints/machine-rights-grant-v1.yaml`
-- [OK] `blueprints/dir-layout-v1.yaml`
-- [OK] `blueprints/gitops-coordination-v1.yaml`
-- [OK] `blueprints/hiring-handshake-v1.yaml`
-- [OK] `blueprints/kinship-membership-governance-v1.yaml`
-- [OK] `blueprints/org-foundation-design-v1.yaml`
-- [OK] `blueprints/shift-init-v1.yaml`
+- 🔴 [ERROR] `blueprints/hee-intra-repo-layout-v1.yaml`
+- 🔴 [ERROR] `blueprints/machine-rights-grant-v1.yaml`
+- 🟢 [OK] `blueprints/dir-layout-v1.yaml`
+- 🟢 [OK] `blueprints/gitops-coordination-v1.yaml`
+- 🟢 [OK] `blueprints/hiring-handshake-v1.yaml`
+- 🟢 [OK] `blueprints/kinship-membership-governance-v1.yaml`
+- 🟢 [OK] `blueprints/org-foundation-design-v1.yaml`
+- 🟢 [OK] `blueprints/shift-init-v1.yaml`
 
-## Blueprint
-- [ERROR] `blueprints/plan/plan-create.blueprint.yaml`
+</details>
+<details>
+<summary>Blueprint (1)</summary>
 
-## Card
-- [ERROR] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
-- [ERROR] `hee/cards/attribution-standing.method.card.v1.yaml`
-- [ERROR] `hee/cards/branch-naming-too-specific.review-comment.card.v1.yaml`
-- [ERROR] `hee/cards/contracts-stack.gcic-dric.card.v1.yaml`
-- [ERROR] `hee/cards/ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-refresh.2026-02-11_0340.card.v1.yaml`
-- [ERROR] `hee/cards/ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-sync.card.v1.yaml`
-- [ERROR] `hee/cards/editor.vscode-specials.yaml`
-- [ERROR] `hee/cards/govops-collapse-approval.review-approval.card.v1.yaml`
-- [ERROR] `hee/cards/hee-words.promote-human.seed.card.v1.yaml`
-- [ERROR] `hee/cards/hee-words.seed.card.v1.yaml`
-- [ERROR] `hee/cards/mets.card.v1.yaml`
-- [ERROR] `hee/cards/no-bare-x-placeholder.method.card.v1.yaml`
-- [ERROR] `hee/cards/oper-health.halt.card.v1.yaml`
-- [ERROR] `hee/cards/opus.layout.card.v1.yaml`
-- [ERROR] `hee/cards/preflight.method.card.v1.yaml`
-- [ERROR] `hee/cards/rg-scan.authority.seed.card.v1.yaml`
-- [ERROR] `hee/cards/rg-scan.card.v1.yaml`
-- [ERROR] `hee/cards/shellboss.argv-contracts.card.v1.yaml`
-- [ERROR] `hee/cards/spencer-blank-generation-lyric.card.v1.yaml`
-- [ERROR] `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`
-- [OK] `hee/cards/regns.seed.card.v1.yaml`
+- 🔴 [ERROR] `blueprints/plan/plan-create.blueprint.yaml`
 
-## Contract
-- [OK] `contracts/execution-tier-compat-v1.contract.yaml`
-- [OK] `contracts/publish-sanitization-v1.contract.yaml`
-- [OK] `contracts/tcos.mna.hee-sale-deal.contract.v1.yaml`
-- [OK] `contracts/treasury-invariants-v1.contract.yaml`
-- [OK] `hee/contracts/hee.fleet-hosts.contract.v1.yaml`
-- [OK] `hee/contracts/hee.kind-registry.contract.v1.yaml`
-- [OK] `hee/contracts/hee.validation-gates.contract.v1.yaml`
+</details>
+<details>
+<summary>Card (21)</summary>
 
-## GreenCard
-- [ERROR] `docs/TEMPLATES/jinja2/green-card.yaml`
+- 🔴 [ERROR] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/attribution-standing.method.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/branch-naming-too-specific.review-comment.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/contracts-stack.gcic-dric.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-refresh.2026-02-11_0340.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-sync.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/editor.vscode-specials.yaml`
+- 🔴 [ERROR] `hee/cards/govops-collapse-approval.review-approval.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/hee-words.promote-human.seed.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/hee-words.seed.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/mets.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/no-bare-x-placeholder.method.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/oper-health.halt.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/opus.layout.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/preflight.method.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/rg-scan.authority.seed.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/rg-scan.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/shellboss.argv-contracts.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/spencer-blank-generation-lyric.card.v1.yaml`
+- 🔴 [ERROR] `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`
+- 🟢 [OK] `hee/cards/regns.seed.card.v1.yaml`
 
-## Measure
-- [ERROR] `hee/measure/samples/measure__inventory.asset__sample__vehicle-vinlast6-xxxxxx.yaml`
-- [ERROR] `hee/measure/samples/measure__inventory.stock__sample__2026-02-24-costco-l01-unknown.yaml`
-- [ERROR] `hee/measure/samples/measure__metric.series__sample__interface_6_outbcast__avg_rra0.yaml`
+</details>
+<details>
+<summary>Contract (7)</summary>
 
-## Pill
-- [ERROR] `hee/cards/library-sh-tinies.wip.yaml`
-- [ERROR] `hee/cards/uiboss-repohub-next.wip.yaml`
-- [OK] `hee/pills/tmux-ui.render-stack.highlight.pill.v1.yaml`
+- 🟢 [OK] `contracts/execution-tier-compat-v1.contract.yaml`
+- 🟢 [OK] `contracts/publish-sanitization-v1.contract.yaml`
+- 🟢 [OK] `contracts/tcos.mna.hee-sale-deal.contract.v1.yaml`
+- 🟢 [OK] `contracts/treasury-invariants-v1.contract.yaml`
+- 🟢 [OK] `hee/contracts/hee.fleet-hosts.contract.v1.yaml`
+- 🟢 [OK] `hee/contracts/hee.kind-registry.contract.v1.yaml`
+- 🟢 [OK] `hee/contracts/hee.validation-gates.contract.v1.yaml`
 
-## Registry
-- [OK] `hee/registries/dir-groups.registry.v1.yaml`
-- [OK] `hee/registries/execution-tier-compat.registry.v1.yaml`
-- [OK] `hee/registries/party-kind.registry.v1.yaml`
+</details>
+<details>
+<summary>GreenCard (1)</summary>
 
-## Skill
-- [OK] `hee/skills/ratify-contract-v1.skill.yaml`
+- 🔴 [ERROR] `docs/TEMPLATES/jinja2/green-card.yaml`
+
+</details>
+<details>
+<summary>Measure (3)</summary>
+
+- 🔴 [ERROR] `hee/measure/samples/measure__inventory.asset__sample__vehicle-vinlast6-xxxxxx.yaml`
+- 🔴 [ERROR] `hee/measure/samples/measure__inventory.stock__sample__2026-02-24-costco-l01-unknown.yaml`
+- 🔴 [ERROR] `hee/measure/samples/measure__metric.series__sample__interface_6_outbcast__avg_rra0.yaml`
+
+</details>
+<details>
+<summary>Pill (3)</summary>
+
+- 🔴 [ERROR] `hee/cards/library-sh-tinies.wip.yaml`
+- 🔴 [ERROR] `hee/cards/uiboss-repohub-next.wip.yaml`
+- 🟢 [OK] `hee/pills/tmux-ui.render-stack.highlight.pill.v1.yaml`
+
+</details>
+<details>
+<summary>Registry (3)</summary>
+
+- 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
+- 🟢 [OK] `hee/registries/execution-tier-compat.registry.v1.yaml`
+- 🟢 [OK] `hee/registries/party-kind.registry.v1.yaml`
+
+</details>
+<details>
+<summary>Skill (1)</summary>
+
+- 🟢 [OK] `hee/skills/ratify-contract-v1.skill.yaml`
+
+</details>

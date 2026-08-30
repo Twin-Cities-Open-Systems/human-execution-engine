@@ -48,6 +48,9 @@ mkdir -p "$(dirname "$OUT")"
   # Real, deliberate simple grouping: extract each OK/ERROR/WARN line's
   # real file path, read that file's own real `kind:` field directly
   # (not re-parsed from hee-lint's text output, which doesn't carry it).
+  # Each kind renders as a real, GitHub-native collapsible <details>
+  # block, collapsed by default -- plain ## headers aren't real cards,
+  # and markdown has no other native collapse mechanism.
   echo "$LINT_OUT" | grep -E "^(🟢|🔴|🟡)" | while IFS= read -r line; do
     path="${line##*: }"
     [ -f "$path" ] || continue
@@ -60,8 +63,18 @@ mkdir -p "$(dirname "$OUT")"
     esac
     printf '%s\t%s\t%s\n' "$kind" "$status" "$path"
   done | sort | awk -F'\t' '
-    $1 != prev { print ""; print "## " $1; prev = $1 }
-    { print "- [" $2 "] `" $3 "`" }
+    function flush() {
+      if (prev != "") {
+        printf "<details>\n<summary>%s (%d)</summary>\n\n%s\n</details>\n", prev, n, items
+      }
+    }
+    $1 != prev { flush(); items = ""; n = 0; prev = $1 }
+    {
+      n++
+      badge = ($2 == "OK") ? "\xF0\x9F\x9F\xA2" : ($2 == "WARN" ? "\xF0\x9F\x9F\xA1" : "\xF0\x9F\x94\xB4")
+      items = items sprintf("- %s [%s] `%s`\n", badge, $2, $3)
+    }
+    END { flush() }
   '
 } > "$OUT"
 
