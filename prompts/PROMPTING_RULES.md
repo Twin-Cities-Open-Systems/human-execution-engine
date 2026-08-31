@@ -158,6 +158,23 @@ loaded, read this file directly rather than assume it did.
     real precedent this codifies. General chat-output convention, not
     scoped to this repo.
 
+15. **Check the existing `hee-*` tools first. Extend one. Never write a
+    one-off.** Before building anything, run `hee list` (or look in
+    `tooling/bin/`) and find the tool this belongs to. Add a subcommand or
+    a mode to that tool. A new top-level `hee-<cmd>` is a last resort and
+    needs a real reason -- closely-related functionality folded into an
+    existing tool beats a sibling command every time. A script written
+    outside the `hee` surface, used once and left in a session transcript,
+    is not a deliverable: nobody else can find it, run it, or maintain it.
+    Applies equally to shell helpers and Python: put the logic in
+    `library/` where it is testable and reusable, and keep the tool itself
+    thin. Spencer, direct, 2026-08-31: "must make sure you check current
+    hee tools and use, expand never one off. this must be mandated
+    governance and avail on startup." Real trigger the same session: an
+    agent was about to write a standalone doc-reference checker before
+    being told to extend `hee-check` instead -- which is where it now
+    lives, as `hee-check refs`.
+
 ## Authority Invariants
 
 - Authority is scoped to this repository and this workflow context.
