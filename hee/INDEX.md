@@ -86,11 +86,12 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🗂️ Registry (3)</summary>
+<summary>🗂️ Registry (4)</summary>
 
 - 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/execution-tier-compat.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/party-kind.registry.v1.yaml`
+- 🟢 [OK] `library/regex/patterns.yaml`
 
 </details>
 <details>
