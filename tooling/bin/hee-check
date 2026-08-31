@@ -261,6 +261,8 @@ def eng_perl(pat,s):
 import shutil
 _ALL=[("grep -E",eng_grep),("bash =~",eng_bash),("awk",eng_awk),
       ("sed -E",eng_sed),("rg",eng_rg),("perl",eng_perl)]
+LANES = reg["spec"].get("lanes", {})
+DEFAULT_LANE = reg["spec"].get("default_lane","portable")
 _BIN={"grep -E":"grep","bash =~":"bash","awk":"awk","sed -E":"sed","rg":"rg","perl":"perl"}
 ENGINES=[(n,f) for n,f in _ALL if shutil.which(_BIN[n])]
 missing=[n for n,_ in _ALL if not shutil.which(_BIN[n])]
@@ -271,6 +273,11 @@ if not any(n=="rg" for n,_ in ENGINES):
 fails=0; checked=0
 for p in reg["spec"]["patterns"]:
     name=p["name"]; pat=p["ere"]; cap=p.get("capture",0)
+    lane=p.get("lane",DEFAULT_LANE)
+    allowed=set(LANES.get(lane,[]))
+    if not allowed:
+        line("CRITICAL", f"{name}: declares unknown lane {lane!r}"); fails+=1; continue
+    lane_engines=[(n,f) for n,f in ENGINES if n in allowed]
     try: rx=re.compile(pat)
     except re.error as e:
         line("CRITICAL", f"{name}: python cannot compile: {e}"); fails+=1; continue
@@ -279,18 +286,19 @@ for p in reg["spec"]["patterns"]:
         m=rx.search(t["input"]); got=m.group(cap) if m else None
         if got!=t["expect"]:
             line("CRITICAL", f"{name}: python expected {t['expect']!r} got {got!r} for {t['input'][:40]!r}"); fails+=1
-        for eng,fn in ENGINES:
+        for eng,fn in lane_engines:
             if not fn(pat,t["input"]):
                 line("CRITICAL", f"{name}: {eng} did not match {t['input'][:40]!r} -- engines disagree"); fails+=1
     for s in p.get("tests",{}).get("reject",[]):
         checked+=1
         if rx.search(s):
             line("CRITICAL", f"{name}: python wrongly matched {s[:40]!r}"); fails+=1
-        for eng,fn in ENGINES:
+        for eng,fn in lane_engines:
             if fn(pat,s):
                 line("CRITICAL", f"{name}: {eng} wrongly matched {s[:40]!r}"); fails+=1
-    if "(?" in pat and "(?:" not in pat:
-        line("CRITICAL", f"{name}: uses a PCRE construct -- not RE2/POSIX-ERE safe"); fails+=1
+    if lane=="portable" and re.search(r"\(\?[=!<]", pat):
+        line("CRITICAL", f"{name}: lane=portable but uses lookaround -- rg, awk, sed and Go cannot compile it"); fails+=1
+    line("OK", f"{name}: lane={lane}, verified in {', '.join(n for n,_ in lane_engines) or 'python only'}")
 
 if fails: line("CRITICAL", f"{fails} regex failure(s) across {checked} cases"); sys.exit(2)
 line("OK", f"all {len(reg['spec']['patterns'])} patterns agree across python + {', '.join(n for n,_ in ENGINES)} ({checked} cases)")
