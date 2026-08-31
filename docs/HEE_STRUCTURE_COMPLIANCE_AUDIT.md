@@ -26,11 +26,11 @@ docs-vs-prompts placement ambiguities, and establishment of critical governance 
 
 **File Reorganization (HIGH CONFIDENCE)**
 
-- Moved `docs/HEE.md` → `docs/doctrine/HEE.md` ✓
+- Moved `docs/HEE.md` → `docs/HEE.md` ✓
 - Moved `docs/HEE_POLICY.md` → `docs/doctrine/HEE_POLICY.md` ✓
 - Moved `docs/SECURITY.md` → `docs/doctrine/SECURITY.md` ✓
-- Moved `docs/HEER.md` → `docs/specs/HEER.md` ✓
-- Moved `docs/SPEC.md` → `docs/specs/SPEC.md` ✓
+- Moved `docs/specs/HEER.md` → `docs/specs/HEER.md` ✓
+- Moved `docs/specs/SPEC.md` → `docs/specs/SPEC.md` ✓
 
 ### 📋 NON-COMPLIANT FILES (Require Decision)
 
@@ -56,8 +56,8 @@ docs-vs-prompts placement ambiguities, and establishment of critical governance 
 
 **Critical Conflicts**
 
-- `docs/STATE_CAPSULE_GUIDE.md` (7,949 bytes) vs `prompts/STATE_CAPSULE_GUIDE.md` (17,529 bytes)
-- `docs/TROUBLESHOOTING.md` (12,378 bytes) vs `prompts/TROUBLESHOOTING.md` (14,796 bytes)
+- `docs/STATE_CAPSULE_GUIDE.md` (7,949 bytes) vs `docs/STATE_CAPSULE_GUIDE.md` (17,529 bytes)
+- `docs/TROUBLESHOOTING.md` (12,378 bytes) vs `docs/TROUBLESHOOTING.md` (14,796 bytes)
 
 **Analysis**: Duplicate files with different content lengths suggest different purposes or versions. The missing docs-vs-prompts script likely handled these distinctions.
 

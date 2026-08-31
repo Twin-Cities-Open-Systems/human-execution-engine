@@ -44,7 +44,7 @@ repos:
       - id: hee-documentation-check
         name: HEE Documentation Check
         entry: |
-          bash -c 'echo "🔍 Checking HEE documentation..." && for doc in "docs/HEE.md" "docs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md"; do if [ -f "$doc" ]; then echo "✅ $doc found"; else echo "⚠️  $doc missing"; fi; done'
+          bash -c 'echo "🔍 Checking HEE documentation..." && for doc in "docs/HEE.md" "docs/specs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md"; do if [ -f "$doc" ]; then echo "✅ $doc found"; else echo "⚠️  $doc missing"; fi; done'
         language: system
         files: '.*'
         pass_filenames: false

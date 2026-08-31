@@ -1,19 +1,496 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# hee-check -- repo boundary and integrity checks.
+#
+# Subcommands (default: boundary, so existing callers are unaffected):
+#   hee-check [boundary] [ROOT]   derived dirs are not committed to git
+#   hee-check refs [ROOT]         file references in docs point at real files
+#   hee-check refs --fix [ROOT]   repair refs with exactly one real candidate
+#   hee-check regex               shared regex patterns agree across engines
+#   hee-check systemd [PATH]      systemd unit files are valid
+#   hee-check all [ROOT]          both
+#
+# Status output uses the canonical HEE vocabulary
+# (library/bash/vis.status.shfn.bash): OK / WARNING / CRITICAL / UNKNOWN with
+# Nagios exit codes 0/1/2/3. Style honours HEE_STATUS_STYLE.
+set -uo pipefail
 
-ROOT="${1:-.}"
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Where the TOOL lives -- used only to find its own library. Never the
+# default target: the tool must check wherever it is invoked, not the repo
+# it happens to be installed in.
+TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
-fail() { echo "ERROR: $*" >&2; exit 1; }
-
-# Basic boundary checks
-[ ! -d "$ROOT/.cursor" ] || fail "Repo contains .cursor/ (should be derived, not committed) at $ROOT/.cursor"
-[ ! -d "$ROOT/prompts/.cursor" ] || fail "Repo contains prompts/.cursor/ (should not exist) at $ROOT/prompts/.cursor"
-
-# Also catch any nested .cursor under prompts
-if find "$ROOT/prompts" -type d -name ".cursor" | grep -q .; then
-  echo "Found forbidden .cursor directories under prompts/:"
-  find "$ROOT/prompts" -type d -name ".cursor"
-  exit 1
+# shellcheck source=/dev/null
+if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
+  . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
+else
+  hee_status() { shift; printf '%s\n' "$*"; }
+  hee_status_code() { return 3; }
 fi
 
-echo "OK: basic HEE boundary checks passed for $ROOT"
+# Help is contextual: `help` as the LAST argument prints help for wherever
+# you are in the command, not always the top-level page.
+#   hee-check help            -> the tool
+#   hee-check refs help       -> the refs subcommand
+#   hee-check boundary help   -> the boundary subcommand
+# `--help` and `-h` are accepted as synonyms so hee-gen-manpages, which
+# runs `<tool> --help`, keeps working.
+usage_refs() {
+  cat <<'EOF'
+hee-check refs -- every file reference in a doc must point at a real file
+
+SYNOPSIS
+  hee-check refs [--fix] [PATH]
+
+DESCRIPTION
+  Reads .md, .yaml, .yml and .json and checks every path-like reference
+  written in them -- backticked and quoted paths, not only markdown links.
+  This is the gap that let a contract reference a file that did not exist.
+
+  PATH defaults to the current directory. If PATH holds repositories
+  rather than being one (for example ~/git), each is checked and totalled.
+
+  Excluded by design: docs/history/** and hee/evidence/**. Those are
+  point-in-time snapshots, so a reference to a since-deleted file is
+  correct history rather than rot.
+
+OPTIONS
+  --fix   Repair a reference when exactly one real file has that basename.
+          Ambiguous references are left for a human, never guessed.
+
+EXIT STATUS
+  0 OK   2 CRITICAL broken refs found   3 UNKNOWN target unusable
+
+EXAMPLES
+  hee-check refs
+  hee-check refs ~/git
+  hee-check refs --fix ~/git/fleet-ops
+EOF
+}
+
+usage_boundary() {
+  cat <<'EOF'
+hee-check boundary -- generated state must not be committed to git
+
+SYNOPSIS
+  hee-check [boundary] [PATH]
+
+DESCRIPTION
+  Editor and tool generated state committed to a repo puts machine output
+  in the history and leaks one operator's local tooling into a shared
+  repo. Which editor an operator uses is their own business: a derived
+  directory present on disk but untracked is fine and is never reported.
+
+  The rule is "not committed", never "not present".
+
+ENVIRONMENT
+  HEE_DERIVED_DIRS   space-separated directories treated as generated
+                     state. Default: .cursor
+
+EXIT STATUS
+  0 OK   2 CRITICAL generated state is tracked   3 UNKNOWN target unusable
+
+EXAMPLES
+  hee-check
+  hee-check boundary ~/git/fleet-ops
+  HEE_DERIVED_DIRS=".cursor .idea .vscode" hee-check
+EOF
+}
+
+usage() {
+  cat <<'EOF'
+hee-check -- repo boundary and integrity checks
+
+SYNOPSIS
+  hee-check [boundary] [PATH]
+  hee-check refs [--fix] [PATH]
+  hee-check all [PATH]
+  hee-check [SUBCOMMAND] help
+
+DESCRIPTION
+  Checks a repository for integrity problems. PATH defaults to the current
+  directory, so the tool checks where it is invoked, never the repo it
+  happens to be installed in.
+
+  If PATH holds repositories rather than being one (for example ~/git),
+  every repository directly inside is checked and the results totalled.
+  One level deep by design -- deeper would crawl vendored checkouts.
+
+SUBCOMMANDS
+  boundary   generated state is not committed (default)
+  refs       every file reference resolves
+  systemd    systemd unit files are valid
+  all        boundary + refs
+
+  Add `help` after any subcommand for its own page:
+      hee-check refs help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
+
+ENVIRONMENT
+  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+  HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+
+EXAMPLES
+  hee-check                     boundary check of the current repo
+  hee-check refs                every reference in the current repo
+  hee-check refs ~/git          every repo under ~/git
+  hee-check refs --fix          repair unambiguous references
+  hee-check all ~/git/fleet-ops both checks on one repo
+
+SEE ALSO
+  hee-lint, hee-index, hee-print
+EOF
+}
+
+# Directories holding editor/tool-generated state. Committing these puts
+# machine output in the history and leaks one operator's local tooling
+# choices into a shared repo. Which editor any operator uses is their own
+# business -- this list is about generated state, not about editors.
+# Extend via HEE_DERIVED_DIRS (space-separated) rather than editing here.
+DERIVED_DIRS="${HEE_DERIVED_DIRS:-.cursor}"
+
+# A target that does not exist, is not a directory, or is unreadable is
+# UNKNOWN (exit 3) -- never OK. Issue 440: hee-check printed "OK" for a
+# directory it never searched, because `find` failed inside an `if`, so
+# `set -e` never tripped and grep reported "no match". Silence is not a
+# negative result -- PROMPTING_RULES rule 2.
+validate_target() {
+  t="${1:-}"
+  if [ -z "$t" ]; then hee_status UNKNOWN "no target given"; return 3; fi
+  if [ ! -e "$t" ]; then hee_status UNKNOWN "target does not exist: $t"; return 3; fi
+  if [ ! -d "$t" ]; then hee_status UNKNOWN "target is not a directory: $t"; return 3; fi
+  if [ ! -r "$t" ]; then hee_status UNKNOWN "target is not readable: $t"; return 3; fi
+  return 0
+}
+
+check_boundary() {
+  root="${1:-.}"
+  validate_target "$root" || return 3
+  rc=0
+  # The rule is "not COMMITTED", never "not present". A derived directory
+  # existing on disk is the operator's own business and is not reported.
+  # The previous version tested `-d`, so it failed CRITICAL on an untracked
+  # local directory that harms nothing. Corrected 2026-08-31, operator:
+  # "they are not forbidden".
+  # A hardcoded workspace or home path in a committed file breaks for any
+  # operator whose checkouts are not in the same place. PROMPTING_RULES
+  # rule 10 already bans hardcoding a real user's home in a shared script;
+  # this is the same rule one level up -- not the user, the workspace.
+  # Real trigger 2026-08-31: an operator asked for this to be parameterised
+  # org-wide "I do not want to run into an oper that uses ~/projects/".
+  # Skips history/evidence snapshots, which record what was true then.
+  # library/regex/patterns.yaml is excluded because it necessarily CONTAINS
+  # an example of everything this checker detects -- its own match/reject
+  # test fixtures. Flagging a detector's test data is a false positive that
+  # would fire on every run forever. Caught during pre-merge reconciliation.
+  hp="$(git -C "$root" grep -n -I -E '/home/[a-z][a-z0-9_-]*/' -- \
+        ':!docs/history' ':!*/evidence/*' ':!*.log' ':!library/regex/patterns.yaml' 2>/dev/null)"
+  if [ -n "$hp" ]; then
+    hp_n="$(printf '%s\n' "$hp" | wc -l)"
+    printf '%s\n' "$hp" | head -20 | while IFS= read -r l; do
+      hee_status CRITICAL "hardcoded home path: $l"
+    done
+    # Report the true total, never the truncated one -- a capped count that
+    # looks like a real count is the same failure as a false OK.
+    [ "$hp_n" -gt 20 ] && hee_status CRITICAL "hardcoded home path: $((hp_n - 20)) more not shown ($hp_n total)"
+    rc=2
+  fi
+
+  for d in $DERIVED_DIRS; do
+    tracked="$(git -C "$root" ls-files -- "$d/*" "*/$d/*" 2>/dev/null | head -20)"
+    if [ -n "$tracked" ]; then
+      printf '%s\n' "$tracked" | while IFS= read -r f; do
+        hee_status CRITICAL "derived state committed to git: $f"
+      done
+      rc=2
+    fi
+  done
+  [ "$rc" -eq 0 ] && hee_status OK "no derived state committed in $root ($DERIVED_DIRS)"
+  return "$rc"
+}
+
+check_regex() {
+  reg="$TOOL_ROOT/library/regex/patterns.yaml"
+  [ -r "$reg" ] || { hee_status UNKNOWN "no pattern registry at $reg"; return 3; }
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; return 3; }
+  REG="$reg" python3 <<'PYEOF'
+import os, re, subprocess, sys, yaml
+reg = yaml.safe_load(open(os.environ["REG"]))
+style = os.environ.get("HEE_STATUS_STYLE","icon")
+ICON={"OK":"\u2705","WARNING":"\u26a0\ufe0f","CRITICAL":"\u274c","UNKNOWN":"\u2753"}
+def line(l,m):
+    if style=="plain": print(f"{l} {m}")
+    elif style=="ascii": print(f"[{ {'OK':'OK','WARNING':'WARN','CRITICAL':'CRIT','UNKNOWN':'UNKN'}[l] }]".ljust(7)+m)
+    else: print(f"{ICON[l]} {l} {m}")
+
+def have(t):
+    return subprocess.run(["command","-v",t],capture_output=True,shell=False).returncode==0 if False else bool(__import__("shutil").which(t))
+
+def eng_grep(pat,s):
+    return subprocess.run(["grep","-Eq",pat],input=s,text=True,capture_output=True).returncode==0
+def eng_bash(pat,s):
+    r=subprocess.run(["bash","-c",'[[ "$1" =~ $2 ]]',"_",s,pat],capture_output=True)
+    return r.returncode==0
+def eng_awk(pat,s):
+    # Pattern passed as a VARIABLE, never interpolated into a /.../ literal:
+    # an awk regex literal is slash-delimited, so a pattern containing "/"
+    # (every path pattern) silently breaks. Caught by this validator on its
+    # first run against the hardcoded_home pattern.
+    r=subprocess.run(["awk","-v","p="+pat,'$0 ~ p { print "Y" }'],input=s,text=True,capture_output=True)
+    return "Y" in r.stdout
+def eng_sed(pat,s):
+    # A sed address is delimited; the default "/" breaks on any pattern
+    # containing a slash. \%...% picks an alternative delimiter. Same class
+    # of harness bug as the awk one -- the pattern was never at fault.
+    if "%" in pat: return True   # would need a third delimiter; skip rather than lie
+    r=subprocess.run(["sed","-nE",f"\\%{pat}%p"],input=s,text=True,capture_output=True)
+    return bool(r.stdout.strip())
+def eng_rg(pat,s):
+    # rg uses the Rust regex crate: linear-time, NO lookaround, NO
+    # backreferences -- the same family as RE2. That makes rg the sharpest
+    # portability canary we have, and it is the org's strongly preferred
+    # search tool, so a pattern that fails here is not fit for use.
+    r=subprocess.run(["rg","-q","--no-config","-e",pat],input=s,text=True,capture_output=True)
+    return r.returncode==0
+def eng_perl(pat,s):
+    # The pattern must be a VARIABLE, taken off @ARGV before reading stdin.
+    # Interpolating $ARGV[0] inside // does not do what it looks like.
+    r=subprocess.run(["perl","-e",
+                      'my $p = shift @ARGV; while (my $l = <STDIN>) { exit 0 if $l =~ /$p/ } exit 1',
+                      "--", pat],
+                     input=s, text=True, capture_output=True)
+    return r.returncode==0
+
+import shutil
+_ALL=[("grep -E",eng_grep),("bash =~",eng_bash),("awk",eng_awk),
+      ("sed -E",eng_sed),("rg",eng_rg),("perl",eng_perl)]
+LANES = reg["spec"].get("lanes", {})
+DEFAULT_LANE = reg["spec"].get("default_lane","portable")
+_BIN={"grep -E":"grep","bash =~":"bash","awk":"awk","sed -E":"sed","rg":"rg","perl":"perl"}
+ENGINES=[(n,f) for n,f in _ALL if shutil.which(_BIN[n])]
+missing=[n for n,_ in _ALL if not shutil.which(_BIN[n])]
+if missing: line("WARNING", "engine not installed, not checked: "+", ".join(missing))
+if not any(n=="rg" for n,_ in ENGINES):
+    line("WARNING", "rg absent -- it is the org's preferred tool AND the strictest portability canary (Rust regex: no lookaround, no backrefs)")
+
+fails=0; checked=0
+for p in reg["spec"]["patterns"]:
+    name=p["name"]; pat=p["ere"]; cap=p.get("capture",0)
+    lane=p.get("lane",DEFAULT_LANE)
+    allowed=set(LANES.get(lane,[]))
+    if not allowed:
+        line("CRITICAL", f"{name}: declares unknown lane {lane!r}"); fails+=1; continue
+    lane_engines=[(n,f) for n,f in ENGINES if n in allowed]
+    try: rx=re.compile(pat)
+    except re.error as e:
+        line("CRITICAL", f"{name}: python cannot compile: {e}"); fails+=1; continue
+    for t in p.get("tests",{}).get("match",[]):
+        checked+=1
+        m=rx.search(t["input"]); got=m.group(cap) if m else None
+        if got!=t["expect"]:
+            line("CRITICAL", f"{name}: python expected {t['expect']!r} got {got!r} for {t['input'][:40]!r}"); fails+=1
+        for eng,fn in lane_engines:
+            if not fn(pat,t["input"]):
+                line("CRITICAL", f"{name}: {eng} did not match {t['input'][:40]!r} -- engines disagree"); fails+=1
+    for s in p.get("tests",{}).get("reject",[]):
+        checked+=1
+        if rx.search(s):
+            line("CRITICAL", f"{name}: python wrongly matched {s[:40]!r}"); fails+=1
+        for eng,fn in lane_engines:
+            if fn(pat,s):
+                line("CRITICAL", f"{name}: {eng} wrongly matched {s[:40]!r}"); fails+=1
+    if lane=="portable" and re.search(r"\(\?[=!<]", pat):
+        line("CRITICAL", f"{name}: lane=portable but uses lookaround -- rg, awk, sed and Go cannot compile it"); fails+=1
+    line("OK", f"{name}: lane={lane}, verified in {', '.join(n for n,_ in lane_engines) or 'python only'}")
+
+if fails: line("CRITICAL", f"{fails} regex failure(s) across {checked} cases"); sys.exit(2)
+line("OK", f"all {len(reg['spec']['patterns'])} patterns agree across python + {', '.join(n for n,_ in ENGINES)} ({checked} cases)")
+PYEOF
+}
+
+usage_systemd() {
+  cat <<'EOF'
+hee-check systemd -- validate systemd unit files
+
+SYNOPSIS
+  hee-check systemd [PATH]
+
+DESCRIPTION
+  Runs `systemd-analyze verify` over every unit under PATH (default: the
+  repo's systemd/ directory, else the current directory).
+
+  TWO REAL TRAPS THIS HANDLES, both measured 2026-08-31:
+
+  1. Exit code alone is not a gate. `Type=notarealtype` produces a warning
+     and exits 0 -- a broken unit sails through green. So warning TEXT is
+     matched, not just $?.
+
+  2. verify resolves ExecStart paths and fails when the binary is absent.
+     A unit correct for its target host is therefore "broken" on any CI
+     runner with a different $HOME or checkout path. That is a false
+     negative on good code -- the same class of permanent-red noise that
+     fleet-ops#350 was about. Those lines are filtered by default.
+
+     --strict turns them back on, for when you ARE checking on the target
+     host and want to know the binary is really there.
+
+OPTIONS
+  --strict   also fail when an ExecStart path does not resolve
+
+EXIT STATUS
+  0 OK   2 CRITICAL a unit is invalid   3 UNKNOWN systemd-analyze absent
+EOF
+}
+
+check_systemd() {
+  strict=0
+  if [ "${1:-}" = "--strict" ]; then strict=1; shift; fi
+  root="${1:-}"
+  if [ -z "$root" ]; then
+    if [ -d systemd ]; then root=systemd; else root=.; fi
+  fi
+  validate_target "$root" || return 3
+  command -v systemd-analyze >/dev/null 2>&1 || {
+    hee_status UNKNOWN "systemd-analyze not installed -- cannot verify units"; return 3; }
+
+  units=$(find "$root" -type f \( -name '*.service' -o -name '*.timer' -o -name '*.socket' \
+          -o -name '*.mount' -o -name '*.path' -o -name '*.target' \) 2>/dev/null | sort)
+  [ -n "$units" ] || { hee_status OK "no systemd units under $root"; return 0; }
+
+  rc=0; n=0
+  for u in $units; do
+    n=$((n + 1))
+    out=$(systemd-analyze verify "$u" 2>&1)
+    code=$?
+    # Drop the not-executable line unless --strict: an ExecStart correct for
+    # the TARGET host is absent on a CI runner, and failing on that is a
+    # false negative on a good unit.
+    if [ "$strict" -eq 0 ]; then
+      filtered=$(printf '%s\n' "$out" | grep -v 'is not executable' | grep -v '^$')
+      if [ "$code" -ne 0 ] && [ -z "$filtered" ]; then code=0; fi
+    else
+      filtered="$out"
+    fi
+    # A warning with exit 0 is still a defect -- Type=notarealtype proves it.
+    if printf '%s' "$filtered" | grep -qE 'Failed to parse|Invalid|Assignment outside|Unknown (lvalue|section)|no ExecStart'; then
+      code=2
+    fi
+    if [ "$code" -ne 0 ]; then
+      hee_status CRITICAL "$u"
+      printf '%s\n' "$filtered" | sed 's/^/      /'
+      rc=2
+    fi
+  done
+  [ "$rc" -eq 0 ] && hee_status OK "$n systemd unit(s) valid under $root"
+  return "$rc"
+}
+
+check_refs() {
+  fix=0
+  if [ "${1:-}" = "--fix" ]; then fix=1; shift; fi
+  root="${1:-.}"
+  validate_target "$root" || return 3
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable -- cannot check refs"; return 3; }
+  HEE_REFS_FIX="$fix" PYTHONPATH="$TOOL_ROOT/library/py:${PYTHONPATH:-}" python3 - "$root" <<'PY'
+import os, sys
+sys.path.insert(0, os.path.join(os.environ.get("PYTHONPATH","").split(":")[0]))
+from hee_refs import scan, repair, discover_repos, repo_root
+
+target = sys.argv[1]
+repos = discover_repos(target) or [repo_root(target)]
+repos = [r for r in repos if os.path.isdir(r)]
+style = os.environ.get("HEE_STATUS_STYLE", "icon")
+ICON = {"OK": "✅", "WARNING": "⚠️", "CRITICAL": "❌", "UNKNOWN": "❓"}
+def line(level, msg):
+    if style == "plain": print(f"{level} {msg}")
+    elif style == "ascii":
+        print(f"[{ {'OK':'OK','WARNING':'WARN','CRITICAL':'CRIT','UNKNOWN':'UNKN'}[level] }]".ljust(7) + msg)
+    else: print(f"{ICON[level]} {level} {msg}")
+
+fix = os.environ.get("HEE_REFS_FIX") == "1"
+total_checked = total_broken = total_fixed = 0
+for root in repos:
+    checked, broken = scan(root)
+    fixed = 0
+    if fix:
+        changed = repair(root, broken)
+        for src, old, new in changed:
+            line("OK", f"{os.path.basename(root)}: fixed {src}  {old} -> {new}")
+        fixed = len(changed)
+        checked, broken = scan(root)
+
+    label = os.path.basename(root)
+    for b in broken:
+        hint = f"  (did you mean {b.suggestion}?)" if b.suggestion else ""
+        line("CRITICAL", f"{label}/{b.source}:{b.line} -> {b.ref}{hint}")
+    if not broken and checked:
+        line("OK", f"{label}: all {checked} file references resolve")
+    elif not checked:
+        line("OK", f"{label}: no doc file references found")
+    total_checked += checked; total_broken += len(broken); total_fixed += fixed
+
+if not repos:
+    line("UNKNOWN", f"no git repository found at or under {target}")
+    sys.exit(3)
+
+if len(repos) > 1:
+    line("OK" if not total_broken else "CRITICAL",
+         f"{len(repos)} repos: {total_broken} broken of {total_checked} checked"
+         + (f", {total_fixed} repaired" if total_fixed else ""))
+sys.exit(2 if total_broken else 0)
+PY
+}
+
+# Contextual help: `help` (or --help/-h) as the LAST argument.
+_last=""
+for _a in "$@"; do _last="$_a"; done
+case "$_last" in
+  help|--help|-h)
+    case "${1:-}" in
+      refs)     usage_refs ;;
+      boundary) usage_boundary ;;
+      all)      usage_boundary; echo; usage_refs ;;
+      systemd)  usage_systemd ;;
+      regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
+      *)        usage ;;
+    esac
+    exit 0
+    ;;
+esac
+
+cmd="${1:-boundary}"
+case "$cmd" in
+  boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
+  refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
+  regex)    check_regex ;;
+  systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
+  all)      shift 2>/dev/null || true
+            check_boundary "${1:-.}"; a=$?
+            check_refs "${1:-.}"; b=$?
+            [ "$a" -gt "$b" ] && exit "$a" || exit "$b" ;;
+  *)
+    # Back-compat: hee-check took a bare ROOT before it had subcommands.
+    # Decide by asking the filesystem, not by guessing at path shapes -- a
+    # pattern list missed a bare "." and broke the most common invocation.
+    # A path-shaped argument is a TARGET: validate it, so a missing one is
+    # UNKNOWN/3 ("could not determine") rather than being mistaken for a
+    # typo'd subcommand. A bare word is a subcommand: a typo is CRITICAL/2.
+    # Issue 440 turned on exactly this distinction -- `hee-check og` was a
+    # typo, `hee-check /nope` was a bad target, and both silently said OK.
+    case "$cmd" in
+      */*|.|..|~*) check_boundary "$cmd" ;;
+      *)
+        if [ -d "$cmd" ]; then
+          check_boundary "$cmd"
+        else
+          hee_status UNKNOWN "unknown subcommand: $cmd" >&2
+          usage >&2
+          exit 2
+        fi
+        ;;
+    esac
+    ;;
+esac

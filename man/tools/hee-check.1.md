@@ -1,6 +1,46 @@
 # hee-check(1)
 
 ```
-find: unknown predicate `--help/prompts'
-OK: basic HEE boundary checks passed for --help
+hee-check -- repo boundary and integrity checks
+
+SYNOPSIS
+  hee-check [boundary] [PATH]
+  hee-check refs [--fix] [PATH]
+  hee-check all [PATH]
+  hee-check [SUBCOMMAND] help
+
+DESCRIPTION
+  Checks a repository for integrity problems. PATH defaults to the current
+  directory, so the tool checks where it is invoked, never the repo it
+  happens to be installed in.
+
+  If PATH holds repositories rather than being one (for example ~/git),
+  every repository directly inside is checked and the results totalled.
+  One level deep by design -- deeper would crawl vendored checkouts.
+
+SUBCOMMANDS
+  boundary   generated state is not committed (default)
+  refs       every file reference resolves
+  all        both
+
+  Add `help` after any subcommand for its own page:
+      hee-check refs help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
+
+ENVIRONMENT
+  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+  HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+
+EXAMPLES
+  hee-check                     boundary check of the current repo
+  hee-check refs                every reference in the current repo
+  hee-check refs ~/git          every repo under ~/git
+  hee-check refs --fix          repair unambiguous references
+  hee-check all ~/git/fleet-ops both checks on one repo
+
+SEE ALSO
+  hee-lint, hee-index, hee-print
 ```
