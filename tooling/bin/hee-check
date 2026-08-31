@@ -1,19 +1,114 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# hee-check -- repo boundary and integrity checks.
+#
+# Subcommands (default: boundary, so existing callers are unaffected):
+#   hee-check [boundary] [ROOT]   forbidden .cursor dirs
+#   hee-check refs [ROOT]         file references in docs point at real files
+#   hee-check refs --fix [ROOT]   repair refs with exactly one real candidate
+#   hee-check all [ROOT]          both
+#
+# Status output uses the canonical HEE vocabulary
+# (library/bash/vis.status.shfn.bash): OK / WARNING / CRITICAL / UNKNOWN with
+# Nagios exit codes 0/1/2/3. Style honours HEE_STATUS_STYLE.
+set -uo pipefail
 
-ROOT="${1:-.}"
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
-fail() { echo "ERROR: $*" >&2; exit 1; }
-
-# Basic boundary checks
-[ ! -d "$ROOT/.cursor" ] || fail "Repo contains .cursor/ (should be derived, not committed) at $ROOT/.cursor"
-[ ! -d "$ROOT/prompts/.cursor" ] || fail "Repo contains prompts/.cursor/ (should not exist) at $ROOT/prompts/.cursor"
-
-# Also catch any nested .cursor under prompts
-if find "$ROOT/prompts" -type d -name ".cursor" | grep -q .; then
-  echo "Found forbidden .cursor directories under prompts/:"
-  find "$ROOT/prompts" -type d -name ".cursor"
-  exit 1
+# shellcheck source=/dev/null
+if [ -r "$REPO_ROOT/library/bash/vis.status.shfn.bash" ]; then
+  . "$REPO_ROOT/library/bash/vis.status.shfn.bash"
+else
+  hee_status() { shift; printf '%s\n' "$*"; }
+  hee_status_code() { return 3; }
 fi
 
-echo "OK: basic HEE boundary checks passed for $ROOT"
+usage() {
+  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+
+check_boundary() {
+  root="${1:-.}"
+  rc=0
+  if [ -d "$root/.cursor" ]; then
+    hee_status CRITICAL "$root/.cursor exists -- should be derived, not committed"; rc=2
+  fi
+  if [ -d "$root/prompts/.cursor" ]; then
+    hee_status CRITICAL "$root/prompts/.cursor exists -- should not exist"; rc=2
+  fi
+  if [ -d "$root/prompts" ] && find "$root/prompts" -type d -name .cursor 2>/dev/null | grep -q .; then
+    find "$root/prompts" -type d -name .cursor 2>/dev/null | while IFS= read -r d; do
+      hee_status CRITICAL "forbidden .cursor directory: $d"
+    done
+    rc=2
+  fi
+  [ "$rc" -eq 0 ] && hee_status OK "boundary checks passed for $root"
+  return "$rc"
+}
+
+check_refs() {
+  fix=0
+  if [ "${1:-}" = "--fix" ]; then fix=1; shift; fi
+  root="${1:-$REPO_ROOT}"
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable -- cannot check refs"; return 3; }
+  HEE_REFS_FIX="$fix" PYTHONPATH="$REPO_ROOT/library/py:${PYTHONPATH:-}" python3 - "$root" <<'PY'
+import os, sys
+sys.path.insert(0, os.path.join(os.environ.get("PYTHONPATH","").split(":")[0]))
+from hee_refs import scan
+
+root = sys.argv[1]
+checked, broken = scan(root)
+style = os.environ.get("HEE_STATUS_STYLE", "icon")
+ICON = {"OK": "✅", "WARNING": "⚠️", "CRITICAL": "❌", "UNKNOWN": "❓"}
+def line(level, msg):
+    if style == "plain": print(f"{level} {msg}")
+    elif style == "ascii":
+        print(f"[{ {'OK':'OK','WARNING':'WARN','CRITICAL':'CRIT','UNKNOWN':'UNKN'}[level] }]".ljust(7) + msg)
+    else: print(f"{ICON[level]} {level} {msg}")
+
+fix = os.environ.get("HEE_REFS_FIX") == "1"
+fixed = 0
+if fix:
+    # Only touch references with exactly one real candidate. An ambiguous
+    # or unknown reference is a human decision, never a guess.
+    by_src = {}
+    for b in broken:
+        if b.suggestion:
+            by_src.setdefault(b.source, []).append(b)
+    for src, items in by_src.items():
+        path = os.path.join(root, src)
+        text = open(path, errors="ignore").read()
+        for b in items:
+            if b.ref in text:
+                text = text.replace(b.ref, b.suggestion)
+                fixed += 1
+                line("OK", f"fixed {src}:{b.line}  {b.ref} -> {b.suggestion}")
+        open(path, "w").write(text)
+    checked, broken = scan(root)
+
+for b in broken:
+    hint = f"  (did you mean {b.suggestion}?)" if b.suggestion else ""
+    line("CRITICAL", f"{b.source}:{b.line} -> {b.ref}{hint}")
+
+if fixed:
+    line("OK", f"repaired {fixed} reference(s)")
+if broken:
+    line("CRITICAL", f"{len(broken)} broken reference(s) remain of {checked} checked")
+    sys.exit(2)
+line("OK", f"all {checked} file references resolve")
+PY
+}
+
+cmd="${1:-boundary}"
+case "$cmd" in
+  boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
+  refs)     shift 2>/dev/null || true; check_refs "${1:-$REPO_ROOT}" ;;
+  all)      shift 2>/dev/null || true
+            check_boundary "${1:-.}"; a=$?
+            check_refs "${1:-$REPO_ROOT}"; b=$?
+            [ "$a" -gt "$b" ] && exit "$a" || exit "$b" ;;
+  -h|--help|help) usage ;;
+  /*|.*|*/*) check_boundary "$cmd" ;;   # back-compat: bare ROOT argument
+  *) hee_status UNKNOWN "unknown subcommand: $cmd"; usage ;;
+esac

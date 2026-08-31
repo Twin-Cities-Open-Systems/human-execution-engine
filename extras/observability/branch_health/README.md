@@ -27,7 +27,7 @@ It is intended for demos and operator convenience only.
 From repo root:
 
 ```bash
-python extras/observability/branch-health/branch_health_monitor.py
-python extras/observability/branch-health/branch_health_monitor.py --watch 10
-python extras/observability/branch-health/branch_health_monitor.py --report --save
+python extras/observability/branch_health/branch_health_monitor.py
+python extras/observability/branch_health/branch_health_monitor.py --watch 10
+python extras/observability/branch_health/branch_health_monitor.py --report --save
 ```

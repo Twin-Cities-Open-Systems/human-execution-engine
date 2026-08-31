@@ -6,7 +6,7 @@ metadata:
   ts_human: 2026-08-18_1600
 spec:
   purpose: >
-    First example Card in a new, informal category: human-authored creative work, captured and attested inside HEE. Not a registered kind-registry category yet (see contracts/hee.kind-registry.contract.v1.yaml -- Card is the closest existing active kind, used here deliberately rather than inventing a new one unregistered). Per Spencer, 2026-08-18: "make it a contract in hee signed and plainly a song I wrote with my keys, entropy and brain farts."
+    First example Card in a new, informal category: human-authored creative work, captured and attested inside HEE. Not a registered kind-registry category yet (see hee/contracts/hee.kind-registry.contract.v1.yaml -- Card is the closest existing active kind, used here deliberately rather than inventing a new one unregistered). Per Spencer, 2026-08-18: "make it a contract in hee signed and plainly a song I wrote with my keys, entropy and brain farts."
 
   author:
     name: Spencer Butler
@@ -39,5 +39,5 @@ spec:
       signed_artifact: spencer-blank-generation-lyric.card.v1.yaml.spencer.asc (detached sig, this commit)
       signed_at: "2026-08-18T13:28:12-05:00"
   category_note: >
-    If more human-authored creative work goes through HEE after this, "Card" may be the wrong long-term kind for it (Cards elsewhere in this repo are scan-config/authority-seed shaped, not creative-work shaped). Worth a real kind-registry decision later, per contracts/hee.kind-registry.contract.v1.yaml's own rule: "observed kinds do not automatically become active kinds." This is one instance, not a precedent claimed as settled.
+    If more human-authored creative work goes through HEE after this, "Card" may be the wrong long-term kind for it (Cards elsewhere in this repo are scan-config/authority-seed shaped, not creative-work shaped). Worth a real kind-registry decision later, per hee/contracts/hee.kind-registry.contract.v1.yaml's own rule: "observed kinds do not automatically become active kinds." This is one instance, not a precedent claimed as settled.
 

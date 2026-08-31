@@ -31,7 +31,7 @@ jobs:
         echo "🔍 Validating HEE documentation structure..."
 
         # Check for required documentation files
-        required_docs=("docs/doctrine/HEE.md" "docs/specs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md" "docs/doctrine/HEE_POLICY.md" "prompts/PROMPTING_RULES.md")
+        required_docs=("docs/HEE.md" "docs/specs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md" "docs/doctrine/HEE_POLICY.md" "prompts/PROMPTING_RULES.md")
 
         for doc in "${required_docs[@]}"; do
           if [ -f "$doc" ]; then

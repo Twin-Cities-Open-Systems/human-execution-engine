@@ -1,4 +1,4 @@
-# rfcs/rfc7519-jwt.md
+# rfcs/public/rfc7519-jwt.md
 
 Internet Engineering Task Force (IETF)                          M. Jones
 Request for Comments: 7519                                     Microsoft
