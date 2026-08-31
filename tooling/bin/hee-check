@@ -5,6 +5,7 @@
 #   hee-check [boundary] [ROOT]   derived dirs are not committed to git
 #   hee-check refs [ROOT]         file references in docs point at real files
 #   hee-check refs --fix [ROOT]   repair refs with exactly one real candidate
+#   hee-check regex               shared regex patterns agree across engines
 #   hee-check all [ROOT]          both
 #
 # Status output uses the canonical HEE vocabulary
@@ -205,6 +206,97 @@ check_boundary() {
   return "$rc"
 }
 
+check_regex() {
+  reg="$TOOL_ROOT/library/regex/patterns.yaml"
+  [ -r "$reg" ] || { hee_status UNKNOWN "no pattern registry at $reg"; return 3; }
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; return 3; }
+  REG="$reg" python3 <<'PYEOF'
+import os, re, subprocess, sys, yaml
+reg = yaml.safe_load(open(os.environ["REG"]))
+style = os.environ.get("HEE_STATUS_STYLE","icon")
+ICON={"OK":"\u2705","WARNING":"\u26a0\ufe0f","CRITICAL":"\u274c","UNKNOWN":"\u2753"}
+def line(l,m):
+    if style=="plain": print(f"{l} {m}")
+    elif style=="ascii": print(f"[{ {'OK':'OK','WARNING':'WARN','CRITICAL':'CRIT','UNKNOWN':'UNKN'}[l] }]".ljust(7)+m)
+    else: print(f"{ICON[l]} {l} {m}")
+
+def have(t):
+    return subprocess.run(["command","-v",t],capture_output=True,shell=False).returncode==0 if False else bool(__import__("shutil").which(t))
+
+def eng_grep(pat,s):
+    return subprocess.run(["grep","-Eq",pat],input=s,text=True,capture_output=True).returncode==0
+def eng_bash(pat,s):
+    r=subprocess.run(["bash","-c",'[[ "$1" =~ $2 ]]',"_",s,pat],capture_output=True)
+    return r.returncode==0
+def eng_awk(pat,s):
+    # Pattern passed as a VARIABLE, never interpolated into a /.../ literal:
+    # an awk regex literal is slash-delimited, so a pattern containing "/"
+    # (every path pattern) silently breaks. Caught by this validator on its
+    # first run against the hardcoded_home pattern.
+    r=subprocess.run(["awk","-v","p="+pat,'$0 ~ p { print "Y" }'],input=s,text=True,capture_output=True)
+    return "Y" in r.stdout
+def eng_sed(pat,s):
+    # A sed address is delimited; the default "/" breaks on any pattern
+    # containing a slash. \%...% picks an alternative delimiter. Same class
+    # of harness bug as the awk one -- the pattern was never at fault.
+    if "%" in pat: return True   # would need a third delimiter; skip rather than lie
+    r=subprocess.run(["sed","-nE",f"\\%{pat}%p"],input=s,text=True,capture_output=True)
+    return bool(r.stdout.strip())
+def eng_rg(pat,s):
+    # rg uses the Rust regex crate: linear-time, NO lookaround, NO
+    # backreferences -- the same family as RE2. That makes rg the sharpest
+    # portability canary we have, and it is the org's strongly preferred
+    # search tool, so a pattern that fails here is not fit for use.
+    r=subprocess.run(["rg","-q","--no-config","-e",pat],input=s,text=True,capture_output=True)
+    return r.returncode==0
+def eng_perl(pat,s):
+    # The pattern must be a VARIABLE, taken off @ARGV before reading stdin.
+    # Interpolating $ARGV[0] inside // does not do what it looks like.
+    r=subprocess.run(["perl","-e",
+                      'my $p = shift @ARGV; while (my $l = <STDIN>) { exit 0 if $l =~ /$p/ } exit 1',
+                      "--", pat],
+                     input=s, text=True, capture_output=True)
+    return r.returncode==0
+
+import shutil
+_ALL=[("grep -E",eng_grep),("bash =~",eng_bash),("awk",eng_awk),
+      ("sed -E",eng_sed),("rg",eng_rg),("perl",eng_perl)]
+_BIN={"grep -E":"grep","bash =~":"bash","awk":"awk","sed -E":"sed","rg":"rg","perl":"perl"}
+ENGINES=[(n,f) for n,f in _ALL if shutil.which(_BIN[n])]
+missing=[n for n,_ in _ALL if not shutil.which(_BIN[n])]
+if missing: line("WARNING", "engine not installed, not checked: "+", ".join(missing))
+if not any(n=="rg" for n,_ in ENGINES):
+    line("WARNING", "rg absent -- it is the org's preferred tool AND the strictest portability canary (Rust regex: no lookaround, no backrefs)")
+
+fails=0; checked=0
+for p in reg["spec"]["patterns"]:
+    name=p["name"]; pat=p["ere"]; cap=p.get("capture",0)
+    try: rx=re.compile(pat)
+    except re.error as e:
+        line("CRITICAL", f"{name}: python cannot compile: {e}"); fails+=1; continue
+    for t in p.get("tests",{}).get("match",[]):
+        checked+=1
+        m=rx.search(t["input"]); got=m.group(cap) if m else None
+        if got!=t["expect"]:
+            line("CRITICAL", f"{name}: python expected {t['expect']!r} got {got!r} for {t['input'][:40]!r}"); fails+=1
+        for eng,fn in ENGINES:
+            if not fn(pat,t["input"]):
+                line("CRITICAL", f"{name}: {eng} did not match {t['input'][:40]!r} -- engines disagree"); fails+=1
+    for s in p.get("tests",{}).get("reject",[]):
+        checked+=1
+        if rx.search(s):
+            line("CRITICAL", f"{name}: python wrongly matched {s[:40]!r}"); fails+=1
+        for eng,fn in ENGINES:
+            if fn(pat,s):
+                line("CRITICAL", f"{name}: {eng} wrongly matched {s[:40]!r}"); fails+=1
+    if "(?" in pat and "(?:" not in pat:
+        line("CRITICAL", f"{name}: uses a PCRE construct -- not RE2/POSIX-ERE safe"); fails+=1
+
+if fails: line("CRITICAL", f"{fails} regex failure(s) across {checked} cases"); sys.exit(2)
+line("OK", f"all {len(reg['spec']['patterns'])} patterns agree across python + {', '.join(n for n,_ in ENGINES)} ({checked} cases)")
+PYEOF
+}
+
 check_refs() {
   fix=0
   if [ "${1:-}" = "--fix" ]; then fix=1; shift; fi
@@ -270,6 +362,7 @@ case "$_last" in
       refs)     usage_refs ;;
       boundary) usage_boundary ;;
       all)      usage_boundary; echo; usage_refs ;;
+      regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
       *)        usage ;;
     esac
     exit 0
@@ -280,6 +373,7 @@ cmd="${1:-boundary}"
 case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
   refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
+  regex)    check_regex ;;
   all)      shift 2>/dev/null || true
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
