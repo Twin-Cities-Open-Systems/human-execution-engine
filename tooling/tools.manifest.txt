@@ -1,8 +1,17 @@
-# name  kind    desired
-go      tar     1.26.0
-yq      bin     4.50.1
-jq      pkg     any
-bat     pkg     any
-glow    pkg     any
-rg      pkg     any
-tmux    pkg     any
+# name  kind    desired  vflag
+#
+# vflag -- the flag this tool ACTUALLY answers for its version. Added
+# 2026-08-31 after `tmux --version` was used in a Makefile and printed the
+# usage block instead of a version. hee-tools-check already falls back
+# --version -> -V -> unknown, so it coped; the flag was simply never
+# recorded anywhere, so every other caller had to rediscover it.
+#
+# Verified by running each command on kiosk, 2026-08-31T19:28:40Z. Never
+# asserted -- see primitives.yaml for the captured output of each run.
+go      tar     1.26.0   --version
+yq      bin     4.50.1   --version
+jq      pkg     any      --version
+bat     pkg     any      --version
+glow    pkg     any      --version
+rg      pkg     any      --version
+tmux    pkg     any      -V
