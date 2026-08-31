@@ -171,24 +171,36 @@ than duplicated there.
 
 - Every reference to an issue, PR, or comment — in GitHub content
   (issue bodies, comments, PR descriptions) **and** in chat/agent
-  output — is written as a **bare full URL**
-  (`https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151`).
-  Not shorthand, and **not a markdown link**.
-- Rationale, verified against GitHub's own renderer 2026-08-31:
+  output — is written as a **short label linked to the full URL**:
+  `[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`.
+  Short to read, and the URL travels with it.
+- **This was settled by measurement, not inference** (operator probe,
+  2026-08-31 — four candidate forms rendered live in both a terminal and
+  a browser). It had already been rewritten twice the same day from
+  reasoning alone, each time wrongly. Do not relitigate it without new
+  measurements.
   - `fleet-ops#151` (owner-less) resolves **nowhere** — not even inside
-    GitHub. It is dead text everywhere, always.
+    GitHub. Dead text everywhere, always.
   - Bare `#151` and `owner/repo#151` autolink only in GitHub
     conversations and commit messages — dead in repo files, wikis, and
     issue/PR titles.
-  - A **markdown link** renders as plain text in a terminal with the URL
-    unreachable, so it is the wrong shape for agent/CLI output — the
-    real trigger for this rewrite: an agent emitted a status table of
-    markdown links that the operator could not click.
-  - A **bare full URL** is the only form that is clickable in a terminal
-    *and* autolinks in the GitHub UI — and GitHub shortens it on display
-    by itself, to `owner/repo#151` cross-repo or `#151` same-repo. One
-    written form, short rendering where it matters, no exceptions to
-    remember.
+  - A **bare full URL** works everywhere but is **too long to read** in
+    chat. Operator's verdict on seeing it: "works, but too long."
+  - **OSC 8 terminal hyperlinks cannot be emitted from an agent's chat
+    output.** The ESC bytes are stripped in transit, silently
+    concatenating the URL and label into one broken string that 404s.
+    Measured, not assumed. Tools writing straight to a TTY are
+    unaffected and *should* emit OSC 8 — that is what `hee-link` is for.
+  - The **linked short label** renders correctly in both surfaces.
+    Operator's verdict: "looks good in both… browser -> perfect." It is
+    not click-through in a terminal — a renderer limitation nothing in
+    this repo can fix — but it is the best form that exists today.
+- **Exceptions, because the renderer differs**:
+  - **Repo `.md` files**: bare full URL. Nothing autolinks inside repo
+    files, so a short label has nothing to fall back on.
+  - **Structured work files** (contracts, blueprints, doctrine YAML):
+    the compact `issue:`/`pr:` notation from §13 — machine-parsed, no
+    renderer involved.
 - Markdown links remain correct for prose linking *words* to a
   destination (`see the [workflow guide](url)`), where the link text is
   not itself the reference. This rule is about issue/PR references.

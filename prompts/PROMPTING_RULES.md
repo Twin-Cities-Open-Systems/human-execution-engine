@@ -39,18 +39,31 @@ loaded, read this file directly rather than assume it did.
    the resulting silence as a real negative result — check *why* a
    command produced no output before reporting what that silence means
    — HEE Policy §6.
-3. **Reference issues and PRs by full URL** —
-   `https://github.com/<owner>/<repo>/(issues|pull)/<n>`. It is the only
-   form that is clickable in a terminal *and* autolinks in the GitHub
-   UI, and GitHub shortens it on display by itself — to `owner/repo#N`
-   cross-repo, or `#N` same-repo. So you write one thing everywhere and
-   still read the short form. Never write bare `#N` or owner-less
-   `repo#N`: `repo#N` resolves **nowhere** (verified against GitHub's
-   renderer, 2026-08-31), and `#N` is dead text in repo files, wikis and
-   issue/PR titles. Structured work files (contracts/blueprints/doctrine
-   YAML) use the compact `issue:N@repo`/`pr:N@repo` notation instead —
-   §13. This single rule replaces three mutually incompatible formats
-   that were live simultaneously in governance and agent memory.
+3. **Reference issues and PRs as a short label linked to the full URL**:
+   `[repo#N](https://github.com/<owner>/<repo>/(issues|pull)/<n>)`. Short
+   to read, and the URL travels with it. **Measured, not inferred** --
+   operator probe 2026-08-31, four candidate forms tested live in both a
+   terminal and a browser:
+   - `repo#N` alone and `owner/repo#N` alone link **nowhere** outside a
+     GitHub conversation. The owner-less form resolves nowhere at all,
+     even inside GitHub (verified against GitHub's own renderer).
+   - A bare full URL works everywhere but is **too long to read** in
+     chat -- the operator's own verdict on seeing it.
+   - **OSC 8 terminal hyperlinks are impossible from an agent's chat
+     output.** The ESC bytes are stripped in transit, silently
+     concatenating URL and label into one broken string that 404s.
+     Do not attempt it. Tools writing straight to a TTY are unaffected
+     and *should* emit OSC 8.
+   - The linked short label renders correctly in both surfaces. It is
+     not click-through in the terminal -- a renderer limitation nothing
+     in this repo can fix -- but it is the best form that exists today.
+   Exceptions, because the renderer differs:
+   - **Repo `.md` files**: bare full URL. Nothing autolinks in files, so
+     a short label has nothing to fall back on.
+   - **Structured work files** (contracts/blueprints/doctrine YAML):
+     `issue:N@repo` / `pr:N@repo` -- §13. Machine-parsed, no renderer.
+   Rewritten twice in one day from inference before being settled by
+   measurement. Do not relitigate without new measurements.
 4. **Self-assign what you create, label from the existing set, never
    invent a new label** — **HEE Policy §10/§12.** **Merge authority,
    relaxed 2026-08-31**: a PR merges when its checks pass and its
@@ -137,12 +150,10 @@ loaded, read this file directly rather than assume it did.
 14. **Default to Status Block for any multi-item progress/status report**:
     short bulleted lines, each prefixed with an icon+label status marker
     (✅/⏳/❌ or equivalent -- never a bare color, consistent with rule
-    11's dataviz-skill requirement), a **full URL** for every issue/PR
-    reference per rule 3 -- **never a markdown link in terminal output**,
-    which renders as text with the URL unreachable, the exact failure
-    rule 3 exists to prevent (real trigger 2026-08-31: this rule and rule
-    3 disagreed for one commit, and the stale half won) --
-    no narrative padding around the list -- see the
+    11's dataviz-skill requirement), a short linked label for every
+    issue/PR reference per rule 3 -- `[repo#N](full-url)`, never bare
+    shorthand and never a naked URL -- no narrative padding around the
+    list -- see the
     `Status Block` glossary term (`.github/profile/GLOSSARY.md`) for the
     real precedent this codifies. General chat-output convention, not
     scoped to this repo.
