@@ -38,12 +38,17 @@
 #   froze the icons until it was decoupled 2026-08-31.)
 
 hee_status__level() {
-  # normalise: accept lowercase, and the legacy colour words
+  # Normalise: accept lowercase, the legacy vocabularies already in use
+  # across the tree (PASS/FAIL/SUCCESS), and the legacy colour words.
+  # Colour words are accepted for migration only -- never name a hue in
+  # new code, name a severity. This alias table MUST stay in lockstep
+  # with library/py/hee_status/__init__.py's _ALIASES; a parity test
+  # caught them diverging on PASS/FAIL the first time round.
   case "$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')" in
-    OK|GREEN)              printf 'OK' ;;
-    WARN|WARNING|YELLOW)   printf 'WARNING' ;;
-    CRIT|CRITICAL|ERROR|RED) printf 'CRITICAL' ;;
-    *)                     printf 'UNKNOWN' ;;
+    OK|PASS|SUCCESS|GREEN)              printf 'OK' ;;
+    WARN|WARNING|YELLOW)                printf 'WARNING' ;;
+    CRIT|CRITICAL|ERROR|FAIL|FAILED|RED) printf 'CRITICAL' ;;
+    *)                                  printf 'UNKNOWN' ;;
   esac
 }
 
