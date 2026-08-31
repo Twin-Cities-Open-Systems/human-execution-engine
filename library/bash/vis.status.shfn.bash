@@ -98,3 +98,44 @@ hee_status_demo() {
   hee_status UNKNOWN  "could not determine state"
   printf '\nOther styles: icon | ascii | plain  (set HEE_STATUS_STYLE in your heerc)\n'
 }
+
+# ---------------------------------------------------------------------------
+# hee_link <url> [text]  -- a short, clickable terminal hyperlink (OSC 8)
+#
+# Prints `text` (default: the url) as a hyperlink the terminal can open, so
+# terminal output gets the short label AND the working link, instead of
+# choosing between them.
+#
+# Confirmed working 2026-08-31 on kiosk (foot + tmux 3.4) after tmux was
+# told the outer terminal supports hyperlinks -- until then tmux silently
+# stripped every OSC 8 sequence. See ~/git/dotfiles/.tmux.conf.
+#
+# IMPORTANT -- this is for TOOLS writing to a TTY. An agent's chat output
+# cannot use it: the ESC bytes are stripped in transit, which silently
+# concatenates url and label into one broken string that 404s. Measured,
+# not assumed. Agent chat uses [text](url) markdown instead.
+#
+# Degrades safely: when stdout is not a TTY (a pipe, a log, a CI run) it
+# prints "text <url>" as plain text, so nothing is lost to a file.
+hee_link() {
+  _url="${1:-}"
+  shift 2>/dev/null || true
+  _txt="$*"
+  [ -n "$_txt" ] || _txt="$_url"
+  [ -n "$_url" ] || { printf '%s' "$_txt"; return 0; }
+
+  case "${HEE_LINK_STYLE:-auto}" in
+    plain) printf '%s <%s>' "$_txt" "$_url"; return 0 ;;
+    osc8)  ;;
+    *)     if [ ! -t 1 ]; then printf '%s <%s>' "$_txt" "$_url"; return 0; fi ;;
+  esac
+  printf ']8;;%s\%s]8;;\' "$_url" "$_txt"
+}
+
+# hee_link_issue <owner/repo> <number> [issues|pull]
+# Renders the org's canonical short form, linked: repo#N -> the real URL.
+hee_link_issue() {
+  _repo="${1:-}"; _num="${2:-}"; _kind="${3:-issues}"
+  [ -n "$_repo" ] && [ -n "$_num" ] || return 2
+  hee_link "https://github.com/${_repo}/${_kind}/${_num}" "${_repo##*/}#${_num}"
+}
