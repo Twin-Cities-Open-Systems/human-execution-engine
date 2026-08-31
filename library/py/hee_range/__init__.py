@@ -26,21 +26,44 @@ def is_id_range_spec(spec: str) -> bool:
     return bool(_ID_RANGE_RE.fullmatch(spec))
 
 
-def parse_id_range(spec: str) -> set:
-    """Expand an id/range SPEC (already confirmed via is_id_range_spec)
-    into the set of requested id strings, e.g. '1-3,7' -> {'1','2','3','7'}.
-    Not zero-padded -- callers normalize to their own id format."""
-    wanted = set()
+def parse_id_range_ordered(spec: str) -> list:
+    """Expand an id/range SPEC into the requested ids IN THE ORDER WRITTEN,
+    e.g. '475,470,473' -> ['475', '470', '473'].
+
+    Operator, 2026-08-31: "we have a range selector for prs, it should be a
+    set (order mandated from entry as arg)". The order is the point: merging
+    is order-sensitive, and `-r '475,470,473'` means 475 has to land first
+    because the others depend on it. Sorting that back into 470,473,475
+    silently does the opposite of what was asked.
+
+    A hyphen range expands ascending in place, since '10-12' has no other
+    sensible reading. Duplicates collapse to their FIRST mention, so
+    '3,1,3' is ['3','1'] -- an id cannot be in two places at once.
+    """
+    out = []
+    seen = set()
+
+    def add(v):
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+
     for part in spec.split(","):
         part = part.strip()
         if not part:
             continue
         if "-" in part:
             lo, hi = part.split("-", 1)
-            wanted.update(str(n) for n in range(int(lo), int(hi) + 1))
+            for n in range(int(lo), int(hi) + 1):
+                add(str(n))
         else:
-            wanted.add(part)
-    return wanted
+            add(part)
+    return out
+
+
+def parse_id_range(spec: str) -> set:
+    """Set form, kept for callers that genuinely do not care about order."""
+    return set(parse_id_range_ordered(spec))
 
 
 def resolve_spec(spec, items, get_id, get_haystack):
@@ -54,11 +77,17 @@ def resolve_spec(spec, items, get_id, get_haystack):
     get_id(item) -> str, get_haystack(item) -> str (may return None,
     treated as "").
 
-    Returns the matching subset of ITEMS, in ITEMS' original order.
+    An id/range SPEC returns matches in SPEC order (it is an ordered set).
+    A regex SPEC returns them in ITEMS order, since a pattern expresses no
+    ordering of its own.
     """
     if is_id_range_spec(spec):
-        wanted_norm = {w.lstrip("0") or "0" for w in parse_id_range(spec)}
-        return [it for it in items if (get_id(it).lstrip("0") or "0") in wanted_norm]
+        # Returned in SPEC order, not ITEMS order -- an explicit id list is an
+        # ordered set, and the caller wrote that order deliberately.
+        wanted = [w.lstrip("0") or "0" for w in parse_id_range_ordered(spec)]
+        rank = {w: i for i, w in enumerate(wanted)}
+        matched = [it for it in items if (get_id(it).lstrip("0") or "0") in rank]
+        return sorted(matched, key=lambda it: rank[get_id(it).lstrip("0") or "0"])
 
     pattern = re.compile(spec, re.IGNORECASE)
     return [it for it in items if pattern.search(get_haystack(it) or "")]
