@@ -1180,7 +1180,7 @@ assuming which key someone "really" uses.
   and authority levels; §5 above only covers what that file doesn't.
 - [State Capsule Guide](../STATE_CAPSULE_GUIDE.md) (path corrected
   2026-08-27 -- was missing the `../`, pointing at a nonexistent
-  `docs/doctrine/STATE_CAPSULE_GUIDE.md`)
+  `docs/STATE_CAPSULE_GUIDE.md`)
 - [Troubleshooting Guide](../TROUBLESHOOTING.md) (same correction)
 
 ---

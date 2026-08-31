@@ -4,7 +4,7 @@
 
 This is a **teaching document**, not a formal one. Everything in it is a
 real, honest simplification of something more precisely stated elsewhere
-(mostly `docs/doctrine/HEE.md` and `docs/doctrine/DECISION_FRAMEWORK.md`).
+(mostly `docs/HEE.md` and `docs/doctrine/DECISION_FRAMEWORK.md`).
 Its job is to make a newcomer *get it* fast — over coffee, in a hallway,
 to a new human OPER on day one — not to survive a formal-logic audit.
 
@@ -86,7 +86,7 @@ is a better answer than "because the rules say so."
 
 ## See also
 
-- `docs/doctrine/HEE.md` -- the real, formal definition this simplifies
+- `docs/HEE.md` -- the real, formal definition this simplifies
 - `docs/doctrine/DECISION_FRAMEWORK.md` -- the real decision logic these
   illustrations point back to
 - `fleet-ops#16` -- the real propose/prove/ratify precedent behind the

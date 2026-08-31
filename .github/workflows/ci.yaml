@@ -108,7 +108,7 @@ jobs:
         echo "🔍 Validating documentation structure...TODO(spencer) convert to script"
 
         # Check for required documentation files
-        required_docs=("docs/HEE.md" "docs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md")
+        required_docs=("docs/HEE.md" "docs/specs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md")
 
         for doc in "${required_docs[@]}"; do
           if [ -f "$doc" ]; then

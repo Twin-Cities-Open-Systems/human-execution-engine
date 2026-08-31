@@ -42,4 +42,4 @@ The `$schema` field is **optional and informational only**:
 
 The `schemas/hee/v1/` directory is the authoritative Layer-1 location for all HEE specifications. All other schema layers derive from this source.
 
-- hee/v1/evidence-pointer.schema.json — validates evidence pointer strings (raw GitHub URL form).
+- schemas/hee/v1/evidence-pointer.schema.json — validates evidence pointer strings (raw GitHub URL form).

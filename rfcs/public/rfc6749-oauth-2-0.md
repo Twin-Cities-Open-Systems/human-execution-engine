@@ -1,4 +1,4 @@
-# rfcs/rfc6749-oauth-2-0.md
+# rfcs/public/rfc6749-oauth-2-0.md
 
 Internet Engineering Task Force (IETF)                     D. Hardt, Ed.
 Request for Comments: 6749                                     Microsoft

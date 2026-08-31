@@ -14,7 +14,7 @@ Behavior (vendored mode):
   - prompts/hee/docs/  <- HEE docs/specs
   - docs/hee/          <- pointers + VERSION only (imperative-free)
   - docs/HEE_POLICY.md <- pointer doc (imperative-free)
-  - installs scripts/hee-check.sh (consumer-side check)
+  - installs tooling/templates/scripts/hee-check.sh (consumer-side check)
   - derives .cursor/prompts directly (no consumer repo script required)
 
 Notes:
