@@ -13,61 +13,143 @@
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
+# Where the TOOL lives -- used only to find its own library. Never the
+# default target: the tool must check wherever it is invoked, not the repo
+# it happens to be installed in.
+TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
 # shellcheck source=/dev/null
-if [ -r "$REPO_ROOT/library/bash/vis.status.shfn.bash" ]; then
-  . "$REPO_ROOT/library/bash/vis.status.shfn.bash"
+if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
+  . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
 else
   hee_status() { shift; printf '%s\n' "$*"; }
   hee_status_code() { return 3; }
 fi
 
 usage() {
-  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
-  exit 2
+  cat <<'EOF'
+hee-check -- repo boundary and integrity checks
+
+SYNOPSIS
+  hee-check [boundary] [PATH]
+  hee-check refs [--fix] [PATH]
+  hee-check all [PATH]
+  hee-check --help
+
+DESCRIPTION
+  Checks a repository for integrity problems. PATH defaults to the current
+  directory, so the tool always checks where it is invoked, never the repo
+  it happens to be installed in.
+
+  If PATH is a directory containing repositories rather than a repository
+  itself (for example ~/git), every repository directly inside it is
+  checked and the results are totalled. Recursion is one level deep by
+  design -- descending further would crawl vendored checkouts and
+  worktrees.
+
+SUBCOMMANDS
+  boundary   Editor/tool-generated state must not be committed to git --
+             committing it puts machine output in the history. A derived
+             directory present on disk but untracked is fine and is never
+             reported: which editor an operator uses is their own business.
+             Checked directories default to .cursor and are configurable
+             via HEE_DERIVED_DIRS. Default subcommand when none is given.
+
+  refs       Every file reference written in a doc must point at a file
+             that exists. Reads .md, .yaml, .yml and .json, and inspects
+             backticked and quoted paths -- not only markdown links.
+             docs/history/** and hee/evidence/** are excluded: those are
+             point-in-time snapshots, so a reference to a since-deleted
+             file is correct history rather than rot.
+
+  all        Run both.
+
+OPTIONS
+  --fix      refs only. Repairs a broken reference when exactly one real
+             file has that basename. Ambiguous references are left alone
+             for a human to decide, never guessed.
+
+EXIT STATUS
+  Nagios plugin convention.
+  0  OK        no problems found
+  1  WARNING   reserved
+  2  CRITICAL  problems found
+  3  UNKNOWN   could not determine (missing python3, unreadable path)
+
+ENVIRONMENT
+  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+  HEE_DERIVED_DIRS   space-separated directories treated as generated
+                     editor/tool state. Default: .cursor
+
+EXAMPLES
+  hee-check                     boundary check of the current repo
+  hee-check refs                every reference in the current repo
+  hee-check refs ~/git          every repo under ~/git
+  hee-check refs --fix          repair unambiguous references
+  hee-check all ~/git/fleet-ops both checks on one repo
+
+SEE ALSO
+  hee-lint, hee-index, hee-print
+EOF
+}
+
+# Directories holding editor/tool-generated state. Committing these puts
+# machine output in the history and leaks one operator's local tooling
+# choices into a shared repo. Which editor any operator uses is their own
+# business -- this list is about generated state, not about editors.
+# Extend via HEE_DERIVED_DIRS (space-separated) rather than editing here.
+DERIVED_DIRS="${HEE_DERIVED_DIRS:-.cursor}"
+
+# A target that does not exist, is not a directory, or is unreadable is
+# UNKNOWN (exit 3) -- never OK. Issue 440: hee-check printed "OK" for a
+# directory it never searched, because `find` failed inside an `if`, so
+# `set -e` never tripped and grep reported "no match". Silence is not a
+# negative result -- PROMPTING_RULES rule 2.
+validate_target() {
+  t="${1:-}"
+  if [ -z "$t" ]; then hee_status UNKNOWN "no target given"; return 3; fi
+  if [ ! -e "$t" ]; then hee_status UNKNOWN "target does not exist: $t"; return 3; fi
+  if [ ! -d "$t" ]; then hee_status UNKNOWN "target is not a directory: $t"; return 3; fi
+  if [ ! -r "$t" ]; then hee_status UNKNOWN "target is not readable: $t"; return 3; fi
+  return 0
 }
 
 check_boundary() {
   root="${1:-.}"
+  validate_target "$root" || return 3
   rc=0
-  # Derived editor state (.cursor/) must not be COMMITTED -- it is generated,
-  # not authored, so tracking it puts machine output in the history.
-  #
-  # It existing on disk is fine and is nobody's business but the operator's.
+  # The rule is "not COMMITTED", never "not present". A derived directory
+  # existing on disk is the operator's own business and is not reported.
   # The previous version tested `-d`, so it failed CRITICAL on an untracked
   # local directory that harms nothing. Corrected 2026-08-31, operator:
-  # "they are not forbidden". The check now tests what the rule actually
-  # cares about -- whether git tracks it.
-  tracked="$(git -C "$root" ls-files -- '*.cursor/*' '.cursor/*' 2>/dev/null | head -20)"
-  if [ -n "$tracked" ]; then
-    printf '%s\n' "$tracked" | while IFS= read -r f; do
-      hee_status CRITICAL "derived editor state committed to git: $f"
-    done
-    rc=2
-  fi
-  if [ "$rc" -eq 0 ]; then
-    if [ -d "$root/.cursor" ]; then
-      hee_status OK "boundary checks passed for $root (local .cursor/ present, untracked -- fine)"
-    else
-      hee_status OK "boundary checks passed for $root"
+  # "they are not forbidden".
+  for d in $DERIVED_DIRS; do
+    tracked="$(git -C "$root" ls-files -- "$d/*" "*/$d/*" 2>/dev/null | head -20)"
+    if [ -n "$tracked" ]; then
+      printf '%s\n' "$tracked" | while IFS= read -r f; do
+        hee_status CRITICAL "derived state committed to git: $f"
+      done
+      rc=2
     fi
-  fi
+  done
+  [ "$rc" -eq 0 ] && hee_status OK "no derived state committed in $root ($DERIVED_DIRS)"
   return "$rc"
 }
 
 check_refs() {
   fix=0
   if [ "${1:-}" = "--fix" ]; then fix=1; shift; fi
-  root="${1:-$REPO_ROOT}"
+  root="${1:-.}"
+  validate_target "$root" || return 3
   command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable -- cannot check refs"; return 3; }
-  HEE_REFS_FIX="$fix" PYTHONPATH="$REPO_ROOT/library/py:${PYTHONPATH:-}" python3 - "$root" <<'PY'
+  HEE_REFS_FIX="$fix" PYTHONPATH="$TOOL_ROOT/library/py:${PYTHONPATH:-}" python3 - "$root" <<'PY'
 import os, sys
 sys.path.insert(0, os.path.join(os.environ.get("PYTHONPATH","").split(":")[0]))
-from hee_refs import scan
+from hee_refs import scan, repair, discover_repos, repo_root
 
-root = sys.argv[1]
-checked, broken = scan(root)
+target = sys.argv[1]
+repos = discover_repos(target) or [repo_root(target)]
+repos = [r for r in repos if os.path.isdir(r)]
 style = os.environ.get("HEE_STATUS_STYLE", "icon")
 ICON = {"OK": "✅", "WARNING": "⚠️", "CRITICAL": "❌", "UNKNOWN": "❓"}
 def line(level, msg):
@@ -77,47 +159,48 @@ def line(level, msg):
     else: print(f"{ICON[level]} {level} {msg}")
 
 fix = os.environ.get("HEE_REFS_FIX") == "1"
-fixed = 0
-if fix:
-    # Only touch references with exactly one real candidate. An ambiguous
-    # or unknown reference is a human decision, never a guess.
-    by_src = {}
-    for b in broken:
-        if b.suggestion:
-            by_src.setdefault(b.source, []).append(b)
-    for src, items in by_src.items():
-        path = os.path.join(root, src)
-        text = open(path, errors="ignore").read()
-        for b in items:
-            if b.ref in text:
-                text = text.replace(b.ref, b.suggestion)
-                fixed += 1
-                line("OK", f"fixed {src}:{b.line}  {b.ref} -> {b.suggestion}")
-        open(path, "w").write(text)
+total_checked = total_broken = total_fixed = 0
+for root in repos:
     checked, broken = scan(root)
+    fixed = 0
+    if fix:
+        changed = repair(root, broken)
+        for src, old, new in changed:
+            line("OK", f"{os.path.basename(root)}: fixed {src}  {old} -> {new}")
+        fixed = len(changed)
+        checked, broken = scan(root)
 
-for b in broken:
-    hint = f"  (did you mean {b.suggestion}?)" if b.suggestion else ""
-    line("CRITICAL", f"{b.source}:{b.line} -> {b.ref}{hint}")
+    label = os.path.basename(root)
+    for b in broken:
+        hint = f"  (did you mean {b.suggestion}?)" if b.suggestion else ""
+        line("CRITICAL", f"{label}/{b.source}:{b.line} -> {b.ref}{hint}")
+    if not broken and checked:
+        line("OK", f"{label}: all {checked} file references resolve")
+    elif not checked:
+        line("OK", f"{label}: no doc file references found")
+    total_checked += checked; total_broken += len(broken); total_fixed += fixed
 
-if fixed:
-    line("OK", f"repaired {fixed} reference(s)")
-if broken:
-    line("CRITICAL", f"{len(broken)} broken reference(s) remain of {checked} checked")
-    sys.exit(2)
-line("OK", f"all {checked} file references resolve")
+if not repos:
+    line("UNKNOWN", f"no git repository found at or under {target}")
+    sys.exit(3)
+
+if len(repos) > 1:
+    line("OK" if not total_broken else "CRITICAL",
+         f"{len(repos)} repos: {total_broken} broken of {total_checked} checked"
+         + (f", {total_fixed} repaired" if total_fixed else ""))
+sys.exit(2 if total_broken else 0)
 PY
 }
 
 cmd="${1:-boundary}"
 case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
-  refs)     shift 2>/dev/null || true; check_refs "${1:-$REPO_ROOT}" ;;
+  refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
   all)      shift 2>/dev/null || true
             check_boundary "${1:-.}"; a=$?
-            check_refs "${1:-$REPO_ROOT}"; b=$?
+            check_refs "${1:-.}"; b=$?
             [ "$a" -gt "$b" ] && exit "$a" || exit "$b" ;;
-  -h|--help|help) usage ;;
+  -h|--help|help) usage; exit 0 ;;
   /*|.*|*/*) check_boundary "$cmd" ;;   # back-compat: bare ROOT argument
-  *) hee_status UNKNOWN "unknown subcommand: $cmd"; usage ;;
+  *) hee_status UNKNOWN "unknown subcommand: $cmd" >&2; usage >&2; exit 2 ;;
 esac

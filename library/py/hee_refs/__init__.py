@@ -157,3 +157,34 @@ def repair(root: str = ".", broken: list[Broken] | None = None) -> list[tuple[st
                 raise RuntimeError(f"repair would corrupt {src}: doubled path segment")
             open(path, "w").write(text)
     return changed
+
+
+def discover_repos(path: str) -> list[str]:
+    """Return every git repo to check under `path`.
+
+    - `path` is itself a git repo  -> [that repo]
+    - `path` is a directory of repos (e.g. ~/git) -> each child repo
+    - neither -> []
+
+    Deliberately only one level deep. Recursing arbitrarily would descend
+    into vendored checkouts, worktrees and node_modules, and turn a quick
+    check into a filesystem crawl.
+    """
+    path = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isdir(path):
+        return []
+    if os.path.exists(os.path.join(path, ".git")):
+        return [path]
+    out = []
+    for name in sorted(os.listdir(path)):
+        child = os.path.join(path, name)
+        if os.path.isdir(child) and os.path.exists(os.path.join(child, ".git")):
+            out.append(child)
+    return out
+
+
+def repo_root(start: str = ".") -> str:
+    """The git top-level containing `start`, or `start` itself if not in a repo."""
+    r = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else os.path.abspath(start)
