@@ -97,7 +97,7 @@ from pathlib import Path
 # own location, not cwd (this tool operates org-wide, not against a
 # single target repo).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
-from hee_range import resolve_spec  # noqa: E402
+from hee_range import is_id_range_spec, resolve_spec  # noqa: E402
 
 # Real disk cache for fetch_pr_detail -- one GraphQL `gh pr view` call
 # per candidate is the actual GraphQL cost driver here (confirmed via
@@ -448,15 +448,28 @@ def compute_deps(candidates):
     return deps
 
 
-def order_candidates(candidates):
+def order_candidates(candidates, keep_input_order=False):
     """Real topological sort: explicit body-text deps first, then the
-    same-repo content heuristic, (repo, number) ascending as the stable
-    fallback wherever no real edge exists. Returns (ordered, deps)."""
+    same-repo content heuristic, and a stable fallback wherever no real edge
+    exists. Returns (ordered, deps).
+
+    KEEP_INPUT_ORDER preserves the caller's sequence as that fallback instead
+    of (repo, number) ascending. Set when -r named ids explicitly: operator,
+    2026-08-31, "we have a range selector for prs, it should be a set (order
+    mandated from entry as arg)". Merging is order-sensitive -- `-r
+    '475,470,473'` means 475 lands first because the others need it -- and
+    re-sorting to 470,473,475 does the opposite of what was asked.
+
+    Real dependency edges still win over the requested order; a stated
+    dependency is a fact, a requested order is a preference. When they
+    disagree the caller is told rather than quietly overridden.
+    """
     deps = compute_deps(candidates)
 
     ordered = []
     placed = set()
-    remaining = sorted(candidates, key=lambda p: (p["_repo_full"], p["number"]))
+    remaining = (list(candidates) if keep_input_order
+                 else sorted(candidates, key=lambda p: (p["_repo_full"], p["number"])))
     while remaining:
         progressed = False
         still = []
@@ -893,6 +906,8 @@ def main():
     print(f"hee-git-merge: searching {args.org} for open PRs from {args.author}...")
     prs = fetch_prs(args.org, author)
     candidates = filter_prs(prs, args.regex)
+    # An explicit id list is an ordered set; a regex expresses no order.
+    explicit_order = bool(args.regex) and is_id_range_spec(args.regex)
 
     if not candidates:
         print(f"No open PRs from {args.author} in {args.org}"
@@ -927,7 +942,19 @@ def main():
               f"{PR_CACHE_TTL}s disk cache ({n_cache_hits} were already warm).")
         return
 
-    candidates, deps = order_candidates(candidates)
+    _requested = [(p["_repo_full"], p["number"]) for p in candidates]
+    candidates, deps = order_candidates(candidates, keep_input_order=explicit_order)
+    if explicit_order:
+        _final = [(p["_repo_full"], p["number"]) for p in candidates]
+        if _final != _requested:
+            # A real dependency edge outranked the requested order. Say so --
+            # silently reordering an explicitly ordered set is exactly the
+            # behavior this flag exists to stop.
+            print("hee-git-merge: NOTE -- a stated dependency reordered your "
+                  "list; requested "
+                  + ", ".join(f"#{n}" for _, n in _requested)
+                  + " -> merging "
+                  + ", ".join(f"#{n}" for _, n in _final))
 
     ready = [pr for pr in candidates
              if pr.get("reviewDecision") == "APPROVED" and pr.get("mergeable") == "MERGEABLE"]
