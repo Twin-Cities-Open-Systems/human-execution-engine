@@ -80,6 +80,14 @@ printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
 AUTHORED_DIR="man"
 authored_kept=""
 
+# Structured rendering lives in library/py -- turning help text into man
+# sections is real parsing, so it graduates out of sh per rule 13. Missing
+# library falls back to the old dump rather than failing the run.
+HEE_MANPAGE_PY=""
+if [ -f "library/py/hee_manpage/__init__.py" ] && command -v python3 >/dev/null 2>&1; then
+  HEE_MANPAGE_PY=1
+fi
+
 # A page is generated if pandoc stamped it, authored otherwise.
 _is_authored() {
   [ -f "$1" ] || return 1
@@ -164,6 +172,10 @@ for f in "$BIN_DIR"/*; do
   if [ -n "$_authored" ]; then
     echo "authored (kept, not regenerated): $_authored"
     authored_kept="$authored_kept $name"
+    # Remove a stale generated sibling. Leaving it means two pages for one
+    # tool, and whichever the installer or publisher happens to reach first
+    # wins -- which is exactly how man/hee.1 and man/tools/hee.1 diverged.
+    [ -e "$out" ] && { rm -f "$out" "$OUT_DIR/$name.1"; echo "  removed stale generated: $out"; }
     continue
   fi
   help_text=""
@@ -172,13 +184,43 @@ for f in "$BIN_DIR"/*; do
     help_text="$(timeout -s KILL 5 "$f" -h </dev/null 2>&1)" && ok=1 || ok=0
   fi
   if [ "$ok" -eq 1 ] && [ -n "$help_text" ]; then
-    {
-      echo "# $name(1)"
-      echo
-      echo '```'
-      printf '%s\n' "$help_text"
-      echo '```'
-    } > "$out"
+      # Structured man markdown, not a fenced transcript. The old form gave
+      # pandoc no title, so every page rendered "()" as its header and footer
+      # instead of "HEE-VER(1)  HEE Tools  HEE-VER(1)", with no NAME,
+      # SYNOPSIS or DESCRIPTION at all. Operator: "all pro style man for all
+      # our shit."
+      _rendered=0
+      if [ -n "$HEE_MANPAGE_PY" ]; then
+        if printf '%s\n' "$help_text" | PYTHONPATH="$PWD/library/py" python3 -c \
+             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read()))' \
+             "$name" > "$out" 2>/dev/null && [ -s "$out" ]; then
+          _rendered=1
+        fi
+      fi
+      if [ "$_rendered" -eq 0 ]; then
+        # Same structured rendering as the --help path. Without this the
+        # 15 tools whose --help genuinely fails (hee-cache-prune errors with
+        # "find: invalid argument") kept the old shape and still rendered
+        # "()" as their header.
+        _rendered=0
+        if [ -n "$HEE_MANPAGE_PY" ]; then
+          if printf '%s\n' "$header" | PYTHONPATH="$PWD/library/py" python3 -c \
+               'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read()))' \
+               "$name" > "$out" 2>/dev/null && [ -s "$out" ]; then
+            _rendered=1
+            printf '\n*(no --help output -- generated from the script header comment)*\n' >> "$out"
+          fi
+        fi
+        if [ "$_rendered" -eq 0 ]; then
+          {
+            echo "# $name(1)"
+            echo
+            echo "$header"
+            echo
+            echo "*(no --help/-h output -- generated from the script's own header comment)*"
+          } > "$out"
+        fi
+      fi
     echo "generated (from --help): $out"
   else
     # No working --help -- fall back to the tool's own leading '#'
@@ -286,7 +328,7 @@ if command -v pandoc >/dev/null 2>&1; then
   for f in "$OUT_DIR"/*.1.md; do
     n="$(basename "$f" .1.md)"
     [ "$n" = "README" ] && continue
-    pandoc -s -t man "$f" -o "$OUT_DIR/$n.1" 2>/dev/null && \
+    pandoc -s -f markdown-smart -t man "$f" -o "$OUT_DIR/$n.1" 2>/dev/null && \
       echo "converted (real roff): $OUT_DIR/$n.1" || \
       echo "SKIPPED roff conversion (pandoc error): $n" >&2
   done
