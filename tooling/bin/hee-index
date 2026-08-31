@@ -59,6 +59,22 @@ mkdir -p "$(dirname "$OUT")"
   # 2026-08-31 so presentation can evolve independently. The emoji prefix
   # is still tolerated on input for backward compatibility with older
   # hee-lint output; it is simply not what determines status.
+  # LC_ALL=C on the sort below is REQUIRED, not tidiness. Without it this
+  # script emits a different INDEX.md on different machines, and the CI
+  # freshness check can never pass -- it failed every PR while reporting
+  # "stale", when the content was identical and only the GROUP ORDER moved.
+  #
+  # Measured 2026-08-31. The sort key is "kind<TAB>status<TAB>path", and
+  # en_US.UTF-8 collation IGNORES PUNCTUATION, so it compares
+  # "BlueprintDoctrine..." against "Blueprint<TAB>ERROR..." as D vs E and puts
+  # BlueprintDoctrine first. Under C the tab (0x09) sorts before any letter,
+  # so Blueprint comes first. Same input, two different files:
+  #
+  #   LC_ALL=C           983a47c2923b0f0d271c7b4a1664f6df
+  #   LC_ALL=en_US.UTF-8 269550f0640041d820609b89f36b24d4
+  #
+  # A generated file that is diffed against a committed copy must be byte
+  # reproducible on any machine, so the collation has to be pinned.
   echo "$LINT_OUT" | grep -E "# (OK|ERROR|WARN): " | while IFS= read -r line; do
     path="${line##*: }"
     [ -f "$path" ] || continue
@@ -70,7 +86,7 @@ mkdir -p "$(dirname "$OUT")"
       *"# WARN: "*)  status="WARN"  ;;
     esac
     printf '%s\t%s\t%s\n' "$kind" "$status" "$path"
-  done | sort | awk -F'\t' '
+  done | LC_ALL=C sort | awk -F'\t' '
     BEGIN {
       icon["Blueprint"] = "\xF0\x9F\x93\x90"
       icon["BlueprintDoctrine"] = "\xF0\x9F\x93\x98"
