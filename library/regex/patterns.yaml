@@ -16,34 +16,36 @@ metadata:
 
 spec:
   # ---------------------------------------------------------------------
-  # THE CONSTRAINT THAT SHAPES EVERYTHING HERE
+  # THERE IS NO ONE REGEX TO RULE THEM ALL.
   #
-  # Engines do not agree, and the disagreement is silent:
+  # Operator, 2026-08-31: "we use what each lang supports, to it's fullest.
+  # that may be a trigger to write the tool in the next up lang if regex is
+  # a bottle neck".
   #
-  #   PCRE / python   lookaround, \d, \w, non-capturing groups
-  #   POSIX ERE       none of the above. No lookaround at all.
-  #   bash =~         POSIX ERE
-  #   awk             POSIX ERE
-  #   go RE2          NO lookaround, NO backreferences, by design
+  # So this registry is NOT a lowest-common-denominator dialect. Each
+  # pattern is written for the engine that will actually run it, using that
+  # engine fully. What it must do is SAY WHICH ENGINE -- an undeclared lane
+  # is how a PCRE pattern ends up in an sh script and fails silently.
   #
-  # Measured 2026-08-31: the version pattern in hee_toolver was written
-  # with lookbehind and lookahead. It compiled in python and FAILED in
-  # grep -E and bash =~, and RE2 forbids both constructs outright. It had
-  # been "working" only because it was used from python and nowhere else.
+  # Engines differ, and differ quietly:
   #
-  # So the default dialect here is the intersection: RE2-safe POSIX ERE.
-  #   * no lookaround -- use a boundary group and capture the payload
-  #   * no \d \w \s   -- use [0-9] [A-Za-z0-9_] [[:space:]]
-  #   * no (?: )      -- plain groups, and name the capture index
+  #   python re, perl   lookaround, backrefs, \d \w \s
+  #   POSIX ERE         none of those. grep -E, sed -E, awk, bash =~
+  #   rust regex (rg)   linear-time, NO lookaround, NO backrefs
+  #   go RE2            same constraints as rg, by design
+  #   POSIX sh          no regex operator AT ALL -- shells out to the above
   #
-  # A pattern that genuinely cannot be expressed that way declares an
-  # `overrides` block per engine AND says why. That is the exception, and
-  # it must be justified, not merely convenient.
+  # WHEN REGEX IS THE BOTTLENECK, MOVE THE TOOL UP THE LADDER.
+  # PROMPTING_RULES rule 13 has tools start at the least capable language
+  # that does the job. If a tool written in sh needs a pattern sh's engines
+  # cannot express, the answer is not to mangle the pattern into POSIX ERE
+  # and lose precision -- it is that the tool has outgrown sh. Graduate it
+  # to python and use `re` properly. A contorted portable pattern is a
+  # symptom; the language choice is the actual decision.
   #
-  # `tests` are not documentation. The validator (hee-check regex) runs
-  # every pattern against every engine present on the box and fails if any
-  # engine disagrees with any other. Adding a pattern without tests is how
-  # this registry silently rots.
+  # `tests` are not documentation. `hee-check regex` runs every pattern
+  # against every engine IN ITS OWN LANE and fails if any disagree. Adding
+  # a pattern without tests is how this registry silently rots.
   # ---------------------------------------------------------------------
 
   # LANES -- a pattern declares where it must work, and is only tested there.
@@ -55,10 +57,13 @@ spec:
   # PCRE pattern ends up in an sh script and fails silently.
   #
   #   portable  every engine here: python, grep -E, bash, awk, sed -E, rg, perl
-  #             the default, and required for anything a shell tool calls
+  #             required when a shell tool will call it. Precision is capped
+  #             by the weakest engine -- if that costs too much, that is the
+  #             ladder-graduation signal, not something to work around.
   #   pcre      python, perl, grep -P only. Lookaround and backrefs allowed.
   #             MUST NOT be used from sh, awk, sed, rg or Go.
-  #   python    python only -- internal to a python library
+  #   python    python only -- internal to a python library. Use `re` to its
+  #             fullest here; there is no reason to hold back.
   #
   # `hee-check regex` tests each pattern in its declared lane and fails if any
   # engine IN THAT LANE disagrees. A portable pattern using a PCRE construct
