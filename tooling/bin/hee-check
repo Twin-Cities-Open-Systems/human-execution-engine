@@ -180,8 +180,12 @@ check_boundary() {
   # Real trigger 2026-08-31: an operator asked for this to be parameterised
   # org-wide "I do not want to run into an oper that uses ~/projects/".
   # Skips history/evidence snapshots, which record what was true then.
+  # library/regex/patterns.yaml is excluded because it necessarily CONTAINS
+  # an example of everything this checker detects -- its own match/reject
+  # test fixtures. Flagging a detector's test data is a false positive that
+  # would fire on every run forever. Caught during pre-merge reconciliation.
   hp="$(git -C "$root" grep -n -I -E '/home/[a-z][a-z0-9_-]*/' -- \
-        ':!docs/history' ':!*/evidence/*' ':!*.log' 2>/dev/null)"
+        ':!docs/history' ':!*/evidence/*' ':!*.log' ':!library/regex/patterns.yaml' 2>/dev/null)"
   if [ -n "$hp" ]; then
     hp_n="$(printf '%s\n' "$hp" | wc -l)"
     printf '%s\n' "$hp" | head -20 | while IFS= read -r l; do
