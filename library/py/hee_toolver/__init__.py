@@ -368,11 +368,19 @@ def version_of(tool: str, source: str = "auto") -> dict:
     # only major.minor (/usr/bin/python3.12) while the binary reports
     # major.minor.patch -- 3.12 vs 3.12.3 is the same tool, described less
     # precisely. Only a genuine conflict counts.
-    cores = [_core(v) for v in found.values() if v]
-    disagree = any(
-        not (a.startswith(b + ".") or b.startswith(a + ".") or a == b)
-        for a in cores for b in cores
-    )
+    def compat(a, b):
+        return a == b or a.startswith(b + ".") or b.startswith(a + ".")
+
+    cs, cpk, cpath = _core(p.version or ""), _core(pkg_ver or ""), _core(path_ver or "")
+    # A CONFLICT is a genuine mismatch -- neither is a refinement of the other.
+    conflict = any(not compat(a, b) for a in (cs, cpk, cpath) if a
+                                     for b in (cs, cpk, cpath) if b)
+    # IMPRECISE is one source being coarser. Expected from a path
+    # (/usr/bin/python3.12 encodes only major.minor) and not worth flagging.
+    # Between the BINARY and the PACKAGE it is worth flagging: jq reports 1.7
+    # while 1.7.1 is installed, so the binary under-reports itself.
+    imprecise = bool(cs and cpk and cs != cpk and compat(cs, cpk))
+    disagree = conflict
 
     return {
         "tool": tool, "path": path,
@@ -384,6 +392,8 @@ def version_of(tool: str, source: str = "auto") -> dict:
         "path_version": path_ver,
         "sources_answering": real,
         "disagree": disagree,
+        "conflict": conflict,
+        "imprecise": imprecise,
         "reason": p.reason,
     }
 
@@ -393,3 +403,273 @@ def _core(v: str) -> str:
     v = re.sub(r"^\d+:", "", v or "")
     m = re.match(r"[0-9]+(\.[0-9]+)*", v)
     return m.group(0) if m else v
+
+
+
+# ---------------------------------------------------------------------------
+# Hardware / firmware discovery.
+#
+# Operator: "support dmidecode and bios detecatico, etc too".
+#
+# PREFER SYSFS, NOT dmidecode. /sys/class/dmi/id/* exposes the same SMBIOS
+# fields and is readable UNPRIVILEGED; dmidecode reads
+# /sys/firmware/dmi/tables/smbios_entry_point and fails with Permission
+# denied as a normal user. Verified on kiosk 2026-08-31. That matches
+# docs/specs/HEE_HARDWARE_DISCOVERY.md's own stated principles --
+# read_only_by_default and least_privilege -- so needing root to read a BIOS
+# date is a reason to use a different source, not a reason to escalate.
+#
+# Serial numbers are deliberately NOT collected. product_serial,
+# board_serial and product_uuid are root-only precisely because they
+# identify a specific machine; they are provenance nobody asked for and a
+# privacy problem if they land in a git repo.
+# ---------------------------------------------------------------------------
+
+DMI_SYSFS = "/sys/class/dmi/id"
+DMI_FIELDS = ("sys_vendor", "product_name", "product_version",
+              "board_vendor", "board_name", "board_version",
+              "bios_vendor", "bios_version", "bios_date",
+              "chassis_type", "chassis_vendor")
+
+# SMBIOS 3.x chassis types -- the common ones. A bare number is useless in a
+# report, and "3" appearing where a human expects a word is how a field gets
+# ignored.
+CHASSIS_TYPES = {
+    "1": "Other", "2": "Unknown", "3": "Desktop", "4": "Low Profile Desktop",
+    "6": "Mini Tower", "7": "Tower", "8": "Portable", "9": "Laptop",
+    "10": "Notebook", "13": "All In One", "17": "Main Server Chassis",
+    "23": "Rack Mount Chassis", "30": "Tablet", "31": "Convertible",
+    "32": "Detachable", "35": "Mini PC",
+}
+
+
+def hardware() -> dict:
+    """Host hardware and firmware facts. Unprivileged sources only."""
+    out: dict = {"sources": []}
+
+    dmi: dict[str, str] = {}
+    for f in DMI_FIELDS:
+        try:
+            with open(os.path.join(DMI_SYSFS, f)) as fh:
+                v = fh.read().strip()
+            if v and v.lower() not in ("to be filled by o.e.m.", "default string", "none"):
+                dmi[f] = v
+        except OSError:
+            continue
+    if dmi:
+        out["sources"].append("sysfs-dmi")
+        out.update(dmi)
+        if "chassis_type" in dmi:
+            out["chassis"] = CHASSIS_TYPES.get(dmi["chassis_type"], f"code {dmi['chassis_type']}")
+
+    # dmidecode only as a fallback, and only if it actually works unprivileged.
+    if not dmi and shutil.which("dmidecode"):
+        r = _run(["dmidecode", "-s", "bios-version"])
+        if r is not None and r.returncode == 0 and r.stdout.strip():
+            out["sources"].append("dmidecode")
+            out["bios_version"] = r.stdout.strip()
+
+    try:
+        with open("/proc/cpuinfo") as fh:
+            for line in fh:
+                if line.startswith("model name"):
+                    out["cpu_model"] = line.split(":", 1)[1].strip()
+                    break
+        out["sources"].append("procfs")
+    except OSError:
+        pass
+    try:
+        out["cpu_count"] = str(os.cpu_count() or "")
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                if line.startswith("MemTotal:"):
+                    out["mem_total_gb"] = f"{int(line.split()[1]) / 1048576:.1f}"
+                    break
+    except OSError:
+        pass
+
+    r = _run(["systemd-detect-virt"])
+    if r is not None and r.stdout.strip():
+        out["virtualisation"] = r.stdout.strip()
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Session / agent identity.
+#
+# Operator: "hee ver should also handle the tmux, env, etc for the agent sig
+# too". These are the fields contracts/agent-instance-signature-v1.contract
+# .yaml requires -- session_id, host, gh_actor, timestamp, tmux -- so `hee
+# ver` can produce the signature block rather than a second tool duplicating
+# the same probes.
+#
+# Every field is read from THIS process's own environment. Nothing is
+# invented and nothing is centrally issued, which is the contract's own
+# stated requirement.
+# ---------------------------------------------------------------------------
+
+def session() -> dict:
+    """Facts identifying this running agent instance."""
+    import datetime, socket
+
+    out = {
+        "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown"),
+        "pid": str(os.getpid()),
+        "host": socket.getfqdn(),
+        "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown",
+        "timestamp": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "shell": os.environ.get("SHELL", "unknown"),
+        "term": os.environ.get("TERM", "unknown"),
+    }
+
+    tmux = os.environ.get("TMUX")
+    if tmux:
+        socket_path = tmux.split(",", 1)[0]
+        out["tmux_socket"] = socket_path
+        out["tmux_pane"] = os.environ.get("TMUX_PANE", "unknown")
+        r = _run(["tmux", "display", "-p", "#{session_name}"])
+        sess = r.stdout.strip() if r and r.returncode == 0 else "unknown"
+        out["tmux_session"] = sess
+        out["tmux_uri"] = f"{socket_path}:{sess}:{out['tmux_pane']}"
+        # Hyperlink support decides whether tool output can use OSC 8 at all.
+        r = _run(["tmux", "display", "-p", "#{client_termfeatures}"])
+        feats = r.stdout.strip() if r and r.returncode == 0 else ""
+        out["tmux_termfeatures"] = feats
+        out["osc8_hyperlinks"] = "yes" if "hyperlinks" in feats else "no"
+    else:
+        out["tmux_uri"] = "none"
+
+    r = _run(["gh", "auth", "status"])
+    if r is not None:
+        m = re.search(r"account (\S+)", (r.stdout or "") + (r.stderr or ""))
+        out["gh_actor"] = m.group(1) if m else "unknown"
+
+    r = _run(["git", "config", "user.email"])
+    if r is not None and r.returncode == 0:
+        out["git_identity"] = r.stdout.strip()
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# fs-verity.
+#
+# Read hee/docs/IMPLEMENTATION_MANUAL-partial.md before changing this. The
+# org's design does NOT want a boolean -- it wants the DIGEST:
+#
+#   "The file's unique fs-verity digest is compiled directly into your SNMP
+#    MIB tree as a static, unalterable identifier for that exact state of
+#    logic."
+#   "a lookup for nuc1-claude._agents.yourdomain.org returns its public key
+#    string or fs-verity root digest"
+#   drift check: "asserting fsverity digest /hee/contracts/* matches the
+#    reference states mapped inside your local SNMP engine"
+#
+# So the digest is the product. enabled/disabled is just the precondition.
+#
+# Read via ioctl, NOT the fsverity CLI. Measured on kiosk 2026-08-31: the
+# kernel has CONFIG_FS_VERITY=y and CONFIG_FS_VERITY_BUILTIN_SIGNATURES=y,
+# but the fsverity userspace tool is NOT installed. Going through the ioctl
+# means this works on a stock node with nothing added -- which is the whole
+# low-dependency premise of that manual.
+# ---------------------------------------------------------------------------
+
+FS_IOC_GETFLAGS = 0x80086601
+FS_VERITY_FL = 0x00100000
+# _IOWR('f', 134, struct fsverity_digest) -- struct is two __u16.
+FS_IOC_MEASURE_VERITY = 0xC0046686
+_VERITY_ALGOS = {1: "sha256", 2: "sha512"}
+
+
+def verity_of(path: str) -> dict:
+    """fs-verity state and digest for a file. Never raises."""
+    import fcntl
+    import struct
+
+    out = {"path": path, "enabled": False, "digest": None, "algorithm": None,
+           "kernel_support": None, "fsverity_cli": bool(shutil.which("fsverity")),
+           "error": None}
+
+    try:
+        with open(f"/boot/config-{os.uname().release}") as fh:
+            out["kernel_support"] = "CONFIG_FS_VERITY=y" in fh.read()
+    except OSError:
+        out["kernel_support"] = None       # unknown, not false
+
+    if not os.path.exists(path):
+        out["error"] = "no such file"
+        return out
+
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError as e:
+        out["error"] = f"cannot open: {e.strerror}"
+        return out
+
+    try:
+        buf = fcntl.ioctl(fd, FS_IOC_GETFLAGS, struct.pack("L", 0))
+        out["enabled"] = bool(struct.unpack("L", buf)[0] & FS_VERITY_FL)
+    except OSError as e:
+        out["error"] = f"FS_IOC_GETFLAGS: {e.strerror}"
+
+    if out["enabled"]:
+        try:
+            # digest_algorithm, digest_size, then room for the digest itself
+            req = struct.pack("HH", 0, 64) + b"\x00" * 64
+            res = fcntl.ioctl(fd, FS_IOC_MEASURE_VERITY, req)
+            algo, size = struct.unpack("HH", res[:4])
+            out["algorithm"] = _VERITY_ALGOS.get(algo, f"algo-{algo}")
+            out["digest"] = res[4:4 + size].hex()
+        except OSError as e:
+            out["error"] = f"FS_IOC_MEASURE_VERITY: {e.strerror}"
+
+    os.close(fd)
+    return out
+
+
+def verify_records(path: str | None = None) -> dict:
+    """Re-run every recorded claim in a primitives registry and check it holds.
+
+    The verify half of ver{sion,ify}. A provenance record is only worth
+    keeping if whatever produced it can re-run and still produce it.
+    """
+    import shlex
+    import subprocess as sp
+
+    path = path or os.path.expanduser("~/git/primitives/primitives.yaml")
+    try:
+        import yaml
+        with open(path) as fh:
+            doc = yaml.safe_load(fh)
+    except Exception as e:
+        return {"error": f"cannot read {path}: {e}", "results": [], "ok": 0, "total": 0}
+
+    results = []
+    for e in (doc.get("spec", {}).get("entries") or []):
+        cmd = (e.get("verified") or {}).get("command", "")
+        recorded = e.get("version", "")
+        name = e.get("name", "?")
+        if not cmd:
+            continue
+        base = cmd.split("  (")[0]
+        try:
+            r = sp.run(shlex.split(base), capture_output=True, text=True, timeout=5)
+        except Exception as ex:
+            results.append({"name": name, "ok": False, "recorded": recorded,
+                            "actual": f"could not run: {ex}", "version": None})
+            continue
+        if "no version" in recorded:
+            ok = r.returncode != 0
+            results.append({"name": name, "ok": ok, "recorded": recorded,
+                            "actual": f"rc={r.returncode}", "version": recorded})
+            continue
+        line = next((l.strip() for l in ((r.stdout or r.stderr) or "").splitlines()
+                     if l.strip()), "")
+        actual = looks_like_version(line)
+        ok = (r.returncode == 0 and actual == recorded)
+        results.append({"name": name, "ok": ok, "recorded": recorded,
+                        "actual": actual or line[:40], "version": actual})
+
+    return {"path": path, "results": results,
+            "ok": sum(1 for r in results if r["ok"]), "total": len(results)}
