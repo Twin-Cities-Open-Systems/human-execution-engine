@@ -35,6 +35,7 @@ installing a pre-commit hook as a side effect of generating documentation
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -166,3 +167,229 @@ def probe(tool: str, extra_flags: tuple[str, ...] = ()) -> Probe:
     return Probe(tool, path, None, None, None, None, None,
                  f"no flag produced a string matching VERSION_RE (tried: {', '.join(tried)}"
                  + (f"; help suggested {found}" if found else "; help suggested nothing") + ")")
+
+
+# ---------------------------------------------------------------------------
+# Platform and package provenance -- portable, not Debian-only.
+#
+# Operator: "whatever the bsds and other common, use a grep on os-release for
+# versions too, support all versions" and "lsb_release can be useful too on
+# s0ome".
+#
+# Sources are tried in order of reliability, and EVERY source that answers is
+# recorded, not just the first. They disagree in useful ways -- on this host
+# os-release says Linux Mint 22.2 while every package carries an Ubuntu
+# 24.04 version string, because Mint is Ubuntu-derived. Keeping only one
+# would lose that.
+#
+#   /etc/os-release        freedesktop standard: most Linux, and FreeBSD 13+,
+#                          NetBSD, DragonFly. Also /usr/lib/os-release.
+#   lsb_release -a         older Debian/Ubuntu/RHEL where os-release is thin
+#   sw_vers                macOS
+#   freebsd-version        FreeBSD (kernel vs userland differ after patching)
+#   uname -sr              always available, lowest common denominator
+# ---------------------------------------------------------------------------
+
+OS_RELEASE_PATHS = ("/etc/os-release", "/usr/lib/os-release",
+                    "/etc/lsb-release", "/etc/openwrt_release")
+
+# Package managers, in the order they are tried. Each maps a real file path to
+# the package owning it. Only ones actually present on the host are used.
+PKG_QUERIES = (
+    ("dpkg",    ["dpkg", "-S"],            ["dpkg-query", "-W", "-f=${Version}"]),
+    ("rpm",     ["rpm", "-qf"],            ["rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}"]),
+    ("pacman",  ["pacman", "-Qo"],         ["pacman", "-Q"]),
+    ("apk",     ["apk", "info", "-W"],     ["apk", "info", "-v"]),
+    ("pkg",     ["pkg", "which", "-q"],    ["pkg", "query", "%v"]),        # FreeBSD
+    ("brew",    ["brew", "--prefix"],      ["brew", "list", "--versions"]),
+)
+
+
+def _read_os_release() -> dict:
+    """Parse every os-release-shaped file present. Later files do not clobber."""
+    data: dict[str, str] = {}
+    for path in OS_RELEASE_PATHS:
+        try:
+            with open(path) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    data.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except OSError:
+            continue
+    return data
+
+
+def platform() -> dict:
+    """Everything the host will tell us about itself. Never raises."""
+    out: dict = {"sources": []}
+
+    osr = _read_os_release()
+    if osr:
+        out["sources"].append("os-release")
+        out["distro"] = osr.get("PRETTY_NAME") or osr.get("DISTRIB_DESCRIPTION") or ""
+        out["distro_id"] = osr.get("ID") or osr.get("DISTRIB_ID") or ""
+        out["distro_version"] = osr.get("VERSION_ID") or osr.get("DISTRIB_RELEASE") or ""
+        for k in ("VERSION_CODENAME", "ID_LIKE", "BUILD_ID", "VARIANT_ID"):
+            if osr.get(k):
+                out[k.lower()] = osr[k]
+
+    r = _run(["lsb_release", "-a"])
+    if r is not None and r.returncode == 0 and r.stdout.strip():
+        out["sources"].append("lsb_release")
+        for line in r.stdout.splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                out.setdefault("lsb_" + k.strip().lower().replace(" ", "_"), v.strip())
+
+    r = _run(["sw_vers"])                                   # macOS
+    if r is not None and r.returncode == 0 and r.stdout.strip():
+        out["sources"].append("sw_vers")
+        for line in r.stdout.splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                out["macos_" + k.strip().lower().replace(" ", "_")] = v.strip()
+
+    r = _run(["freebsd-version", "-kru"])                   # FreeBSD
+    if r is not None and r.returncode == 0 and r.stdout.strip():
+        out["sources"].append("freebsd-version")
+        parts = r.stdout.split()
+        for label, val in zip(("kernel", "running", "userland"), parts):
+            out["freebsd_" + label] = val
+
+    for label, args in (("kernel_name", ["uname", "-s"]),
+                        ("kernel_release", ["uname", "-r"]),
+                        ("arch", ["uname", "-m"])):
+        r = _run(["uname", args[1]])
+        if r is not None and r.returncode == 0:
+            out[label] = r.stdout.strip()
+    out["sources"].append("uname")
+
+    r = _run(["ldd", "--version"])                          # glibc / musl
+    if r is not None and r.stdout.strip():
+        out["libc"] = r.stdout.splitlines()[0].strip()
+
+    return out
+
+
+def package_for(path: str) -> tuple[str | None, str | None, str | None]:
+    """(manager, package, package_version) for a binary, or (None, None, None).
+
+    Tries every package manager present. A host can have more than one -- a
+    brew binary on a dpkg system, for instance -- so the FIRST that claims the
+    file wins, and the manager name is recorded alongside so the answer is
+    never ambiguous about where it came from.
+    """
+    if not path:
+        return None, None, None
+    real = os.path.realpath(path)
+    for name, owns, ver in PKG_QUERIES:
+        if not shutil.which(owns[0]):
+            continue
+        r = _run(owns + [real])
+        if r is None or r.returncode != 0 or not r.stdout.strip():
+            continue
+        line = r.stdout.strip().splitlines()[0]
+        pkg = line.split(":")[0].strip() if name == "dpkg" else line.split()[0].strip()
+        if not pkg:
+            continue
+        v = _run(ver + [pkg])
+        pv = None
+        if v is not None and v.returncode == 0 and v.stdout.strip():
+            pv = v.stdout.strip().splitlines()[0].split()[-1]
+        return name, pkg, pv
+    return None, None, None
+
+
+# ---------------------------------------------------------------------------
+# Three independent sources of a tool's version. They disagree, and each is
+# right about a different thing:
+#
+#   self     what the binary says about itself (--version). Authoritative for
+#            behaviour, but tools lie: jq reports 1.7 while the installed
+#            package is 1.7.1.
+#   package  what the package manager has installed. Authoritative for
+#            provenance and patching -- carries distro patch levels and epochs
+#            (git: 1:2.43.0-1ubuntu7.3) the binary never mentions.
+#   path     the version encoded in the install path. Often the ONLY source
+#            for version-managed runtimes: nvm puts node at
+#            .../node/v20.20.2/bin/node, and /usr/bin/python3.12 names it in
+#            the binary itself.
+#
+# Callers choose with source=. Default "auto" tries self, then path, then
+# package -- and records which answered.
+# ---------------------------------------------------------------------------
+
+SOURCES = ("auto", "self", "package", "path")
+
+# Version in a path segment or a versioned binary name. Kept RE2-safe so the
+# same expression is usable from sh -- see library/regex/patterns.yaml.
+_PATH_VERSION = re.compile(r"(^|[^0-9.])v?([0-9]+\.[0-9]+(\.[0-9]+)?)([^0-9.]|$)")
+
+
+def version_from_path(path: str) -> str | None:
+    """Version encoded in the install path, e.g. .../node/v20.20.2/bin/node.
+
+    Walks segments from the deepest, so a versioned binary name wins over a
+    versioned parent directory -- /usr/lib/python3/bin/python3.12 should give
+    3.12, not 3.
+    """
+    if not path:
+        return None
+    for seg in reversed(os.path.realpath(path).split(os.sep)):
+        m = _PATH_VERSION.search(seg)
+        if m:
+            return m.group(2)
+    return None
+
+
+def version_of(tool: str, source: str = "auto") -> dict:
+    """Version of `tool` from the chosen source, with every source recorded.
+
+    Returns the answer plus every source that had an opinion, and flags
+    disagreement rather than silently preferring one.
+    """
+    if source not in SOURCES:
+        raise ValueError(f"source must be one of {SOURCES}, got {source!r}")
+
+    path = shutil.which(tool)
+    p = probe(tool)
+    mgr, pkg, pkg_ver = package_for(path) if path else (None, None, None)
+    path_ver = version_from_path(path) if path else None
+
+    found = {"self": p.version, "package": pkg_ver, "path": path_ver}
+    order = ("self", "path", "package") if source == "auto" else (source,)
+    chosen = next((s for s in order if found.get(s)), None)
+
+    real = [s for s, v in found.items() if v]
+    # A coarser answer is not a disagreement. An install path usually encodes
+    # only major.minor (/usr/bin/python3.12) while the binary reports
+    # major.minor.patch -- 3.12 vs 3.12.3 is the same tool, described less
+    # precisely. Only a genuine conflict counts.
+    cores = [_core(v) for v in found.values() if v]
+    disagree = any(
+        not (a.startswith(b + ".") or b.startswith(a + ".") or a == b)
+        for a in cores for b in cores
+    )
+
+    return {
+        "tool": tool, "path": path,
+        "source_requested": source,
+        "source_used": chosen,
+        "version": found.get(chosen) if chosen else None,
+        "self": p.version, "self_flag": p.flag, "self_raw": p.raw,
+        "package": pkg_ver, "package_name": pkg, "package_manager": mgr,
+        "path_version": path_ver,
+        "sources_answering": real,
+        "disagree": disagree,
+        "reason": p.reason,
+    }
+
+
+def _core(v: str) -> str:
+    """Comparable core of a version -- strips a dpkg epoch and any suffix."""
+    v = re.sub(r"^\d+:", "", v or "")
+    m = re.match(r"[0-9]+(\.[0-9]+)*", v)
+    return m.group(0) if m else v
