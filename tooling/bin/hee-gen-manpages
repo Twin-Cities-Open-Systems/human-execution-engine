@@ -62,6 +62,66 @@ mkdir -p "$OUT_DIR"
 # which is not the directory the operator ran it from.
 printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
 
+# extract_doc FILE -- the tool's own leading documentation block, in whatever
+# comment syntax its language uses.
+#
+# Real gap, measured 2026-08-31: the old extractor read '#' comments ONLY.
+# But 31 of this repo's 32 Python tools document themselves with a MODULE
+# DOCSTRING, which it could not see. Any Python tool whose --help also failed
+# fell through to a fallback that returned nothing and was SKIPPED outright --
+# which is why hee-ticket, hee-stat, hee-hg, hee-lg, hee-filter, hee-publish,
+# hee-worktree, hee-contract-review and hee-ssh-trust-ca have no published man
+# page at all.
+#
+# Go and Rust use '//' (and Rust '//!' for module docs), so a compiled tool
+# would have hit the same wall the moment one was added. cmd/hee is already Go.
+#
+# Comparisons use substr(), never a regex literal, because a triple-quote
+# inside an awk regex inside a shell single-quoted string is unquotable in
+# POSIX sh -- and mawk does not support \x27 escapes to get around it.
+extract_doc() {
+  _f="$1"
+
+  # 1. Python/other module docstring: triple-quoted block at top level.
+  _doc="$(awk -v dq='"""' -v sq="'''" '
+    function opener(s) { return (substr(s,1,3) == dq || substr(s,1,3) == sq) }
+    /^#!/ { next }
+    !started && opener($0) {
+      started = 1
+      q = substr($0,1,3)
+      line = substr($0,4)
+      i = index(line, q)
+      if (i > 0) { line = substr(line,1,i-1); if (length(line)) print line; exit }
+      if (length(line)) print line
+      next
+    }
+    started {
+      i = index($0, q)
+      if (i > 0) { line = substr($0,1,i-1); if (length(line)) print line; exit }
+      print; next
+    }
+    NF { exit }
+  ' "$_f")"
+  if [ -n "$_doc" ]; then printf '%s\n' "$_doc"; return 0; fi
+
+  # 2. Shell-style leading '#' block.
+  _doc="$(awk '/^#!/{next} /^#/{print substr($0,3); next} {exit}' "$_f")"
+  if [ -n "$_doc" ]; then printf '%s\n' "$_doc"; return 0; fi
+
+  # 3. Go / Rust leading '//' or '//!' block. Build tags and //go: directives
+  #    are machine pragmas, not prose, so they are skipped rather than printed.
+  _doc="$(awk '
+    substr($0,1,5) == "//go:" { next }
+    substr($0,1,3) == "//!" { print substr($0,4); next }
+    substr($0,1,2) == "//"  { print substr($0,3); next }
+    NF { exit }
+  ' "$_f")"
+  if [ -n "$_doc" ]; then printf '%s\n' "$_doc"; return 0; fi
+
+  return 1
+}
+
+
 for f in "$BIN_DIR"/*; do
   [ -f "$f" ] && [ -x "$f" ] || continue
   name="$(basename "$f")"
@@ -84,7 +144,7 @@ for f in "$BIN_DIR"/*; do
     # No working --help -- fall back to the tool's own leading '#'
     # comment block (shell scripts document themselves this way in
     # this repo already; still 0-token, just a different extraction).
-    header="$(awk '/^#!/{next} /^#/{print substr($0,3); next} {exit}' "$f")"
+    header="$(extract_doc "$f" || true)"
     if [ -n "$header" ]; then
       {
         echo "# $name(1)"
@@ -113,6 +173,51 @@ done
     [ "$n" = "README" ] && continue
     echo "- [\`$n\`]($n.1.md)"
   done
+
+# Compiled-language tools (Go, Rust) live as SOURCE under cmd/, not as an
+# executable in tooling/bin, so the loop above never saw them. cmd/hee is
+# already Go. Without this they are silently absent from the man pages --
+# the operator asked specifically that py/go/rust all be captured.
+#
+# A built binary is preferred when present (its --help is the real thing);
+# otherwise the leading doc comment is extracted, same as any other tool.
+for d in cmd/*/; do
+  [ -d "$d" ] || continue
+  name="$(basename "$d")"
+  src=""
+  [ -f "$d/main.go" ] && src="$d/main.go"
+  [ -f "$d/src/main.rs" ] && src="$d/src/main.rs"
+  [ -n "$src" ] || continue
+
+  out="$OUT_DIR/$name.1.md"
+  if [ -e "$out" ]; then
+    # Do NOT clobber. A same-named tool already produced this page, which is a
+    # real conflict worth surfacing rather than resolving silently: cmd/hee
+    # (Go) and tooling/bin/hee (sh dispatcher) are two different programs
+    # claiming one name.
+    echo "CONFLICT: $name exists in both tooling/bin and $d -- $out left as-is" >&2
+    continue
+  fi
+
+  help_text=""
+  if [ -x "$d/$name" ]; then
+    help_text="$(timeout -s KILL 5 "$d/$name" --help </dev/null 2>&1)" || help_text=""
+  fi
+  if [ -n "$help_text" ]; then
+    { echo "# $name(1)"; echo; echo '```'; printf '%s\n' "$help_text"; echo '```'; } > "$out"
+    echo "generated (from --help, compiled): $out"
+  else
+    header="$(extract_doc "$src" || true)"
+    if [ -n "$header" ]; then
+      { echo "# $name(1)"; echo; echo "$header"; echo
+        echo "*(no built binary -- generated from the doc comment in $src)*"; } > "$out"
+      echo "generated (from source doc comment): $out"
+    else
+      echo "SKIPPED (no binary, no doc comment): $src" >&2
+    fi
+  fi
+done
+
 } > "$OUT_DIR/README.md"
 echo "index: $OUT_DIR/README.md"
 
