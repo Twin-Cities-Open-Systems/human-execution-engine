@@ -172,6 +172,26 @@ check_boundary() {
   # The previous version tested `-d`, so it failed CRITICAL on an untracked
   # local directory that harms nothing. Corrected 2026-08-31, operator:
   # "they are not forbidden".
+  # A hardcoded workspace or home path in a committed file breaks for any
+  # operator whose checkouts are not in the same place. PROMPTING_RULES
+  # rule 10 already bans hardcoding a real user's home in a shared script;
+  # this is the same rule one level up -- not the user, the workspace.
+  # Real trigger 2026-08-31: an operator asked for this to be parameterised
+  # org-wide "I do not want to run into an oper that uses ~/projects/".
+  # Skips history/evidence snapshots, which record what was true then.
+  hp="$(git -C "$root" grep -n -I -E '/home/[a-z][a-z0-9_-]*/' -- \
+        ':!docs/history' ':!*/evidence/*' ':!*.log' 2>/dev/null)"
+  if [ -n "$hp" ]; then
+    hp_n="$(printf '%s\n' "$hp" | wc -l)"
+    printf '%s\n' "$hp" | head -20 | while IFS= read -r l; do
+      hee_status CRITICAL "hardcoded home path: $l"
+    done
+    # Report the true total, never the truncated one -- a capped count that
+    # looks like a real count is the same failure as a false OK.
+    [ "$hp_n" -gt 20 ] && hee_status CRITICAL "hardcoded home path: $((hp_n - 20)) more not shown ($hp_n total)"
+    rc=2
+  fi
+
   for d in $DERIVED_DIRS; do
     tracked="$(git -C "$root" ls-files -- "$d/*" "*/$d/*" 2>/dev/null | head -20)"
     if [ -n "$tracked" ]; then
