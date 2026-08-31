@@ -19,7 +19,7 @@ main branch -- pass --sitemap to check a local copy instead.
 
 Usage:
   hee-view [--pve-host IP] [--haproxy-host IP] [--dns-host IP]
-  hee-view --sites [--sitemap URL_OR_PATH] [--nerd]
+  hee-view --sites [--sitemap URL_OR_PATH] [--network lab|public|all] [--nerd]
 """
 import argparse
 import json
@@ -110,6 +110,33 @@ def load_sitemap(source):
     if not sites:
         return None, "sitemap has no 'sites' list"
     return sites, None
+
+
+# Which network a site lives on decides WHO CAN CHECK IT, which is a real
+# property of the site and not a preference.
+#
+# Real incident, fleet-ops#350: .github's scheduled site-health workflow was
+# permanently red on 14/14 *.lab.tcos.us hosts because a GitHub-hosted
+# runner has no route into the private lab network. Every 30 minutes, for
+# weeks. A genuine outage would have been invisible in that noise.
+#
+# So a site declares its network and each checker runs the scope it can
+# actually reach: public CI checks `public`, an on-host timer inside the lab
+# checks `lab`. Neither pretends to see the other.
+#
+# An entry with no explicit `network:` is inferred from its hostname, so the
+# sitemap did not have to be fully annotated before this could work.
+def site_network(entry):
+    declared = (entry.get("network") or "").strip().lower()
+    if declared in ("lab", "public"):
+        return declared
+    return "lab" if ".lab.tcos.us" in entry.get("url", "") else "public"
+
+
+def filter_sites(sites, network):
+    if network in (None, "", "all"):
+        return sites
+    return [e for e in sites if site_network(e) == network]
 
 
 def _fetch(url, method):
@@ -216,6 +243,11 @@ def main():
                      help="check every real URL in the site map answers 200-399")
     ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
                      help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
+    ap.add_argument("--network", default="all",
+                    choices=["lab", "public", "all"],
+                    help="only check sites on this network. A GitHub-hosted "
+                         "runner can only reach 'public'; an on-host checker "
+                         "inside the lab can reach 'lab'. Default all.")
     args = ap.parse_args()
 
     print("=== tcos lab -- hee view ===")
@@ -251,6 +283,11 @@ def main():
     sites_ok = True
     if args.sites:
         sites, err = load_sitemap(args.sitemap)
+        if not err:
+            total = len(sites)
+            sites = filter_sites(sites, args.network)
+            if args.network != "all":
+                print(f"# scope: {args.network} ({len(sites)} of {total} sites)")
         if err:
             print(f"🔴 sites: sitemap unavailable ({err})")
             sites_ok = False
