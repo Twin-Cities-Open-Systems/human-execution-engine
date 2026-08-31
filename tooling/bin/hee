@@ -143,7 +143,15 @@ if [ -z "${TARGET_ROOT}" ]; then
 fi
 
 cmd="${1:-help}"
-shift 2>/dev/null || true
+# Real bug, found live 2026-08-31 while giving every tool a working help
+# (issue:462@human-execution-engine): a bare `hee` printed NOTHING and
+# exited 2 instead of printing usage. `shift` is a POSIX SPECIAL builtin,
+# so failing it exits a non-interactive shell outright -- neither
+# `2>/dev/null` nor `|| true` can catch that, they only hid the message.
+# Every `sub="${1:-help}"` shift below had the same defect, so `hee hooks`
+# / `hee git` / `hee ssh` / `hee contract` with no subcommand died silently
+# too. Guard the shift instead of trying to trap it.
+if [ "$#" -gt 0 ]; then shift; fi
 
 case "${cmd}" in
   lint)
@@ -153,7 +161,7 @@ case "${cmd}" in
     ;;
   hooks)
     sub="${1:-help}"
-    shift 2>/dev/null || true
+    if [ "$#" -gt 0 ]; then shift; fi
     case "${sub}" in
       install)
         # if user did not pass --repo, default to TARGET repo
@@ -170,7 +178,7 @@ case "${cmd}" in
     ;;
   git)
     sub="${1:-help}"
-    shift 2>/dev/null || true
+    if [ "$#" -gt 0 ]; then shift; fi
     case "${sub}" in
       merge)
         # Real fix: "help" anywhere at the end (not just right after
@@ -206,7 +214,7 @@ case "${cmd}" in
     ;;
   ssh)
     sub="${1:-help}"
-    shift 2>/dev/null || true
+    if [ "$#" -gt 0 ]; then shift; fi
     case "${sub}" in
       send-keys)
         exec "${TOOL_ROOT}/tooling/bin/hee-ssh-send-keys" "$@"
@@ -219,7 +227,7 @@ case "${cmd}" in
     ;;
   contract)
     sub="${1:-help}"
-    shift 2>/dev/null || true
+    if [ "$#" -gt 0 ]; then shift; fi
     case "${sub}" in
       review)
         exec "${TOOL_ROOT}/tooling/bin/hee-contract-review" "$@"
