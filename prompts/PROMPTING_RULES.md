@@ -175,6 +175,40 @@ loaded, read this file directly rather than assume it did.
     being told to extend `hee-check` instead -- which is where it now
     lives, as `hee-check refs`.
 
+16. **Two layers of CI: ours for what's ours, standard for what's
+    standard.** Every repo runs `hee-check all` -- it needs no toolchain,
+    no language runtime, and catches org-specific rot nothing else looks
+    for (broken file references, hardcoded `/home/<user>/` paths, derived
+    state committed to git, invalid systemd units). On top of that, run the
+    standard tool for each language actually present: `shellcheck` for
+    shell, `ruff` for Python, `cargo clippy`/`fmt`/`test` for Rust, the
+    project's own test runner for JS.
+
+    **Never write a TCOS version of a tool that already exists.** A hee
+    tool earns its place only when the check is about something no external
+    tool can know -- `hee-lint` validates HEE object envelopes, `hee-view`
+    checks our sitemap against our hosts. Nobody should write a TCOS Python
+    linter; that is what `ruff` is.
+
+    **Call org tooling by checking out its home repo, never by vendoring a
+    copy.** `.github`'s site-health workflow is the pattern. Real trigger,
+    2026-08-31: vendoring produced three files named `security_scanner.py`
+    across three repos, doing two different jobs, all diverged
+    (issue:468@human-execution-engine).
+
+    **A CI job's name must not claim provenance its code does not have.**
+    Same trigger: `MT-logo-render` had jobs called "HEE Security Scan" and
+    "HEE Recipe Validation" that ran repo-local Python. A name implying a
+    shared standard is being enforced, when none is, is worse than no name.
+
+    **Never add a check that is red on day one.** If it finds real
+    pre-existing problems, land it `continue-on-error` WITH the reason and
+    the flip condition written in the workflow, and a ticket. A
+    permanently-red check trains people to ignore red -- measured cost:
+    `.github`'s site-health was red on 14/14 hosts every 30 minutes for
+    weeks, and a genuine outage would have been invisible in it
+    (issue:350@fleet-ops).
+
 ## Authority Invariants
 
 - Authority is scoped to this repository and this workflow context.
