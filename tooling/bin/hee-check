@@ -6,6 +6,7 @@
 #   hee-check refs [ROOT]         file references in docs point at real files
 #   hee-check refs --fix [ROOT]   repair refs with exactly one real candidate
 #   hee-check regex               shared regex patterns agree across engines
+#   hee-check systemd [PATH]      systemd unit files are valid
 #   hee-check all [ROOT]          both
 #
 # Status output uses the canonical HEE vocabulary
@@ -118,7 +119,8 @@ DESCRIPTION
 SUBCOMMANDS
   boundary   generated state is not committed (default)
   refs       every file reference resolves
-  all        both
+  systemd    systemd unit files are valid
+  all        boundary + refs
 
   Add `help` after any subcommand for its own page:
       hee-check refs help
@@ -309,6 +311,83 @@ line("OK", f"all {len(reg['spec']['patterns'])} patterns agree across python + {
 PYEOF
 }
 
+usage_systemd() {
+  cat <<'EOF'
+hee-check systemd -- validate systemd unit files
+
+SYNOPSIS
+  hee-check systemd [PATH]
+
+DESCRIPTION
+  Runs `systemd-analyze verify` over every unit under PATH (default: the
+  repo's systemd/ directory, else the current directory).
+
+  TWO REAL TRAPS THIS HANDLES, both measured 2026-08-31:
+
+  1. Exit code alone is not a gate. `Type=notarealtype` produces a warning
+     and exits 0 -- a broken unit sails through green. So warning TEXT is
+     matched, not just $?.
+
+  2. verify resolves ExecStart paths and fails when the binary is absent.
+     A unit correct for its target host is therefore "broken" on any CI
+     runner with a different $HOME or checkout path. That is a false
+     negative on good code -- the same class of permanent-red noise that
+     fleet-ops#350 was about. Those lines are filtered by default.
+
+     --strict turns them back on, for when you ARE checking on the target
+     host and want to know the binary is really there.
+
+OPTIONS
+  --strict   also fail when an ExecStart path does not resolve
+
+EXIT STATUS
+  0 OK   2 CRITICAL a unit is invalid   3 UNKNOWN systemd-analyze absent
+EOF
+}
+
+check_systemd() {
+  strict=0
+  if [ "${1:-}" = "--strict" ]; then strict=1; shift; fi
+  root="${1:-}"
+  if [ -z "$root" ]; then
+    if [ -d systemd ]; then root=systemd; else root=.; fi
+  fi
+  validate_target "$root" || return 3
+  command -v systemd-analyze >/dev/null 2>&1 || {
+    hee_status UNKNOWN "systemd-analyze not installed -- cannot verify units"; return 3; }
+
+  units=$(find "$root" -type f \( -name '*.service' -o -name '*.timer' -o -name '*.socket' \
+          -o -name '*.mount' -o -name '*.path' -o -name '*.target' \) 2>/dev/null | sort)
+  [ -n "$units" ] || { hee_status OK "no systemd units under $root"; return 0; }
+
+  rc=0; n=0
+  for u in $units; do
+    n=$((n + 1))
+    out=$(systemd-analyze verify "$u" 2>&1)
+    code=$?
+    # Drop the not-executable line unless --strict: an ExecStart correct for
+    # the TARGET host is absent on a CI runner, and failing on that is a
+    # false negative on a good unit.
+    if [ "$strict" -eq 0 ]; then
+      filtered=$(printf '%s\n' "$out" | grep -v 'is not executable' | grep -v '^$')
+      if [ "$code" -ne 0 ] && [ -z "$filtered" ]; then code=0; fi
+    else
+      filtered="$out"
+    fi
+    # A warning with exit 0 is still a defect -- Type=notarealtype proves it.
+    if printf '%s' "$filtered" | grep -qE 'Failed to parse|Invalid|Assignment outside|Unknown (lvalue|section)|no ExecStart'; then
+      code=2
+    fi
+    if [ "$code" -ne 0 ]; then
+      hee_status CRITICAL "$u"
+      printf '%s\n' "$filtered" | sed 's/^/      /'
+      rc=2
+    fi
+  done
+  [ "$rc" -eq 0 ] && hee_status OK "$n systemd unit(s) valid under $root"
+  return "$rc"
+}
+
 check_refs() {
   fix=0
   if [ "${1:-}" = "--fix" ]; then fix=1; shift; fi
@@ -374,6 +453,7 @@ case "$_last" in
       refs)     usage_refs ;;
       boundary) usage_boundary ;;
       all)      usage_boundary; echo; usage_refs ;;
+      systemd)  usage_systemd ;;
       regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
       *)        usage ;;
     esac
@@ -386,6 +466,7 @@ case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
   refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
   regex)    check_regex ;;
+  systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
   all)      shift 2>/dev/null || true
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
