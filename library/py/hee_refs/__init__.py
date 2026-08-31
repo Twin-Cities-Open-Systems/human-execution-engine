@@ -47,7 +47,23 @@ REF_EXT = (".md", ".yaml", ".yml", ".json", ".sh", ".py", ".bash",
 EXCLUDE_PREFIXES = ("docs/history/", "hee/evidence/")
 
 # A path-ish token inside backticks, quotes, parens or whitespace.
-_REF = re.compile(r"""[`"'(\s]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.@-]+)+)[`"')\s,;:]""")
+#
+# The final segment MUST NOT end in a dot. Real false positive, measured
+# 2026-08-31: the path character class contains ".", but the closing delimiter
+# class does not, so a path at the end of a sentence absorbed the full stop --
+#
+#     "...described in contracts/primitives-entry-schema.contract.yaml."
+#
+# was read as the reference "contracts/primitives-entry-schema.contract.yaml."
+# (trailing dot included), which of course does not exist. That reported 4
+# CRITICAL broken references in primitives and turned its CI red, while every
+# file was present and correct.
+#
+# A filename genuinely ending in "." is not a thing on any filesystem we
+# target, so requiring a non-dot final character costs nothing and removes the
+# whole class.
+_REF = re.compile(
+    r"""[`"'(\s]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.@-]*[A-Za-z0-9_@-])+)[`"')\s,;:.]""")
 
 
 @dataclass(frozen=True)
