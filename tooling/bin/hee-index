@@ -51,15 +51,23 @@ mkdir -p "$(dirname "$OUT")"
   # Each kind renders as a real, GitHub-native collapsible <details>
   # block, collapsed by default -- plain ## headers aren't real cards,
   # and markdown has no other native collapse mechanism.
-  echo "$LINT_OUT" | grep -E "^(🟢|🔴|🟡)" | while IFS= read -r line; do
+  # Status is read from the TEXT token (`# ERROR:` / `# WARN:` / `# OK:`),
+  # never from the leading emoji. The emoji was previously doing double
+  # duty as both the human visual cue and the machine-parsed field, which
+  # meant the icons could never be changed -- swapping a hue-only dot for
+  # a shape-distinct one would silently break this parser. Decoupled
+  # 2026-08-31 so presentation can evolve independently. The emoji prefix
+  # is still tolerated on input for backward compatibility with older
+  # hee-lint output; it is simply not what determines status.
+  echo "$LINT_OUT" | grep -E "# (OK|ERROR|WARN): " | while IFS= read -r line; do
     path="${line##*: }"
     [ -f "$path" ] || continue
     kind="$(grep -m1 -E '^kind:[[:space:]]*' "$path" | sed 's/^kind:[[:space:]]*//' | tr -d '\r')"
     [ -n "$kind" ] || kind="(unknown)"
     status="OK"
     case "$line" in
-      🔴*) status="ERROR" ;;
-      🟡*) status="WARN" ;;
+      *"# ERROR: "*) status="ERROR" ;;
+      *"# WARN: "*)  status="WARN"  ;;
     esac
     printf '%s\t%s\t%s\n' "$kind" "$status" "$path"
   done | sort | awk -F'\t' '
