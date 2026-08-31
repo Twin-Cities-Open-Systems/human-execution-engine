@@ -93,11 +93,14 @@ spec:
     - name: version
       description: "A software version in a tool's --version output. At least major.minor -- a bare integer is not a version, which is what separates a real version from 'sh: 0: Illegal option --'."
       lane: portable
-      ere: '(^|[^0-9.])v?([0-9]+\.[0-9]+(\.[0-9]+){0,2})([^0-9.]|$)'
+      ere: '(^|[^0-9.])v?([0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)([^0-9.]|$)'
       capture: 2
       notes:
         - "The leading boundary group replaces a lookbehind; the trailing one replaces a lookahead. Both are required for RE2 and POSIX ERE."
-        - "Capped at four components. Unbounded (\\.[0-9]+)* matched this org's own PEN OID 1.3.6.1.4.1.66550 as a version -- most precise match possible, so the cap is the precision. A four-part IP still matches and is accepted: an IP in --version output is not a realistic input, and excluding it would reject genuine four-part versions."
+        - "Shaped by SemVer (semver.org): MAJOR.MINOR.PATCH with optional -prerelease and +build. That is the standard most tools follow, so it is the strongest available clue -- not a guarantee, since plenty of tools ignore it, but a far better basis than an arbitrary length cap."
+        - "Two components are accepted because real tools emit them (tmux 3.4). A fourth is accepted because some tools use it. Beyond four is rejected: unbounded (\\.[0-9]+)* matched this org's own PEN OID 1.3.6.1.4.1.66550 as a version. An OID is not semver-shaped, and that is exactly what the bound encodes."
+        - "Prerelease (-rc.1, -beta) and build (+abc123) suffixes are captured, per SemVer. Previously they were silently truncated, so 1.2.3-rc.1 recorded as 1.2.3 -- a different release reported as the released one."
+        - "A four-part IP still matches and is accepted: an IP is not realistic --version output, and excluding it would reject genuine four-part versions."
         - "An optional leading 'v' is matched but NOT captured, so 'version v4.53.3' yields 4.53.3. Omitting it caused a real failure: yq's version was rejected, the probe fell through to `yq -v` -- which means VERBOSE on yq -- and a timestamp was captured as a version."
       tests:
         match:
@@ -108,12 +111,16 @@ spec:
           - { input: "yq (https://github.com/mikefarah/yq/) version v4.53.3", expect: "4.53.3" }
           - { input: "ls (GNU coreutils) 9.4", expect: "9.4" }
           - { input: "mawk 1.3.4 20240123", expect: "1.3.4" }
+          - { input: "myapp 2.0.0-rc.1", expect: "2.0.0-rc.1" }
+          - { input: "build 1.4.2+20260831", expect: "1.4.2+20260831" }
+          - { input: "kernel 6.8.0-45", expect: "6.8.0-45" }
         reject:
           - "sh: 0: Illegal option --"
           - "usage: tmux [-2CDlNuVv]"
           - "error: unknown option"
           - "no version available"
           - "base OID 1.3.6.1.4.1.66550 for TCOS"
+          - "OID arc 1.3.6.1.4.1 assigned by IANA"
 
     - name: iso_timestamp
       lane: portable
