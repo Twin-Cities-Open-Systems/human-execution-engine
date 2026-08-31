@@ -50,8 +50,8 @@ CLAUDE_SETTINGS := $(HOME_DIR)/.claude/settings.json
 print-governance-reminder:
 	@echo ""
 	@echo "bootstrap.mk: ORG GOVERNANCE -- read prompts/PROMPTING_RULES.md before any git/gh mutation."
-	@echo "  Rule #1: every git/gh mutation goes through scripts/hee_git_ops.sh <op> --act --reason \"...\""
-	@echo "  with HEE_TOOL_MODE=ACT set. Raw git commit/push/merge by an agent is not allowed."
+	@echo "  Rule 1: never push directly to main -- branch, then PR."
+	@echo "  Ordinary git/gh on a branch is fine; branch protection is the real control."
 	@echo "  Full file: $(CLONE_DIR)/prompts/PROMPTING_RULES.md"
 	@echo ""
 

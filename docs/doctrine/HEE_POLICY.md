@@ -89,22 +89,22 @@ Both fixed below.
   which also carries the org-wide commit/merge conventions).
 - Whichever prefix is used, all changes are made on a branch, never
   directly on `main`.
-- **All git/gh mutations below go through `scripts/hee_git_ops.sh`**
-  (`--act --reason "..."`, `HEE_TOOL_MODE=ACT` set) per
-  `prompts/PROMPTING_RULES.md` rule 1 — raw `git`/`gh` mutation commands
-  are not a real agent workflow, regardless of what the rest of this
-  section's prose examples might look like out of context.
+- **Ordinary `git`/`gh` commands are the workflow.** The
+  `scripts/hee_git_ops.sh` wrapper and `HEE_TOOL_MODE` were retired
+  2026-08-31 — see `docs/guides/GIT_GH_WORKFLOW.md` for the full
+  reasoning. The one hard rule that remains is above: never commit or
+  push directly to `main`, and let branch protection enforce it
+  server-side rather than a script an agent must choose to call.
 
 **Workflow (identity-prefixed, kept post-merge)**:
 
 ```bash
-export HEE_TOOL_MODE=ACT
-scripts/hee_git_ops.sh branch-create --act --reason "start work" <host-or-session-id>/work-description
+git switch -c <host-or-session-id>/work-description
 # Make changes, commit frequently:
-scripts/hee_git_ops.sh add --act --reason "stage changes" <paths...>
-scripts/hee_git_ops.sh commit --act --reason "commit" -m "..."
-scripts/hee_git_ops.sh push --act --reason "push branch"
-scripts/hee_git_ops.sh pr-create --act --reason "open PR" --base main --title "..." --body "..."
+git add <paths...>
+git commit -m "type(scope): ..."
+git push -u origin HEAD
+gh pr create --base main --title "..." --body "..."
 # Merge via the dedicated merge tool, not a raw `gh pr merge` --
 # no --delete-branch: this prefix is kept.
 hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-branch
@@ -113,12 +113,11 @@ hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-bran
 **Workflow (feature/, deleted post-merge)**:
 
 ```bash
-export HEE_TOOL_MODE=ACT
-scripts/hee_git_ops.sh branch-create --act --reason "start work" feature/work-description
-scripts/hee_git_ops.sh add --act --reason "stage changes" <paths...>
-scripts/hee_git_ops.sh commit --act --reason "commit" -m "..."
-scripts/hee_git_ops.sh push --act --reason "push branch"
-scripts/hee_git_ops.sh pr-create --act --reason "open PR" --base main --title "..." --body "..."
+git switch -c feature/work-description
+git add <paths...>
+git commit -m "type(scope): ..."
+git push -u origin HEAD
+gh pr create --base main --title "..." --body "..."
 hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --delete-branch
 ```
 

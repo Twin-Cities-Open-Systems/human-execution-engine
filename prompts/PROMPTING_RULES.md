@@ -18,13 +18,20 @@ loaded, read this file directly rather than assume it did.
 
 ## The rules
 
-1. **Every git/gh mutation goes through the wrapper.** Raw `git commit`,
-   `git push`, `gh pr create`, etc. by an agent are not allowed — use
-   `scripts/hee_git_ops.sh <op> --act --reason "..."` with
-   `HEE_TOOL_MODE=ACT` set. If asked to mutate without that mode set:
-   `BLOCKER: Mutation requested but HEE_TOOL_MODE!=ACT or --act missing. Refusing.`
-   — then stop. Read-only git (`status`/`diff`/`log`/`show`) is fine
-   directly. See `docs/guides/GIT_GH_WORKFLOW.md` for the full spec.
+1. **Never commit or push directly to `main`.** All work happens on a
+   branch and lands through a PR. Ordinary `git`/`gh` commands are fine
+   on a branch — there is no wrapper to route through. Branch protection
+   on `main` is the real control: server-side, so it binds every
+   operator, agent and machine equally and cannot be bypassed by not
+   calling a script. **Retired 2026-08-31**: `scripts/hee_git_ops.sh`,
+   its CI presence check, and `HEE_TOOL_MODE`. The full reasoning is in
+   `docs/guides/GIT_GH_WORKFLOW.md` — short version: `--reason` was
+   required everywhere and never used by anything, `--act` plus
+   `HEE_TOOL_MODE` were two flags from the same hand, the op set had no
+   `merge`/`issue-create`/`rebase` so real work had no sanctioned path,
+   rule 12 instructed agents to run a command rule 1 banned, and the CI
+   check ran `continue-on-error: true` while only verifying that the
+   script existed.
 2. **Never fabricate.** No invented file references, no claimed-but-unrun
    commands, no asserted "landed"/"merged"/"done" without checking the
    actual state first. Includes the subtler form: never redirect stderr
@@ -32,13 +39,27 @@ loaded, read this file directly rather than assume it did.
    the resulting silence as a real negative result — check *why* a
    command produced no output before reporting what that silence means
    — HEE Policy §6.
-3. **Real links, not bare shorthand**, for issue/PR references — HEE
-   Policy §5. Structured work files (contracts/blueprints/doctrine YAML)
-   use the compact `issue:N@repo`/`pr:N@repo` notation instead — §13.
+3. **Reference issues and PRs by full URL** —
+   `https://github.com/<owner>/<repo>/(issues|pull)/<n>`. It is the only
+   form that is clickable in a terminal *and* autolinks in the GitHub
+   UI, and GitHub shortens it on display by itself — to `owner/repo#N`
+   cross-repo, or `#N` same-repo. So you write one thing everywhere and
+   still read the short form. Never write bare `#N` or owner-less
+   `repo#N`: `repo#N` resolves **nowhere** (verified against GitHub's
+   renderer, 2026-08-31), and `#N` is dead text in repo files, wikis and
+   issue/PR titles. Structured work files (contracts/blueprints/doctrine
+   YAML) use the compact `issue:N@repo`/`pr:N@repo` notation instead —
+   §13. This single rule replaces three mutually incompatible formats
+   that were live simultaneously in governance and agent memory.
 4. **Self-assign what you create, label from the existing set, never
-   invent a new label. Only the opener closes/merges their own ticket
-   or PR** — explicit exception only, never inferred — **HEE Policy
-   §10/§12.**
+   invent a new label** — **HEE Policy §10/§12.** **Merge authority,
+   relaxed 2026-08-31**: a PR merges when its checks pass and its
+   assignee is satisfied. A PR carrying the **`human`** label requires
+   explicit human approval before merge; no other PR does. The former
+   "only the opener closes/merges" rule is retired — it produced
+   confusion without a matching risk, and contradicted §10's own text.
+   Tighten again only once the workflow is stable and the tightening
+   earns its cost.
 5. **When in doubt, stop and ask rather than guess** — same invariant as
    below, restated because it's the one that matters most.
 6. **Target GNU tool syntax/behavior by default**, not BSD or another
