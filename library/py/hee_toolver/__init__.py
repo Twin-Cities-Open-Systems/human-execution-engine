@@ -58,7 +58,22 @@ VERSION_RE = re.compile(r"(?<![\d.])v?\d+\.\d+(?:\.\d+)*(?:[-+~][\w.]+)?(?![\d.]
 # never be mistaken for a version.
 _TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\d{2}:\d{2}:\d{2}")
 
-CANDIDATE_FLAGS = ("--version", "-V", "-v", "version")
+# -v is DELIBERATELY ABSENT. Measured 2026-08-31 across 17 tools: not one
+# needs it for version detection, and on twelve it means something else --
+# verbose (yq, python3, curl), invert-match (grep, rg), assign-variable
+# (awk), a plain error (sed, jq, gh), or an entirely different fact
+# (uname -v is the KERNEL build string, not uname's version).
+#
+# Two real failures came from including it. `yq -v` enabled debug logging
+# and printed a timestamp, from which "16.691-05" was extracted. `uname -v`
+# returns "#28~24.04.1-Ubuntu SMP ... 15:50:57 UTC" -- rejected only
+# because the timestamp guard fired, not because the version pattern
+# refused it; the raw pattern happily matched "24.04.1-Ubuntu". A kernel
+# string without a time in it would have been recorded as a version.
+#
+# -V is the conventional short version flag and is kept. A tool that truly
+# needs lowercase -v can be handled by discover_flag reading its own help.
+CANDIDATE_FLAGS = ("--version", "-V", "version")
 HELP_FLAGS = ("--help", "-h", "-?")
 
 # In a help text, a line mentioning version is expected to name its flag.
