@@ -2,7 +2,7 @@
 # hee-check -- repo boundary and integrity checks.
 #
 # Subcommands (default: boundary, so existing callers are unaffected):
-#   hee-check [boundary] [ROOT]   forbidden .cursor dirs
+#   hee-check [boundary] [ROOT]   derived dirs are not committed to git
 #   hee-check refs [ROOT]         file references in docs point at real files
 #   hee-check refs --fix [ROOT]   repair refs with exactly one real candidate
 #   hee-check all [ROOT]          both
@@ -31,19 +31,28 @@ usage() {
 check_boundary() {
   root="${1:-.}"
   rc=0
-  if [ -d "$root/.cursor" ]; then
-    hee_status CRITICAL "$root/.cursor exists -- should be derived, not committed"; rc=2
-  fi
-  if [ -d "$root/prompts/.cursor" ]; then
-    hee_status CRITICAL "$root/prompts/.cursor exists -- should not exist"; rc=2
-  fi
-  if [ -d "$root/prompts" ] && find "$root/prompts" -type d -name .cursor 2>/dev/null | grep -q .; then
-    find "$root/prompts" -type d -name .cursor 2>/dev/null | while IFS= read -r d; do
-      hee_status CRITICAL "forbidden .cursor directory: $d"
+  # Derived editor state (.cursor/) must not be COMMITTED -- it is generated,
+  # not authored, so tracking it puts machine output in the history.
+  #
+  # It existing on disk is fine and is nobody's business but the operator's.
+  # The previous version tested `-d`, so it failed CRITICAL on an untracked
+  # local directory that harms nothing. Corrected 2026-08-31, operator:
+  # "they are not forbidden". The check now tests what the rule actually
+  # cares about -- whether git tracks it.
+  tracked="$(git -C "$root" ls-files -- '*.cursor/*' '.cursor/*' 2>/dev/null | head -20)"
+  if [ -n "$tracked" ]; then
+    printf '%s\n' "$tracked" | while IFS= read -r f; do
+      hee_status CRITICAL "derived editor state committed to git: $f"
     done
     rc=2
   fi
-  [ "$rc" -eq 0 ] && hee_status OK "boundary checks passed for $root"
+  if [ "$rc" -eq 0 ]; then
+    if [ -d "$root/.cursor" ]; then
+      hee_status OK "boundary checks passed for $root (local .cursor/ present, untracked -- fine)"
+    else
+      hee_status OK "boundary checks passed for $root"
+    fi
+  fi
   return "$rc"
 }
 
