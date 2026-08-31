@@ -1,9 +1,79 @@
 #!/bin/sh
+# hee-tools -- router for the external-toolchain check/update pair.
+#
+# Help is contextual: `help` as the LAST argument prints help for
+# wherever you are in the command, not always the top-level page.
+#   hee-tools help          -> this router
+#   hee-tools check help    -> hee-tools-check's own page
+#   hee-tools update help   -> hee-tools-update's own page
+# `--help` and `-h` are accepted as synonyms so hee-gen-manpages, which
+# runs `<tool> --help`, keeps working.
 set -eu
+
+usage() {
+  cat <<'EOF'
+hee-tools -- router for the external-toolchain check/update pair
+
+SYNOPSIS
+  hee-tools [check] [MANIFEST]
+  hee-tools update [MANIFEST] [EVIDENCE_DIR]
+  hee-tools [SUBCOMMAND] help
+
+DESCRIPTION
+  A two-line router. It does no work of its own: it execs one of two
+  sibling scripts in the same directory and passes every remaining
+  argument through unchanged.
+
+  With no subcommand it runs `check`, so a bare `hee-tools` is a
+  read-only inventory of the external tools this org expects to find on
+  a machine. Nothing is installed unless `update` is asked for by name.
+
+SUBCOMMANDS
+  check    report presence + version of every tool in the manifest
+           (default; execs hee-tools-check)
+  update   install/refresh the tools the manifest pins a version for
+           (execs hee-tools-update)
+
+  Add `help` after either for its own page:
+      hee-tools update help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK        the subcommand exited 0
+  2 CRITICAL  unknown subcommand (usage printed to stderr)
+
+  Any other status is the subcommand's own -- this router execs, so it
+  never rewrites the exit code of the tool it hands off to.
+
+SEE ALSO
+  hee-tools-check, hee-tools-update, tooling/tools.manifest.txt
+EOF
+}
+
+# Contextual help: `help` (or --help/-h) as the LAST argument.
+_last=""
+for _a in "$@"; do _last="$_a"; done
+case "$_last" in
+  help|--help|-h)
+    case "${1:-}" in
+      check)  exec "$(dirname "$0")/hee-tools-check" --help ;;
+      update) exec "$(dirname "$0")/hee-tools-update" --help ;;
+      *)      usage; exit 0 ;;
+    esac
+    ;;
+esac
+
 sub="${1:-check}"
 case "$sub" in
   check|"")
-    shift || true
+    # Real bug, found live 2026-08-31 writing this tool's help: a bare
+    # `hee-tools` -- the documented default, and the most common
+    # invocation -- printed "shift: can't shift that many" and exited 2
+    # without ever running the check. `shift` is a POSIX SPECIAL builtin,
+    # so its failure exits a non-interactive shell outright; neither the
+    # old `|| true` nor a 2>/dev/null can catch that. Guard the shift
+    # instead of trying to trap it.
+    if [ "$#" -gt 0 ]; then shift; fi
     exec "$(dirname "$0")/hee-tools-check" "$@"
     ;;
   update)

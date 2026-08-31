@@ -1,25 +1,7 @@
-#!/usr/bin/env python3
-"""HEE Hunter-Gatherer: Pill-based patch discovery and application orchestrator."""
+# hee-hg(1)
 
-import sys
-import os
-from pathlib import Path
-
-# Add the lib directory to path so we can import our modules
-script_dir = Path(__file__).parent
-lib_dir = script_dir.parent / "hee-hg" / "lib"
-sys.path.insert(0, str(lib_dir))
-
-# `help` as the LAST argument, plus --help/-h as synonyms -- the org's
-# tool-help contract (issue:462@human-execution-engine).
-#
-# This page deliberately documents almost nothing about how to USE the
-# tool, because there is nothing here to read: every argument this script
-# accepts is parsed by cli.main(), and tooling/hee-hg/lib/ has never
-# existed in this repo (`git log` finds no commit that ever added or
-# deleted it). Inventing a subcommand list from the one-line docstring
-# would be a man page that lies, which is worse than none.
-HELP = """hee-hg -- launcher for the Hunter-Gatherer orchestrator (LIBRARY MISSING)
+```
+hee-hg -- launcher for the Hunter-Gatherer orchestrator (LIBRARY MISSING)
 
 SYNOPSIS
   hee-hg [ARGUMENTS...]
@@ -58,18 +40,4 @@ FILES
 
 ENVIRONMENT
   Unknown -- whatever the missing cli module reads.
-"""
-
-if len(sys.argv) > 1 and sys.argv[-1] in ("help", "--help", "-h"):
-    print(HELP, end="")
-    sys.exit(0)
-
-try:
-    from cli import main
-    main()
-except ImportError as e:
-    print(f"Error: Failed to import required modules: {e}")
-    print(f"Script directory: {script_dir}")
-    print(f"Library directory: {lib_dir}")
-    print(f"Python path: {sys.path}")
-    sys.exit(1)
+```

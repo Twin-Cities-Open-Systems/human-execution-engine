@@ -44,6 +44,221 @@ except ImportError:
 
 URGENT_KEYWORDS = ("financial", "sovereignty", "security")
 
+# Help is contextual: `help` as the LAST argument prints help for wherever
+# you are in the command (issue:462@human-execution-engine). This tool's
+# modes are flags rather than subcommands, so the page is chosen by which
+# mode flag is present:
+#   hee-contract-review help                 -> the tool
+#   hee-contract-review --dump help          -> the dump mode
+#   hee-contract-review --action sign help   -> the sign mode
+# --help and -h are accepted as synonyms, and are answered BEFORE the
+# contract scan runs -- help must never wait on a filesystem walk.
+HELP_DUMP = """hee-contract-review --dump -- the sorted list, no TUI
+
+SYNOPSIS
+  hee-contract-review --dump
+  hee-contract-review --dump json
+
+DESCRIPTION
+  The same needed-first ranking the TUI shows, as plain text on stdout,
+  for scripting, piping, and testing.
+
+  Default (text) prints a count header then, per contract, a
+  [P<priority>/E<effort>] line with its name and status, the reasons
+  behind the priority guess, and its GitHub URL.
+
+  `--dump json` prints the same data as a k8s-list-shaped document --
+  apiVersion hee/v1, kind ContractReviewList, and an `items` array of
+  flat objects (name, path, status, age_days, priority, priority_why,
+  effort, effort_why, url). Matching the org's existing apiVersion
+  convention, not full k8s object bloat.
+
+  The word after --dump is read as the format only if it does not start
+  with a dash; anything other than `json` renders as text.
+
+EXIT STATUS
+  0 OK   the list was printed, including when it is empty
+
+EXAMPLES
+  hee-contract-review --dump
+  hee-contract-review --dump json | jq '.items[] | select(.priority > 6)'
+"""
+
+HELP_GOPHER = """hee-contract-review --gopher-menu -- RFC1436 menu text
+
+SYNOPSIS
+  hee-contract-review --gopher-menu
+
+DESCRIPTION
+  Writes a real gopher menu to stdout: CRLF-terminated lines, terminated
+  by a lone "." -- the format a gopher daemon serves directly.
+
+  Every line is an `i` information line, so nothing in the menu is
+  selectable. It is a rendering of the ranking, not a browsable index of
+  the contracts.
+
+  Host and port are baked in as man.tcos.us and 7070. They are function
+  defaults with no flag to change them; a different host needs an edit.
+
+EXIT STATUS
+  0 OK   the menu was printed
+
+EXAMPLES
+  hee-contract-review --gopher-menu
+"""
+
+HELP_SIGN = """hee-contract-review --action sign -- mass GPG ratification
+
+SYNOPSIS
+  hee-contract-review --action sign --key GPG-KEY-ID --signer 'NAME'
+
+DESCRIPTION
+  Walks every contract with status=proposed, needed-first, and prompts
+  once per contract. This is the only mode that WRITES to contract files
+  and the only one that runs gpg.
+
+  Prompt keys, the same shape hee-git-merge uses:
+    y   stage and sign this one now
+    N   skip (the default -- a bare Enter skips)
+    s   skip, explicitly
+    e   print the whole file, then ask again
+
+  Signing a contract is two ordered steps, and the order is the whole
+  point. The FINAL content is staged first -- `status: proposed` becomes
+  `status: ratified`, and a ratification_evidence line naming the .asc
+  file is inserted above ratification_required_from if that key exists.
+  Only then does `gpg --detach-sign --armor --local-user KEY` run, so
+  the signature covers the exact bytes that get committed. Sign first and
+  the signature no longer matches the file.
+
+  The gpg step runs on YOUR terminal against whatever secret key your own
+  gpg-agent holds. An agent cannot run this on your behalf; it can only
+  build the tool that makes running it yourself, over a whole queue, fast.
+
+  A file without a literal `status: proposed` line is skipped with a
+  reason rather than edited. If gpg fails after staging, the file is left
+  staged-but-unsigned and the exact command to retry is printed to
+  stderr -- that state is real and needs a human, so it is reported
+  loudly rather than rolled back.
+
+  Both --key and --signer are required. `--dry-run` appears in this
+  tool's own usage error string but is NOT implemented -- passing it does
+  nothing. Documented here rather than left to be discovered.
+
+EXIT STATUS
+  0 OK        the queue was walked -- including when every contract was
+              skipped, and including when a gpg failure was reported
+  1 WARNING   --action was not `sign`, or --key/--signer was missing.
+              Note: a usage error the org vocabulary would put at
+              2 CRITICAL; the tool really exits 1 today and is documented
+              as-is, not changed here.
+
+EXAMPLES
+  hee-contract-review --action sign --key 0xDEADBEEF --signer 'Spencer Butler'
+"""
+
+HELP = """hee-contract-review -- smart-sorted contract review, needed-first
+
+SYNOPSIS
+  hee-contract-review
+  hee-contract-review --dump [json]
+  hee-contract-review --gopher-menu
+  hee-contract-review --action sign --key GPG-KEY-ID --signer 'NAME'
+  hee-contract-review [--MODE] help
+
+DESCRIPTION
+  Collects every contract it can find, ranks them most-needed-first, and
+  presents that ranking in one of four ways. With no arguments it opens
+  the interactive curses TUI.
+
+  What it scans: *.yaml under any contracts/ or hee/contracts/ directory
+  one level inside /home/claude/git -- a HARDCODED workspace root, not
+  $HOME/git and not the current repo. GitHub URLs are built assuming the
+  Twin-Cities-Open-Systems org.
+
+  Worktrees are meant to be excluded -- they are ephemeral working
+  copies, never the canonical source for a signature -- but the filter
+  only recognises the `<repo>.worktrees/` path convention. A worktree
+  placed anywhere else (for example `<repo>/.claude/worktrees/`) is
+  still scanned, and the (repo, relative-path) dedupe does not collapse
+  it either, because its relative path differs. Verified live, 2026-08-31:
+  a run from inside such a worktree lists every contract twice. Real
+  limitation, stated rather than papered over.
+
+  Priority and effort are an HONEST GUESS, labelled as one, not data read
+  from the files -- almost no real contract carries a priority or effort
+  field. The guess is:
+
+    priority, 0-10, higher = more needed
+      8   no status field at all
+      7   status not_implemented
+      6   status proposed
+      5   an unrecognised status
+      4   status in_progress or partially_implemented
+      1   status ratified or completed
+      9   the file failed to parse
+      +1  updated-at is more than 5 days old
+      +2  "financial", "sovereignty" or "security" appears in the name
+      (capped at 10)
+
+    effort, 1-3, lower = quicker
+      1   the default -- read and sign
+      2   the spec body is longer than 800 characters when stringified
+
+  Every contract carries the reasons behind its own number, so the guess
+  can be argued with rather than trusted.
+
+  Sorting is priority descending, then effort ascending. pyyaml is used
+  when importable; without it a regex fallback recovers just name, status
+  and updated-at, so ranking still works but is coarser.
+
+MODES
+  (default)        interactive curses TUI: j/k or arrow keys move, Enter
+                   opens a detail view, q or Esc quits. Read-only.
+  --dump [json]    plain text or real JSON, no TUI
+  --gopher-menu    RFC1436 gopher menu text on stdout
+  --action sign    mass-ratify: prompts per proposed contract, then runs
+                   gpg on THIS terminal. The only mode that writes.
+
+  Add `help` after any mode for its own page:
+      hee-contract-review --action sign help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK        the mode ran
+  1 WARNING   unknown --action, or --key/--signer missing in sign mode.
+              Note: usage errors the org vocabulary would put at
+              2 CRITICAL; the tool really exits 1 today and is documented
+              as-is, not changed here.
+
+ENVIRONMENT
+  No environment variables are read. The scan root, the gopher host/port
+  and the GitHub org are all hardcoded, so none of them can be pointed
+  elsewhere without editing the tool. The default TUI needs a real
+  terminal; use --dump anywhere else.
+
+SEE ALSO
+  tools/hee/ratify-contract.sh -- the same staging logic, one contract
+  at a time
+"""
+
+
+def _print_help_and_exit(argv):
+    """Answer help before collect() walks the filesystem -- hee-gen-manpages
+    gives a tool 5 seconds to print its own help."""
+    if not (argv and argv[-1] in ("help", "--help", "-h")):
+        return
+    if "--action" in argv:
+        page = HELP_SIGN
+    elif "--gopher-menu" in argv:
+        page = HELP_GOPHER
+    elif "--dump" in argv:
+        page = HELP_DUMP
+    else:
+        page = HELP
+    print(page, end="")
+    sys.exit(0)
+
 
 def find_contracts():
     # Real gap fixed 2026-08-24: only hee/contracts/ was scanned, missing
@@ -331,6 +546,7 @@ def run_sign_mode(rows, keyid, signer):
 
 
 def main():
+    _print_help_and_exit(sys.argv[1:])
     rows = collect()
     if "--action" in sys.argv:
         i = sys.argv.index("--action")
