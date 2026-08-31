@@ -169,16 +169,29 @@ than duplicated there.
 
 **Real-Link Requirement**:
 
-- Bare shorthand references to issues/PRs (e.g. `fleet-ops#151`) are not
-  sufficient on their own — every reference to an issue, PR, or comment,
-  in both GitHub content (issue bodies, comments, PR descriptions) and
-  chat/agent output, must be a real markdown link to the actual URL
-  (`[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`)
-- The shorthand text is fine as the link label; the `(url)` is the
-  required part
-- Rationale: bare shorthand only auto-links inside GitHub's own
-  same-org rendering — it renders as dead text everywhere else (chat
-  transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+- Every reference to an issue, PR, or comment — in GitHub content
+  (issue bodies, comments, PR descriptions) **and** in chat/agent
+  output — is written as a **bare full URL**
+  (`https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151`).
+  Not shorthand, and **not a markdown link**.
+- Rationale, verified against GitHub's own renderer 2026-08-31:
+  - `fleet-ops#151` (owner-less) resolves **nowhere** — not even inside
+    GitHub. It is dead text everywhere, always.
+  - Bare `#151` and `owner/repo#151` autolink only in GitHub
+    conversations and commit messages — dead in repo files, wikis, and
+    issue/PR titles.
+  - A **markdown link** renders as plain text in a terminal with the URL
+    unreachable, so it is the wrong shape for agent/CLI output — the
+    real trigger for this rewrite: an agent emitted a status table of
+    markdown links that the operator could not click.
+  - A **bare full URL** is the only form that is clickable in a terminal
+    *and* autolinks in the GitHub UI — and GitHub shortens it on display
+    by itself, to `owner/repo#151` cross-repo or `#151` same-repo. One
+    written form, short rendering where it matters, no exceptions to
+    remember.
+- Markdown links remain correct for prose linking *words* to a
+  destination (`see the [workflow guide](url)`), where the link text is
+  not itself the reference. This rule is about issue/PR references.
 - A bare relative path (`docs/doctrine/HEE_POLICY.md`) is not a link
   either — it is not resolvable outside a checkout of this repo. Any
   reference to a repo file must be a full `https://github.com/...` URL

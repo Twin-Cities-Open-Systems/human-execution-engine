@@ -1,5 +1,6 @@
 # HEE Hardware Discovery Spec
 
+```yaml
 schema:
   name: HEE-Hardware-Discovery
   version: 0.1.0
@@ -20,6 +21,7 @@ meta:
     candidates:
       - gnu-pill
       - gnu-free
+```
 
 ## 0. Scope
 

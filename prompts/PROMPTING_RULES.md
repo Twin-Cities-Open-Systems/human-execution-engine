@@ -137,8 +137,12 @@ loaded, read this file directly rather than assume it did.
 14. **Default to Status Block for any multi-item progress/status report**:
     short bulleted lines, each prefixed with an icon+label status marker
     (✅/⏳/❌ or equivalent -- never a bare color, consistent with rule
-    #11's dataviz-skill requirement), real markdown links for every
-    issue/PR reference, no narrative padding around the list -- see the
+    11's dataviz-skill requirement), a **full URL** for every issue/PR
+    reference per rule 3 -- **never a markdown link in terminal output**,
+    which renders as text with the URL unreachable, the exact failure
+    rule 3 exists to prevent (real trigger 2026-08-31: this rule and rule
+    3 disagreed for one commit, and the stale half won) --
+    no narrative padding around the list -- see the
     `Status Block` glossary term (`.github/profile/GLOSSARY.md`) for the
     real precedent this codifies. General chat-output convention, not
     scoped to this repo.
