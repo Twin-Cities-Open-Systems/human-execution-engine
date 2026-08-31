@@ -74,6 +74,6 @@ fi
 # --branch is hardcoded to the project's real production branch so this
 # always deploys for real, regardless of whatever branch is checked out.
 cd "$HOME/git/tcos-www"
-HEE_TOOL_MODE=ACT "$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
+"$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
   cd '$RESUME_DIR' && CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" npx wrangler pages deploy dist --project-name resume --branch main
 "

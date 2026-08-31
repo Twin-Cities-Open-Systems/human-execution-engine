@@ -18,13 +18,20 @@ loaded, read this file directly rather than assume it did.
 
 ## The rules
 
-1. **Every git/gh mutation goes through the wrapper.** Raw `git commit`,
-   `git push`, `gh pr create`, etc. by an agent are not allowed — use
-   `scripts/hee_git_ops.sh <op> --act --reason "..."` with
-   `HEE_TOOL_MODE=ACT` set. If asked to mutate without that mode set:
-   `BLOCKER: Mutation requested but HEE_TOOL_MODE!=ACT or --act missing. Refusing.`
-   — then stop. Read-only git (`status`/`diff`/`log`/`show`) is fine
-   directly. See `docs/guides/GIT_GH_WORKFLOW.md` for the full spec.
+1. **Never commit or push directly to `main`.** All work happens on a
+   branch and lands through a PR. Ordinary `git`/`gh` commands are fine
+   on a branch — there is no wrapper to route through. Branch protection
+   on `main` is the real control: server-side, so it binds every
+   operator, agent and machine equally and cannot be bypassed by not
+   calling a script. **Retired 2026-08-31**: `scripts/hee_git_ops.sh`,
+   its CI presence check, and `HEE_TOOL_MODE`. The full reasoning is in
+   `docs/guides/GIT_GH_WORKFLOW.md` — short version: `--reason` was
+   required everywhere and never used by anything, `--act` plus
+   `HEE_TOOL_MODE` were two flags from the same hand, the op set had no
+   `merge`/`issue-create`/`rebase` so real work had no sanctioned path,
+   rule 12 instructed agents to run a command rule 1 banned, and the CI
+   check ran `continue-on-error: true` while only verifying that the
+   script existed.
 2. **Never fabricate.** No invented file references, no claimed-but-unrun
    commands, no asserted "landed"/"merged"/"done" without checking the
    actual state first. Includes the subtler form: never redirect stderr
@@ -32,13 +39,40 @@ loaded, read this file directly rather than assume it did.
    the resulting silence as a real negative result — check *why* a
    command produced no output before reporting what that silence means
    — HEE Policy §6.
-3. **Real links, not bare shorthand**, for issue/PR references — HEE
-   Policy §5. Structured work files (contracts/blueprints/doctrine YAML)
-   use the compact `issue:N@repo`/`pr:N@repo` notation instead — §13.
+3. **Reference issues and PRs as a short label linked to the full URL**:
+   `[repo#N](https://github.com/<owner>/<repo>/(issues|pull)/<n>)`. Short
+   to read, and the URL travels with it. **Measured, not inferred** --
+   operator probe 2026-08-31, four candidate forms tested live in both a
+   terminal and a browser:
+   - `repo#N` alone and `owner/repo#N` alone link **nowhere** outside a
+     GitHub conversation. The owner-less form resolves nowhere at all,
+     even inside GitHub (verified against GitHub's own renderer).
+   - A bare full URL works everywhere but is **too long to read** in
+     chat -- the operator's own verdict on seeing it.
+   - **OSC 8 terminal hyperlinks are impossible from an agent's chat
+     output.** The ESC bytes are stripped in transit, silently
+     concatenating URL and label into one broken string that 404s.
+     Do not attempt it. Tools writing straight to a TTY are unaffected
+     and *should* emit OSC 8.
+   - The linked short label renders correctly in both surfaces. It is
+     not click-through in the terminal -- a renderer limitation nothing
+     in this repo can fix -- but it is the best form that exists today.
+   Exceptions, because the renderer differs:
+   - **Repo `.md` files**: bare full URL. Nothing autolinks in files, so
+     a short label has nothing to fall back on.
+   - **Structured work files** (contracts/blueprints/doctrine YAML):
+     `issue:N@repo` / `pr:N@repo` -- §13. Machine-parsed, no renderer.
+   Rewritten twice in one day from inference before being settled by
+   measurement. Do not relitigate without new measurements.
 4. **Self-assign what you create, label from the existing set, never
-   invent a new label. Only the opener closes/merges their own ticket
-   or PR** — explicit exception only, never inferred — **HEE Policy
-   §10/§12.**
+   invent a new label** — **HEE Policy §10/§12.** **Merge authority,
+   relaxed 2026-08-31**: a PR merges when its checks pass and its
+   assignee is satisfied. A PR carrying the **`human`** label requires
+   explicit human approval before merge; no other PR does. The former
+   "only the opener closes/merges" rule is retired — it produced
+   confusion without a matching risk, and contradicted §10's own text.
+   Tighten again only once the workflow is stable and the tightening
+   earns its cost.
 5. **When in doubt, stop and ask rather than guess** — same invariant as
    below, restated because it's the one that matters most.
 6. **Target GNU tool syntax/behavior by default**, not BSD or another
@@ -116,11 +150,64 @@ loaded, read this file directly rather than assume it did.
 14. **Default to Status Block for any multi-item progress/status report**:
     short bulleted lines, each prefixed with an icon+label status marker
     (✅/⏳/❌ or equivalent -- never a bare color, consistent with rule
-    #11's dataviz-skill requirement), real markdown links for every
-    issue/PR reference, no narrative padding around the list -- see the
+    11's dataviz-skill requirement), a short linked label for every
+    issue/PR reference per rule 3 -- `[repo#N](full-url)`, never bare
+    shorthand and never a naked URL -- no narrative padding around the
+    list -- see the
     `Status Block` glossary term (`.github/profile/GLOSSARY.md`) for the
     real precedent this codifies. General chat-output convention, not
     scoped to this repo.
+
+15. **Check the existing `hee-*` tools first. Extend one. Never write a
+    one-off.** Before building anything, run `hee list` (or look in
+    `tooling/bin/`) and find the tool this belongs to. Add a subcommand or
+    a mode to that tool. A new top-level `hee-<cmd>` is a last resort and
+    needs a real reason -- closely-related functionality folded into an
+    existing tool beats a sibling command every time. A script written
+    outside the `hee` surface, used once and left in a session transcript,
+    is not a deliverable: nobody else can find it, run it, or maintain it.
+    Applies equally to shell helpers and Python: put the logic in
+    `library/` where it is testable and reusable, and keep the tool itself
+    thin. Spencer, direct, 2026-08-31: "must make sure you check current
+    hee tools and use, expand never one off. this must be mandated
+    governance and avail on startup." Real trigger the same session: an
+    agent was about to write a standalone doc-reference checker before
+    being told to extend `hee-check` instead -- which is where it now
+    lives, as `hee-check refs`.
+
+16. **Two layers of CI: ours for what's ours, standard for what's
+    standard.** Every repo runs `hee-check all` -- it needs no toolchain,
+    no language runtime, and catches org-specific rot nothing else looks
+    for (broken file references, hardcoded `/home/<user>/` paths, derived
+    state committed to git, invalid systemd units). On top of that, run the
+    standard tool for each language actually present: `shellcheck` for
+    shell, `ruff` for Python, `cargo clippy`/`fmt`/`test` for Rust, the
+    project's own test runner for JS.
+
+    **Never write a TCOS version of a tool that already exists.** A hee
+    tool earns its place only when the check is about something no external
+    tool can know -- `hee-lint` validates HEE object envelopes, `hee-view`
+    checks our sitemap against our hosts. Nobody should write a TCOS Python
+    linter; that is what `ruff` is.
+
+    **Call org tooling by checking out its home repo, never by vendoring a
+    copy.** `.github`'s site-health workflow is the pattern. Real trigger,
+    2026-08-31: vendoring produced three files named `security_scanner.py`
+    across three repos, doing two different jobs, all diverged
+    (issue:468@human-execution-engine).
+
+    **A CI job's name must not claim provenance its code does not have.**
+    Same trigger: `MT-logo-render` had jobs called "HEE Security Scan" and
+    "HEE Recipe Validation" that ran repo-local Python. A name implying a
+    shared standard is being enforced, when none is, is worse than no name.
+
+    **Never add a check that is red on day one.** If it finds real
+    pre-existing problems, land it `continue-on-error` WITH the reason and
+    the flip condition written in the workflow, and a ticket. A
+    permanently-red check trains people to ignore red -- measured cost:
+    `.github`'s site-health was red on 14/14 hosts every 30 minutes for
+    weeks, and a genuine outage would have been invisible in it
+    (issue:350@fleet-ops).
 
 ## Authority Invariants
 

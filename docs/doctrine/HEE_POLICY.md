@@ -89,22 +89,22 @@ Both fixed below.
   which also carries the org-wide commit/merge conventions).
 - Whichever prefix is used, all changes are made on a branch, never
   directly on `main`.
-- **All git/gh mutations below go through `scripts/hee_git_ops.sh`**
-  (`--act --reason "..."`, `HEE_TOOL_MODE=ACT` set) per
-  `prompts/PROMPTING_RULES.md` rule 1 — raw `git`/`gh` mutation commands
-  are not a real agent workflow, regardless of what the rest of this
-  section's prose examples might look like out of context.
+- **Ordinary `git`/`gh` commands are the workflow.** The
+  `scripts/hee_git_ops.sh` wrapper and `HEE_TOOL_MODE` were retired
+  2026-08-31 — see `docs/guides/GIT_GH_WORKFLOW.md` for the full
+  reasoning. The one hard rule that remains is above: never commit or
+  push directly to `main`, and let branch protection enforce it
+  server-side rather than a script an agent must choose to call.
 
 **Workflow (identity-prefixed, kept post-merge)**:
 
 ```bash
-export HEE_TOOL_MODE=ACT
-scripts/hee_git_ops.sh branch-create --act --reason "start work" <host-or-session-id>/work-description
+git switch -c <host-or-session-id>/work-description
 # Make changes, commit frequently:
-scripts/hee_git_ops.sh add --act --reason "stage changes" <paths...>
-scripts/hee_git_ops.sh commit --act --reason "commit" -m "..."
-scripts/hee_git_ops.sh push --act --reason "push branch"
-scripts/hee_git_ops.sh pr-create --act --reason "open PR" --base main --title "..." --body "..."
+git add <paths...>
+git commit -m "type(scope): ..."
+git push -u origin HEAD
+gh pr create --base main --title "..." --body "..."
 # Merge via the dedicated merge tool, not a raw `gh pr merge` --
 # no --delete-branch: this prefix is kept.
 hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-branch
@@ -113,12 +113,11 @@ hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-bran
 **Workflow (feature/, deleted post-merge)**:
 
 ```bash
-export HEE_TOOL_MODE=ACT
-scripts/hee_git_ops.sh branch-create --act --reason "start work" feature/work-description
-scripts/hee_git_ops.sh add --act --reason "stage changes" <paths...>
-scripts/hee_git_ops.sh commit --act --reason "commit" -m "..."
-scripts/hee_git_ops.sh push --act --reason "push branch"
-scripts/hee_git_ops.sh pr-create --act --reason "open PR" --base main --title "..." --body "..."
+git switch -c feature/work-description
+git add <paths...>
+git commit -m "type(scope): ..."
+git push -u origin HEAD
+gh pr create --base main --title "..." --body "..."
 hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --delete-branch
 ```
 
@@ -170,16 +169,41 @@ than duplicated there.
 
 **Real-Link Requirement**:
 
-- Bare shorthand references to issues/PRs (e.g. `fleet-ops#151`) are not
-  sufficient on their own — every reference to an issue, PR, or comment,
-  in both GitHub content (issue bodies, comments, PR descriptions) and
-  chat/agent output, must be a real markdown link to the actual URL
-  (`[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`)
-- The shorthand text is fine as the link label; the `(url)` is the
-  required part
-- Rationale: bare shorthand only auto-links inside GitHub's own
-  same-org rendering — it renders as dead text everywhere else (chat
-  transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+- Every reference to an issue, PR, or comment — in GitHub content
+  (issue bodies, comments, PR descriptions) **and** in chat/agent
+  output — is written as a **short label linked to the full URL**:
+  `[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`.
+  Short to read, and the URL travels with it.
+- **This was settled by measurement, not inference** (operator probe,
+  2026-08-31 — four candidate forms rendered live in both a terminal and
+  a browser). It had already been rewritten twice the same day from
+  reasoning alone, each time wrongly. Do not relitigate it without new
+  measurements.
+  - `fleet-ops#151` (owner-less) resolves **nowhere** — not even inside
+    GitHub. Dead text everywhere, always.
+  - Bare `#151` and `owner/repo#151` autolink only in GitHub
+    conversations and commit messages — dead in repo files, wikis, and
+    issue/PR titles.
+  - A **bare full URL** works everywhere but is **too long to read** in
+    chat. Operator's verdict on seeing it: "works, but too long."
+  - **OSC 8 terminal hyperlinks cannot be emitted from an agent's chat
+    output.** The ESC bytes are stripped in transit, silently
+    concatenating the URL and label into one broken string that 404s.
+    Measured, not assumed. Tools writing straight to a TTY are
+    unaffected and *should* emit OSC 8 — that is what `hee-link` is for.
+  - The **linked short label** renders correctly in both surfaces.
+    Operator's verdict: "looks good in both… browser -> perfect." It is
+    not click-through in a terminal — a renderer limitation nothing in
+    this repo can fix — but it is the best form that exists today.
+- **Exceptions, because the renderer differs**:
+  - **Repo `.md` files**: bare full URL. Nothing autolinks inside repo
+    files, so a short label has nothing to fall back on.
+  - **Structured work files** (contracts, blueprints, doctrine YAML):
+    the compact `issue:`/`pr:` notation from §13 — machine-parsed, no
+    renderer involved.
+- Markdown links remain correct for prose linking *words* to a
+  destination (`see the [workflow guide](url)`), where the link text is
+  not itself the reference. This rule is about issue/PR references.
 - A bare relative path (`docs/doctrine/HEE_POLICY.md`) is not a link
   either — it is not resolvable outside a checkout of this repo. Any
   reference to a repo file must be a full `https://github.com/...` URL

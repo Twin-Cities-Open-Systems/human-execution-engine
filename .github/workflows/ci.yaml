@@ -20,10 +20,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Enforce HEE GitOps admission control
-      continue-on-error: true
-      run: bash scripts/hee_ci_gitops_enforce.sh
-
 
     - name: Check for pager invocation prevention
       run: bash scripts/check_pager_prevention.sh
