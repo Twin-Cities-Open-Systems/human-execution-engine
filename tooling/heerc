@@ -19,6 +19,23 @@ case ":${PATH}:" in
   *) PATH="${HOME}/.local/bin:${PATH}" ;;
 esac
 
+# Status output style for every HEE tool (library/bash/vis.status.shfn.bash).
+# Per-oper preference, so it belongs in an rc file rather than hardcoded.
+#
+#   icon   ✅ OK   ⚠️ WARNING   ❌ CRITICAL   ❓ UNKNOWN     (default)
+#   ascii  [OK]    [WARN]       [CRIT]        [UNKN]         (pipes, logs, no-emoji terminals)
+#   plain  OK      WARNING      CRITICAL      UNKNOWN        (label only)
+#
+# See yours:  hee_status_demo
+: "${HEE_STATUS_STYLE:=icon}"
+export HEE_STATUS_STYLE
+
+# Guarded source so `hee_status_demo` and `hee_status` are available in any
+# shell that has this repo cloned -- absent repo, absent function, no error.
+if [ -r "${HOME}/git/human-execution-engine/library/bash/vis.status.shfn.bash" ]; then
+  . "${HOME}/git/human-execution-engine/library/bash/vis.status.shfn.bash"
+fi
+
 # Real footgun, 2026-08-28: an agent session ran raw mutating git across
 # three repos before ever reading PROMPTING_RULES.md's rule #1 (all
 # git/gh mutation goes through scripts/hee_git_ops.sh, not raw git).
