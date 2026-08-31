@@ -7,47 +7,32 @@ SYNOPSIS
   hee-check [boundary] [PATH]
   hee-check refs [--fix] [PATH]
   hee-check all [PATH]
-  hee-check --help
+  hee-check [SUBCOMMAND] help
 
 DESCRIPTION
   Checks a repository for integrity problems. PATH defaults to the current
-  directory, so the tool always checks where it is invoked, never the repo
-  it happens to be installed in.
+  directory, so the tool checks where it is invoked, never the repo it
+  happens to be installed in.
 
-  If PATH is a directory containing repositories rather than a repository
-  itself (for example ~/git), every repository directly inside it is
-  checked and the results are totalled. Recursion is one level deep by
-  design -- descending further would crawl vendored checkouts and
-  worktrees.
+  If PATH holds repositories rather than being one (for example ~/git),
+  every repository directly inside is checked and the results totalled.
+  One level deep by design -- deeper would crawl vendored checkouts.
 
 SUBCOMMANDS
-  boundary   Derived editor state (.cursor/) must not be committed to git.
-             A .cursor/ present on disk but untracked is fine and is not
-             reported. Default subcommand when none is given.
+  boundary   generated state is not committed (default)
+  refs       every file reference resolves
+  all        both
 
-  refs       Every file reference written in a doc must point at a file
-             that exists. Reads .md, .yaml, .yml and .json, and inspects
-             backticked and quoted paths -- not only markdown links.
-             docs/history/** and hee/evidence/** are excluded: those are
-             point-in-time snapshots, so a reference to a since-deleted
-             file is correct history rather than rot.
-
-  all        Run both.
-
-OPTIONS
-  --fix      refs only. Repairs a broken reference when exactly one real
-             file has that basename. Ambiguous references are left alone
-             for a human to decide, never guessed.
+  Add `help` after any subcommand for its own page:
+      hee-check refs help
 
 EXIT STATUS
   Nagios plugin convention.
-  0  OK        no problems found
-  1  WARNING   reserved
-  2  CRITICAL  problems found
-  3  UNKNOWN   could not determine (missing python3, unreadable path)
+  0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
 
 ENVIRONMENT
   HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+  HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
 
 EXAMPLES
   hee-check                     boundary check of the current repo
