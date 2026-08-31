@@ -26,6 +26,75 @@ else
   hee_status_code() { return 3; }
 fi
 
+# Help is contextual: `help` as the LAST argument prints help for wherever
+# you are in the command, not always the top-level page.
+#   hee-check help            -> the tool
+#   hee-check refs help       -> the refs subcommand
+#   hee-check boundary help   -> the boundary subcommand
+# `--help` and `-h` are accepted as synonyms so hee-gen-manpages, which
+# runs `<tool> --help`, keeps working.
+usage_refs() {
+  cat <<'EOF'
+hee-check refs -- every file reference in a doc must point at a real file
+
+SYNOPSIS
+  hee-check refs [--fix] [PATH]
+
+DESCRIPTION
+  Reads .md, .yaml, .yml and .json and checks every path-like reference
+  written in them -- backticked and quoted paths, not only markdown links.
+  This is the gap that let a contract reference a file that did not exist.
+
+  PATH defaults to the current directory. If PATH holds repositories
+  rather than being one (for example ~/git), each is checked and totalled.
+
+  Excluded by design: docs/history/** and hee/evidence/**. Those are
+  point-in-time snapshots, so a reference to a since-deleted file is
+  correct history rather than rot.
+
+OPTIONS
+  --fix   Repair a reference when exactly one real file has that basename.
+          Ambiguous references are left for a human, never guessed.
+
+EXIT STATUS
+  0 OK   2 CRITICAL broken refs found   3 UNKNOWN target unusable
+
+EXAMPLES
+  hee-check refs
+  hee-check refs ~/git
+  hee-check refs --fix ~/git/fleet-ops
+EOF
+}
+
+usage_boundary() {
+  cat <<'EOF'
+hee-check boundary -- generated state must not be committed to git
+
+SYNOPSIS
+  hee-check [boundary] [PATH]
+
+DESCRIPTION
+  Editor and tool generated state committed to a repo puts machine output
+  in the history and leaks one operator's local tooling into a shared
+  repo. Which editor an operator uses is their own business: a derived
+  directory present on disk but untracked is fine and is never reported.
+
+  The rule is "not committed", never "not present".
+
+ENVIRONMENT
+  HEE_DERIVED_DIRS   space-separated directories treated as generated
+                     state. Default: .cursor
+
+EXIT STATUS
+  0 OK   2 CRITICAL generated state is tracked   3 UNKNOWN target unusable
+
+EXAMPLES
+  hee-check
+  hee-check boundary ~/git/fleet-ops
+  HEE_DERIVED_DIRS=".cursor .idea .vscode" hee-check
+EOF
+}
+
 usage() {
   cat <<'EOF'
 hee-check -- repo boundary and integrity checks
@@ -34,52 +103,32 @@ SYNOPSIS
   hee-check [boundary] [PATH]
   hee-check refs [--fix] [PATH]
   hee-check all [PATH]
-  hee-check --help
+  hee-check [SUBCOMMAND] help
 
 DESCRIPTION
   Checks a repository for integrity problems. PATH defaults to the current
-  directory, so the tool always checks where it is invoked, never the repo
-  it happens to be installed in.
+  directory, so the tool checks where it is invoked, never the repo it
+  happens to be installed in.
 
-  If PATH is a directory containing repositories rather than a repository
-  itself (for example ~/git), every repository directly inside it is
-  checked and the results are totalled. Recursion is one level deep by
-  design -- descending further would crawl vendored checkouts and
-  worktrees.
+  If PATH holds repositories rather than being one (for example ~/git),
+  every repository directly inside is checked and the results totalled.
+  One level deep by design -- deeper would crawl vendored checkouts.
 
 SUBCOMMANDS
-  boundary   Editor/tool-generated state must not be committed to git --
-             committing it puts machine output in the history. A derived
-             directory present on disk but untracked is fine and is never
-             reported: which editor an operator uses is their own business.
-             Checked directories default to .cursor and are configurable
-             via HEE_DERIVED_DIRS. Default subcommand when none is given.
+  boundary   generated state is not committed (default)
+  refs       every file reference resolves
+  all        both
 
-  refs       Every file reference written in a doc must point at a file
-             that exists. Reads .md, .yaml, .yml and .json, and inspects
-             backticked and quoted paths -- not only markdown links.
-             docs/history/** and hee/evidence/** are excluded: those are
-             point-in-time snapshots, so a reference to a since-deleted
-             file is correct history rather than rot.
-
-  all        Run both.
-
-OPTIONS
-  --fix      refs only. Repairs a broken reference when exactly one real
-             file has that basename. Ambiguous references are left alone
-             for a human to decide, never guessed.
+  Add `help` after any subcommand for its own page:
+      hee-check refs help
 
 EXIT STATUS
   Nagios plugin convention.
-  0  OK        no problems found
-  1  WARNING   reserved
-  2  CRITICAL  problems found
-  3  UNKNOWN   could not determine (missing python3, unreadable path)
+  0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
 
 ENVIRONMENT
   HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
-  HEE_DERIVED_DIRS   space-separated directories treated as generated
-                     editor/tool state. Default: .cursor
+  HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
 
 EXAMPLES
   hee-check                     boundary check of the current repo
@@ -192,6 +241,21 @@ sys.exit(2 if total_broken else 0)
 PY
 }
 
+# Contextual help: `help` (or --help/-h) as the LAST argument.
+_last=""
+for _a in "$@"; do _last="$_a"; done
+case "$_last" in
+  help|--help|-h)
+    case "${1:-}" in
+      refs)     usage_refs ;;
+      boundary) usage_boundary ;;
+      all)      usage_boundary; echo; usage_refs ;;
+      *)        usage ;;
+    esac
+    exit 0
+    ;;
+esac
+
 cmd="${1:-boundary}"
 case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
@@ -200,7 +264,26 @@ case "$cmd" in
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
             [ "$a" -gt "$b" ] && exit "$a" || exit "$b" ;;
-  -h|--help|help) usage; exit 0 ;;
-  /*|.*|*/*) check_boundary "$cmd" ;;   # back-compat: bare ROOT argument
-  *) hee_status UNKNOWN "unknown subcommand: $cmd" >&2; usage >&2; exit 2 ;;
+  *)
+    # Back-compat: hee-check took a bare ROOT before it had subcommands.
+    # Decide by asking the filesystem, not by guessing at path shapes -- a
+    # pattern list missed a bare "." and broke the most common invocation.
+    # A path-shaped argument is a TARGET: validate it, so a missing one is
+    # UNKNOWN/3 ("could not determine") rather than being mistaken for a
+    # typo'd subcommand. A bare word is a subcommand: a typo is CRITICAL/2.
+    # Issue 440 turned on exactly this distinction -- `hee-check og` was a
+    # typo, `hee-check /nope` was a bad target, and both silently said OK.
+    case "$cmd" in
+      */*|.|..|~*) check_boundary "$cmd" ;;
+      *)
+        if [ -d "$cmd" ]; then
+          check_boundary "$cmd"
+        else
+          hee_status UNKNOWN "unknown subcommand: $cmd" >&2
+          usage >&2
+          exit 2
+        fi
+        ;;
+    esac
+    ;;
 esac
