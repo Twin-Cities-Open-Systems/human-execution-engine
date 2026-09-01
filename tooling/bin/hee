@@ -43,19 +43,44 @@ usage() {
   cat <<'TXT'
 hee — tiny router (POSIX sh)
 
-usage:
-  hee lint [--mode warn|error]
-  hee hooks install [--repo <path>]
-  hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
-  hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
-  hee contract review [--dump [json]] [--gopher-menu]
+SYNOPSIS
+  hee <command> [args...]
   hee list
   hee help
 
-design:
-  - TOOL root comes from this script location
-  - TARGET root comes from current git repo (cwd)
-  - extension: hee <cmd> tries tooling/bin/hee-<cmd> in target repo first, then tool repo
+DESCRIPTION
+  Dispatches to HEE tools. Most of the surface is extensions, not built-ins:
+  the seven below are all this script implements itself.
+
+  built-in:
+    hee lint [--mode warn|error]
+    hee hooks install [--repo <path>]
+    hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
+    hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
+    hee contract review [--dump [json]] [--gopher-menu]
+    hee list
+    hee help
+
+EXTENSIONS
+  Any executable named hee-<cmd> is a command: `hee check` runs
+  tooling/bin/hee-check. Dozens are installed. They are NOT listed here on
+  purpose -- a list kept in this file goes stale the moment someone adds a
+  tool, which is how man/hee.1 came to document six subcommands that no
+  longer existed.
+
+    hee list      every command actually on disk, derived, never hand-kept
+    hee <cmd> help   help for any one of them
+
+  Resolution order, first match wins:
+    1. <target repo>/tooling/bin/hee-<cmd>   -- the repo you are cd'd into
+    2. <tool repo>/tooling/bin/hee-<cmd>     -- where this script lives
+    3. any other repo under the workspace root, annotated by repo in `hee list`
+
+EXIT STATUS
+  Built-ins and extensions report in the Nagios vocabulary:
+    0  OK        1  WARNING      2  CRITICAL     3  UNKNOWN
+  Dispatching to an extension returns that tool's own exit status. An unknown
+  command is UNKNOWN (3).
 TXT
 }
 
@@ -281,8 +306,8 @@ case "${cmd}" in
       exec "${ext_workspace}" "$@"
     fi
 
-    echo "🟡 🟦 b # WARN: unknown command: ${cmd}" 1>&2
-    usage
-    exit 0
+    echo "UNKNOWN: unknown command: ${cmd} -- run 'hee list' for the real set" 1>&2
+    usage 1>&2
+    exit 3
     ;;
 esac
