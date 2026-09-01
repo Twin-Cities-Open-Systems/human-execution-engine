@@ -12,31 +12,41 @@ hee \- Human Execution Engine command dispatcher
 dispatches to installed HEE tools. Runtime truth is the installed toolchain under
 \fB~/.hee/bin\fR (or a repo-local prefix during test-drive).
 .SH SUBCOMMANDS
+Built-in:
 .TP
 .B help
-Show help.
+Show help. Works after any verb, and nothing to the right of it is executed.
 .TP
-.B ls
-List available subcommands.
+.B list
+List every available subcommand, built-in and extension.
 .TP
-.B print \fIpath|-\fR
-Pretty-print JSON/YAML/Markdown/Text using truth-tests (jq/yq) when possible.
+.B lint
+Validate HEE object envelopes.
 .TP
-.B fileident \fIpath|-\fR
-Emit YAML evidence (stat/file/wc/sha256 + parse checks + small snippets).
+.B "hooks install"
+Install this repo's git hooks.
 .TP
-.B pathcheck \fIcmd\fR
-Show PATH resolution and candidates; prints hash-clear commands.
+.B "git merge"
+Mass review/approve/merge open PRs.
 .TP
-.B http404 [opts] \fIaccess.log\fR
-Summarize 404s from an access log; shows top offenders; optional verbose/quiet.
+.B "ssh send-keys"
+Distribute SSH keys between hosts.
 .TP
-.B uiboss \fIargs...\fR
-Pass-through to uiboss.
-.TP
-.B serve [--bind IP] [--port N]
-Serve UIBOSS_DOCROOT. If hee_webserver is missing, fallback to python http.server
-and emit the fallback line into the log stream for parsers.
+.B "contract review"
+Review contract objects.
+.SH EXTENSIONS
+Any executable named
+.I hee\-<cmd>
+in the target repo's
+.I tooling/bin
+or the tool repo's, resolved in that order \(em so
+.B hee check
+runs
+.IR tooling/bin/hee\-check .
+Run
+.B hee list
+for the current set; it is derived from what is installed, not from a list
+kept here.
 .SH FILES
 .TP
 .B ~/.hee/bin

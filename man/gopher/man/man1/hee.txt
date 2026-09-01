@@ -12,32 +12,32 @@ DESCRIPTION
        toolchain under ~/.hee/bin (or a repo-local prefix during test-drive).
 
 SUBCOMMANDS
-       help   Show help.
+       Built-in:
 
-       ls     List available subcommands.
+       help   Show help. Works after any verb, and nothing to the right of  it
+              is executed.
 
-       print path|-
-              Pretty-print JSON/YAML/Markdown/Text using  truth-tests  (jq/yq)
-              when possible.
+       list   List every available subcommand, built-in and extension.
 
-       fileident path|-
-              Emit  YAML  evidence (stat/file/wc/sha256 + parse checks + small
-              snippets).
+       lint   Validate HEE object envelopes.
 
-       pathcheck cmd
-              Show PATH resolution and candidates; prints hash-clear commands.
+       hooks install
+              Install this repo's git hooks.
 
-       http404 [opts] access.log
-              Summarize 404s from an access log; shows top offenders; optional
-              verbose/quiet.
+       git merge
+              Mass review/approve/merge open PRs.
 
-       uiboss args...
-              Pass-through to uiboss.
+       ssh send-keys
+              Distribute SSH keys between hosts.
 
-       serve [--bind IP] [--port N]
-              Serve UIBOSS_DOCROOT. If hee_webserver is missing,  fallback  to
-              python  http.server  and  emit  the  fallback  line into the log
-              stream for parsers.
+       contract review
+              Review contract objects.
+
+EXTENSIONS
+       Any  executable named hee-<cmd> in the target repo's tooling/bin or the
+       tool repo's,  resolved  in  that  order  —  so  hee  check  runs  tool‐
+       ing/bin/hee-check.   Run  hee  list  for the current set; it is derived
+       from what is installed, not from a list kept here.
 
 FILES
        ~/.hee/bin
