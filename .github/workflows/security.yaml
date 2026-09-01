@@ -56,6 +56,7 @@ jobs:
           if [ -f "docs/doctrine/SECURITY.md" ]; then
             echo "✅ Security policy found"
           else
+            # hee-check:refs-ok  this branch fires precisely when it is absent
             echo "⚠️  Security policy missing at docs/doctrine/SECURITY.md"
           fi
 
@@ -89,7 +90,7 @@ jobs:
 
           # Example condition — replace with your real check
           if [ -f "scripts/check_security_compliance.sh" ]; then
-            bash scripts/check_security_compliance.sh
+            bash scripts/check_security_compliance.sh  # hee-check:refs-ok  guarded by the -f test above
             echo "✅ HEE-specific security compliance passed"
           else
             echo "ℹ️ No HEE-specific security compliance script found; skipping"
