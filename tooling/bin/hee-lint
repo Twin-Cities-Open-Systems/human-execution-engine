@@ -6,18 +6,64 @@
 # Behavior:
 #   Scans tracked *.yml/*.yaml; only checks files containing `apiVersion: hee/v1`.
 
+usage() {
+  cat <<'TXT'
+hee-lint -- fast lint gate for HEE-object YAML
+
+SYNOPSIS
+  hee-lint [--mode warn|error]
+  hee-lint help | --help | -h
+
+DESCRIPTION
+  Scans TRACKED *.yml/*.yaml and checks only files declaring
+  `apiVersion: hee/v1`. Everything else is ignored, so this is safe to run
+  across a mixed repo.
+
+  Checks: metadata present and parseable, metadata.annotations present,
+  metadata.annotations.inuid present, and a null inuid accompanied by
+  inuid_null_reason.
+
+OPTIONS
+  --mode warn    report findings, exit 1 if any (default)
+  --mode error   report findings, exit 2 if any
+
+EXIT STATUS
+  0  OK        clean, OR any findings under --mode warn
+  1           findings under --mode error
+  3  UNKNOWN   cannot run -- not in a git repo, or an unrecognized option
+
+  --mode warn ALWAYS exits 0. That is deliberate, not an oversight: warn
+  mode's own name promises a non-blocking report, and it previously exited 1
+  on any finding, silently gating commits on pre-existing unrelated failures
+  (real incident, 2026-08-24). Only --mode error blocks.
+
+  Documented as measured, not as it "should" be -- this help IS the published
+  man page, so an aspirational exit table would publish a lie.
+TXT
+}
+
+# Help is answered FIRST: before argument parsing, and before the git-repo
+# check. It needs neither. This tool is the reason library/py/hee_clicheck
+# exists -- `hee lint help` printed "not in a git repo" in bare color, which is
+# two defects in one line, and the generated man page became this tool's own
+# lint output because --help fell through to a silent `shift`.
+case "${1:-}" in
+  help|--help|-h) usage; exit 0 ;;
+esac
+
 MODE="warn"
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE="$2"; shift 2;;
+    -*) echo "UNKNOWN: unrecognized option: $1 -- see: hee lint help" >&2; exit 3;;
     *) shift;;
   esac
 done
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -z "${REPO_ROOT}" ]; then
-  echo "🔴 🟦 b # ERROR: not in a git repo"
-  exit 2
+  echo "🔴 UNKNOWN: not in a git repo -- hee-lint needs a checkout" >&2
+  exit 3
 fi
 
 FAIL=0
@@ -26,7 +72,7 @@ WARN=0
 # Only tracked YAML files (avoid untracked noise)
 FILES="$(cd "${REPO_ROOT}" && git ls-files '*.yml' '*.yaml' 2>/dev/null)"
 if [ -z "${FILES}" ]; then
-  echo "🟢 🟦 b # OK: no tracked YAML files"
+  echo "🟢 OK: no tracked YAML files"
   exit 0
 fi
 
@@ -45,19 +91,19 @@ check_file() {
 
     # find metadata block
     if ($txt !~ /(^|\n)\s*metadata:\s*\n/s) {
-      print "🔴 🟦 b # ERROR: missing metadata: $ARGV\n";
+      print "🔴 CRITICAL: missing metadata: $ARGV\n";
       exit 3;
     }
 
     # find annotations block under metadata (best-effort, indent based)
     if ($txt !~ /(^|\n)\s*metadata:\s*\n(.*?)(\n\S|$)/s) {
-      print "🔴 🟦 b # ERROR: cannot parse metadata block: $ARGV\n";
+      print "🔴 CRITICAL: cannot parse metadata block: $ARGV\n";
       exit 3;
     }
     my $meta = $2;
 
     if ($meta !~ /(^|\n)(\s*)annotations:\s*\n((?:\2[ \t]+\S.*\n?)*)/s) {
-      print "🔴 🟦 b # ERROR: missing metadata.annotations: $ARGV\n";
+      print "🔴 CRITICAL: missing metadata.annotations: $ARGV\n";
       exit 3;
     }
     my $ann = $3;
@@ -74,25 +120,25 @@ check_file() {
     }
 
     if (!$inuid) {
-      print "🔴 🟦 b # ERROR: missing metadata.annotations.inuid: $ARGV\n";
+      print "🔴 CRITICAL: missing metadata.annotations.inuid: $ARGV\n";
       exit 3;
     }
 
     # treat null/~ as null
     if ($inuid_val eq "null" || $inuid_val eq "~") {
       if (!$null_reason) {
-        print "🔴 🟦 b # ERROR: inuid is null but missing inuid_null_reason: $ARGV\n";
+        print "🔴 CRITICAL: inuid is null but missing inuid_null_reason: $ARGV\n";
         exit 3;
       }
     }
 
     # if it exists and is quoted empty -> warn/error
     if ($inuid_val =~ /^""$/ || $inuid_val =~ /^'\'''\''$/) {
-      print "🟡 🟦 b # WARN: inuid is empty string: $ARGV\n";
+      print "🟡 WARNING: inuid is empty string: $ARGV\n";
       exit 4;
     }
 
-    print "🟢 🟦 b # OK: $ARGV\n";
+    print "🟢 OK: $ARGV\n";
     exit 0;
   ' "$f"
   rc=$?
@@ -110,7 +156,7 @@ done
 
 if [ "${MODE}" = "error" ]; then
   if [ $FAIL -ne 0 ] || [ $WARN -ne 0 ]; then
-    echo "🔴 🟦 b # RESULT: fail=${FAIL} warn=${WARN} (mode=error)"
+    echo "🔴 CRITICAL: RESULT fail=${FAIL} warn=${WARN} (mode=error)"
     exit 1
   fi
 fi
@@ -121,14 +167,14 @@ fi
 # on ~23 pre-existing, unrelated blueprint/card failures. mode=warn now
 # always reports and exits 0; only mode=error (handled above) blocks.
 if [ $FAIL -ne 0 ]; then
-  echo "🔴 🟦 b # RESULT: fail=${FAIL} warn=${WARN} (mode=warn)"
+  echo "🟡 WARNING: RESULT fail=${FAIL} warn=${WARN} (mode=warn, non-blocking)"
   exit 0
 fi
 
 if [ $WARN -ne 0 ]; then
-  echo "🟡 🟦 b # RESULT: fail=${FAIL} warn=${WARN} (mode=warn)"
+  echo "🟡 WARNING: RESULT fail=${FAIL} warn=${WARN} (mode=warn)"
   exit 0
 fi
 
-echo "🟢 🟦 b # RESULT: fail=0 warn=0"
+echo "🟢 OK: RESULT fail=0 warn=0"
 exit 0
