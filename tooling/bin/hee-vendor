@@ -2,36 +2,60 @@
 # section: 1
 set -euo pipefail
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare dirname finds no library/.
+SELF="$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
 usage() {
   cat <<'USAGE'
-hee-vendor
+hee-vendor -- vendor HEE doctrine into a target repo, validator-safe
 
-Vendors HEE doctrine into a target repo using validator-safe layout.
+SYNOPSIS
+  hee-vendor --target REPO_PATH [--hee HEE_REPO_PATH] [--branch NAME]
+             [--no-push] [--auto-amend]
+  hee-vendor --check --target REPO_PATH [--hee HEE_REPO_PATH]
+  hee-vendor help
 
-Usage:
-  tooling/bin/hee-vendor --target <repo_path> [--hee <hee_repo_path>] [--branch <name>] [--no-push] [--auto-amend]
-  tooling/bin/hee-vendor --check  --target <repo_path> [--hee <hee_repo_path>]
+DESCRIPTION
+  Copies HEE doctrine into a target repo in a layout the governance
+  validator accepts, then opens a branch carrying the change.
 
-Behavior (vendored mode):
-  - prompts/hee/       <- HEE prompts (excluding .cursor)
-  - prompts/hee/docs/  <- HEE docs/specs
-  - docs/hee/          <- pointers + VERSION only (imperative-free)
-  - docs/HEE_POLICY.md <- pointer doc (imperative-free)
-  - installs scripts/hee-check.sh (consumer-side check)
-  - derives .cursor/prompts directly (no consumer repo script required)
+  Vendored mode writes:
+    prompts/hee/          HEE prompts, excluding .cursor
+    prompts/hee/docs/     HEE docs/specs
+    docs/hee/             pointers + VERSION only, imperative-free
+    docs/HEE_POLICY.md    pointer doc, imperative-free
+    scripts/hee-check.sh  consumer-side check
+    .cursor/prompts       derived directly; the consumer needs no script
 
-Notes:
-  - This tool creates/overwrites vendored directories in vendored mode.
-  - It creates a branch (default: chore/vendor-hee-policy) and pushes it.
+  This CREATES AND OVERWRITES those vendored directories, then creates a
+  branch (default chore/vendor-hee-policy) and pushes it. --no-push keeps
+  the branch local.
 
---check mode (non-mutating audit):
-  - Computes diffs that vendoring WOULD produce, without changing the target repo.
-  - Exit codes:
-      0  = no drift
-      2  = drift detected
-     >2  = tooling error
+  --check is a non-mutating audit. It computes the diff vendoring WOULD
+  produce and changes nothing.
+
+EXIT STATUS
+  In --check mode:
+    0   no drift
+    2   drift detected
+    >2  tooling error
+  Otherwise:
+    0   vendored
+    1   no --target given, or an unknown argument
 USAGE
 }
+
+# Contextual help, via the shared contract -- never a positional check.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 
 TARGET=""
 HEE=""
@@ -48,7 +72,6 @@ while [[ $# -gt 0 ]]; do
     --check) CHECK_ONLY=1; shift 1;;
     --no-push) NO_PUSH=1; shift 1;;
     --auto-amend) AUTO_AMEND=1; shift 1;;
-    -h|--help) usage; exit 0;;
     *) echo "Unknown arg: $1"; usage; exit 1;;
   esac
 done

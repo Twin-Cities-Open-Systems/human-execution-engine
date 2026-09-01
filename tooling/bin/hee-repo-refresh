@@ -54,6 +54,68 @@
 
 set -u
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-repo-refresh -- per-repo health check, pull, hygiene and branch prune
+
+SYNOPSIS
+  hee-repo-refresh MODE REPO_DIR
+  hee-repo-refresh MODE [all|-all]
+  hee-repo-refresh MODE -repo NAME[,NAME...]
+  hee-repo-refresh help
+
+DESCRIPTION
+  The worker behind bootstrap.mk's health-all-repos and pull-all-repos
+  targets. It lives in its own script, not inline in the Makefile, so the
+  GNU parallel path and the sequential fallback call the same logic rather
+  than two copies that can drift.
+
+MODES
+  health    report each repo's state in one line
+  pull      fast-forward each repo
+  hygiene   dirty-file and no-upstream-branch counts across ALL local
+            branches; prints nothing at all for a clean repo
+  prune     delete local branches GitHub confirms are merged
+  refresh   health, then pull, then the governance reminder -- the same
+            sequence as bootstrap.mk's refresh-all-repos
+
+SCOPE
+  A bare REPO_DIR is a filesystem path and is what bootstrap.mk passes
+  internally; it skips the governance reminder, since that form is always
+  one worker among many. `all`/`-all` and `-repo NAME,NAME` are the
+  human-facing forms, and take repo NAMES (dotfiles, not a full path),
+  resolved under ${HEE_GIT_ROOT:-$HOME/git}.
+
+ENVIRONMENT
+  HEE_GIT_ROOT   where repos live. Default: $HOME/git
+
+EXIT STATUS
+  0 completed   2 usage error
+USAGE
+}
+
+# Contextual help, via the shared contract. Answered before any real work --
+# a tool must be able to explain itself on a machine where its dependencies
+# are missing or it is run outside a repo. That is exactly when help is read.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 GIT_ROOT="${HEE_GIT_ROOT:-$HOME/git}"
 
