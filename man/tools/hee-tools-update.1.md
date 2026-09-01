@@ -50,7 +50,7 @@ hee-tools-update - install or refresh the pinned external toolchain
                           mikefarah/yq linux_amd64 release binary to
                           $HOME/.local/bin/yq and chmod +x's it.
       <name> pkg <any>    reports presence only and prints an apt hint. NEVER
-                          installs anything. Recognised for jq, bat, glow, rg
+                          installs anything. Recognized for jq, bat, glow, rg
                           and tmux by name; any other name:kind pair is logged
                           as an unknown manifest entry and skipped.
 

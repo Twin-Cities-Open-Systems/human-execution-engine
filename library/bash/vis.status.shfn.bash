@@ -16,15 +16,15 @@
 #
 #   It also fixes a real rule 11 defect at the API level: the older
 #   `vis_flag` took `green|yellow|red` -- the caller named a *hue*, not a
-#   severity. Colour was the semantics. Here the caller names severity and
+#   severity. Color was the semantics. Here the caller names severity and
 #   presentation is a downstream, user-configurable concern.
 #
 # RULE 11 COMPLIANCE:
-#   Every line ships an icon AND a text label, never colour alone, and the
+#   Every line ships an icon AND a text label, never color alone, and the
 #   icons are shape-distinct (check / triangle / cross / question) rather
 #   than three identical circles differing only in hue -- which is what
 #   made the old 🔴🟡🟢 output unreadable on a daltonized theme even
-#   though it was technically "coloured correctly".
+#   though it was technically "colored correctly".
 #
 # STYLE (user preference -- set in heerc, or per-shell):
 #   HEE_STATUS_STYLE=icon    ✅ OK      message      (default)
@@ -38,9 +38,9 @@
 #   froze the icons until it was decoupled 2026-08-31.)
 
 hee_status__level() {
-  # Normalise: accept lowercase, the legacy vocabularies already in use
-  # across the tree (PASS/FAIL/SUCCESS), and the legacy colour words.
-  # Colour words are accepted for migration only -- never name a hue in
+  # Normalize: accept lowercase, the legacy vocabularies already in use
+  # across the tree (PASS/FAIL/SUCCESS), and the legacy color words.
+  # Color words are accepted for migration only -- never name a hue in
   # new code, name a severity. This alias table MUST stay in lockstep
   # with library/py/hee_status/__init__.py's _ALIASES; a parity test
   # caught them diverging on PASS/FAIL the first time round.
