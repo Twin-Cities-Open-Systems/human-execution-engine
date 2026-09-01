@@ -34,13 +34,13 @@ otherwise.
 4. Session start is gated: `ci/git/hee-preflight.sh` must exit 0 before any
    work begins (also enforced in CI). Broken state is not background noise
    -- if it fails, remediation is the task, not a side note. (Folded in
-   from the retired `docs/doctrine/hee-session-entry.md`, 2026-08-27 --
+   from the retired `docs/doctrine/hee-session-entry.md`, 2026-08-27 -- <!-- hee-check:refs-ok  removed when it was folded in here -->
    same real gate, that file was just stale and never updated.)
 5. Never commit or push directly to `main` -- all work happens on a branch
    and lands through a PR. Ordinary `git`/`gh` commands are fine on a
    branch; there is no wrapper to route through. See
    `docs/guides/GIT_GH_WORKFLOW.md`. (Retired 2026-08-31:
-   `scripts/hee_git_ops.sh` and `HEE_TOOL_MODE`. This item previously
+   `scripts/hee_git_ops.sh` and `HEE_TOOL_MODE`. <!-- hee-check:refs-ok  retired by #456 --> This item previously
    recorded its own gap -- "this hasn't actually been followed in practice
    yet" per
    https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/173 -- which

@@ -29,7 +29,7 @@ spec:
   known_issues:
     - pre-commit messaging printed a green success marker in a failure scenario earlier; needs P0 fix
   local_notes:
-    - debug file observed: hee/pills/debug.debug (611 lines) (not part of PR)
+    - debug file observed: hee/pills/debug.debug (611 lines) (not part of PR)  # hee-check:refs-ok  records what was on disk then; never committed
     - stray/unrelated files were stashed to keep PR clean
   next:
     - review/merge PR 139 using merge-commit policy

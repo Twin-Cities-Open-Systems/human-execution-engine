@@ -11,5 +11,5 @@
 consumers:
   - repo: spencerbutler/market-thesis-news
     mode: vendored
-    policy_version_path: docs/hee/VERSION.md
+    policy_version_path: docs/hee/VERSION.md  # hee-check:refs-ok  hee-vendor CREATES this in the consumer repo
     vendor_tool: tooling/bin/hee-vendor

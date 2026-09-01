@@ -39,7 +39,7 @@ override_controller.force_prompt("contains:sudo")
 
 ### System-Wide Disable
 
-1. Edit `tooling/smart-approval/rollout_config.yml`
+1. Edit `tooling/smart-approval/rollout_config.yml <!-- hee-check:refs-ok  removed since; the runbook records the rollout as it ran -->`
 2. Set `read_only_auto_approve: false`
 3. Restart Cline integration
 

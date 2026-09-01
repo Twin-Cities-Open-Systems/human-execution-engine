@@ -47,13 +47,10 @@ jobs:
       - name: regex -- shared patterns agree across every engine
         run: tooling/bin/hee-check regex
 
-      # RED: 83 findings, and they are one decision rather than a cleanup --
-      # docs/TROUBLESHOOTING.md and three others document ~20 scripts/*.py
-      # files that do not exist. Fixing the paths would be worse than
-      # deleting the docs.
-      # FLIP TO BLOCKING when issue 504 is closed.
+      # GREEN: all 406 references resolve. This landed continue-on-error at
+      # 96 findings, with the condition "flip when issue 504 is closed". That
+      # is what this change does, so it blocks -- and no soft job remains.
       - name: refs -- every file reference resolves
-        continue-on-error: true
         run: tooling/bin/hee-check refs
 
       # GREEN: 54/54. It was written here continue-on-error with the flip

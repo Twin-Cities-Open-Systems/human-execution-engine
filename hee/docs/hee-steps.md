@@ -47,6 +47,7 @@ Changes not staged for commit:
   (use "git restore <file>..." to discard changes in working directory)
 	modified:   hee/docs/pve-prep.md
 
+<!-- hee-check:refs-off  verbatim git status output; these files were untracked and stayed that way -->
 Untracked files:
   (use "git add <file>..." to include in what will be committed)
 	hee/docs/hee-environment-ingress-path-inspector.sh

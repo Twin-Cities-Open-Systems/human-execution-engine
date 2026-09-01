@@ -297,8 +297,8 @@ docs/TEMPLATES/
 # Create new HEE capsule from template
 cp docs/TEMPLATES/STATE_CAPSULE_TEMPLATE.md docs/history/state_capsules/$(date +%Y-%m-%d)/HEE-Session.md
 
-# Validate HEE capsule structure
-python scripts/validate_hee_capsule.py --input capsule.md --hee-rules
+# Validate the object envelope
+tooling/ci/hee-lint
 ```
 
 ### 2. HEE Directory Management

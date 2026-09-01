@@ -21,7 +21,7 @@ spec:
     - "contracts/ content exists in 5 separate directories (contracts/, hee/contracts/, hee/gcic/contracts/, tooling/smart-approval/contracts/, docs/contracts/ui-dom/) despite contracts/README.md already declaring itself canonical and stating machine schemas belong in schemas/"
     - "scripts/, tooling/, and tools/ are three separate homes for repo automation with no documented boundary between them (matches fleet-ops#205, filed as an unscoped idea, never resolved)"
     - "hee/ duplicates root-level directory names (contracts, docs, library, tools, evidence, policy, governance) with no documented relationship between the hee/ copy and the root copy"
-    - "docs/ has grown to 26 subdirectories against a 4-category target (doctrine/specs/guides/decisions) proposed by a January 2026 structure audit (docs/HEE_STRUCTURE_COMPLIANCE_AUDIT.md) -- that audit also claimed docs/decisions/ was created and docs/HEE.md + docs/HEE_POLICY.md were moved out of docs/ root; both claims verified false against the live tree as of 2026-08-23, 7 months later"
+    - "docs/ has grown to 26 subdirectories against a 4-category target (doctrine/specs/guides/decisions) proposed by a January 2026 structure audit (docs/history/audits/2026-01-25-structure-compliance-audit.md) -- that audit also claimed docs/decisions/ was created and docs/HEE.md + docs/HEE_POLICY.md were moved out of docs/ root; both claims verified false against the live tree as of 2026-08-23, 7 months later"
     - "math/, rfcs/ at repo root collide by name with docs/math/, docs/rfc/ -- unclear which is authoritative for either topic"
     - "docs/MODULES and docs/TEMPLATES break the otherwise all-lowercase docs/ naming convention"
   non_goals:

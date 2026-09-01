@@ -193,7 +193,7 @@ validator-contract:
   validators:
     chat-header:
       doctrine:
-        path: "blueprints/chat-header-doctrine.yml"
+        path: "blueprints/chat-header-doctrine.yml  # hee-check:refs-ok  removed since; kept as the record of what this validated"
         doctrine-mode: strict
       instance:
         modes: [strict, tolerant]

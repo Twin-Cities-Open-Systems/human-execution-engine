@@ -23,7 +23,7 @@ loaded, read this file directly rather than assume it did.
    on a branch — there is no wrapper to route through. Branch protection
    on `main` is the real control: server-side, so it binds every
    operator, agent and machine equally and cannot be bypassed by not
-   calling a script. **Retired 2026-08-31**: `scripts/hee_git_ops.sh`,
+   calling a script. **Retired 2026-08-31**: `scripts/hee_git_ops.sh`, <!-- hee-check:refs-ok  the retirement is the point -->
    its CI presence check, and `HEE_TOOL_MODE`. The full reasoning is in
    `docs/guides/GIT_GH_WORKFLOW.md` — short version: `--reason` was
    required everywhere and never used by anything, `--act` plus
@@ -116,7 +116,7 @@ loaded, read this file directly rather than assume it did.
     the skill. Spencer, direct: "this red is anti spencer." Status colors
     (good/warning/serious/critical) ship with an icon + label, never color
     alone, and any real palette gets run through the skill's
-    `scripts/validate_palette.js` before shipping -- see `UI_UX_REVIEW.md`/
+    `scripts/validate_palette.js` <!-- hee-check:refs-ok  ships with the dataviz skill, not this repo --> before shipping -- see `UI_UX_REVIEW.md`/
     `STATUS_AND_PRIORITIES.md` in `thesis-engine` for prior real findings
     from the same validator. Applies org-wide, not just chart code: plain
     chat/table output using red/green as the only distinguishing cue is
