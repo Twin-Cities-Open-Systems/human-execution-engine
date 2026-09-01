@@ -88,8 +88,8 @@ case "$SCOPE_ARG" in
         git -C "$DIR" fetch --quiet 2>/dev/null
         branch=$(git -C "$DIR" branch --show-current 2>/dev/null)
         status=$(git -C "$DIR" status --porcelain 2>/dev/null)
-        tracked_dirty=$(printf '%s\n' "$status" | grep -v '^??' | grep -c . || true)
-        untracked=$(printf '%s\n' "$status" | grep -c '^??' || true)
+        tracked_dirty=$(printf '%s\n' "$status" | rg -v '^\?\?' | rg -c . || echo 0)
+        untracked=$(printf '%s\n' "$status" | rg -c '^\?\?' || echo 0)
         upstream=$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
         if [ -n "$upstream" ]; then
           set -- $(git -C "$DIR" rev-list --left-right --count "HEAD...$upstream" 2>/dev/null)
@@ -114,7 +114,7 @@ case "$SCOPE_ARG" in
         fi
         ;;
       pull)
-        tracked_dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | grep -v '^??' | grep -c . || true)
+        tracked_dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | rg -v '^\?\?' | rg -c . || echo 0)
         if [ "$tracked_dirty" != "0" ]; then
           echo "🟠 $R: skipped -- $tracked_dirty uncommitted change(s) to tracked files, not touching"
           exit 0
@@ -124,7 +124,45 @@ case "$SCOPE_ARG" in
         if [ "$rc" -eq 0 ]; then
           echo "🟢 $R: $(printf '%s\n' "$out" | tail -1)"
         else
-          echo "🔴 $R: pull failed -- $(printf '%s\n' "$out" | tail -1)"
+          # Report the line that NAMES the failure, not the last line.
+          #
+          # `tail -1` gave fragments that hid the cause, repeatedly. Two real
+          # examples from one session:
+          #
+          #   "pull failed -- Updating fbc2470..ff02d19"
+          #       reads like success; the real error (untracked files would be
+          #       overwritten) was several lines above.
+          #
+          #   "pull failed -- from the remote, but no such ref was fetched."
+          #       the sentence starts on the PREVIOUS line, which is the half
+          #       that names the missing ref.
+          #
+          # git puts the useful text on error:/fatal: lines, so prefer those.
+          # rg, not grep -- org rule, and this is an operator-local tool so
+          # rg is reliably present (unlike CI runners, where hee#450 was caused
+          # by a runner without it).
+          why="$(printf '%s\n' "$out" | rg '^(error|fatal):' | head -2 | tr '\n' ' ')"
+          [ -z "$why" ] && why="$(printf '%s\n' "$out" | rg -v '^$' | tail -2 | tr '\n' ' ')"
+          echo "🔴 $R: pull failed -- $why"
+
+          # Two causes account for nearly every failure seen in practice, and
+          # neither is obvious from git's wording. Name the fix.
+          case "$out" in
+            *"no such ref was fetched"*|*"couldn't find remote ref"*)
+              _def="$(git -C "$DIR" remote show origin 2>/dev/null | awk '/HEAD branch/{print $NF}')"
+              _cur="$(git -C "$DIR" branch --show-current 2>/dev/null)"
+              echo "     ↳ '$_cur' tracks a remote branch that no longer exists"
+              echo "       (deleted on merge, or a stale origin/HEAD)."
+              echo "       fix: git -C $DIR remote set-head origin -a"
+              echo "            git -C $DIR switch ${_def:-main}"
+              ;;
+            *"untracked working tree files would be overwritten"*)
+              echo "     ↳ incoming tracked files collide with untracked local copies."
+              echo "       'git checkout --' does NOT remove untracked files."
+              echo "       fix: git -C $DIR clean -nd <dir>   # dry run first"
+              echo "            git -C $DIR clean -fd <dir>"
+              ;;
+          esac
         fi
         ;;
       prune)
@@ -144,13 +182,13 @@ case "$SCOPE_ARG" in
         origin_url=$(git -C "$DIR" remote get-url origin 2>/dev/null)
         gh_repo=$(printf '%s\n' "$origin_url" | sed -E 's#.*[:/]([^/]+/[^/.]+)(\.git)?$#\1#')
         [ -z "$gh_repo" ] && { echo "🔴 $R: no real origin remote, skipped"; exit 0; }
-        local_branches=$(git -C "$DIR" branch --format='%(refname:short)' | grep -v "^${default}\$")
+        local_branches=$(git -C "$DIR" branch --format='%(refname:short)' | rg -v "^${default}\$")
         [ -z "$local_branches" ] && { echo "🟢 $R: no stray local branches"; exit 0; }
         merged=$(gh pr list --repo "$gh_repo" --state merged --limit 1000 --json headRefName -q '.[].headRefName' 2>/dev/null)
         to_delete=$(comm -12 <(printf '%s\n' "$local_branches" | sort -u) <(printf '%s\n' "$merged" | sort -u))
         [ -z "$to_delete" ] && { echo "🟢 $R: 0 real GitHub-confirmed-merged local branches to prune"; exit 0; }
         current=$(git -C "$DIR" branch --show-current 2>/dev/null)
-        if printf '%s\n' "$to_delete" | grep -qx "$current"; then
+        if printf '%s\n' "$to_delete" | rg -qx "$current"; then
           git -C "$DIR" checkout "$default" --quiet 2>/dev/null
         fi
         deleted=0; skipped=0
