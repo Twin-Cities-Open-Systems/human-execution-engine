@@ -1,11 +1,17 @@
-# hee-pve-health(1)
+% HEE-PVE-HEALTH(1) | HEE Tools
 
-```
-usage: hee-pve-health [-h] {status,warn} ...
+# NAME
 
-positional arguments:
-  {status,warn}
+hee-pve-health - hee-pve-health command
 
-options:
-  -h, --help     show this help message and exit
-```
+# SYNOPSIS
+
+    hee-pve-health [-h] {status,warn} ...
+
+# DESCRIPTION
+
+    positional arguments:
+      {status,warn}
+
+    options:
+      -h, --help     show this help message and exit

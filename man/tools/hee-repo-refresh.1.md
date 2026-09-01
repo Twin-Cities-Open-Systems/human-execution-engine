@@ -18,9 +18,9 @@ invoked identically two ways: `parallel hee-repo-refresh health ::: $repos`
 picks whichever via `command -v parallel`.
 
 Usage:
-  hee-repo-refresh <health|pull|hygiene|refresh> <repo-dir>
-  hee-repo-refresh <health|pull|hygiene|refresh> [all|-all]
-  hee-repo-refresh <health|pull|hygiene|refresh> -repo <name>[,<name>...]
+  hee-repo-refresh <health|pull|hygiene|prune|refresh> <repo-dir>
+  hee-repo-refresh <health|pull|hygiene|prune|refresh> [all|-all]
+  hee-repo-refresh <health|pull|hygiene|prune|refresh> -repo <name>[,<name>...]
 
 The bare <repo-dir> positional form (a real filesystem path) is what
 bootstrap.mk's own health-all-repos/pull-all-repos targets pass

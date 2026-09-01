@@ -14,51 +14,67 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-TOOLS-CHECK" "1" "" "" "HEE Tools"
 .hy
-.SH hee-tools-check(1)
+.SH NAME
+.PP
+hee-tools-check - is every external tool this org expects actually here
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-tools-check -- is every external tool this org expects actually here
+hee-tools-check [MANIFEST]
+hee-tools-check help
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+Reads a whitespace-separated manifest of external tools and reports,
+one line each, whether the tool is on PATH and what version it claims.
 
-SYNOPSIS
-  hee-tools-check [MANIFEST]
-  hee-tools-check help
+MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
+this script, not to the current directory, so it works from anywhere.
+Blank lines and lines starting with # are skipped. Only the FIRST
+field of each line (the tool name) is used -- the kind and desired-
+version columns are read by hee-tools-update, not by this tool.
 
-DESCRIPTION
-  Reads a whitespace-separated manifest of external tools and reports,
-  one line each, whether the tool is on PATH and what version it claims.
+Presence is \[ga]command -v\[ga]. The version string is the first line of
+\[ga]<tool> --version\[ga], falling back to \[ga]<tool> -V\[ga]; if neither works the
+line reads (version-flag-unknown). Nothing is installed, downloaded,
+or modified -- this tool is strictly read-only.
 
-  MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
-  this script, not to the current directory, so it works from anywhere.
-  Blank lines and lines starting with # are skipped. Only the FIRST
-  field of each line (the tool name) is used -- the kind and desired-
-  version columns are read by hee-tools-update, not by this tool.
-
-  Presence is \[ga]command -v\[ga]. The version string is the first line of
-  \[ga]<tool> --version\[ga], falling back to \[ga]<tool> -V\[ga]; if neither works the
-  line reads (version-flag-unknown). Nothing is installed, downloaded,
-  or modified -- this tool is strictly read-only.
-
-  Note, real and worth knowing before you script against it: a missing
-  tool is reported in the OUTPUT but does not change the exit code.
-  Parse the status LABEL (per vis.status.shfn.bash), never the exit
-  code, to decide whether the toolchain is complete.
-
-EXIT STATUS
-  Nagios plugin convention.
-  0 OK   every manifest line was read and reported, whether or not the
-         tools themselves are present
-  Any other status comes from the shell\[aq]s own \[ga]set -e\[ga] -- in practice an
-  unreadable MANIFEST. This tool does not currently map that to a
-  vocabulary code; documented as-is, not changed here.
-
-ENVIRONMENT
-  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
-  PATH               searched for each manifest tool
-
-SEE ALSO
-  hee-tools, hee-tools-update, tooling/tools.manifest.txt
+Note, real and worth knowing before you script against it: a missing
+tool is reported in the OUTPUT but does not change the exit code.
+Parse the status LABEL (per vis.status.shfn.bash), never the exit
+code, to decide whether the toolchain is complete.
+\f[R]
+.fi
+.SH ENVIRONMENT
+.IP
+.nf
+\f[C]
+HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+PATH               searched for each manifest tool
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+Nagios plugin convention.
+0 OK   every manifest line was read and reported, whether or not the
+       tools themselves are present
+Any other status comes from the shell\[aq]s own \[ga]set -e\[ga] -- in practice an
+unreadable MANIFEST. This tool does not currently map that to a
+vocabulary code; documented as-is, not changed here.
+\f[R]
+.fi
+.SH SEE ALSO
+.IP
+.nf
+\f[C]
+hee-tools, hee-tools-update, tooling/tools.manifest.txt
 \f[R]
 .fi

@@ -1,14 +1,20 @@
-# hee-pve-deploy(1)
+% HEE-PVE-DEPLOY(1) | HEE Tools
 
-```
-usage: hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run] manifest
+# NAME
 
-positional arguments:
-  manifest
+hee-pve-deploy - hee-pve-deploy command
 
-options:
-  -h, --help   show this help message and exit
-  --node NODE
-  --host HOST
-  --dry-run
-```
+# SYNOPSIS
+
+    hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run] manifest
+
+# DESCRIPTION
+
+    positional arguments:
+      manifest
+
+    options:
+      -h, --help   show this help message and exit
+      --node NODE
+      --host HOST
+      --dry-run

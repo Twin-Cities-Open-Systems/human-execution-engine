@@ -1,5 +1,9 @@
-# hee-hooks-install(1)
+% HEE-HOOKS-INSTALL(1) | HEE Tools
 
-```
-🟢 🟦 b # OK: installed pre-commit hook -> /home/claude/git/human-execution-engine/.git/hooks/pre-commit
-```
+# NAME
+
+hee-hooks-install - hee-hooks-install command
+
+# DESCRIPTION
+
+    🟢 🟦 b # OK: installed pre-commit hook -> /home/claude/git/human-execution-engine/.git/hooks/pre-commit

@@ -14,18 +14,28 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-SSH-TRUST-CA" "1" "" "" "HEE Tools"
 .hy
-.SH hee-net(1)
+.SH NAME
+.PP
+hee-ssh-trust-ca - hee-ssh-trust-ca command
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-usage: hee-net [-h] -proto {gopher,finger} [-url URL] [-query QUERY]
+hee-ssh-trust-ca [-h] [--yes] [--ca-pubkey CA_PUBKEY]
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+                        [--conf-name CONF_NAME]
 
 options:
   -h, --help            show this help message and exit
-  -proto {gopher,finger}
-  -url URL
-  -query QUERY
+  --yes                 actually write + reload; default is dry-run
+  --ca-pubkey CA_PUBKEY
+  --conf-name CONF_NAME
 \f[R]
 .fi

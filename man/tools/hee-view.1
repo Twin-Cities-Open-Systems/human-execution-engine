@@ -14,14 +14,24 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-VIEW" "1" "" "" "HEE Tools"
 .hy
-.SH hee-view(1)
+.SH NAME
+.PP
+hee-view - hee-view command
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-usage: hee-view [-h] [--pve-host PVE_HOST] [--haproxy-host HAPROXY_HOST]
+hee-view [-h] [--pve-host PVE_HOST] [--haproxy-host HAPROXY_HOST]
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
                 [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
+                [--network {lab,public,all}]
 
 options:
   -h, --help            show this help message and exit
@@ -33,5 +43,9 @@ options:
   --sites               check every real URL in the site map answers 200-399
   --sitemap SITEMAP     sitemap source -- URL or local path (default: real
                         .github/profile/SITEMAP.yaml on main)
+  --network {lab,public,all}
+                        only check sites on this network. A GitHub-hosted
+                        runner can only reach \[aq]public\[aq]; an on-host checker
+                        inside the lab can reach \[aq]lab\[aq]. Default all.
 \f[R]
 .fi

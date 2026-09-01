@@ -14,32 +14,24 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "HEE-NAME" "1" "" "" "HEE Tools"
+.TH "HEE-SITE-PUBLISH" "1" "" "" "HEE Tools"
 .hy
 .SH NAME
 .PP
-hee-name - hee-name command
+hee-site-publish - add real files into resume/dist/ and deploy the whole
+tree
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-name [-h] [-list-pools] [-allocate] [-release NAME] [-list]
+hee-site-publish --add <file> [--add <file> ...] [--dry-run]
 \f[R]
 .fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-                [--pool POOL] [--scope SCOPE] [--prefix PREFIX]
-
-options:
-  -h, --help       show this help message and exit
-  -list-pools
-  -allocate
-  -release NAME
-  -list
-  --pool POOL
-  --scope SCOPE
-  --prefix PREFIX
+Never deploys a partial directory -- Cloudflare Pages deploys are full-tree
+atomic replaces, so this always ships the existing site plus your additions.
 \f[R]
 .fi

@@ -18,18 +18,18 @@
 .hy
 .SH hee-cache-prune(1)
 .PP
-hee-cache-prune \[en] prune stale entries from the real hee-* disk
-caches (hee-filter\[cq]s repo-visibility cache, hee-git-merge\[cq]s
-PR-detail cache).
-A TTL alone never deletes an entry nobody re-queries \[en] it just sits
+hee-cache-prune -- prune stale entries from the real hee-* disk caches
+(hee-filter\[aq]s repo-visibility cache, hee-git-merge\[aq]s PR-detail
+cache).
+A TTL alone never deletes an entry nobody re-queries -- it just sits
 forever.
-Real trigger: Spencer\[cq]s ask, 2026-08-24, \[lq]keep things clean\[rq]
-\[en] meant to be cron\[cq]d via bootstrap.mk\[cq]s own
+Real trigger: Spencer\[aq]s ask, 2026-08-24, \[dq]keep things clean\[dq]
+-- meant to be cron\[aq]d via bootstrap.mk\[aq]s own
 unprivileged-by-design mechanism
 (\f[V]make -f tooling/bootstrap.mk install-cron\f[R]), not a one-off
 manually-copied script.
 .PP
 Usage: hee-cache-prune [days, default 7]
 .PP
-\f[I](no \[en]help/-h output \[en] generated from the script\[cq]s own
-header comment)\f[R]
+\f[I](no --help/-h output -- generated from the script\[aq]s own header
+comment)\f[R]

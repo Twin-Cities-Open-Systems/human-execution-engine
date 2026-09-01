@@ -1,46 +1,61 @@
-# hee-check(1)
+% HEE-CHECK(1) | HEE Tools
 
-```
-hee-check -- repo boundary and integrity checks
+# NAME
 
-SYNOPSIS
-  hee-check [boundary] [PATH]
-  hee-check refs [--fix] [PATH]
-  hee-check all [PATH]
-  hee-check [SUBCOMMAND] help
+hee-check - repo boundary and integrity checks
 
-DESCRIPTION
-  Checks a repository for integrity problems. PATH defaults to the current
-  directory, so the tool checks where it is invoked, never the repo it
-  happens to be installed in.
+# SYNOPSIS
 
-  If PATH holds repositories rather than being one (for example ~/git),
-  every repository directly inside is checked and the results totalled.
-  One level deep by design -- deeper would crawl vendored checkouts.
+    hee-check [boundary] [PATH]
+    hee-check refs [--fix] [PATH]
+    hee-check all [PATH]
+    hee-check [SUBCOMMAND] help
 
-SUBCOMMANDS
-  boundary   generated state is not committed (default)
-  refs       every file reference resolves
-  all        both
 
-  Add `help` after any subcommand for its own page:
-      hee-check refs help
+# DESCRIPTION
 
-EXIT STATUS
-  Nagios plugin convention.
-  0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
 
-ENVIRONMENT
-  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
-  HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+    Checks a repository for integrity problems. PATH defaults to the current
+    directory, so the tool checks where it is invoked, never the repo it
+    happens to be installed in.
 
-EXAMPLES
-  hee-check                     boundary check of the current repo
-  hee-check refs                every reference in the current repo
-  hee-check refs ~/git          every repo under ~/git
-  hee-check refs --fix          repair unambiguous references
-  hee-check all ~/git/fleet-ops both checks on one repo
+    If PATH holds repositories rather than being one (for example ~/git),
+    every repository directly inside is checked and the results totalled.
+    One level deep by design -- deeper would crawl vendored checkouts.
 
-SEE ALSO
-  hee-lint, hee-index, hee-print
-```
+
+# SUBCOMMANDS
+
+    boundary   generated state is not committed (default)
+    refs       every file reference resolves
+    systemd    systemd unit files are valid
+    all        boundary + refs
+
+    Add `help` after any subcommand for its own page:
+        hee-check refs help
+
+
+# ENVIRONMENT
+
+    HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+    HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+
+
+# EXIT STATUS
+
+    Nagios plugin convention.
+    0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
+
+
+# EXAMPLES
+
+    hee-check                     boundary check of the current repo
+    hee-check refs                every reference in the current repo
+    hee-check refs ~/git          every repo under ~/git
+    hee-check refs --fix          repair unambiguous references
+    hee-check all ~/git/fleet-ops both checks on one repo
+
+
+# SEE ALSO
+
+    hee-lint, hee-index, hee-print

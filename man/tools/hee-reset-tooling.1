@@ -18,33 +18,33 @@
 .hy
 .SH hee-reset-tooling(1)
 .PP
-hee-reset-tooling \[en] real, conservative \[lq]reset to new\[rq] for
-stray tool directories (real trigger, Spencer 2026-08-24:
-fleet-ops#260\[cq]s stray \[ti]/tooling/bin/ cleanup, formalized into a
-reusable tool instead of a one-off manual pass).
+hee-reset-tooling -- real, conservative \[dq]reset to new\[dq] for stray
+tool directories (real trigger, Spencer 2026-08-24: fleet-ops#260\[aq]s
+stray \[ti]/tooling/bin/ cleanup, formalized into a reusable tool
+instead of a one-off manual pass).
 .PP
-Real safety, per Spencer\[cq]s explicit call: - Dry-run by default.
-Nothing is ever removed without \[en]yes \[en] an OPER must actually
-agree, not just invoke the command.
-- \[en]unattended (cron-shaped invocation) additionally requires the
-real environment to be idle first (see is_idle below) \[en] refuses to
-run destructive cleanup while a real user might be mid-work, checks
-who\[cq]s actually logged in and how long they\[cq]ve been idle, not
-just \[lq]no tty attached.\[rq] - NEVER touches: \[ti]/.ssh,
+Real safety, per Spencer\[aq]s explicit call: - Dry-run by default.
+Nothing is ever removed without --yes -- an OPER must actually agree,
+not just invoke the command.
+- --unattended (cron-shaped invocation) additionally requires the real
+environment to be idle first (see is_idle below) -- refuses to run
+destructive cleanup while a real user might be mid-work, checks
+who\[aq]s actually logged in and how long they\[aq]ve been idle, not
+just \[dq]no tty attached.\[dq] - NEVER touches: \[ti]/.ssh,
 \[ti]/.gnupg, \[ti]/.hee/secrets, \[ti]/.config, or anything under
-\[ti]/git/ \[en] refuses outright if a stray path resolves inside one of
+\[ti]/git/ -- refuses outright if a stray path resolves inside one of
 those.
-- A stray file is only removed if it\[cq]s byte-identical to the real
+- A stray file is only removed if it\[aq]s byte-identical to the real
 tracked equivalent; anything that differs, or has no tracked equivalent,
 gets backed up first, never silently destroyed.
 .PP
-Usage: hee-reset-tooling [\[en]yes] [\[en]unattended] [\[en]idle-mins N]
+Usage: hee-reset-tooling [--yes] [--unattended] [--idle-mins N]
 .PD 0
 .P
 .PD
-[\[en]canonical DIR] [\[en]stray DIR \&...]
+[--canonical DIR] [--stray DIR ...]
 (defaults: canonical = \[ti]/git/human-execution-engine/tooling/bin,
 stray = \[ti]/tooling/bin \[ti]/bin, idle-mins = 10)
 .PP
-\f[I](no \[en]help/-h output \[en] generated from the script\[cq]s own
-header comment)\f[R]
+\f[I](no --help/-h output -- generated from the script\[aq]s own header
+comment)\f[R]

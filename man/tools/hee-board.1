@@ -14,23 +14,16 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-BOARD" "1" "" "" "HEE Tools"
 .hy
-.SH hee-board(1)
+.SH NAME
+.PP
+hee-board - real, 0-token curated filtered views over the TCOS Roadmap
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-usage: hee-board [-h] {p0,off-project,open-prs,stale} ...
-
-hee-board -- real, 0-token curated filtered views over the TCOS Roadmap
-project, since GitHub Projects v2 has no view-creation mutation in its
-GraphQL schema (confirmed live, 2026-08-24: zero ProjectV2View fields in
-the mutation type) -- UI-only, can\[aq]t be built once and reused by a
-script. This is the functional equivalent: one real item-list fetch,
-then curated slices printed as plain text. 0-token by design -- pure
-deterministic filtering, no LLM call.
-
-Usage:
+hee-board [-h] {p0,off-project,open-prs,stale} ...
   hee-board p0                 -- P0 items across every repo
   hee-board unassigned-epics   -- real Epics with no sub-issues linked
   hee-board off-project        -- open issues not yet on the Project board
@@ -46,5 +39,17 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+project, since GitHub Projects v2 has no view-creation mutation in its
+GraphQL schema (confirmed live, 2026-08-24: zero ProjectV2View fields in
+the mutation type) -- UI-only, can\[aq]t be built once and reused by a
+script. This is the functional equivalent: one real item-list fetch,
+then curated slices printed as plain text. 0-token by design -- pure
+deterministic filtering, no LLM call.
 \f[R]
 .fi

@@ -1,9 +1,15 @@
-# hee-procmail(1)
+% HEE-PROCMAIL(1) | HEE Tools
 
-```
-usage: hee-procmail [-h] [-rules PATH]
+# NAME
 
-options:
-  -h, --help   show this help message and exit
-  -rules PATH
-```
+hee-procmail - hee-procmail command
+
+# SYNOPSIS
+
+    hee-procmail [-h] [-rules PATH]
+
+# DESCRIPTION
+
+    options:
+      -h, --help   show this help message and exit
+      -rules PATH
