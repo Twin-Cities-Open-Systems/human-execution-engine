@@ -224,7 +224,11 @@ loaded, read this file directly rather than assume it did.
       rejected: it goes stale the moment someone forgets to register a new
       tool, while a header line travels with the code.
     - **Regenerate.** `hee gen-manpages` after any change to a tool's help,
-      and `--gopher` when the published tree needs rebuilding.
+      and `--gopher` when the published tree needs rebuilding. **Both are
+      dry runs until you add `--write`** -- a bare run reports what would
+      change and writes nothing, because a documentation generator that
+      mutates the tree on a bare invocation once installed a pre-commit hook
+      as a side effect (issue 464).
     - **Never hand-edit a generated page.** Fix the tool's help, or the
       generator. Hand-editing is how `man/hee.1` came to document six
       subcommands that no longer exist.

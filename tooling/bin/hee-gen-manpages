@@ -26,44 +26,172 @@
 # Asking for help must never be able to do anything. It went unnoticed for
 # so long because the regenerated output is normally byte-identical, so
 # `git status` stays clean and only mtime reveals the write.
-case "${1:-}" in
-  help|--help|-h)
-    echo "hee-gen-manpages -- generate man/tools/*.N.md and manN/*.N from each tool's --help"
-    echo ""
-    echo "SYNOPSIS"
-    echo "  hee-gen-manpages"
-    echo ""
-    echo "DESCRIPTION"
-    echo "  No arguments. Re-run after any tool change."
-    echo ""
-    echo "  Writes into the repo that owns the TOOL, never the current"
-    echo "  directory: it resolves its own location and writes to"
-    echo "  <tool-repo>/man/tools."
-    echo ""
-    echo "  The resolved absolute path is printed when it RUNS, not here --"
-    echo "  help output is captured verbatim into the generated man page, so"
-    echo "  a machine-specific path in help becomes a machine-specific path"
-    echo "  in checked-in documentation (fleet-ops#352)."
-    echo ""
-    echo "  Each page is generated FROM the --help output of each tool, so"
-    echo "  tool help text is what becomes its man page."
-    echo ""
-    echo "EXIT STATUS"
-    echo "  0 OK   1 nothing generated"
-    exit 0
-    ;;
-esac
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-gen-manpages -- generate man pages from each tool's own --help
+
+SYNOPSIS
+  hee-gen-manpages                     dry run: report what would change
+  hee-gen-manpages --write             write the pages
+  hee-gen-manpages --gopher [DIR]      dry run of the published gopher tree
+  hee-gen-manpages --gopher --write    build it
+  hee-gen-manpages help
+
+DESCRIPTION
+  Extracts each tool's own --help output and renders it as a man page. No
+  page is hand-authored here; the tool's help IS the page, per rule 17.
+
+  DRY RUN IS THE DEFAULT. With no arguments this writes nothing at all --
+  it generates into a temporary directory, compares that against what is
+  committed, and prints the difference. Add --write to apply it.
+
+  Operator, 2026-09-01: "I don't like that it just writes files when you
+  run it without args. those file need to go to a certain spot and oper
+  needs to know that." The precedent is real and already cost something:
+  a bare run of this tool was once observed installing a pre-commit hook
+  as a side effect of generating documentation (issue:464@human-execution-engine),
+  which is why library/py/hee_toolver never invokes a tool without a flag.
+
+DESTINATIONS
+  Both are inside the repo that owns the TOOL, never the current
+  directory -- this tool resolves its own location first. The absolute
+  path is printed on every run, dry or not.
+
+    man/tools/           generated pages, .N.md sources and manN/*.N roff
+    man/tools/README.md  the index
+    man/gopher/          --gopher only: the tree man.tcos.us serves
+
+  man/manN/ holds pages written BY HAND. Those WIN: generation skips any
+  tool with an authored page and says so.
+
+OPTIONS
+  --write        apply the changes. Without it nothing is written.
+  --gopher [DIR] render the published gopher tree. DIR defaults to
+                 man/gopher. Rebuilt from scratch, so with --write this
+                 REMOVES the existing tree first.
+
+EXIT STATUS
+  0 OK   1 nothing generated, or an unknown argument
+USAGE
+}
+
+# Contextual help, via the shared contract -- never a positional check.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
+WRITE=0
+DO_GOPHER=0
+GOPHER_OUT="man/gopher"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --write) WRITE=1; shift ;;
+    --gopher)
+      DO_GOPHER=1; shift
+      case "${1:-}" in
+        ""|-*) ;;
+        *) GOPHER_OUT="$1"; shift ;;
+      esac
+      ;;
+    *) echo "hee-gen-manpages: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
 set -eu
-cd "$(dirname "$0")/../.."
+cd "$TOOL_ROOT"
 BIN_DIR="tooling/bin"
-OUT_DIR="man/tools"
+REAL_OUT="man/tools"
+
+# Where generation actually lands. Without --write that is a temp tree the
+# repo never sees, which is what makes the default safe rather than merely
+# quiet: nothing downstream needs a dry-run branch, because every write goes
+# somewhere disposable.
+if [ "$WRITE" -eq 1 ]; then
+  OUT_DIR="$REAL_OUT"
+  STAGE=""
+else
+  STAGE="$(mktemp -d "${TMPDIR:-/tmp}/hee-gen-manpages.XXXXXXXX")"
+  trap 'rm -rf "$STAGE"' EXIT INT TERM
+  OUT_DIR="$STAGE/$REAL_OUT"
+fi
 mkdir -p "$OUT_DIR"
 
-# Say WHERE, once, in absolute form. Operator, 2026-08-31: "if you run sans
-# help it sayes it is genereted, where I hav no idea" -- because every line
-# below prints a path relative to a directory this script already cd-ed to,
-# which is not the directory the operator ran it from.
-printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
+# Say WHERE, once, in absolute form, and say whether anything will land
+# there. Operator, 2026-08-31: "if you run sans help it sayes it is
+# genereted, where I hav no idea" -- every line below prints a path relative
+# to a directory this script already cd-ed to, which is not the directory
+# the operator ran it from.
+if [ "$DO_GOPHER" -eq 1 ]; then _dest="$GOPHER_OUT"; else _dest="$REAL_OUT"; fi
+if [ "$WRITE" -eq 1 ]; then
+  printf 'WRITING to: %s/%s\n' "$(pwd)" "$_dest"
+  [ "$DO_GOPHER" -eq 1 ] && printf 'this REMOVES the existing tree first.\n'
+else
+  printf 'DRY RUN -- nothing will be written.\n'
+  printf 'would write to: %s/%s\n' "$(pwd)" "$_dest"
+  printf 'staged in:      %s\n' "$STAGE"
+fi
+
+# In a dry run the per-file progress lines name the TEMP directory, which is
+# worse than useless -- it is a path the operator will never see again. Park
+# stdout until the plan is ready; stderr stays live so real errors surface.
+if [ "$WRITE" -eq 0 ]; then
+  exec 3>&1
+  exec 1>/dev/null
+fi
+
+# report_plan STAGED REAL LABEL -- what --write would actually do.
+#
+# Compares the staged tree against what is committed and reports it in the
+# canonical vocabulary. `diff -rq` is the whole mechanism: a dry run that
+# reasons about what it WOULD have done is a dry run that can be wrong,
+# whereas one that generates for real into a throwaway directory and diffs
+# is answering with the same bytes --write would produce.
+report_plan() {
+  _staged="$1"; _real="$2"; _label="$3"
+  _new=0; _changed=0; _gone=0; _same=0
+  if [ ! -d "$_real" ]; then
+    _new="$(find "$_staged" -type f 2>/dev/null | wc -l)"
+    printf '%s: %s new, no existing tree\n' "$_label" "$_new"
+    return 0
+  fi
+  # cat1/cat8/index.db are mandb's own formatted-page cache and whatis index.
+  # mandb writes them into every directory on the manpath, they are gitignored,
+  # and reporting them as "removed" would be a lie -- nothing removes them.
+  diff -rq -x 'cat[1-9]' -x index.db "$_real" "$_staged" \
+    2>/dev/null > "$_staged.diff" || true
+  # grep -c always prints a count and exits 1 on zero matches, so `|| true`
+  # is the whole guard -- an `|| echo 0` here appends a SECOND line and the
+  # arithmetic below silently reads "0\n0".
+  _changed="$(grep -c '^Files .* differ$' "$_staged.diff" || true)"
+  _new="$(grep -c "^Only in $_staged" "$_staged.diff" || true)"
+  _gone="$(grep -c "^Only in $_real" "$_staged.diff" || true)"
+  _same=$(( $(find "$_real" -type f ! -name 'index.db' 2>/dev/null | wc -l) - _changed - _gone ))
+  printf '\n%s -- what --write would do:\n' "$_label"
+  printf '  %s changed  %s new  %s removed  %s unchanged\n' \
+    "$_changed" "$_new" "$_gone" "$_same"
+  if [ "$_changed" -gt 0 ] || [ "$_new" -gt 0 ] || [ "$_gone" -gt 0 ]; then
+    sed -e "s#$_staged#<generated>#g" -e "s#^Files #  changed: #" \
+        -e "s# and <generated>.* differ\$##" \
+        -e "s#^Only in <generated>\(.*\): #  new:     \1/#" \
+        -e "s#^Only in \($_real[^:]*\): #  removed: \1/#" \
+        "$_staged.diff"
+  fi
+  rm -f "$_staged.diff"
+}
 
 # man_section FILE -- which manual section this tool belongs in.
 #
@@ -136,7 +264,7 @@ gen_gopher() {
   command -v man >/dev/null 2>&1 || { echo "man(1) unavailable -- cannot render" >&2; return 3; }
 
   _total=0
-  for _secdir in "$AUTHORED_DIR"/man[1-9] "$OUT_DIR"/man[1-9]; do
+  for _secdir in "$AUTHORED_DIR"/man[1-9] "$REAL_OUT"/man[1-9]; do
     [ -d "$_secdir" ] || continue
     _n="${_secdir##*/man}"
     for _src in "$_secdir"/*."$_n"; do
@@ -206,9 +334,18 @@ gen_gopher() {
   echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s), plus flat copies -> $(pwd)/$_out"
 }
 
-case "${1:-}" in
-  --gopher) shift 2>/dev/null || true; gen_gopher "${1:-man/gopher}"; exit $? ;;
-esac
+if [ "$DO_GOPHER" -eq 1 ]; then
+  if [ "$WRITE" -eq 1 ]; then
+    gen_gopher "$GOPHER_OUT"
+    exit $?
+  fi
+  # Dry run. gen_gopher's first act is `rm -rf` on its output directory, so
+  # it is never pointed at the real tree without --write.
+  gen_gopher "$STAGE/gopher" >/dev/null 2>&1
+  exec 1>&3
+  report_plan "$STAGE/gopher" "$GOPHER_OUT" "gopher tree ($GOPHER_OUT)"
+  exit 0
+fi
 authored_kept=""
 
 # Structured rendering lives in library/py -- turning help text into man
@@ -496,4 +633,10 @@ if command -v pandoc >/dev/null 2>&1; then
   done
 else
   echo "pandoc not found -- skipping real .1.md -> .1 roff conversion" >&2
+fi
+
+if [ "$WRITE" -eq 0 ]; then
+  exec 1>&3
+  report_plan "$OUT_DIR" "$REAL_OUT" "pages ($REAL_OUT)"
+  printf '\nNothing was written. Re-run with --write to apply.\n'
 fi
