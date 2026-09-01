@@ -1,0 +1,10 @@
+HEE-CHECK-CURSOR-PROMPTS(1)        HEE Tools       HEE-CHECK-CURSOR-PROMPTS(1)
+
+NAME
+       hee-check-cursor-prompts - hee-check-cursor-prompts command
+
+DESCRIPTION
+              OK: synced .hee/policy/prompts -> .cursor/prompts
+              OK: .cursor/prompts is in sync
+
+                                                   HEE-CHECK-CURSOR-PROMPTS(1)

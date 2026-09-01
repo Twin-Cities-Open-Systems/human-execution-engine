@@ -1,0 +1,15 @@
+HEE-SRTSCAN(1)                     HEE Tools                    HEE-SRTSCAN(1)
+
+NAME
+       hee-srtscan - hee-srtscan command
+
+SYNOPSIS
+              hee-srtscan [-h] -search TERM [-root ROOT]
+
+DESCRIPTION
+              options:
+                -h, --help    show this help message and exit
+                -search TERM
+                -root ROOT
+
+                                                                HEE-SRTSCAN(1)

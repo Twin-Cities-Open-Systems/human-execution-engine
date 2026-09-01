@@ -64,6 +64,74 @@ mkdir -p "$OUT_DIR"
 # which is not the directory the operator ran it from.
 printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
 
+# --gopher: render the artifacts man.tcos.us actually serves.
+#
+# The droplet runs gophernicus over a directory of PLAIN TEXT files named
+# <tool>.txt, indexed by a `gophermap`. Neither has ever been generated: the
+# live gophermap lists 40 entries for 54 tools, and the .txt files are
+# whatever was hand-copied last -- which is why man.tcos.us still publishes
+#
+#     ()                              ()
+#     hee-check(1)
+#            find: unknown predicate `--help/prompts'
+#
+# as this project's documentation.
+#
+# `man -l FILE.1 | col -bx` produces byte-for-byte the shape gophernicus
+# serves -- verified against the live endpoint before this was written.
+# col -bx strips backspace-overstrike bold/underline and expands tabs, which
+# is what makes it plain text rather than terminal-formatted.
+#
+# Writes into man/gopher/ in THIS repo. Deliberately not into fleet-ops'
+# hosts/man-tcos-us/ -- a tool should not reach across repo boundaries to
+# write another repo's files. Transport from here to the droplet is a
+# separate, still-unbuilt step (fleet-ops#327).
+gen_gopher() {
+  _out="${1:-man/gopher}"
+  mkdir -p "$_out"
+  command -v man >/dev/null 2>&1 || { echo "man(1) unavailable -- cannot render" >&2; return 3; }
+
+  _n=0
+  # Authored pages win over generated ones, same precedence as everywhere else.
+  for _src in "$AUTHORED_DIR"/*.1 "$OUT_DIR"/*.1; do
+    [ -f "$_src" ] || continue
+    _name="$(basename "$_src" .1)"
+    # A man page name is a COMMAND name; scan-hee-cards.py.txt would publish
+    # an implementation detail as documentation.
+    _name="${_name%.py}"
+    # Skip a generated page when an authored one exists for the same tool.
+    if [ "$_src" != "$AUTHORED_DIR/$_name.1" ] && [ -f "$AUTHORED_DIR/$_name.1" ]; then
+      continue
+    fi
+    man -l "$_src" 2>/dev/null | col -bx > "$_out/$_name.txt" || continue
+    _n=$((_n + 1))
+  done
+
+  # gophermap generated FROM the files that exist, never hand-maintained --
+  # a hand-kept index is exactly how it drifted to 40-of-54.
+  {
+    printf 'iTwin Cities Open Systems -- real man pages, real tools\t\tman.tcos.us\t70\n'
+    printf 'iIANA Private Enterprise Number: 1.3.6.1.4.1.66550\t\tman.tcos.us\t70\n'
+    printf 'i\t\tman.tcos.us\t70\n'
+    # `hee` first, then everything else. A plain *.txt glob sorts
+    # hee-attach.txt before hee.txt ("-" < "."), burying the dispatcher the
+    # whole index is about three entries down.
+    if [ -f "$_out/hee.txt" ]; then
+      printf '0hee(1)\thee.txt\tman.tcos.us\t70\n'
+    fi
+    for _f in "$_out"/*.txt; do
+      [ -f "$_f" ] || continue
+      _b="$(basename "$_f" .txt)"
+      [ "$_b" = "hee" ] && continue
+      printf '0%s(1)\t%s\tman.tcos.us\t70\n' "$_b" "$(basename "$_f")"
+    done
+  } > "$_out/gophermap"
+
+  echo "gopher: $_n page(s) + gophermap -> $(pwd)/$_out"
+}
+
+
+
 # HAND-WRITTEN PAGES WIN. Operator, 2026-08-31: "use the hand written and
 # update the tool so it presents this to our other tools. fix the source, no
 # oneoffs!"
@@ -81,6 +149,10 @@ printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
 # and nothing ever flagged it.
 AUTHORED_DIR="man"
 authored_kept=""
+
+case "${1:-}" in
+  --gopher) shift 2>/dev/null || true; gen_gopher "${1:-man/gopher}"; exit $? ;;
+esac
 
 # Structured rendering lives in library/py -- turning help text into man
 # sections is real parsing, so it graduates out of sh per rule 13. Missing
