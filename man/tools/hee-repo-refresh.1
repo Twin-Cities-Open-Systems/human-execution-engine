@@ -18,62 +18,61 @@
 .hy
 .SH hee-repo-refresh(1)
 .PP
-hee-repo-refresh \[en] real per-repo health-check/pull worker for
-bootstrap.mk\[cq]s health-all-repos and pull-all-repos targets.
+hee-repo-refresh -- real per-repo health-check/pull worker for
+bootstrap.mk\[aq]s health-all-repos and pull-all-repos targets.
 Extracted into its own script, rather than embedded inline in the
 Makefile recipe twice, so the GNU-parallel path and the sequential
 fallback path call the exact same real logic instead of two copies that
-can silently drift \[en] HEE#415, Spencer direct 2026-08-28: \[lq]add
-gnu parallel to this tool.\[rq] Real trigger for parallelizing at all:
-with \[ti]19-24 real repos each doing a real git fetch/pull over the
-network, the old one-at-a-time loop was a real, avoidable wall-clock
-cost, confirmed live refreshing both claude\[at]kiosk and
-spencer\[at]kiosk.
+can silently drift -- HEE#415, Spencer direct 2026-08-28: \[dq]add gnu
+parallel to this tool.\[dq] Real trigger for parallelizing at all: with
+\[ti]19-24 real repos each doing a real git fetch/pull over the network,
+the old one-at-a-time loop was a real, avoidable wall-clock cost,
+confirmed live refreshing both claude\[at]kiosk and spencer\[at]kiosk.
 .PP
 Deliberately its own script (not a Makefile-only trick) so it can be
 invoked identically two ways:
 \f[V]parallel hee-repo-refresh health ::: $repos\f[R] (concurrent) or a
 plain
 \f[V]for d in $repos; do hee-repo-refresh health \[dq]$d\[dq]; done\f[R]
-(sequential fallback when GNU parallel isn\[cq]t installed) \[en]
+(sequential fallback when GNU parallel isn\[aq]t installed) --
 bootstrap.mk picks whichever via \f[V]command -v parallel\f[R].
 .PP
-Usage: hee-repo-refresh <health|pull|hygiene|refresh> hee-repo-refresh
-<health|pull|hygiene|refresh> [all|-all] hee-repo-refresh
-<health|pull|hygiene|refresh> -repo [,\&...]
+Usage: hee-repo-refresh <health|pull|hygiene|prune|refresh>
+hee-repo-refresh <health|pull|hygiene|prune|refresh> [all|-all]
+hee-repo-refresh <health|pull|hygiene|prune|refresh> -repo [,...]
 .PP
 The bare positional form (a real filesystem path) is what
-bootstrap.mk\[cq]s own health-all-repos/pull-all-repos targets pass
-internally \[en] kept exactly as-is, never break that.
+bootstrap.mk\[aq]s own health-all-repos/pull-all-repos targets pass
+internally -- kept exactly as-is, never break that.
 \f[V]all\f[R]/\f[V]-all\f[R] (both accepted) and
 \f[V]-repo <name-csv>\f[R] are the real, human-facing entry points added
-2026-08-29, Spencer direct: \[lq]needs switches., ./hee repo refresh
--all or -repo dotfiles, etc\[rq] then \[lq]csv of repos\[rq] \[en] -repo
-takes real repo \f[I]names\f[R] (dotfiles, not /home/x/git/dotfiles),
+2026-08-29, Spencer direct: \[dq]needs switches., ./hee repo refresh
+-all or -repo dotfiles, etc\[dq] then \[dq]csv of repos\[dq] -- -repo
+takes real repo \f[I]names\f[R] (dotfiles, not \[ti]/git/dotfiles),
 resolved under ${HEE_GIT_ROOT:-$HOME/git}, comma-separated for more than
 one.
 .PP
-health/pull print one real 🟢/🟡/🟠/🔴-prefixed line to stdout \[en]
-same format the old inline Makefile loop produced, byte-for-byte, so
-parallel output (each job\[cq]s single line prints atomically, GNU
-parallel\[cq]s own default \[en]group behavior) reads exactly the way
-the sequential output always did.
+health/pull print one real 🟢/🟡/🟠/🔴-prefixed line to stdout -- same
+format the old inline Makefile loop produced, byte-for-byte, so parallel
+output (each job\[aq]s single line prints atomically, GNU parallel\[aq]s
+own default --group behavior) reads exactly the way the sequential
+output always did.
 hygiene (added for
-fleet-ops/hosts/spencer/bin/hee-git-hygiene-report.sh\[cq]s real,
-distinct check \[en] dirty-file-count + no-upstream-branch-count across
-ALL local branches, not just the current one) prints nothing at all for
-a clean repo, matching that script\[cq]s original silent-unless-a-
-problem behavior exactly.
-refresh (added 2026-08-29, Spencer direct: \[lq]hee repo refresh I think
-for now\[rq] \[en] a single real command instead of
+fleet-ops/hosts/spencer/bin/hee-git-hygiene-report.sh\[aq]s real,
+distinct check -- dirty-file-count + no-upstream-branch-count across ALL
+local branches, not just the current one) prints nothing at all for a
+clean repo, matching that script\[aq]s original silent-unless-a- problem
+behavior exactly.
+refresh (added 2026-08-29, Spencer direct: \[dq]hee repo refresh I think
+for now\[dq] -- a single real command instead of
 two-plus-a-Makefile-target) runs the exact same real sequence as
-bootstrap.mk\[cq]s refresh-all-repos: a full health pass, then a full
-pull pass, then the governance reminder \[en] printed once per real
+bootstrap.mk\[aq]s refresh-all-repos: a full health pass, then a full
+pull pass, then the governance reminder -- printed once per real
 invocation of a scope (all/-all/-repo), not once per repo inside it.
-Only the bare positional form (a real filesystem path \[en] what
-bootstrap.mk\[cq]s own targets pass internally) skips the reminder
+Only the bare positional form (a real filesystem path -- what
+bootstrap.mk\[aq]s own targets pass internally) skips the reminder
 entirely, since that form is always one worker among many others already
 fanned out by something else, never the whole real scope.
 .PP
-\f[I](no \[en]help/-h output \[en] generated from the script\[cq]s own
-header comment)\f[R]
+\f[I](no --help/-h output -- generated from the script\[aq]s own header
+comment)\f[R]

@@ -1,44 +1,54 @@
-# hee-tools-check(1)
+% HEE-TOOLS-CHECK(1) | HEE Tools
 
-```
-hee-tools-check -- is every external tool this org expects actually here
+# NAME
 
-SYNOPSIS
-  hee-tools-check [MANIFEST]
-  hee-tools-check help
+hee-tools-check - is every external tool this org expects actually here
 
-DESCRIPTION
-  Reads a whitespace-separated manifest of external tools and reports,
-  one line each, whether the tool is on PATH and what version it claims.
+# SYNOPSIS
 
-  MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
-  this script, not to the current directory, so it works from anywhere.
-  Blank lines and lines starting with # are skipped. Only the FIRST
-  field of each line (the tool name) is used -- the kind and desired-
-  version columns are read by hee-tools-update, not by this tool.
+    hee-tools-check [MANIFEST]
+    hee-tools-check help
 
-  Presence is `command -v`. The version string is the first line of
-  `<tool> --version`, falling back to `<tool> -V`; if neither works the
-  line reads (version-flag-unknown). Nothing is installed, downloaded,
-  or modified -- this tool is strictly read-only.
 
-  Note, real and worth knowing before you script against it: a missing
-  tool is reported in the OUTPUT but does not change the exit code.
-  Parse the status LABEL (per vis.status.shfn.bash), never the exit
-  code, to decide whether the toolchain is complete.
+# DESCRIPTION
 
-EXIT STATUS
-  Nagios plugin convention.
-  0 OK   every manifest line was read and reported, whether or not the
-         tools themselves are present
-  Any other status comes from the shell's own `set -e` -- in practice an
-  unreadable MANIFEST. This tool does not currently map that to a
-  vocabulary code; documented as-is, not changed here.
 
-ENVIRONMENT
-  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
-  PATH               searched for each manifest tool
+    Reads a whitespace-separated manifest of external tools and reports,
+    one line each, whether the tool is on PATH and what version it claims.
 
-SEE ALSO
-  hee-tools, hee-tools-update, tooling/tools.manifest.txt
-```
+    MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
+    this script, not to the current directory, so it works from anywhere.
+    Blank lines and lines starting with # are skipped. Only the FIRST
+    field of each line (the tool name) is used -- the kind and desired-
+    version columns are read by hee-tools-update, not by this tool.
+
+    Presence is `command -v`. The version string is the first line of
+    `<tool> --version`, falling back to `<tool> -V`; if neither works the
+    line reads (version-flag-unknown). Nothing is installed, downloaded,
+    or modified -- this tool is strictly read-only.
+
+    Note, real and worth knowing before you script against it: a missing
+    tool is reported in the OUTPUT but does not change the exit code.
+    Parse the status LABEL (per vis.status.shfn.bash), never the exit
+    code, to decide whether the toolchain is complete.
+
+
+# ENVIRONMENT
+
+    HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+    PATH               searched for each manifest tool
+
+
+# EXIT STATUS
+
+    Nagios plugin convention.
+    0 OK   every manifest line was read and reported, whether or not the
+           tools themselves are present
+    Any other status comes from the shell's own `set -e` -- in practice an
+    unreadable MANIFEST. This tool does not currently map that to a
+    vocabulary code; documented as-is, not changed here.
+
+
+# SEE ALSO
+
+    hee-tools, hee-tools-update, tooling/tools.manifest.txt

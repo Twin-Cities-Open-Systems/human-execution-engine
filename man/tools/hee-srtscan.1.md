@@ -1,10 +1,16 @@
-# hee-srtscan(1)
+% HEE-SRTSCAN(1) | HEE Tools
 
-```
-usage: hee-srtscan [-h] -search TERM [-root ROOT]
+# NAME
 
-options:
-  -h, --help    show this help message and exit
-  -search TERM
-  -root ROOT
-```
+hee-srtscan - hee-srtscan command
+
+# SYNOPSIS
+
+    hee-srtscan [-h] -search TERM [-root ROOT]
+
+# DESCRIPTION
+
+    options:
+      -h, --help    show this help message and exit
+      -search TERM
+      -root ROOT

@@ -1,18 +1,22 @@
-# hee-con(1)
+% HEE-CON(1) | HEE Tools
 
-```
-hee-con -- connect to IRC with a real native client, persistent in tmux;
-           or send a real message into an existing tmux pane
+# NAME
 
-usage:
-  hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
-  hee-con -tmux-send 'message' -target <session:window.pane>
+hee-con - connect to IRC with a real native client, persistent in tmux;
 
-defaults:
-  -network irc.libera.chat
-  -session irc-<channel, # stripped>
-  -nick    hee<pid>
+# SYNOPSIS
 
--tmux-send has no defaults -- -target is always required, sending into
-the wrong pane is a real footgun, not a hypothetical one.
-```
+      hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
+      hee-con -tmux-send 'message' -target <session:window.pane>
+
+    defaults:
+      -network irc.libera.chat
+      -session irc-<channel, # stripped>
+      -nick    hee<pid>
+
+    -tmux-send has no defaults -- -target is always required, sending into
+    the wrong pane is a real footgun, not a hypothetical one.
+
+# DESCRIPTION
+
+    or send a real message into an existing tmux pane

@@ -24,11 +24,10 @@ Goal: convert a receipt image into: - inventory.purchase object -
 inventory.purchase_line objects (best-effort parse) - OCR text stored as
 evidence
 .PP
-Usage: hee-inv-receipt ingest [\[en]tcos-repo ] [\[en]vendor ]
-[\[en]store ]
+Usage: hee-inv-receipt ingest [--tcos-repo ] [--vendor ] [--store ]
 .PP
-Defaults: \[en]tcos-repo $HOME/git/tcos-plan-private \[en]vendor unknown
-\[en]store unknown
+Defaults: --tcos-repo $HOME/git/tcos-plan-private --vendor unknown
+--store unknown
 .PP
-\f[I](no \[en]help/-h output \[en] generated from the script\[cq]s own
-header comment)\f[R]
+\f[I](no --help/-h output -- generated from the script\[aq]s own header
+comment)\f[R]

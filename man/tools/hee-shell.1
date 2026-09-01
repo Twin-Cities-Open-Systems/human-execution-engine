@@ -18,20 +18,20 @@
 .hy
 .SH hee-shell(1)
 .PP
-hee-shell \[en] ssh into a known TCOS host by short alias.
+hee-shell -- ssh into a known TCOS host by short alias.
 .PP
-Real, deliberately thin: this is \f[V]ssh\f[R] with TCOS\[cq]s own host
+Real, deliberately thin: this is \f[V]ssh\f[R] with TCOS\[aq]s own host
 aliases baked in, not a new protocol or a permissions mechanism.
-It cannot grant access a key doesn\[cq]t already have \[en] if the
-calling session\[cq]s key isn\[cq]t authorized on the target
-host/account, this fails exactly like a bare \f[V]ssh\f[R] call would,
-with the same real error.
+It cannot grant access a key doesn\[aq]t already have -- if the calling
+session\[aq]s key isn\[aq]t authorized on the target host/account, this
+fails exactly like a bare \f[V]ssh\f[R] call would, with the same real
+error.
 .PP
 Alias table only includes hosts actually confirmed reachable by name
-this session \[en] not speculative.
-Add more here as they\[cq]re verified, not guessed.
+this session -- not speculative.
+Add more here as they\[aq]re verified, not guessed.
 .PP
 usage: hee-shell <alias|host> [user]
 .PP
-\f[I](no \[en]help/-h output \[en] generated from the script\[cq]s own
-header comment)\f[R]
+\f[I](no --help/-h output -- generated from the script\[aq]s own header
+comment)\f[R]

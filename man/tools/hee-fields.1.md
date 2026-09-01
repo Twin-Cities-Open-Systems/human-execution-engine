@@ -1,11 +1,17 @@
-# hee-fields(1)
+% HEE-FIELDS(1) | HEE Tools
 
-```
-usage: hee-fields [-h] {set,batch} ...
+# NAME
 
-positional arguments:
-  {set,batch}
+hee-fields - hee-fields command
 
-options:
-  -h, --help   show this help message and exit
-```
+# SYNOPSIS
+
+    hee-fields [-h] {set,batch} ...
+
+# DESCRIPTION
+
+    positional arguments:
+      {set,batch}
+
+    options:
+      -h, --help   show this help message and exit

@@ -14,14 +14,42 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-GEN-MANPAGES" "1" "" "" "HEE Tools"
 .hy
-.SH hee-gen-manpages(1)
+.SH NAME
+.PP
+hee-gen-manpages - generate man/tools/\f[I].1.md and \f[R].1 from each
+tool\[aq]s --help
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-gen-manpages -- generate man/tools/*.1.md and *.1 from each tool\[aq]s --help
-Usage: hee-gen-manpages
+hee-gen-manpages
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
 No arguments. Re-run after any tool change.
+
+Writes into the repo that owns the TOOL, never the current
+directory: it resolves its own location and writes to
+<tool-repo>/man/tools.
+
+The resolved absolute path is printed when it RUNS, not here --
+help output is captured verbatim into the generated man page, so
+a machine-specific path in help becomes a machine-specific path
+in checked-in documentation (fleet-ops#352).
+
+Each page is generated FROM the --help output of each tool, so
+tool help text is what becomes its man page.
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 OK   1 nothing generated
 \f[R]
 .fi

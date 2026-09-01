@@ -18,9 +18,9 @@ invoked identically two ways: `parallel hee-repo-refresh health ::: $repos`
 picks whichever via `command -v parallel`.
 
 Usage:
-  hee-repo-refresh <health|pull|hygiene|refresh> <repo-dir>
-  hee-repo-refresh <health|pull|hygiene|refresh> [all|-all]
-  hee-repo-refresh <health|pull|hygiene|refresh> -repo <name>[,<name>...]
+  hee-repo-refresh <health|pull|hygiene|prune|refresh> <repo-dir>
+  hee-repo-refresh <health|pull|hygiene|prune|refresh> [all|-all]
+  hee-repo-refresh <health|pull|hygiene|prune|refresh> -repo <name>[,<name>...]
 
 The bare <repo-dir> positional form (a real filesystem path) is what
 bootstrap.mk's own health-all-repos/pull-all-repos targets pass
@@ -28,7 +28,7 @@ internally -- kept exactly as-is, never break that. `all`/`-all` (both
 accepted) and `-repo <name-csv>` are the real, human-facing entry
 points added 2026-08-29, Spencer direct: "needs switches., ./hee repo
 refresh -all or -repo dotfiles, etc" then "csv of repos" -- -repo
-takes real repo *names* (dotfiles, not /home/x/git/dotfiles),
+takes real repo *names* (dotfiles, not ~/git/dotfiles),
 resolved under ${HEE_GIT_ROOT:-$HOME/git}, comma-separated for more
 than one.
 

@@ -14,17 +14,16 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-VENDOR" "1" "" "" "HEE Tools"
 .hy
-.SH hee-vendor(1)
+.SH NAME
+.PP
+hee-vendor - Vendors HEE doctrine into a target repo using
+validator-safe layout
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-vendor
-
-Vendors HEE doctrine into a target repo using validator-safe layout.
-
-Usage:
   tooling/bin/hee-vendor --target <repo_path> [--hee <hee_repo_path>] [--branch <name>] [--no-push] [--auto-amend]
   tooling/bin/hee-vendor --check  --target <repo_path> [--hee <hee_repo_path>]
 
@@ -46,5 +45,14 @@ Notes:
       0  = no drift
       2  = drift detected
      >2  = tooling error
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+hee-vendor
+
+Vendors HEE doctrine into a target repo using validator-safe layout.
 \f[R]
 .fi

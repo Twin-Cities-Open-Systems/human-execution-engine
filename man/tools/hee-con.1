@@ -14,16 +14,15 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-CON" "1" "" "" "HEE Tools"
 .hy
-.SH hee-con(1)
+.SH NAME
+.PP
+hee-con - connect to IRC with a real native client, persistent in tmux;
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-con -- connect to IRC with a real native client, persistent in tmux;
-           or send a real message into an existing tmux pane
-
-usage:
   hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
   hee-con -tmux-send \[aq]message\[aq] -target <session:window.pane>
 
@@ -34,5 +33,12 @@ defaults:
 
 -tmux-send has no defaults -- -target is always required, sending into
 the wrong pane is a real footgun, not a hypothetical one.
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+or send a real message into an existing tmux pane
 \f[R]
 .fi

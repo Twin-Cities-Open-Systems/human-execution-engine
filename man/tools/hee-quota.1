@@ -14,28 +14,17 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-QUOTA" "1" "" "" "HEE Tools"
 .hy
-.SH hee-quota(1)
+.SH NAME
+.PP
+hee-quota - hee-quota: monitor GitHub API rate-limit pools
+(core/graphql/search) and
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-usage: hee-quota [-h] {status,warn,wait} ...
-
-hee-quota: monitor GitHub API rate-limit pools (core/graphql/search) and
-give a real, live go/no-go before a bulk operation, instead of finding out
-reactively mid-batch.
-
-Real trigger: hit GraphQL exhausted (0/5000, then again at 81/5000) twice
-in one session while core REST stayed near-full both times -- confirmed via
-\[ga]gh api rate_limit\[ga] only *after* a batch had already failed partway
-through. This is the pre-flight check that should have run first.
-
-Checking rate_limit itself does not consume quota (confirmed live) --
-safe to call before every bulk run, not just when something\[aq]s already
-gone wrong.
-
-Usage:
+hee-quota [-h] {status,warn,wait} ...
   hee-quota status              -- print remaining/limit/reset per pool
   hee-quota status --json       -- machine-readable
   hee-quota warn [--threshold N]  -- exit 1 if any pool is below N% remaining
@@ -53,5 +42,22 @@ positional arguments:
 
 options:
   -h, --help          show this help message and exit
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+give a real, live go/no-go before a bulk operation, instead of finding out
+reactively mid-batch.
+
+Real trigger: hit GraphQL exhausted (0/5000, then again at 81/5000) twice
+in one session while core REST stayed near-full both times -- confirmed via
+\[ga]gh api rate_limit\[ga] only *after* a batch had already failed partway
+through. This is the pre-flight check that should have run first.
+
+Checking rate_limit itself does not consume quota (confirmed live) --
+safe to call before every bulk run, not just when something\[aq]s already
+gone wrong.
 \f[R]
 .fi

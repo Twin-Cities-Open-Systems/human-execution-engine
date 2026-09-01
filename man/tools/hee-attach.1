@@ -14,22 +14,30 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-ATTACH" "1" "" "" "HEE Tools"
 .hy
-.SH hee-attach(1)
+.SH NAME
+.PP
+hee-attach - Attaches HEE policy to a repo locally without committing
+doctrine into the repo
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-attach
-
-Attaches HEE policy to a repo locally without committing doctrine into the repo.
-
-Usage:
   tooling/bin/hee-attach --target <repo_path> [--hee <hee_repo_path>]
 
 Effect:
   - Creates .hee/policy/{prompts,docs} inside target repo (local-only)
   - Syncs HEE prompts into .cursor/prompts (local-only)
   - Adds .hee/ and .cursor/ to local exclude suggestions (prints commands)
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+hee-attach
+
+Attaches HEE policy to a repo locally without committing doctrine into the repo.
 \f[R]
 .fi

@@ -1,13 +1,19 @@
-# hee-pve-users(1)
+% HEE-PVE-USERS(1) | HEE Tools
 
-```
-usage: hee-pve-users [-h] [--host HOST] [--dry-run] manifest
+# NAME
 
-positional arguments:
-  manifest
+hee-pve-users - hee-pve-users command
 
-options:
-  -h, --help   show this help message and exit
-  --host HOST
-  --dry-run
-```
+# SYNOPSIS
+
+    hee-pve-users [-h] [--host HOST] [--dry-run] manifest
+
+# DESCRIPTION
+
+    positional arguments:
+      manifest
+
+    options:
+      -h, --help   show this help message and exit
+      --host HOST
+      --dry-run

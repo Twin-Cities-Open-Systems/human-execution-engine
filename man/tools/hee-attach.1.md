@@ -1,15 +1,20 @@
-# hee-attach(1)
+% HEE-ATTACH(1) | HEE Tools
 
-```
-hee-attach
+# NAME
 
-Attaches HEE policy to a repo locally without committing doctrine into the repo.
+hee-attach - Attaches HEE policy to a repo locally without committing doctrine into the repo
 
-Usage:
-  tooling/bin/hee-attach --target <repo_path> [--hee <hee_repo_path>]
+# SYNOPSIS
 
-Effect:
-  - Creates .hee/policy/{prompts,docs} inside target repo (local-only)
-  - Syncs HEE prompts into .cursor/prompts (local-only)
-  - Adds .hee/ and .cursor/ to local exclude suggestions (prints commands)
-```
+      tooling/bin/hee-attach --target <repo_path> [--hee <hee_repo_path>]
+
+    Effect:
+      - Creates .hee/policy/{prompts,docs} inside target repo (local-only)
+      - Syncs HEE prompts into .cursor/prompts (local-only)
+      - Adds .hee/ and .cursor/ to local exclude suggestions (prints commands)
+
+# DESCRIPTION
+
+    hee-attach
+
+    Attaches HEE policy to a repo locally without committing doctrine into the repo.

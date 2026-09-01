@@ -1,41 +1,53 @@
-# hee-ver(1)
+% HEE-VER(1) | HEE Tools
 
-```
-hee-ver -- version and verification discovery (hee ver{sion,ify})
+# NAME
 
-SYNOPSIS
-  hee-ver tool <name>... [--source auto|self|package|path] [--json]
-  hee-ver platform [--json]
-  hee-ver hardware [--json]
-  hee-ver session  [--json] [--signature]
-  hee-ver all      [--json]
-  hee-ver verify   [PATH]
-  hee-ver [SUBCOMMAND] help
+hee-ver - version and verification discovery (hee ver{sion,ify})
 
-DESCRIPTION
-  One discovery surface. It reports what is actually here, and verifies
-  that what was recorded is still true.
+# SYNOPSIS
 
-  Nothing is asserted. A version is accepted only from a zero-exit
-  invocation whose output matches a real version shape, so an error
-  message or a kernel build string is never mistaken for a version.
+    hee-ver tool <name>... [--source auto|self|package|path] [--json]
+    hee-ver platform [--json]
+    hee-ver hardware [--json]
+    hee-ver session  [--json] [--signature]
+    hee-ver all      [--json]
+    hee-ver verify   [PATH]
+    hee-ver [SUBCOMMAND] help
 
-SUBCOMMANDS
-  tool       a tool's version, from every source
-  platform   OS, distro, kernel, libc
-  hardware   DMI/BIOS, CPU, memory -- unprivileged
-  session    this agent instance's identity and signature fields
-  all        everything above
-  verify     re-run recorded claims and check they still hold
 
-  Add `help` after any subcommand for its own page.
+# DESCRIPTION
 
-EXIT STATUS
-  Nagios convention. 0 OK  1 WARNING  2 CRITICAL  3 UNKNOWN
 
-ENVIRONMENT
-  HEE_STATUS_STYLE   icon (default), ascii, plain. See heerc.
+    One discovery surface. It reports what is actually here, and verifies
+    that what was recorded is still true.
 
-SEE ALSO
-  hee-check, hee-tools-check, hee-print
-```
+    Nothing is asserted. A version is accepted only from a zero-exit
+    invocation whose output matches a real version shape, so an error
+    message or a kernel build string is never mistaken for a version.
+
+
+# SUBCOMMANDS
+
+    tool       a tool's version, from every source
+    platform   OS, distro, kernel, libc
+    hardware   DMI/BIOS, CPU, memory -- unprivileged
+    session    this agent instance's identity and signature fields
+    all        everything above
+    verify     re-run recorded claims and check they still hold
+
+    Add `help` after any subcommand for its own page.
+
+
+# ENVIRONMENT
+
+    HEE_STATUS_STYLE   icon (default), ascii, plain. See heerc.
+
+
+# EXIT STATUS
+
+    Nagios convention. 0 OK  1 WARNING  2 CRITICAL  3 UNKNOWN
+
+
+# SEE ALSO
+
+    hee-check, hee-tools-check, hee-print

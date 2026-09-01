@@ -18,19 +18,19 @@
 .hy
 .SH hee-check-og(1)
 .PP
-hee-check-og \[en] real Open Graph / Twitter Card / title / canonical
-tag check, for a live URL or a local HTML file.
+hee-check-og -- real Open Graph / Twitter Card / title / canonical tag
+check, for a live URL or a local HTML file.
 .PP
 Real trigger (2026-08-29): Spencer manually ran a curl+grep one-liner
 twice in the same session to check OG tags on live TCOS pages, then
-asked to \[lq]roll this into a hee tool.\[rq] Real extraction logic
-lives in library/py/hee_ogtags (shared, not copy-pasted here) \[en] this
+asked to \[dq]roll this into a hee tool.\[dq] Real extraction logic
+lives in library/py/hee_ogtags (shared, not copy-pasted here) -- this
 script is just the CLI: fetch-or-read, then print what that library
 finds.
 .PP
-Usage: hee-check-og [\[en]raw] (default) pretty key: value summary,
-deduplicated, easy to eyeball \[en]raw exact matched tags, in document
+Usage: hee-check-og [--raw] (default) pretty key: value summary,
+deduplicated, easy to eyeball --raw exact matched tags, in document
 order, like the original curl | grep -oE one-liner this replaces
 .PP
-\f[I](no \[en]help/-h output \[en] generated from the script\[cq]s own
-header comment)\f[R]
+\f[I](no --help/-h output -- generated from the script\[aq]s own header
+comment)\f[R]

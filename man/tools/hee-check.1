@@ -14,53 +14,78 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-CHECK" "1" "" "" "HEE Tools"
 .hy
-.SH hee-check(1)
+.SH NAME
+.PP
+hee-check - repo boundary and integrity checks
+.SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-check -- repo boundary and integrity checks
+hee-check [boundary] [PATH]
+hee-check refs [--fix] [PATH]
+hee-check all [PATH]
+hee-check [SUBCOMMAND] help
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+Checks a repository for integrity problems. PATH defaults to the current
+directory, so the tool checks where it is invoked, never the repo it
+happens to be installed in.
 
-SYNOPSIS
-  hee-check [boundary] [PATH]
-  hee-check refs [--fix] [PATH]
-  hee-check all [PATH]
-  hee-check [SUBCOMMAND] help
+If PATH holds repositories rather than being one (for example \[ti]/git),
+every repository directly inside is checked and the results totalled.
+One level deep by design -- deeper would crawl vendored checkouts.
+\f[R]
+.fi
+.SH SUBCOMMANDS
+.IP
+.nf
+\f[C]
+boundary   generated state is not committed (default)
+refs       every file reference resolves
+systemd    systemd unit files are valid
+all        boundary + refs
 
-DESCRIPTION
-  Checks a repository for integrity problems. PATH defaults to the current
-  directory, so the tool checks where it is invoked, never the repo it
-  happens to be installed in.
-
-  If PATH holds repositories rather than being one (for example \[ti]/git),
-  every repository directly inside is checked and the results totalled.
-  One level deep by design -- deeper would crawl vendored checkouts.
-
-SUBCOMMANDS
-  boundary   generated state is not committed (default)
-  refs       every file reference resolves
-  all        both
-
-  Add \[ga]help\[ga] after any subcommand for its own page:
-      hee-check refs help
-
-EXIT STATUS
-  Nagios plugin convention.
-  0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
-
-ENVIRONMENT
-  HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
-  HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
-
-EXAMPLES
-  hee-check                     boundary check of the current repo
-  hee-check refs                every reference in the current repo
-  hee-check refs \[ti]/git          every repo under \[ti]/git
-  hee-check refs --fix          repair unambiguous references
-  hee-check all \[ti]/git/fleet-ops both checks on one repo
-
-SEE ALSO
-  hee-lint, hee-index, hee-print
+Add \[ga]help\[ga] after any subcommand for its own page:
+    hee-check refs help
+\f[R]
+.fi
+.SH ENVIRONMENT
+.IP
+.nf
+\f[C]
+HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+Nagios plugin convention.
+0 OK   1 WARNING (reserved)   2 CRITICAL   3 UNKNOWN
+\f[R]
+.fi
+.SH EXAMPLES
+.IP
+.nf
+\f[C]
+hee-check                     boundary check of the current repo
+hee-check refs                every reference in the current repo
+hee-check refs \[ti]/git          every repo under \[ti]/git
+hee-check refs --fix          repair unambiguous references
+hee-check all \[ti]/git/fleet-ops both checks on one repo
+\f[R]
+.fi
+.SH SEE ALSO
+.IP
+.nf
+\f[C]
+hee-lint, hee-index, hee-print
 \f[R]
 .fi
