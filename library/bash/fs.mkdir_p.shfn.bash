@@ -1,5 +1,5 @@
 # shellboss library function
-# source: /home/spencer/.local/bin/shellboss
+# source: ~/.local/bin/shellboss
 # extracted: 2026-02-07T02:01:23
 # NOTE: authoritative library; wrapper must not shadow logic.
 
