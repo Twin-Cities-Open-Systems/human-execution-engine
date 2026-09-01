@@ -63,6 +63,13 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+# library/py lives in this tool's own repo -- derive it from this script's
+# own location, resolved through symlinks, never from the repo the tool
+# happens to be invoked against.
+from pathlib import Path as _Path  # noqa: E402
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+
 DEFAULT_SERVER = "https://plex.crooked.tcos.us"
 DEFAULT_TOKEN_FILE = Path.home() / ".config" / "hee" / "plex-token"
 DEVICE_NAMES_FILE = Path.home() / ".config" / "hee" / "device-names.txt"
@@ -275,6 +282,16 @@ def main():
     ap.add_argument("-server", default=DEFAULT_SERVER)
     ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
     ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
+    # Contextual help BEFORE argparse parses anything. argparse owns -h and
+    # --help but not the bare `help` verb, and resolves either only after
+    # parsing -- so an unrelated argument errors first and the help never
+    # prints. Measured: 8 tools exited non-zero for --help for exactly this
+    # reason. See library/py/hee_cli.
+    if help_wanted(sys.argv[1:]):
+        note_ignored(sys.argv[1:])
+        ap.print_help()
+        return 0
+
     args = ap.parse_args()
 
     token = read_token()

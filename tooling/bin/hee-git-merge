@@ -94,6 +94,12 @@ import sys
 import time
 from pathlib import Path
 
+# library/py lives in this tool's own repo -- derive it from this script's
+# own location, resolved through symlinks, never from the repo the tool
+# happens to be invoked against.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+
 # library/py lives in this tool's own repo -- derive from this script's
 # own location, not cwd (this tool operates org-wide, not against a
 # single target repo).
@@ -939,6 +945,15 @@ def main():
     ap.add_argument("--no-cache", action="store_false", dest="use_cache", default=True,
                      help=f"skip the {PR_CACHE_TTL}s PR-detail cache, always fetch live "
                           f"(e.g. right before an actual merge)")
+    # Contextual help BEFORE argparse parses anything. argparse owns -h and
+    # --help but not the bare `help` verb, and resolves either only after
+    # parsing -- so an unrelated argument errors first and the help never
+    # prints. See library/py/hee_cli.
+    if help_wanted(sys.argv[1:]):
+        note_ignored(sys.argv[1:])
+        ap.print_help()
+        return 0
+
     args = ap.parse_args()
 
     author = None if args.author == "all" else args.author
