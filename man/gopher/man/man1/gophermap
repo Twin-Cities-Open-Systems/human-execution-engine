@@ -27,9 +27,7 @@ i		man.tcos.us	70
 0hee-print(1)	hee-print.txt	man.tcos.us	70
 0hee-procmail(1)	hee-procmail.txt	man.tcos.us	70
 0hee-publish(1)	hee-publish.txt	man.tcos.us	70
-0hee-pve-deploy(1)	hee-pve-deploy.txt	man.tcos.us	70
 0hee-pve-health(1)	hee-pve-health.txt	man.tcos.us	70
-0hee-pve-users(1)	hee-pve-users.txt	man.tcos.us	70
 0hee-pwgen(1)	hee-pwgen.txt	man.tcos.us	70
 0hee-qdb(1)	hee-qdb.txt	man.tcos.us	70
 0hee-qr(1)	hee-qr.txt	man.tcos.us	70
@@ -42,8 +40,6 @@ i		man.tcos.us	70
 0hee-site-publish(1)	hee-site-publish.txt	man.tcos.us	70
 0hee-sqz(1)	hee-sqz.txt	man.tcos.us	70
 0hee-srtscan(1)	hee-srtscan.txt	man.tcos.us	70
-0hee-ssh-send-keys(1)	hee-ssh-send-keys.txt	man.tcos.us	70
-0hee-ssh-trust-ca(1)	hee-ssh-trust-ca.txt	man.tcos.us	70
 0hee-stat(1)	hee-stat.txt	man.tcos.us	70
 0hee-sync-cursor-prompts(1)	hee-sync-cursor-prompts.txt	man.tcos.us	70
 0hee-ticket(1)	hee-ticket.txt	man.tcos.us	70
