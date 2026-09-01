@@ -43,7 +43,10 @@ mkdir -p "$(dirname "$OUT")"
   echo "own real compliance scan, grouped by kind. Do not hand-edit; re-run"
   echo "after adding/changing any real HEE object (apiVersion: hee/v1)."
   echo
-  echo "$LINT_OUT" | grep "RESULT:" | sed 's/^.*# /**/;s/$/**/'
+  # Match "RESULT" without assuming the punctuation or the status prefix around
+  # it, then keep from RESULT onward. Works against both the old
+  # "# RESULT: fail=.." and the current "WARNING: RESULT fail=..".
+  echo "$LINT_OUT" | grep "RESULT" | sed 's/^.*\(RESULT\)/**\1/;s/$/**/'
   echo
 
   # Real, deliberate simple grouping: extract each OK/ERROR/WARN line's
@@ -76,15 +79,32 @@ mkdir -p "$(dirname "$OUT")"
   #
   # A generated file that is diffed against a committed copy must be byte
   # reproducible on any machine, so the collation has to be pinned.
-  echo "$LINT_OUT" | grep -E "# (OK|ERROR|WARN): " | while IFS= read -r line; do
+  # Accepts BOTH hee-lint output vocabularies.
+  #
+  # hee-lint moved to the Nagios words the rest of the toolchain uses -- OK /
+  # WARNING / CRITICAL -- and dropped a stray "# " prefix. This grep still
+  # matched only the OLD tokens, so it silently produced an EMPTY index and the
+  # hee-index freshness check went red. Silently: an empty result is not an
+  # error to grep, so nothing failed until CI diffed the file.
+  #
+  # The old tokens are kept so this tool does not break against an older
+  # hee-lint on a machine that has not pulled yet.
+  #
+  # The real fragility is structural, and worth fixing separately: this parses
+  # another tool's HUMAN-READABLE output. Any wording change breaks it, at a
+  # distance, with no error. A machine-readable mode on hee-lint would remove
+  # the coupling entirely.
+  echo "$LINT_OUT" | grep -E "(# )?(OK|ERROR|WARN|WARNING|CRITICAL): " | while IFS= read -r line; do
     path="${line##*: }"
     [ -f "$path" ] || continue
     kind="$(grep -m1 -E '^kind:[[:space:]]*' "$path" | sed 's/^kind:[[:space:]]*//' | tr -d '\r')"
     [ -n "$kind" ] || kind="(unknown)"
     status="OK"
     case "$line" in
-      *"# ERROR: "*) status="ERROR" ;;
-      *"# WARN: "*)  status="WARN"  ;;
+      *"CRITICAL: "*) status="ERROR" ;;
+      *"# ERROR: "*)  status="ERROR" ;;
+      *"WARNING: "*)  status="WARN"  ;;
+      *"# WARN: "*)   status="WARN"  ;;
     esac
     printf '%s\t%s\t%s\n' "$kind" "$status" "$path"
   done | LC_ALL=C sort | awk -F'\t' '
@@ -116,4 +136,4 @@ mkdir -p "$(dirname "$OUT")"
 } > "$OUT"
 
 echo "wrote: $OUT"
-echo "$LINT_OUT" | grep "RESULT:"
+echo "$LINT_OUT" | grep "RESULT"
