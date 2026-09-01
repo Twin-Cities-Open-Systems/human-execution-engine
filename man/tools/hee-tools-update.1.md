@@ -84,6 +84,8 @@ hee-tools-update - install or refresh the pinned external toolchain
 
     Nagios plugin convention.
     0 OK   every manifest line was processed
+    2 CRITICAL  a manifest line names a kind this tool cannot act on. The
+                line was skipped, so a pin is going unapplied.
     Any other status is the exit code of whichever command failed under
     `set -e` (curl, tar, sha256sum, mkdir), passed through unmapped -- a
     failed download exits with curl's own code, not 2 CRITICAL. Documented
