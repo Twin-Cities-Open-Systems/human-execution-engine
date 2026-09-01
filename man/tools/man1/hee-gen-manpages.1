@@ -18,38 +18,67 @@
 .hy
 .SH NAME
 .PP
-hee-gen-manpages - generate man/tools/\f[I].N.md and manN/\f[R].N from
-each tool\[aq]s --help
+hee-gen-manpages - generate man pages from each tool\[aq]s own --help
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-gen-manpages
+hee-gen-manpages                     dry run: report what would change
+hee-gen-manpages --write             write the pages
+hee-gen-manpages --gopher [DIR]      dry run of the published gopher tree
+hee-gen-manpages --gopher --write    build it
+hee-gen-manpages help
 \f[R]
 .fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-No arguments. Re-run after any tool change.
+Extracts each tool\[aq]s own --help output and renders it as a man page. No
+page is hand-authored here; the tool\[aq]s help IS the page, per rule 17.
 
-Writes into the repo that owns the TOOL, never the current
-directory: it resolves its own location and writes to
-<tool-repo>/man/tools.
+DRY RUN IS THE DEFAULT. With no arguments this writes nothing at all --
+it generates into a temporary directory, compares that against what is
+committed, and prints the difference. Add --write to apply it.
 
-The resolved absolute path is printed when it RUNS, not here --
-help output is captured verbatim into the generated man page, so
-a machine-specific path in help becomes a machine-specific path
-in checked-in documentation (fleet-ops#352).
-
-Each page is generated FROM the --help output of each tool, so
-tool help text is what becomes its man page.
+Operator, 2026-09-01: \[dq]I don\[aq]t like that it just writes files when you
+run it without args. those file need to go to a certain spot and oper
+needs to know that.\[dq] The precedent is real and already cost something:
+a bare run of this tool was once observed installing a pre-commit hook
+as a side effect of generating documentation (issue:464\[at]human-execution-engine),
+which is why library/py/hee_toolver never invokes a tool without a flag.
+\f[R]
+.fi
+.SH OPTIONS
+.IP
+.nf
+\f[C]
+--write        apply the changes. Without it nothing is written.
+--gopher [DIR] render the published gopher tree. DIR defaults to
+               man/gopher. Rebuilt from scratch, so with --write this
+               REMOVES the existing tree first.
 \f[R]
 .fi
 .SH EXIT STATUS
 .IP
 .nf
 \f[C]
-0 OK   1 nothing generated
+0 OK   1 nothing generated, or an unknown argument
+\f[R]
+.fi
+.SH DESTINATIONS
+.IP
+.nf
+\f[C]
+Both are inside the repo that owns the TOOL, never the current
+directory -- this tool resolves its own location first. The absolute
+path is printed on every run, dry or not.
+
+  man/tools/           generated pages, .N.md sources and manN/*.N roff
+  man/tools/README.md  the index
+  man/gopher/          --gopher only: the tree man.tcos.us serves
+
+man/manN/ holds pages written BY HAND. Those WIN: generation skips any
+tool with an authored page and says so.
 \f[R]
 .fi

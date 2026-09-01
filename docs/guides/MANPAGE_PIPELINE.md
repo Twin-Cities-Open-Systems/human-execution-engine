@@ -13,7 +13,7 @@ and it is written down rather than guessed at.
 |---|---|---|---|
 | 1 | Create or change a tool | `tooling/bin/hee-*` | ✅ `OK` defined |
 | 2 | Write its help text | the tool's own `help` output | ✅ `OK` defined |
-| 3 | Generate pages | `hee gen-manpages` | ✅ `OK` automated |
+| 3 | Generate pages | `hee gen-manpages --write` | ✅ `OK` automated |
 | 4 | Commit and land | PR into `main` | ✅ `OK` defined |
 | 5 | Content reaches prod | manual, undocumented | ❌ `CRITICAL` gap |
 | 6 | Lab renders it | automatic, no promotion step | ✅ `OK` see below |
@@ -59,11 +59,50 @@ its left; and nothing to the right of the help token may be executed.
 
 ## 3. Generate
 
-    hee gen-manpages
+**Dry run is the default. `hee gen-manpages` with no arguments writes
+nothing.** It generates into a temporary directory, diffs that against what
+is committed, and tells you what `--write` would do:
 
-Writes `man/tools/<tool>.1.md` for every tool, plus `man/tools/README.md` as
-an index, and converts to roff (`man/tools/<tool>.1`) when `pandoc` is
-present.
+    $ hee gen-manpages
+    DRY RUN -- nothing will be written.
+    would write to: ~/git/human-execution-engine/man/tools
+    staged in:      /tmp/hee-gen-manpages.r5IpqwdL
+
+    pages (man/tools) -- what --write would do:
+      2 changed  0 new  0 removed  97 unchanged
+      changed: man/tools/hee-gen-manpages.1.md
+      changed: man/tools/man1/hee-gen-manpages.1
+
+    Nothing was written. Re-run with --write to apply.
+
+Then apply it:
+
+    hee gen-manpages --write
+
+Writes `man/tools/<tool>.N.md` for every tool, plus `man/tools/README.md` as
+an index, and converts to roff (`man/tools/manN/<tool>.N`) when `pandoc` is
+present. Authored pages under `man/manN/` are skipped and said so.
+
+The dry run generates for real into a throwaway directory rather than
+reasoning about what it would have done, so the two paths cannot disagree:
+the diff is computed from the same bytes `--write` writes.
+
+Operator, 2026-09-01: *"I don't like that it just writes files when you run
+it without args. those file need to go to a certain spot and oper needs to
+know that."* The concern has a documented cost behind it — a bare run of this
+tool was once observed installing a pre-commit hook as a side effect of
+generating documentation (issue 464), which is why `library/py/hee_toolver`
+never invokes a tool without an explicit flag. Same posture as
+`hee-reset-tooling` (dry run until `--yes`) and `hee check refs` (reports
+until `--fix`).
+
+### The gopher tree
+
+    hee gen-manpages --gopher            # dry run
+    hee gen-manpages --gopher --write    # build it
+
+`--write` here **removes the existing tree first** and rebuilds it, which the
+tool says out loud before doing it.
 
 **Where it writes.** The generator changes directory to *its own repo root*
 before writing, so it always writes to that repo's `man/tools/` no matter
