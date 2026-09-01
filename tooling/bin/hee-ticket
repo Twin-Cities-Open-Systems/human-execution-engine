@@ -243,7 +243,7 @@ def _print_help_and_exit(argv):
 
     Help dispatch goes through the shared contract (library/py/hee_cli), not
     the old `argv[-1]` idiom. That idiom only looked at the FINAL argument,
-    so `hee-ticket -close help --force` was not recognised as help at all and
+    so `hee-ticket -close help --force` was not recognized as help at all and
     ran the real -close. Asking for help must never be able to do anything.
 
     Actions here are spelled as flags (-close), so the topic comes from

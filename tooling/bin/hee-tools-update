@@ -109,7 +109,7 @@ EOF
 # create directories or touch $HOME.
 #
 # The `_last` idiom this replaces only looked at the FINAL argument, so
-# `hee tools-update help /some/manifest` was not recognised as help at all
+# `hee tools-update help /some/manifest` was not recognized as help at all
 # and ran for real. That is not hypothetical: it wrote seven junk evidence
 # logs into hee/evidence/tools/ across 2026-08-30/31, each recording only
 # `manifest: --help`, and those logs dirtied the worktree until they broke
