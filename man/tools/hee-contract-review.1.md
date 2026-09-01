@@ -27,7 +27,7 @@ hee-contract-review - smart-sorted contract review, needed-first
 
     Worktrees are meant to be excluded -- they are ephemeral working
     copies, never the canonical source for a signature -- but the filter
-    only recognises the `<repo>.worktrees/` path convention. A worktree
+    only recognizes the `<repo>.worktrees/` path convention. A worktree
     placed anywhere else (for example `<repo>/.claude/worktrees/`) is
     still scanned, and the (repo, relative-path) dedupe does not collapse
     it either, because its relative path differs. Verified live, 2026-08-31:
@@ -42,7 +42,7 @@ hee-contract-review - smart-sorted contract review, needed-first
         8   no status field at all
         7   status not_implemented
         6   status proposed
-        5   an unrecognised status
+        5   an unrecognized status
         4   status in_progress or partially_implemented
         1   status ratified or completed
         9   the file failed to parse
