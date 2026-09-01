@@ -34,15 +34,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The tool-locale registry lives with the tool's other provenance, in
-      # primitives -- not hardcoded in the checker. Checked out so `locale`
-      # can read it; without it the check still runs and reports that it
-      # could not recognize a config vocabulary.
-      - uses: actions/checkout@v4
-        with:
-          repository: Twin-Cities-Open-Systems/primitives
-          path: primitives
-
       # hee-check itself needs no runtime, but `refs` and `regex` shell out
       # to rg and python3. python3 is preinstalled on ubuntu-latest.
       - name: Install rg
@@ -70,12 +61,27 @@ jobs:
         run: tooling/bin/hee-check cli
 
       # GREEN. Renamed from `style` when the operator reframed it: this is
-      # locale conformance, not a list of British spellings. It needs the
-      # primitives checkout for tool-locale provenance, and says so rather
-      # than silently skipping the exemption if it is missing.
+      # locale conformance, not a list of British spellings.
+      #
+      # It runs WITHOUT the tool-locale provenance registry, deliberately.
+      # That registry lives in the primitives repo, which is PRIVATE, and a
+      # workflow's default GITHUB_TOKEN cannot read another repository --
+      # measured here, first run: actions/checkout returned
+      #
+      #     ##[error]Not Found - .../rest/repos/repos#get-a-repository
+      #
+      # Reading it would need a PAT or a deploy key, which widens what this
+      # workflow can reach. That is an operator decision and the same
+      # credential question as fleet-ops#363, not something to grant here.
+      #
+      # The cost of going without is bounded and known: this repo has no
+      # tmux config and no other file carrying a foreign config vocabulary,
+      # so the exemption changes nothing here. The check SAYS it could not
+      # load the registry rather than skipping quietly.
+      #
+      # Set HEE_PRIMITIVES locally and it uses it; ~/git/primitives is the
+      # default, so an operator running this on kiosk already gets it.
       - name: locale -- text matches the declared locale
-        env:
-          HEE_PRIMITIVES: ${{ github.workspace }}/primitives
         run: tooling/bin/hee-check locale
 
   shellcheck:
