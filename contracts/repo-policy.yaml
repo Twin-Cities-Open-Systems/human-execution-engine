@@ -6,13 +6,12 @@ doctrine:
     - docs/
     - prompts/
 
-cursor:
-  derived_only: true
-  canonical_source_priority:
-    - prompts/hee
-    - .hee/policy/prompts
-  derived_target:
-    - .cursor/prompts
+# cursor: REMOVED 2026-09-01. The org does not use Cursor, and the derived
+# .cursor/prompts tree was being COMMITTED in three repos -- a January
+# snapshot of prompts this repo purged in 68fd689, fed to agents as current
+# doctrine. Governance reaches a repo through the dotfiles SessionStart
+# hook. .cursor/ stays in prohibitions below and in HEE_DERIVED_DIRS, so
+# committing it is still an error; nothing generates it any more.
 
 vendoring:
   allowed_vendored_roots:

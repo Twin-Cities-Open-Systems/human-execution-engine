@@ -641,6 +641,29 @@ for _p in "$OUT_DIR"/*.[1-9].md "$OUT_DIR"/README.md; do
   fi
 done
 
+# A tool that no longer EXISTS leaves its page behind forever, and the pandoc
+# pass below regenerates the roff from that orphaned .md on every run -- so
+# the page outlives the tool and keeps re-creating itself. Same class as the
+# stale-section orphan handled per-tool above, but that check only visits
+# tools that are still here, so it cannot see a deletion.
+#
+# Caught 2026-09-01 the same way the first one was: the dry run predicted 4
+# removals after two tools were deleted, and --write performed none. The dry
+# run and the real run must never disagree.
+#
+# Everything under man/tools/ is generated -- authored pages live in
+# man/manN/ -- so "no matching tool in BIN_DIR" is sufficient to remove it.
+for _pg in "$OUT_DIR"/*.[1-9].md "$OUT_DIR"/man[1-9]/*.[1-9]; do
+  [ -f "$_pg" ] || continue
+  _base="$(basename "$_pg")"
+  case "$_base" in README.md) continue ;; esac
+  _tool="${_base%.[1-9].md}"; _tool="${_tool%.[1-9]}"
+  if [ ! -f "$BIN_DIR/$_tool" ]; then
+    rm -f "$_pg"
+    echo "  removed page for a tool that no longer exists: $_pg"
+  fi
+done
+
 echo "index: $OUT_DIR/README.md"
 
 # Real md -> real roff man(1) conversion, 2026-08-30. The .1.md files

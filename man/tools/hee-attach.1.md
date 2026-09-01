@@ -21,8 +21,7 @@ hee-attach - attach HEE policy to a repo without committing doctrine into it
 
     Effect:
       - creates .hee/policy/{prompts,docs} inside the target repo
-      - syncs HEE prompts into .cursor/prompts
-      - prints the commands to add .hee/ and .cursor/ to local excludes
+      - prints the command to add .hee/ to local excludes
 
 
 # EXIT STATUS

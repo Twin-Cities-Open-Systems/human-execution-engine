@@ -24,12 +24,11 @@ DESCRIPTION
   validator accepts, then opens a branch carrying the change.
 
   Vendored mode writes:
-    prompts/hee/          HEE prompts, excluding .cursor
+    prompts/hee/          HEE prompts
     prompts/hee/docs/     HEE docs/specs
     docs/hee/             pointers + VERSION only, imperative-free
     docs/HEE_POLICY.md    pointer doc, imperative-free
     scripts/hee-check.sh  consumer-side check
-    .cursor/prompts       derived directly; the consumer needs no script
 
   This CREATES AND OVERWRITES those vendored directories, then creates a
   branch (default chore/vendor-hee-policy) and pushes it. --no-push keeps
@@ -106,9 +105,9 @@ hee_vendor__check_mode() {
   work="$tmp/work"
   mkdir -p "$work"
 
-  # 1) prompts/hee (HEE/prompts excluding .cursor)
+  # 1) prompts/hee
   mkdir -p "$work/prompts/hee"
-  rsync -a --delete --exclude ".cursor/" "$hee/prompts/" "$work/prompts/hee/"
+  rsync -a --delete "$hee/prompts/" "$work/prompts/hee/"
 
   # 2) prompts/hee/docs (HEE/docs)
   mkdir -p "$work/prompts/hee/docs"
@@ -156,13 +155,6 @@ TXT
   fi
   install -m 0755 "$hee/tooling/templates/scripts/hee-check.sh" "$work/scripts/hee-check.sh"
 
-  # 5) .cursor/prompts derived from prompts/hee excluding docs/ and .cursor/
-  mkdir -p "$work/.cursor/prompts"
-  rsync -a --delete \
-    --exclude "docs/" \
-    --exclude ".cursor/" \
-    "$work/prompts/hee/" "$work/.cursor/prompts/"
-
   drift=0
   diff_out=""
 
@@ -173,8 +165,7 @@ TXT
     "prompts/hee/docs:prompts/hee/docs" \
     "docs/hee:docs/hee" \
     "docs/HEE_POLICY.md:docs/HEE_POLICY.md" \
-    "scripts/hee-check.sh:scripts/hee-check.sh" \
-    ".cursor/prompts:.cursor/prompts"
+    "scripts/hee-check.sh:scripts/hee-check.sh"
   do
     src="${pair%%:*}"
     dst="${pair##*:}"
@@ -240,8 +231,8 @@ fi
 git checkout -b "$BRANCH"
 
 rm -rf prompts/hee docs/hee
-mkdir -p prompts/hee/docs docs/hee docs/local prompts/local .cursor/prompts scripts
-rsync -a --delete --exclude ".cursor/" "$HEE/prompts/" "prompts/hee/"
+mkdir -p prompts/hee/docs docs/hee docs/local prompts/local scripts
+rsync -a --delete "$HEE/prompts/" "prompts/hee/"
 rsync -a --delete --exclude "history/" "$HEE/docs/" "prompts/hee/docs/"
 
 cat > docs/hee/README.md <<'TXT'
@@ -273,12 +264,6 @@ TXT
 
 # Install consumer-side check script (vendored asset)
 install -m 0755 "$HEE/tooling/templates/scripts/hee-check.sh" "scripts/hee-check.sh"
-
-# Derive cursor prompts directly (no repo script required)
-rsync -a --delete \
-  --exclude "docs/" \
-  --exclude ".cursor/" \
-  "prompts/hee/" ".cursor/prompts/"
 
 git add -A
 MSG="Vendor HEE policy under prompts/hee @ ${HEE_COMMIT}"
