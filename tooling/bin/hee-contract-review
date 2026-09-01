@@ -37,6 +37,12 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+# library/py lives in this tool's own repo -- derive from this script's own
+# location, never the repo it happens to be invoked against.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_left, help_wanted, note_ignored  # noqa: E402
 
 try:
     import yaml
@@ -246,14 +252,23 @@ SEE ALSO
 
 def _print_help_and_exit(argv):
     """Answer help before collect() walks the filesystem -- hee-gen-manpages
-    gives a tool 5 seconds to print its own help."""
-    if not (argv and argv[-1] in ("help", "--help", "-h")):
+    gives a tool 5 seconds to print its own help.
+
+    Help dispatch goes through the shared contract (library/py/hee_cli), not
+    the old `argv[-1]` idiom, which only looked at the FINAL argument and so
+    missed `hee-contract-review --action sign help --yes` entirely, running
+    the real --action. Mode selection reads only what was LEFT of the help
+    token: scanning the whole argv let a flag to the RIGHT of it choose the
+    page, which is the same property-3 leak in a quieter shape."""
+    if not help_wanted(argv):
         return
-    if "--action" in argv:
+    note_ignored(argv)
+    left = help_left(argv)
+    if "--action" in left:
         page = HELP_SIGN
-    elif "--gopher-menu" in argv:
+    elif "--gopher-menu" in left:
         page = HELP_GOPHER
-    elif "--dump" in argv:
+    elif "--dump" in left:
         page = HELP_DUMP
     else:
         page = HELP

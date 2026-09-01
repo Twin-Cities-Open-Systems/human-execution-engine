@@ -3,19 +3,56 @@
 # hee-print: render files nicely for terminal surfaces (tmux-ui, shellboss, humans)
 # POSIX sh, no prompts.
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, and a bare `dirname "$0"` points at the
+# symlink's directory, where library/ does not exist. Same realpath idiom the
+# `hee` dispatcher already uses, per the GNU Tools Preference Policy.
+SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
+SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
 usage() {
   cat <<'USAGE'
-usage:
-  hee-print [--no-header] [--] <file>...
-  hee-print [--no-header] --stdin [--hint md|yaml|json|text]
+hee-print -- render files nicely for terminal surfaces
 
-behavior:
-  .md/.markdown -> glow -p (if available)
-  .yml/.yaml    -> yq -P   (if available)
-  .json         -> jq .    (if available)
-  other         -> bat/batcat -p --paging=never (if available) else cat
+SYNOPSIS
+  hee-print [--no-header] [--] FILE...
+  hee-print [--no-header] --stdin [--hint md|yaml|json|text]
+  hee-print help
+
+DESCRIPTION
+  Picks a renderer from the file extension, falling back to cat whenever the
+  nicer tool is not installed. Never prompts, never writes.
+
+    .md/.markdown -> glow -p
+    .yml/.yaml    -> yq -P
+    .json         -> jq .
+    other         -> bat/batcat -p --paging=never, else cat
+
+  --no-header  suppress the per-file header printed when given several files
+  --stdin      read the document from stdin instead of a path
+  --hint       tell --stdin which renderer to use; ignored otherwise
+
+EXIT STATUS
+  0 rendered   2 usage error or no file given
 USAGE
 }
+
+# Contextual help, via the shared contract -- never a positional check.
+# `hee-print help --stdin` must print help and read nothing.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -66,7 +103,6 @@ while [ $# -gt 0 ]; do
     --no-header) no_header=1; shift ;;
     --stdin) stdin_mode=1; shift ;;
     --hint) hint="${2:-}"; shift 2 ;;
-    --help|-h) usage; exit 0 ;;
     --) shift; break ;;
     -*) echo "unknown flag: $1" >&2; usage; exit 2 ;;
     *) break ;;
