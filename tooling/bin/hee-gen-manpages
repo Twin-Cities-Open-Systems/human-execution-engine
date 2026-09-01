@@ -158,11 +158,11 @@ gen_gopher() {
     {
       printf 'iTwin Cities Open Systems -- section %s: %s\t\tman.tcos.us\t70\n' "$_n" "$(_sec_title "$_n")"
       printf 'i\t\tman.tcos.us\t70\n'
-      [ -f "$_d/hee.txt" ] && printf '0hee(%s)\thee.txt\tman.tcos.us\t70\n' "$_n"
+      [ -f "$_d/hee.txt" ] && printf '0hee(%s)\t/man/man%s/hee.txt\tman.tcos.us\t70\n' "$_n" "$_n"
       for _f in "$_d"/*.txt; do
         [ -f "$_f" ] || continue
         _b="$(basename "$_f" .txt)"; [ "$_b" = "hee" ] && continue
-        printf '0%s(%s)\t%s\tman.tcos.us\t70\n' "$_b" "$_n" "$(basename "$_f")"
+        printf '0%s(%s)\t/man/man%s/%s\tman.tcos.us\t70\n' "$_b" "$_n" "$_n" "$(basename "$_f")"
       done
       printf 'i\t\tman.tcos.us\t70\n'
       printf '1all sections\t/man\tman.tcos.us\t70\n'
