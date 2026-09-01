@@ -81,8 +81,20 @@ MANIFEST="${1:-$DEFAULT_MANIFEST}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# vline NAME [REQ]
+#
+# REQ is "required" (default) or "optional". A missing OPTIONAL tool is a
+# WARNING, never CRITICAL -- rule 16: never leave a check red on day one,
+# because a permanently-red check trains people to ignore red. Two tools were
+# reporting CRITICAL for absences nothing actually depends on:
+#
+#   bat  -- library/sh/hee-print already guards it with `command -v bat` and
+#           falls back to cat. Optional by construction.
+#   go   -- nothing builds it. cmd/hee/main.go is a stub, and per rule 13 Go is
+#           the rung this toolchain has not reached yet.
 vline() {
   n="$1"
+  req="${2:-required}"
   if have "$n"; then
     if "$n" --version >/dev/null 2>&1; then
       ver=$("$n" --version | head -n 1)
@@ -93,7 +105,11 @@ vline() {
     fi
     hee_status OK "$(printf '%-8s %s' "$n" "$ver")"
   else
-    hee_status CRITICAL "$(printf '%-8s %s' "$n" "missing")"
+    if [ "$req" = "optional" ]; then
+      hee_status WARNING "$(printf '%-8s %s' "$n" "missing (optional)")"
+    else
+      hee_status CRITICAL "$(printf '%-8s %s' "$n" "missing")"
+    fi
   fi
 }
 
@@ -108,5 +124,7 @@ while IFS= read -r line; do
   esac
   set -- $line
   name="$1"
-  vline "$name"
+  # 5th column, optional for back-compat: a manifest line without it is required.
+  req="${5:-required}"
+  vline "$name" "$req"
 done < "$MANIFEST"

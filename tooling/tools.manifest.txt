@@ -1,4 +1,9 @@
-# name  kind    desired  vflag
+# name  kind    desired  vflag      req
+#
+# req -- required (default when the column is absent) or optional. A missing
+# OPTIONAL tool reports WARNING, not CRITICAL. Added 2026-09-01: this check was
+# red on day one for two tools nothing depends on, and rule 16 is explicit that
+# a permanently-red check trains people to ignore red.
 #
 # vflag -- the flag this tool ACTUALLY answers for its version. Added
 # 2026-08-31 after `tmux --version` was used in a Makefile and printed the
@@ -8,10 +13,20 @@
 #
 # Verified by running each command on kiosk, 2026-08-31T19:28:40Z. Never
 # asserted -- see primitives.yaml for the captured output of each run.
-go      tar     1.26.0   --version
+# go: nothing builds it. cmd/hee/main.go is a stub and per rule 13 Go is the
+# rung this toolchain has not reached. Wanted eventually, not required now.
+go      tar     1.26.0   --version  optional
 yq      bin     4.50.1   --version
 jq      pkg     any      --version
-bat     pkg     any      --version
+# bat: library/sh/hee-print guards it with `command -v bat` and falls back to
+# cat. Optional by construction, so absence is not CRITICAL.
+bat     pkg     any      --version  optional
 glow    pkg     any      --version
 rg      pkg     any      --version
 tmux    pkg     any      -V
+# smilint (libsmi): the standard SMI/ASN.1 MIB validator. Added 2026-09-01 --
+# three diverged copies of the OWNER-ROOT-MIB taxonomy exist and NONE has ever
+# been machine-checked, because no validator is installed anywhere on the
+# fleet. Optional: only MIB work needs it.
+# See human-execution-engine#400 and fleet-ops#356.
+smilint pkg     any      --version  optional
