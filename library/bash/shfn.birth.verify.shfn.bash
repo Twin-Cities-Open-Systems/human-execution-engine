@@ -13,7 +13,13 @@ shfn_birth_verify() {
   OUT="$(mktemp -t hee.shfn.birth.verify.XXXXXX.txt)" || return 1
   ln -sf "$OUT" /tmp/hee.shfn.birth.verify.latest.txt 2>/dev/null || true
 
-  local repo="/home/spencer/git/human-execution-engine"
+  # Derived from this file's own location, never a hardcoded home. Rule 10:
+  # a real user's home path in a shared script breaks for every other user,
+  # and this repo is checked out per-user (/home/spencer and /home/claude both
+  # exist on kiosk, each 0750 and unreadable by the other). Same principle the
+  # hee router uses -- TOOL root comes from the script location.
+  local repo
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" || return 1
   cd "$repo" || { echo "❌ ERROR: cd failed: $repo"; return 1; }
 
   # Diff range: prefer merge-base with origin/main when available; fallback to HEAD~1.

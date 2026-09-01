@@ -12,7 +12,9 @@ shellboss_pr_body_hotfix() {
   OUT="$(mktemp -t hee.pr.body.XXXXXX.md)" || return 1
   ln -sf "$OUT" /tmp/hee.pr.body.latest.md 2>/dev/null || true
 
-  local repo="/home/spencer/git/human-execution-engine"
+  # Derived from this file's own location, never a hardcoded home -- rule 10.
+  local repo
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" || return 1
   cd "$repo" || { printf "❌ ERROR: cd failed: %s\n" "$repo"; return 1; }
 
   local branch head
