@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """hee-stat -- stat(1)'s interface convention, applied to namespaced
 resources instead of the filesystem.
 

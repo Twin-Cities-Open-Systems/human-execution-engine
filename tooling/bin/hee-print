@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-print: render files nicely for terminal surfaces (tmux-ui, shellboss, humans)
 # POSIX sh, no prompts.
 

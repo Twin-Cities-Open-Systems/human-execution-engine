@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-site-publish -- publish real files to the resume Cloudflare Pages
 # project (spencer.blog.tcos.us, touchy.blog.tcos.us, blog.tcos.us,
 # media.tcos.us -- one real deployed tree, personalized client-side by

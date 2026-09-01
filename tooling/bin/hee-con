@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-con -- connect to IRC using a real native client, persistent in tmux.
 # Also: send a real message into an existing tmux pane (-tmux-send).
 #

@@ -143,11 +143,11 @@ def errored(r: dict) -> bool:
 def judge(tool: str, results: dict[str, dict]) -> dict[str, Any]:
     """Turn raw probe output into findings. Severity reflects real cost."""
     findings: list[tuple[str, str]] = []
-    working = [v for v, r in results.items() if v != "_tail"
+    working = [v for v, r in results.items() if v not in ("_tail", "_section")
                and r["rc"] == 0 and r["out"].strip() and not errored(r)]
 
     for verb, r in results.items():
-        if verb == "_tail":
+        if verb in ("_tail", "_section"):
             continue
         if r["timeout"]:
             findings.append(("CRITICAL", f"`{verb}` hung (>{TIMEOUT}s) -- help must never block"))
@@ -199,6 +199,12 @@ def judge(tool: str, results: dict[str, dict]) -> dict[str, Any]:
                                  "discards arguments after the help token but does not say so -- "
                                  "use hee_help_note_ignored()"))
 
+    sec = results.get("_section")
+    if sec is not None and sec.get("value") is None:
+        findings.append(("WARNING",
+                         "declares no man section -- add a '# section: N' header "
+                         "line (1 user command, 8 system administration)"))
+
     if working:
         best = results[working[0]]["out"]
         if "SYNOPSIS" not in best:
@@ -212,6 +218,29 @@ def judge(tool: str, results: dict[str, dict]) -> dict[str, Any]:
             level = lv
     return {"tool": tool, "level": level, "findings": findings,
             "verbs_working": working}
+
+
+SECTION_RE = re.compile(r"^#\s*section:\s*([1-9])\s*$", re.M)
+
+
+def declared_section(path: str) -> "int | None":
+    """The man section a tool declares in its own header, or None.
+
+    Every tool must declare one. It is deliberately a comment IN THE TOOL
+    rather than a central map: a map is a second thing to maintain and goes
+    stale the moment someone adds a tool and forgets to register it, while a
+    header line travels with the code and is visible to whoever is editing it.
+
+    Operator, 2026-09-01, choosing this over a registry: "maybe just update
+    them all now that way and scrap a map ... 1 less thing to maintain".
+    """
+    try:
+        with open(path, errors="ignore") as fh:
+            head = fh.read(4096)
+    except OSError:
+        return None
+    m = SECTION_RE.search(head)
+    return int(m.group(1)) if m else None
 
 
 def check(bindir: str) -> dict[str, Any]:
@@ -229,6 +258,7 @@ def check(bindir: str) -> dict[str, Any]:
                          and not errored(results[v])), None)
             if live:
                 results["_tail"] = probe_tail(path, live, cwd)
+            results["_section"] = {"value": declared_section(path)}
             reports.append(judge(sub, results))
     worst = "OK"
     for r in reports:

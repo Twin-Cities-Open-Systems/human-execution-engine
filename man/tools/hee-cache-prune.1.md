@@ -1,5 +1,6 @@
 # hee-cache-prune(1)
 
+section: 1
 hee-cache-prune -- prune stale entries from the real hee-* disk
 caches (hee-filter's repo-visibility cache, hee-git-merge's PR-detail
 cache). A TTL alone never deletes an entry nobody re-queries -- it

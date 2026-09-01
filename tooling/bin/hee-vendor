@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# section: 1
 set -euo pipefail
 
 usage() {

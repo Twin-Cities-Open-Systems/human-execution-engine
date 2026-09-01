@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# section: 8
+# System administration -- creates and configures Proxmox containers. man-pages(7) puts commands that
+# administer the system in 8, not 1.
 """hee-pve-deploy: real, extensible Proxmox LXC deploy from a declarative
 manifest -- one YAML file per service, this tool creates it via the real
 Proxmox API (pvesh over SSH to the node), idempotent.

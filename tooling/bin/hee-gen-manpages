@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-gen-manpages -- real 0-token man-page generator. Mechanically
 # extracts each tool's own --help/-h output (or, for shell scripts
 # without one, its header comment block) into man/<tool>.1.md, then
@@ -27,7 +28,7 @@
 # `git status` stays clean and only mtime reveals the write.
 case "${1:-}" in
   help|--help|-h)
-    echo "hee-gen-manpages -- generate man/tools/*.1.md and *.1 from each tool's --help"
+    echo "hee-gen-manpages -- generate man/tools/*.N.md and manN/*.N from each tool's --help"
     echo ""
     echo "SYNOPSIS"
     echo "  hee-gen-manpages"
@@ -64,72 +65,25 @@ mkdir -p "$OUT_DIR"
 # which is not the directory the operator ran it from.
 printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
 
-# --gopher: render the artifacts man.tcos.us actually serves.
+# man_section FILE -- which manual section this tool belongs in.
 #
-# The droplet runs gophernicus over a directory of PLAIN TEXT files named
-# <tool>.txt, indexed by a `gophermap`. Neither has ever been generated: the
-# live gophermap lists 40 entries for 54 tools, and the .txt files are
-# whatever was hand-copied last -- which is why man.tcos.us still publishes
+# Declared BY THE TOOL, in its own header:
 #
-#     ()                              ()
-#     hee-check(1)
-#            find: unknown predicate `--help/prompts'
+#     # section: 8
 #
-# as this project's documentation.
+# not by a lookup table here. A table in the generator goes stale the moment
+# someone adds a tool and forgets it, and the tool's own author is the one who
+# knows whether it administers the system or just talks to it.
 #
-# `man -l FILE.1 | col -bx` produces byte-for-byte the shape gophernicus
-# serves -- verified against the live endpoint before this was written.
-# col -bx strips backspace-overstrike bold/underline and expands tabs, which
-# is what makes it plain text rather than terminal-formatted.
-#
-# Writes into man/gopher/ in THIS repo. Deliberately not into fleet-ops'
-# hosts/man-tcos-us/ -- a tool should not reach across repo boundaries to
-# write another repo's files. Transport from here to the droplet is a
-# separate, still-unbuilt step (fleet-ops#327).
-gen_gopher() {
-  _out="${1:-man/gopher}"
-  mkdir -p "$_out"
-  command -v man >/dev/null 2>&1 || { echo "man(1) unavailable -- cannot render" >&2; return 3; }
-
-  _n=0
-  # Authored pages win over generated ones, same precedence as everywhere else.
-  for _src in "$AUTHORED_DIR"/*.1 "$OUT_DIR"/*.1; do
-    [ -f "$_src" ] || continue
-    _name="$(basename "$_src" .1)"
-    # A man page name is a COMMAND name; scan-hee-cards.py.txt would publish
-    # an implementation detail as documentation.
-    _name="${_name%.py}"
-    # Skip a generated page when an authored one exists for the same tool.
-    if [ "$_src" != "$AUTHORED_DIR/$_name.1" ] && [ -f "$AUTHORED_DIR/$_name.1" ]; then
-      continue
-    fi
-    man -l "$_src" 2>/dev/null | col -bx > "$_out/$_name.txt" || continue
-    _n=$((_n + 1))
-  done
-
-  # gophermap generated FROM the files that exist, never hand-maintained --
-  # a hand-kept index is exactly how it drifted to 40-of-54.
-  {
-    printf 'iTwin Cities Open Systems -- real man pages, real tools\t\tman.tcos.us\t70\n'
-    printf 'iIANA Private Enterprise Number: 1.3.6.1.4.1.66550\t\tman.tcos.us\t70\n'
-    printf 'i\t\tman.tcos.us\t70\n'
-    # `hee` first, then everything else. A plain *.txt glob sorts
-    # hee-attach.txt before hee.txt ("-" < "."), burying the dispatcher the
-    # whole index is about three entries down.
-    if [ -f "$_out/hee.txt" ]; then
-      printf '0hee(1)\thee.txt\tman.tcos.us\t70\n'
-    fi
-    for _f in "$_out"/*.txt; do
-      [ -f "$_f" ] || continue
-      _b="$(basename "$_f" .txt)"
-      [ "$_b" = "hee" ] && continue
-      printf '0%s(1)\t%s\tman.tcos.us\t70\n' "$_b" "$(basename "$_f")"
-    done
-  } > "$_out/gophermap"
-
-  echo "gopher: $_n page(s) + gophermap -> $(pwd)/$_out"
+# Defaults to 1 (user commands), which is what the overwhelming majority are.
+# 8 is system administration -- per man-pages(7), commands that manage the
+# system and generally want root. That distinction is what tells a reader
+# `hee-ssh-trust-ca` edits sshd config while `hee-print` formats a file, and
+# it is what apropos/whatis categorise on.
+man_section() {
+  _s="$(sed -n 's/^#[[:space:]]*section:[[:space:]]*\([1-9]\)[[:space:]]*$/\1/p' "$1" 2>/dev/null | head -1)"
+  [ -n "$_s" ] && printf '%s\n' "$_s" || printf '1\n'
 }
-
 
 
 # HAND-WRITTEN PAGES WIN. Operator, 2026-08-31: "use the hand written and
@@ -148,11 +102,89 @@ gen_gopher() {
 # pathcheck, http404, uiboss and serve -- subcommands that no longer exist --
 # and nothing ever flagged it.
 AUTHORED_DIR="man"
-authored_kept=""
+
+# --gopher: render the artifacts man.tcos.us serves, as a SECTION TREE.
+#
+# A gopher menu is a directory, so the man section layout maps onto it
+# one-to-one: root lists sections as type-1 entries, each section has its own
+# gophermap of type-0 text entries. What is live today is one flat menu of
+# every page, which carries no section signal and only grows.
+#
+# Only sections that actually have pages get a directory or a menu entry --
+# no empty man2/man3/man4 stubs.
+#
+# `man -l FILE | col -bx` is byte-for-byte what gophernicus serves; verified
+# against the live endpoint. col -bx strips backspace-overstrike bold and
+# expands tabs, which is what makes it plain text rather than terminal output.
+_sec_title() {
+  case "$1" in
+    1) echo "User Commands" ;;
+    5) echo "File Formats" ;;
+    7) echo "Overviews and Conventions" ;;
+    8) echo "System Administration" ;;
+    *) echo "Section $1" ;;
+  esac
+}
+
+gen_gopher() {
+  _out="${1:-man/gopher}"
+  rm -rf "$_out"; mkdir -p "$_out/man"
+  command -v man >/dev/null 2>&1 || { echo "man(1) unavailable -- cannot render" >&2; return 3; }
+
+  _total=0
+  for _secdir in "$AUTHORED_DIR"/man[1-9] "$OUT_DIR"/man[1-9]; do
+    [ -d "$_secdir" ] || continue
+    _n="${_secdir##*/man}"
+    for _src in "$_secdir"/*."$_n"; do
+      [ -f "$_src" ] || continue
+      _name="$(basename "$_src" ".$_n")"; _name="${_name%.py}"
+      # Authored wins over generated, same precedence as the rest of the tool.
+      if [ "$_secdir" != "$AUTHORED_DIR/man$_n" ] && [ -f "$AUTHORED_DIR/man$_n/$_name.$_n" ]; then
+        continue
+      fi
+      mkdir -p "$_out/man/man$_n"
+      man -l "$_src" 2>/dev/null | col -bx > "$_out/man/man$_n/$_name.txt" || continue
+      _total=$((_total + 1))
+    done
+  done
+
+  for _d in "$_out"/man/man[1-9]; do
+    [ -d "$_d" ] || continue
+    _n="${_d##*/man}"
+    {
+      printf 'iTwin Cities Open Systems -- section %s: %s\t\tman.tcos.us\t70\n' "$_n" "$(_sec_title "$_n")"
+      printf 'i\t\tman.tcos.us\t70\n'
+      [ -f "$_d/hee.txt" ] && printf '0hee(%s)\thee.txt\tman.tcos.us\t70\n' "$_n"
+      for _f in "$_d"/*.txt; do
+        [ -f "$_f" ] || continue
+        _b="$(basename "$_f" .txt)"; [ "$_b" = "hee" ] && continue
+        printf '0%s(%s)\t%s\tman.tcos.us\t70\n' "$_b" "$_n" "$(basename "$_f")"
+      done
+      printf 'i\t\tman.tcos.us\t70\n'
+      printf '1all sections\t/man\tman.tcos.us\t70\n'
+    } > "$_d/gophermap"
+  done
+
+  {
+    printf 'iTwin Cities Open Systems -- real man pages, real tools\t\tman.tcos.us\t70\n'
+    printf 'iIANA Private Enterprise Number: 1.3.6.1.4.1.66550\t\tman.tcos.us\t70\n'
+    printf 'i\t\tman.tcos.us\t70\n'
+    for _d in "$_out"/man/man[1-9]; do
+      [ -d "$_d" ] || continue
+      _n="${_d##*/man}"
+      _c=$(ls "$_d"/*.txt 2>/dev/null | wc -l)
+      printf '1%s -- section %s (%s pages)\t/man/man%s\tman.tcos.us\t70\n' "$(_sec_title "$_n")" "$_n" "$_c" "$_n"
+    done
+  } > "$_out/man/gophermap"
+  cp "$_out/man/gophermap" "$_out/gophermap"
+
+  echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s) -> $(pwd)/$_out"
+}
 
 case "${1:-}" in
   --gopher) shift 2>/dev/null || true; gen_gopher "${1:-man/gopher}"; exit $? ;;
 esac
+authored_kept=""
 
 # Structured rendering lives in library/py -- turning help text into man
 # sections is real parsing, so it graduates out of sh per rule 13. Missing
@@ -171,7 +203,7 @@ _is_authored() {
 
 authored_page_for() {
   # authored_page_for TOOLNAME -> path, or empty
-  _p="$AUTHORED_DIR/$1.1"
+  _p="$AUTHORED_DIR/man1/$1.1"
   if _is_authored "$_p"; then printf '%s\n' "$_p"; fi
 }
 
@@ -239,7 +271,8 @@ extract_doc() {
 for f in "$BIN_DIR"/*; do
   [ -f "$f" ] && [ -x "$f" ] || continue
   name="$(basename "$f")"
-  out="$OUT_DIR/$name.1.md"
+  _sec="$(man_section "$f")"
+  out="$OUT_DIR/$name.$_sec.md"
 
   # Authored page wins -- never regenerate over hand-written documentation.
   _authored="$(authored_page_for "$name")"
@@ -249,7 +282,7 @@ for f in "$BIN_DIR"/*; do
     # Remove a stale generated sibling. Leaving it means two pages for one
     # tool, and whichever the installer or publisher happens to reach first
     # wins -- which is exactly how man/hee.1 and man/tools/hee.1 diverged.
-    [ -e "$out" ] && { rm -f "$out" "$OUT_DIR/$name.1"; echo "  removed stale generated: $out"; }
+    [ -e "$out" ] && { rm -f "$out" "$OUT_DIR/man1/$name.1"; echo "  removed stale generated: $out"; }
     continue
   fi
   help_text=""
@@ -266,8 +299,8 @@ for f in "$BIN_DIR"/*; do
       _rendered=0
       if [ -n "$HEE_MANPAGE_PY" ]; then
         if printf '%s\n' "$help_text" | PYTHONPATH="$PWD/library/py" python3 -c \
-             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read()))' \
-             "$name" > "$out" 2>/dev/null && [ -s "$out" ]; then
+             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), int(sys.argv[2])))' \
+             "$name" "$_sec" > "$out" 2>/dev/null && [ -s "$out" ]; then
           _rendered=1
         fi
       fi
@@ -324,8 +357,8 @@ done
   echo "tool change; do not hand-edit the per-tool files, edit the tool's"
   echo "--help text instead so this stays accurate."
   echo
-  for f in "$OUT_DIR"/*.1.md; do
-    n="$(basename "$f" .1.md)"
+  for f in "$OUT_DIR"/*.[1-9].md; do
+    n="$(basename "$f" | sed 's/\.[1-9]\.md$//')"
     [ "$n" = "README" ] && continue
     echo "- [\`$n\`]($n.1.md)"
   done
@@ -345,7 +378,8 @@ for d in cmd/*/; do
   [ -f "$d/src/main.rs" ] && src="${d%/}/src/main.rs"
   [ -n "$src" ] || continue
 
-  out="$OUT_DIR/$name.1.md"
+  _sec="$(man_section "$f")"
+  out="$OUT_DIR/$name.$_sec.md"
   if [ -e "$out" ] || [ -n "$(authored_page_for "$name")" ]; then
     # NOT a conflict -- the same tool at two rungs of the maturity ladder.
     # Operator, 2026-08-31: "what conflict, this is _the_ hee we are building
@@ -406,7 +440,7 @@ done
 #
 # ~/ is the org's own convention for a portable home-relative path, and is
 # what PROMPTING_RULES already requires in shared scripts.
-for _p in "$OUT_DIR"/*.1.md "$OUT_DIR"/README.md; do
+for _p in "$OUT_DIR"/*.[1-9].md "$OUT_DIR"/README.md; do
   [ -f "$_p" ] || continue
   if grep -q '/home/[a-z]' "$_p" 2>/dev/null; then
     sed -i 's#/home/[a-z][a-z0-9_-]*/#~/#g' "$_p"
@@ -422,11 +456,13 @@ echo "index: $OUT_DIR/README.md"
 # actually wants. Requires pandoc -- skip conversion with a clear
 # message rather than fail the whole run if it's not installed.
 if command -v pandoc >/dev/null 2>&1; then
-  for f in "$OUT_DIR"/*.1.md; do
-    n="$(basename "$f" .1.md)"
+  for f in "$OUT_DIR"/*.[1-9].md; do
+    n="$(basename "$f" | sed 's/\.[1-9]\.md$//')"
     [ "$n" = "README" ] && continue
-    pandoc -s -f markdown-smart -t man "$f" -o "$OUT_DIR/$n.1" 2>/dev/null && \
-      echo "converted (real roff): $OUT_DIR/$n.1" || \
+    _s="$(basename "$f" | sed 's/^.*\.\([1-9]\)\.md$/\1/')"
+    mkdir -p "$OUT_DIR/man$_s"
+    pandoc -s -f markdown-smart -t man "$f" -o "$OUT_DIR/man$_s/$n.$_s" 2>/dev/null && \
+      echo "converted (real roff): $OUT_DIR/man$_s/$n.$_s" || \
       echo "SKIPPED roff conversion (pandoc error): $n" >&2
   done
 else

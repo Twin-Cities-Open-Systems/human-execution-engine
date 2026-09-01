@@ -1,5 +1,6 @@
 # hee-check-og(1)
 
+section: 1
 hee-check-og -- real Open Graph / Twitter Card / title / canonical
 tag check, for a live URL or a local HTML file.
 

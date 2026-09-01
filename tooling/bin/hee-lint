@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-lint: fast lint gate for HEE-object YAML (apiVersion: hee/v1)
 # Modes:
 #   --mode warn|error   (default warn)

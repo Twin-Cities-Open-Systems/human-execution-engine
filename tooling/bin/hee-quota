@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """hee-quota: monitor GitHub API rate-limit pools (core/graphql/search) and
 give a real, live go/no-go before a bulk operation, instead of finding out
 reactively mid-batch.

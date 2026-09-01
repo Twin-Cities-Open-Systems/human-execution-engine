@@ -2,7 +2,7 @@
 
 # NAME
 
-hee-gen-manpages - generate man/tools/*.1.md and *.1 from each tool's --help
+hee-gen-manpages - generate man/tools/*.N.md and manN/*.N from each tool's --help
 
 # SYNOPSIS
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# section: 1
 # hee-ver -- version and verification discovery
 #
 # Named for the duality the operator pointed at: hee ver{sion,ify}. It

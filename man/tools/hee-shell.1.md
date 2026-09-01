@@ -1,5 +1,6 @@
 # hee-shell(1)
 
+section: 1
 hee-shell -- ssh into a known TCOS host by short alias.
 
 Real, deliberately thin: this is `ssh` with TCOS's own host aliases

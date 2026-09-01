@@ -1,8 +1,8 @@
 HEE-HG(1)                          HEE Tools                         HEE-HG(1)
 
 NAME
-       hee-hg  -  launcher for the Hunter-Gatherer orchestrator (LIBRARY MISS‐
-       ING)
+       hee-hg   -  launcher  for  the  Hunter-Gatherer  orchestrator  (LIBRARY
+       MISSING)
 
 SYNOPSIS
               hee-hg [ARGUMENTS...]
