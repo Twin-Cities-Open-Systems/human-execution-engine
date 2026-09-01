@@ -21,21 +21,55 @@ usage() {
   cat <<'TXT'
 hee-shell -- ssh into a known TCOS host by alias
 
-usage:
+SYNOPSIS
   hee-shell <alias|host> [user]
+  hee-shell help | --help | -h
 
-known aliases:
+DESCRIPTION
+  Thin wrapper over ssh(1) with TCOS host aliases. It grants no access a key
+  does not already have.
+
+  A target that is not a known alias is passed to ssh VERBATIM. Be aware that
+  with a DNS search domain configured, a bare word can resolve to a real host
+  -- so a typo becomes a real connection attempt, not an error.
+
+KNOWN ALIASES
   kiosk -> kiosk.lab.tcos.us
+
+EXIT STATUS
+  0  OK        ssh ran (its own exit status is returned)
+  3  UNKNOWN   no target given, or an option-shaped argument
 TXT
 }
+
+# Help is answered FIRST, before $1 is ever treated as a hostname.
+#
+# Real incident, 2026-09-01: `hee check cli` probes every tool with the literal
+# word `help`. This tool took that as a HOSTNAME. A DNS search domain is
+# configured on this LAN, so a bare word resolves to a real address -- and
+# running the CONFORMANCE CHECKER opened an ssh connection to a live host and
+# sat at an interactive host-key prompt.
+#
+# This is the checker's own worst category -- help that executes something --
+# and here it executed a network connection to a machine the session had been
+# told not to touch.
+case "${1:-}" in
+  help|--help|-h) usage; exit 0 ;;
+esac
 
 target="${1:-}"
 user="${2:-}"
 
 if [ -z "$target" ]; then
-  usage
-  exit 1
+  usage >&2
+  exit 3
 fi
+
+# An option-shaped argument is never a hostname. Without this, a stray flag
+# becomes an ssh target the same way `help` did.
+case "$target" in
+  -*) echo "UNKNOWN: not a host: $target -- see: hee shell help" >&2; exit 3 ;;
+esac
 
 case "$target" in
   kiosk) host="kiosk.lab.tcos.us" ;;

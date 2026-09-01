@@ -1,20 +1,25 @@
-()                                                                          ()
+HEE-SHELL(1)                       HEE Tools                      HEE-SHELL(1)
 
-hee-shell(1)
-       hee-shell -- ssh into a known TCOS host by short alias.
+NAME
+       hee-shell - ssh into a known TCOS host by alias
 
-       Real, deliberately thin: this is ssh with TCOS's own host aliases baked
-       in,  not  a  new  protocol or a permissions mechanism.  It cannot grant
-       access a key doesn't already have -- if the calling session's key isn't
-       authorized on the target host/account, this fails exactly like  a  bare
-       ssh call would, with the same real error.
+SYNOPSIS
+              hee-shell <alias|host> [user]
+              hee-shell help | --help | -h
 
-       Alias  table  only  includes hosts actually confirmed reachable by name
-       this session -- not speculative.  Add more here  as  they're  verified,
-       not guessed.
+DESCRIPTION
+              Thin wrapper over ssh(1) with TCOS host aliases. It grants no access a key
+              does not already have.
 
-       usage: hee-shell <alias|host> [user]
+              A target that is not a known alias is passed to ssh VERBATIM. Be aware that
+              with a DNS search domain configured, a bare word can resolve to a real host
+              -- so a typo becomes a real connection attempt, not an error.
 
-       (no --help/-h output -- generated from the script's own header comment)
+EXIT STATUS
+              0  OK        ssh ran (its own exit status is returned)
+              3  UNKNOWN   no target given, or an option-shaped argument
 
-                                                                            ()
+KNOWN ALIASES
+              kiosk -> kiosk.lab.tcos.us
+
+                                                                  HEE-SHELL(1)
