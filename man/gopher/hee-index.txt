@@ -1,0 +1,13 @@
+HEE-INDEX(1)                       HEE Tools                      HEE-INDEX(1)
+
+NAME
+       hee-index - generate hee/INDEX.md, a real persisted index of every
+
+SYNOPSIS
+              hee-index [--out <file>]
+
+DESCRIPTION
+              HEE object (apiVersion: hee/v1), grouped by kind, with pass/fail
+              compliance status from hee-lint's own scan.
+
+                                                                  HEE-INDEX(1)

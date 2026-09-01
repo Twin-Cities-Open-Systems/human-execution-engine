@@ -1,0 +1,53 @@
+HEE(1)                           User Commands                          HEE(1)
+
+NAME
+       hee - Human Execution Engine command dispatcher
+
+SYNOPSIS
+       hee [help]
+       hee subcommand [args...]
+
+DESCRIPTION
+       hee  dispatches  to installed HEE tools. Runtime truth is the installed
+       toolchain under ~/.hee/bin (or a repo-local prefix during test-drive).
+
+SUBCOMMANDS
+       help   Show help.
+
+       ls     List available subcommands.
+
+       print path|-
+              Pretty-print JSON/YAML/Markdown/Text using  truth-tests  (jq/yq)
+              when possible.
+
+       fileident path|-
+              Emit  YAML  evidence (stat/file/wc/sha256 + parse checks + small
+              snippets).
+
+       pathcheck cmd
+              Show PATH resolution and candidates; prints hash-clear commands.
+
+       http404 [opts] access.log
+              Summarize 404s from an access log; shows top offenders; optional
+              verbose/quiet.
+
+       uiboss args...
+              Pass-through to uiboss.
+
+       serve [--bind IP] [--port N]
+              Serve UIBOSS_DOCROOT. If hee_webserver is missing,  fallback  to
+              python  http.server  and  emit  the  fallback  line into the log
+              stream for parsers.
+
+FILES
+       ~/.hee/bin
+              Installed truth for the toolchain.
+
+       ~/.local/share/bash-completion/completions/hee
+              Bash completion file (if installed/loaded).
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+HEE                               2026-02-15                            HEE(1)
