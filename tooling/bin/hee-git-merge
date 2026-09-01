@@ -942,19 +942,26 @@ def main():
               f"{PR_CACHE_TTL}s disk cache ({n_cache_hits} were already warm).")
         return
 
-    _requested = [(p["_repo_full"], p["number"]) for p in candidates]
+    # Identity, not a key lookup. `_repo_full` is assigned inside
+    # compute_deps(), which order_candidates() calls -- so reading it here,
+    # BEFORE that call, raised KeyError: '_repo_full' and crashed the whole
+    # run after the candidates had already been fetched. Comparing the objects
+    # themselves needs no keys, and is exact even when two repos both have a
+    # PR #14.
+    _order_before = list(candidates)
+    _requested = [id(p) for p in candidates]
     candidates, deps = order_candidates(candidates, keep_input_order=explicit_order)
     if explicit_order:
-        _final = [(p["_repo_full"], p["number"]) for p in candidates]
+        _final = [id(p) for p in candidates]
         if _final != _requested:
             # A real dependency edge outranked the requested order. Say so --
             # silently reordering an explicitly ordered set is exactly the
             # behavior this flag exists to stop.
             print("hee-git-merge: NOTE -- a stated dependency reordered your "
                   "list; requested "
-                  + ", ".join(f"#{n}" for _, n in _requested)
+                  + ", ".join(f"#{p['number']}" for p in _order_before)
                   + " -> merging "
-                  + ", ".join(f"#{n}" for _, n in _final))
+                  + ", ".join(f"#{p['number']}" for p in candidates))
 
     ready = [pr for pr in candidates
              if pr.get("reviewDecision") == "APPROVED" and pr.get("mergeable") == "MERGEABLE"]
