@@ -1,6 +1,5 @@
 # hee-inv-receipt(1)
 
-section: 1
 hee-inv-receipt — receipt ingest (v1)
 
 Goal: convert a receipt image into:

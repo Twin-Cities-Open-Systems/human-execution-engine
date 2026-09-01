@@ -1,6 +1,5 @@
 # hee-reset-tooling(1)
 
-section: 1
 hee-reset-tooling -- real, conservative "reset to new" for stray tool
 directories (real trigger, Spencer 2026-08-24: fleet-ops#260's stray
 ~/tooling/bin/ cleanup, formalized into a reusable tool instead of a

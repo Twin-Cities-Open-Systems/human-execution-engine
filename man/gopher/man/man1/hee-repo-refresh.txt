@@ -1,16 +1,16 @@
 ()                                                                          ()
 
 hee-repo-refresh(1)
-       section:  1  hee-repo-refresh -- real per-repo health-check/pull worker
-       for  bootstrap.mk's  health-all-repos   and   pull-all-repos   targets.
-       Extracted  into  its  own  script,  rather  than embedded inline in the
-       Makefile recipe twice, so the  GNU-parallel  path  and  the  sequential
-       fallback path call the exact same real logic instead of two copies that
-       can  silently  drift  --  HEE#415,  Spencer direct 2026-08-28: "add gnu
-       parallel to this tool." Real trigger for  parallelizing  at  all:  with
-       ~19-24  real  repos  each doing a real git fetch/pull over the network,
-       the old one-at-a-time loop  was  a  real,  avoidable  wall-clock  cost,
-       confirmed live refreshing both claude@kiosk and spencer@kiosk.
+       hee-repo-refresh   --   real   per-repo  health-check/pull  worker  for
+       bootstrap.mk's health-all-repos and pull-all-repos targets.   Extracted
+       into its own script, rather than embedded inline in the Makefile recipe
+       twice,  so  the GNU-parallel path and the sequential fallback path call
+       the exact same real logic instead of two copies that can silently drift
+       -- HEE#415, Spencer direct 2026-08-28: "add gnu parallel to this tool."
+       Real trigger for parallelizing at all:  with  ~19-24  real  repos  each
+       doing  a  real  git  fetch/pull over the network, the old one-at-a-time
+       loop was a real, avoidable wall-clock cost, confirmed  live  refreshing
+       both claude@kiosk and spencer@kiosk.
 
        Deliberately  its  own  script (not a Makefile-only trick) so it can be
        invoked identically two  ways:  parallel  hee-repo-refresh  health  :::

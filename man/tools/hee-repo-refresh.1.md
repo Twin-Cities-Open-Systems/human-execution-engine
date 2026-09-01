@@ -1,6 +1,5 @@
 # hee-repo-refresh(1)
 
-section: 1
 hee-repo-refresh -- real per-repo health-check/pull worker for
 bootstrap.mk's health-all-repos and pull-all-repos targets. Extracted
 into its own script, rather than embedded inline in the Makefile

@@ -1,7 +1,7 @@
 ()                                                                          ()
 
 hee-inv-receipt(1)
-       section: 1 hee-inv-receipt — receipt ingest (v1)
+       hee-inv-receipt — receipt ingest (v1)
 
        Goal:  convert  a  receipt  image  into:  - inventory.purchase object -
        inventory.purchase_line objects (best-effort parse) - OCR  text  stored
