@@ -29,6 +29,38 @@ Scope decisions
 - A token only counts as a reference if its first path segment is a real
   top-level directory of the repo. That keeps `foo/bar` in prose, module
   paths, and URLs out of the results.
+
+Deliberate absence
+------------------
+A path can be missing on purpose, and until 2026-09-01 there was no way to
+say so -- every legitimate reason was indistinguishable from rot. Measured
+that day: all SIX findings carrying a `did you mean` suggestion were false
+positives, so `--fix` would have written six wrong paths, four of them into
+governance and two into generated man pages (issue 504). Two mechanisms now:
+
+1. **Existence tests are not references.** ``[ -f X ]``, ``[ ! -e X ]``,
+   ``test -d X`` and friends ASK whether a path exists. Reporting the
+   absence back is answering the question and calling it a defect. Seven of
+   the repo's findings were CI steps doing exactly this, including a
+   dashboard workflow verifying its own build output.
+
+2. **A marker**, in two forms, with an optional reason after either:
+
+   - ``hee-check:refs-ok`` anywhere on a line exempts THAT LINE.
+   - ``hee-check:refs-off`` … ``hee-check:refs-on`` exempts everything
+     between them, for a prose paragraph that would otherwise need the
+     inline form on three consecutive lines.
+
+   In Markdown, wrap either in an HTML comment so it renders as nothing.
+   A marker rather than a central registry for the same reason rule 17
+   rejected a central man-section map: a marker travels with the text, a
+   registry goes stale the moment someone forgets it.
+
+   The case that forced it: rule 17's own cautionary example reads *"Hand-
+   editing is how `man/hee.1` came to document six subcommands that no longer
+   exist."* That file was removed. Repointing the path would make the
+   sentence describe a file that never had the problem -- the linter would
+   have falsified the rule it was linting.
 """
 
 from __future__ import annotations
@@ -38,13 +70,30 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-__all__ = ["Broken", "scan", "DOC_EXT", "EXCLUDE_PREFIXES", "EXCLUDE_SEGMENTS"]
+__all__ = ["Broken", "scan", "DOC_EXT", "EXCLUDE_PREFIXES", "EXCLUDE_SEGMENTS",
+           "SUPPRESS_MARKER"]
+
+#: Written anywhere on the line, with an optional reason after it.
+SUPPRESS_MARKER = "hee-check:refs-ok"
+_SUPPRESS = re.compile(r"hee-check:\s*refs-ok")
+_SUPPRESS_OFF = re.compile(r"hee-check:\s*refs-off")
+_SUPPRESS_ON = re.compile(r"hee-check:\s*refs-on")
+
+# A shell existence test asks whether a path is there. `[ -f X ]`, `[ ! -e X ]`
+# and `test -d X` are questions, not claims, so a missing X is the answer --
+# not a broken reference. Anchored on the operator so `[ "$x" = "docs/a.md" ]`
+# is untouched.
+_EXISTS_TEST = re.compile(r"(\[\[?|\btest\b)[^]]*?!?\s*-[efdsrwxL]\s")
 
 DOC_EXT = (".md", ".yaml", ".yml", ".json")
 REF_EXT = (".md", ".yaml", ".yml", ".json", ".sh", ".py", ".bash",
            ".txt", ".mk", ".1", ".html", ".css", ".js")
 
-EXCLUDE_PREFIXES = ("docs/history/", "hee/evidence/")
+# man/tools/ joins these 2026-09-01. It is hee-gen-manpages output: every page
+# is a capture of a tool's own --help, so a broken reference there is a copy of
+# one in the tool, reported twice, and rule 17 forbids editing the page anyway.
+# Authored pages under man/manN/ are still scanned -- a human wrote those.
+EXCLUDE_PREFIXES = ("docs/history/", "hee/evidence/", "man/tools/")
 
 # Directories whose contents nobody authored. A broken reference inside build
 # output is not a defect anyone can fix -- it is a copy of a defect in the
@@ -123,7 +172,17 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
             text = open(os.path.join(root, f), errors="ignore").read()
         except OSError:
             continue
+        off = False
         for lineno, line in enumerate(text.splitlines(), 1):
+            # Deliberate absence -- see the module docstring.
+            if _SUPPRESS_OFF.search(line):
+                off = True
+                continue
+            if _SUPPRESS_ON.search(line):
+                off = False
+                continue
+            if off or _SUPPRESS.search(line) or _EXISTS_TEST.search(line):
+                continue
             for m in _REF.finditer(" " + line + " "):
                 ref = m.group(1)
                 head = ref.split("/", 1)[0]

@@ -80,6 +80,27 @@ EXAMPLES
   hee-check refs
   hee-check refs ~/git
   hee-check refs --fix ~/git/fleet-ops
+
+DELIBERATE ABSENCE
+  A path can be missing on purpose. Two ways to say so:
+
+    hee-check:refs-ok                 exempts the line it appears on
+    hee-check:refs-off ... refs-on    exempts everything between them
+
+  Either takes an optional reason after it. In Markdown wrap it in an
+  HTML comment so it renders as nothing.
+
+  Shell existence tests need no marker: `[ -f X ]`, `[ ! -e X ]` and
+  `test -d X` ASK whether a path is there, so reporting the absence back
+  would be answering the question and calling it a defect.
+
+  Why this exists: on 2026-09-01 every one of the six findings carrying a
+  `did you mean` suggestion was a false positive, so --fix would have
+  written six wrong paths -- four into governance, two into generated man
+  pages. One of them would have repointed rule 17's own example of
+  documentation going stale, making the rule describe a file that never
+  had the problem. See issue:504@human-execution-engine.
+
 EOF
 }
 
