@@ -43,7 +43,7 @@ SYNOPSIS
 DESCRIPTION
   Publishes to the resume Cloudflare Pages project, which serves four
   domains from one deployed tree -- spencer.blog.tcos.us,
-  touchy.blog.tcos.us, blog.tcos.us and media.tcos.us -- personalised
+  touchy.blog.tcos.us, blog.tcos.us and media.tcos.us -- personalized
   client-side by index.html reading window.location.hostname. There is no
   server-side routing.
 
