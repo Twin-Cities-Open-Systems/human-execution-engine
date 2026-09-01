@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# section: 8
+# System administration: writes sshd/ssh CA trust config and reloads the
+# daemon, so it wants root. man-pages(7) puts commands that administer the
+# system in section 8, not 1 -- that is what tells a reader this edits the
+# host rather than just reporting on it.
 """hee-ssh-trust-ca -- real, idempotent TrustedUserCAKeys setup for the
 tcos-ssh-ca SSH CA (see hee-ssh-send-keys for the cert-issuance half).
 

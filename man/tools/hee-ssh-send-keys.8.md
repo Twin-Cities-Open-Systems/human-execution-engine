@@ -1,4 +1,4 @@
-% HEE-SSH-SEND-KEYS(1) | HEE Tools
+% HEE-SSH-SEND-KEYS(8) | HEE Tools
 
 # NAME
 

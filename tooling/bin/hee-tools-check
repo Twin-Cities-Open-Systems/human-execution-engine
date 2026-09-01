@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-tools-check -- report presence and version of every external tool
 # named in the toolchain manifest.
 #

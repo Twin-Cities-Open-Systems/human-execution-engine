@@ -14,28 +14,28 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "HEE-PVE-USERS" "1" "" "" "HEE Tools"
+.TH "HEE-SSH-TRUST-CA" "8" "" "" "HEE Tools"
 .hy
 .SH NAME
 .PP
-hee-pve-users - hee-pve-users command
+hee-ssh-trust-ca - hee-ssh-trust-ca command
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
-hee-pve-users [-h] [--host HOST] [--dry-run] manifest
+hee-ssh-trust-ca [-h] [--yes] [--ca-pubkey CA_PUBKEY]
 \f[R]
 .fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-positional arguments:
-  manifest
+                        [--conf-name CONF_NAME]
 
 options:
-  -h, --help   show this help message and exit
-  --host HOST
-  --dry-run
+  -h, --help            show this help message and exit
+  --yes                 actually write + reload; default is dry-run
+  --ca-pubkey CA_PUBKEY
+  --conf-name CONF_NAME
 \f[R]
 .fi

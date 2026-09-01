@@ -1,0 +1,28 @@
+HEE-VIEW(1)                        HEE Tools                       HEE-VIEW(1)
+
+NAME
+       hee-view - hee-view command
+
+SYNOPSIS
+              hee-view [-h] [--pve-host PVE_HOST] [--haproxy-host HAPROXY_HOST]
+
+DESCRIPTION
+                              [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
+                              [--network {lab,public,all}]
+
+              options:
+                -h, --help            show this help message and exit
+                --pve-host PVE_HOST
+                --haproxy-host HAPROXY_HOST
+                --dns-host DNS_HOST
+                --nerd                per-container cpu/mem/disk-io/net-io/elapsed + totals;
+                                      also full per-URL --sites detail
+                --sites               check every real URL in the site map answers 200-399
+                --sitemap SITEMAP     sitemap source -- URL or local path (default: real
+                                      .github/profile/SITEMAP.yaml on main)
+                --network {lab,public,all}
+                                      only check sites on this network. A GitHub-hosted
+                                      runner can only reach 'public'; an on-host checker
+                                      inside the lab can reach 'lab'. Default all.
+
+                                                                   HEE-VIEW(1)

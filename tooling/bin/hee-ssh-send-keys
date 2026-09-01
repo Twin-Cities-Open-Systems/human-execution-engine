@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# section: 8
+# System administration -- distributes SSH keys to remote hosts, changing their auth config. man-pages(7) puts commands that
+# administer the system in 8, not 1.
 """hee-ssh-send-keys -- real SSH CA cert issuance, GPG-receipted.
 
 Real trigger (2026-08-22): `./hee -ssh -send-keys -source spencer@nuc-1.lab

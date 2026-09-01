@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """hee-worktree -- per-session git worktree, no extra clone.
 
 Real trigger (2026-08-24): a real, live collision -- multiple concurrent

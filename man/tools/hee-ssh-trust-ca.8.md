@@ -1,4 +1,4 @@
-% HEE-SSH-TRUST-CA(1) | HEE Tools
+% HEE-SSH-TRUST-CA(8) | HEE Tools
 
 # NAME
 

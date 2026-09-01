@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+# section: 1
 # uiboss: actions + runs + static site + server mode (hee_webserver)
 
 : "${HOME:=/home/$USER}"

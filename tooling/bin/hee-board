@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """hee-board -- real, 0-token curated filtered views over the TCOS Roadmap
 project, since GitHub Projects v2 has no view-creation mutation in its
 GraphQL schema (confirmed live, 2026-08-24: zero ProjectV2View fields in

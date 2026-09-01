@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-tools -- router for the external-toolchain check/update pair.
 #
 # Help is contextual: `help` as the LAST argument prints help for

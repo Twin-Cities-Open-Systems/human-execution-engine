@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """hee-srtscan -- real, fast search across years of .srt/.txt files in media/.
 
 Real trigger (2026-08-22): "add the quotes surrounding the current ts

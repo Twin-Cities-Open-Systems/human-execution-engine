@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-tools-update -- install/refresh the external tools the toolchain
 # manifest pins a version for.
 #

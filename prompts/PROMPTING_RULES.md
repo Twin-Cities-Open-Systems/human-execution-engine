@@ -209,6 +209,32 @@ loaded, read this file directly rather than assume it did.
     weeks, and a genuine outage would have been invisible in it
     (issue:350@fleet-ops).
 
+17. **Manuals are part of the change, not a follow-up.** A tool's `--help`
+    IS its man page -- `hee-gen-manpages` derives every generated page from
+    it -- so help text that is broken, stale or absent publishes exactly
+    that to `man.tcos.us`. Real cost, measured 2026-08-31: the live
+    `hee-check` page read `find: unknown predicate '--help/prompts'` for
+    weeks. This project's own bug report, served as its documentation.
+
+    Concretely, in the same change that touches a tool:
+    - **Declare the section.** Every tool carries `# section: N` in its
+      header -- 1 for a user command, 8 if it CHANGES host or system state,
+      5 for a file format, 7 for a convention, 3 for a library. `hee check
+      cli` warns when it is missing. A central map was considered and
+      rejected: it goes stale the moment someone forgets to register a new
+      tool, while a header line travels with the code.
+    - **Regenerate.** `hee gen-manpages` after any change to a tool's help,
+      and `--gopher` when the published tree needs rebuilding.
+    - **Never hand-edit a generated page.** Fix the tool's help, or the
+      generator. Hand-editing is how `man/hee.1` came to document six
+      subcommands that no longer exist.
+
+    Authored pages under `man/manN/` win over generated ones and are the
+    right home for anything not derived from `--help`. Man pages are read
+    straight out of the checkout via `MANPATH` (`make manpath` in dotfiles)
+    -- never copied or installed, so `git pull` is the update mechanism and
+    there is no second copy to drift.
+
 ## Authority Invariants
 
 - Authority is scoped to this repository and this workflow context.

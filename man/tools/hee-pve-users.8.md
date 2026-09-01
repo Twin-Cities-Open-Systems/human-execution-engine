@@ -1,4 +1,4 @@
-% HEE-PVE-USERS(1) | HEE Tools
+% HEE-PVE-USERS(8) | HEE Tools
 
 # NAME
 

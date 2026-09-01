@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """hee-contract-review: smart-sorted contract review, needed-first.
 
 Real trigger (2026-08-22, Spencer): "get a smart list based prio and

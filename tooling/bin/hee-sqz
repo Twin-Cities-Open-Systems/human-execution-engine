@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-sqz: squeeze a loop's OK:/FAIL: lines into one pass/fail-ratio JSON line.
 #
 # Real trigger (2026-08-22): "need an ok for all, and not fail, over all

@@ -1,0 +1,54 @@
+.TH HEE_STATUS 3 "2026-09-01" "HEE" "Library Functions"
+.SH NAME
+hee_status \- emit a status line in the org vocabulary (shell and Python)
+.SH SYNOPSIS
+.SS Shell
+.nf
+. "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
+
+hee_status LEVEL MESSAGE...
+hee_status_code LEVEL
+hee_status_demo
+hee_link TEXT URL
+hee_link_issue REPO NUMBER
+.fi
+.SS Python
+.nf
+from hee_status import status, render, emit, demo
+.fi
+.SH DESCRIPTION
+Two implementations of one vocabulary \(em see
+.BR hee-status (7)
+for the levels and what they mean. They are kept in lockstep deliberately:
+a shell tool and a Python tool reporting the same condition must produce
+identical text, or a parser downstream of both has to special\-case which
+wrote the line.
+.SH FUNCTIONS
+.TP
+.B hee_status " LEVEL MESSAGE..."
+Emit one status line in the current
+.BR HEE_STATUS_STYLE .
+.TP
+.B hee_status_code " LEVEL"
+Print the Nagios exit code for a level. Use as
+.BR "exit $(hee_status_code CRITICAL)" ,
+never a hardcoded integer.
+.TP
+.B hee_status_demo
+Render every level in every style. For choosing a preference.
+.TP
+.B hee_link " TEXT URL"
+An OSC 8 terminal hyperlink when stdout is a TTY, degrading to
+.I text <url>
+when it is not. Measured 2026\-08\-31: OSC 8 works from a tool writing to a
+TTY, but is stripped in transit from an agent's chat output.
+.TP
+.B hee_link_issue " REPO NUMBER"
+The same, for an issue or PR reference.
+.SH PARITY
+.I tests/status-parity.sh
+runs 21 inputs across all three styles through both implementations and
+fails if they disagree.
+.SH SEE ALSO
+.BR hee-status (7),
+.BR heerc (5)

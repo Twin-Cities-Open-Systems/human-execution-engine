@@ -1,4 +1,4 @@
-% HEE-PVE-DEPLOY(1) | HEE Tools
+% HEE-PVE-DEPLOY(8) | HEE Tools
 
 # NAME
 

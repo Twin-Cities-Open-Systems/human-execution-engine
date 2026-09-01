@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee: tiny POSIX router (global tool root + local target repo)
 # - TOOL_ROOT derived from this script location ($0)
 # - TARGET_ROOT derived from cwd (git repo) if available

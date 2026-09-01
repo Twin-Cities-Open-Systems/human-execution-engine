@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """scan-hee-cards.py -- tolerant inventory of hee/cards/*.
 
 Prior scanners here reportedly kept failing. The likely reason, found by

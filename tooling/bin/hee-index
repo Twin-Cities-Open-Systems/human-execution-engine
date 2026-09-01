@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-index -- real, persisted index of every real HEE object
 # (apiVersion: hee/v1), grouped by kind, with live pass/fail compliance
 # status. Thin wrapper around hee-lint's own real scan -- reuses its

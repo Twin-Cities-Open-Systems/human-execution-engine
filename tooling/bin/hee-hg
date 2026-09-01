@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """HEE Hunter-Gatherer: Pill-based patch discovery and application orchestrator."""
 
 import sys
