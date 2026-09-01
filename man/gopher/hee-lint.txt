@@ -1,58 +1,36 @@
 HEE-LINT(1)                        HEE Tools                       HEE-LINT(1)
 
 NAME
-       hee-lint - hee-lint command
+       hee-lint - fast lint gate for HEE-object YAML
+
+SYNOPSIS
+              hee-lint [--mode warn|error]
+              hee-lint help | --help | -h
 
 DESCRIPTION
-              🟢 🟦 b # OK: blueprints/dir-layout-v1.yaml
-              🟢 🟦 b # OK: blueprints/gitops-coordination-v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations.inuid: blueprints/hee-intra-repo-layout-v1.yaml
-              🟢 🟦 b # OK: blueprints/hiring-handshake-v1.yaml
-              🟢 🟦 b # OK: blueprints/kinship-membership-governance-v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations.inuid: blueprints/machine-rights-grant-v1.yaml
-              🟢 🟦 b # OK: blueprints/org-foundation-design-v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: blueprints/plan/plan-create.blueprint.yaml
-              🟢 🟦 b # OK: blueprints/shift-init-v1.yaml
-              🟢 🟦 b # OK: contracts/execution-tier-compat-v1.contract.yaml
-              🟢 🟦 b # OK: contracts/publish-sanitization-v1.contract.yaml
-              🟢 🟦 b # OK: contracts/tcos.mna.hee-sale-deal.contract.v1.yaml
-              🟢 🟦 b # OK: contracts/treasury-invariants-v1.contract.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: docs/TEMPLATES/jinja2/green-card.yaml
-              🔴 🟦 b # ERROR: inuid is null but missing inuid_null_reason: hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/attribution-standing.method.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/branch-naming-too-specific.review-comment.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/contracts-stack.gcic-dric.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-refresh.2026-02-11_0340.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/ecosystem.698b879b-b778-832c-9527-af25c2534c32.peer-sync.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/editor.vscode-specials.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/govops-collapse-approval.review-approval.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/hee-words.promote-human.seed.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/hee-words.seed.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/library-sh-tinies.wip.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/mets.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/no-bare-x-placeholder.method.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/oper-health.halt.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/opus.layout.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/preflight.method.card.v1.yaml
-              🟢 🟦 b # OK: hee/cards/regns.seed.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/rg-scan.authority.seed.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/rg-scan.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/shellboss.argv-contracts.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/spencer-blank-generation-lyric.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations.inuid: hee/cards/uiboss-repohub-next.wip.yaml
-              🟢 🟦 b # OK: hee/contracts/hee.fleet-hosts.contract.v1.yaml
-              🟢 🟦 b # OK: hee/contracts/hee.kind-registry.contract.v1.yaml
-              🟢 🟦 b # OK: hee/contracts/hee.validation-gates.contract.v1.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/measure/samples/measure__inventory.asset__sample__vehicle-vinlast6-xxxxxx.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations: hee/measure/samples/measure__inventory.stock__sample__2026-02-24-costco-l01-unknown.yaml
-              🔴 🟦 b # ERROR: missing metadata.annotations.inuid: hee/measure/samples/measure__metric.series__sample__interface_6_outbcast__avg_rra0.yaml
-              🟢 🟦 b # OK: hee/pills/tmux-ui.render-stack.highlight.pill.v1.yaml
-              🟢 🟦 b # OK: hee/registries/dir-groups.registry.v1.yaml
-              🟢 🟦 b # OK: hee/registries/execution-tier-compat.registry.v1.yaml
-              🟢 🟦 b # OK: hee/registries/party-kind.registry.v1.yaml
-              🟢 🟦 b # OK: hee/skills/ratify-contract-v1.skill.yaml
-              🟢 🟦 b # OK: library/regex/patterns.yaml
-              🔴 🟦 b # RESULT: fail=29 warn=0 (mode=warn)
+              Scans TRACKED *.yml/*.yaml and checks only files declaring
+              `apiVersion: hee/v1`. Everything else is ignored, so this is safe to run
+              across a mixed repo.
+
+              Checks: metadata present and parseable, metadata.annotations present,
+              metadata.annotations.inuid present, and a null inuid accompanied by
+              inuid_null_reason.
+
+OPTIONS
+              --mode warn    report findings, exit 1 if any (default)
+              --mode error   report findings, exit 2 if any
+
+EXIT STATUS
+              0  OK        clean, OR any findings under --mode warn
+              1           findings under --mode error
+              3  UNKNOWN   cannot run -- not in a git repo, or an unrecognized option
+
+              --mode warn ALWAYS exits 0. That is deliberate, not an oversight: warn
+              mode's own name promises a non-blocking report, and it previously exited 1
+              on any finding, silently gating commits on pre-existing unrelated failures
+              (real incident, 2026-08-24). Only --mode error blocks.
+
+              Documented as measured, not as it "should" be -- this help IS the published
+              man page, so an aspirational exit table would publish a lie.
 
                                                                    HEE-LINT(1)
