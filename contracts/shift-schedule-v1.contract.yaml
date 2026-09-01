@@ -2,7 +2,7 @@
 version: shift-schedule-v1
 name: shift-schedule
 title: Fleet Identity Shift Schedule Contract
-status: proposed
+status: ratified
 
 intent:
   - define the check-in/check-out boundary a fleet identity operates under
@@ -66,7 +66,7 @@ shift_ticket_lifecycle:
       what: "steps executed in the order defined by
         docs/guides/GIT_GH_WORKFLOW.md -- that guide is authoritative
         for git/gh operation sequencing (branch -> stage -> commit ->
-        push -> PR, all mutations through scripts/hee_git_ops.sh), this
+        push -> PR; never directly to main), this
         contract does not redefine it"
     - step: 5
       what: "work verified before closing -- not just marked done"

@@ -1,0 +1,9 @@
+{
+  "shape": "hex",
+  "size": "1024x1024",
+  "base_color": "#8B1E3F",
+  "accent_color": "#F2A900",
+  "fill": "stripe:5",
+  "badge": "corner_dot",
+  "label": "HEE"
+}

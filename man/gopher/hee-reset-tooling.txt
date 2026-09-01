@@ -1,0 +1,29 @@
+()                                                                          ()
+
+hee-reset-tooling(1)
+       hee-reset-tooling  --  real, conservative "reset to new" for stray tool
+       directories (real trigger, Spencer  2026-08-24:  fleet-ops#260's  stray
+       ~/tooling/bin/  cleanup,  formalized  into a reusable tool instead of a
+       one-off manual pass).
+
+       Real safety,  per  Spencer's  explicit  call:  -  Dry-run  by  default.
+       Nothing  is  ever removed without --yes -- an OPER must actually agree,
+       not just invoke the command.  - --unattended  (cron-shaped  invocation)
+       additionally  requires  the  real  environment  to  be  idle first (see
+       is_idle below) -- refuses to run destructive cleanup while a real  user
+       might be mid-work, checks who's actually logged in and how long they've
+       been  idle,  not  just  "no  tty  attached."  -  NEVER touches: ~/.ssh,
+       ~/.gnupg,  ~/.hee/secrets,  ~/.config,  or  anything  under  ~/git/  --
+       refuses  outright  if  a  stray path resolves inside one of those.  - A
+       stray file is only removed if it's byte-identical to the  real  tracked
+       equivalent;  anything  that differs, or has no tracked equivalent, gets
+       backed up first, never silently destroyed.
+
+       Usage: hee-reset-tooling [--yes] [--unattended] [--idle-mins N]
+       [--canonical  DIR]  [--stray   DIR   ...]    (defaults:   canonical   =
+       ~/git/human-execution-engine/tooling/bin,  stray = ~/tooling/bin ~/bin,
+       idle-mins = 10)
+
+       (no --help/-h output -- generated from the script's own header comment)
+
+                                                                            ()

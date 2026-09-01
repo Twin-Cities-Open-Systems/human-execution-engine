@@ -1,0 +1,80 @@
+#!/bin/sh
+# section: 1
+# hee-site-publish -- publish real files to the resume Cloudflare Pages
+# project (spencer.blog.tcos.us, touchy.blog.tcos.us, blog.tcos.us,
+# media.tcos.us -- one real deployed tree, personalized client-side by
+# index.html reading window.location.hostname, no server-side routing).
+#
+# Real, important fact this tool exists because of: `wrangler pages
+# deploy` is a full-tree ATOMIC REPLACE, not incremental -- deploying a
+# directory containing only new files would delete everything else
+# already live across all four real domains. This tool only ADDS files
+# into a real, current copy of resume/dist/ before deploying the whole
+# tree, never deploys a partial directory.
+#
+# Usage:
+#   hee-site-publish --add <file> [--add <file> ...] [--dry-run]
+#
+# Requires: real sealed Cloudflare API token at
+# <resume-repo>/.hee/secrets/cloudflare-tcos-www.gpg (hee-cred -pass,
+# path resolved relative to the resume repo since hee-cred's storage
+# dir is CWD-relative).
+case "${1:-}" in
+  --help|-h)
+    echo "hee-site-publish -- add real files into resume/dist/ and deploy the whole tree"
+    echo "Usage: hee-site-publish --add <file> [--add <file> ...] [--dry-run]"
+    echo "Never deploys a partial directory -- Cloudflare Pages deploys are full-tree"
+    echo "atomic replaces, so this always ships the existing site plus your additions."
+    exit 0
+    ;;
+esac
+set -eu
+
+RESUME_DIR="$HOME/git/resume"
+DRY_RUN=0
+FILES=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --add) shift; FILES="$FILES $1" ;;
+    --dry-run) DRY_RUN=1 ;;
+    *) echo "hee-site-publish: unknown arg: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+[ -n "$FILES" ] || { echo "hee-site-publish: need at least one --add <file>" >&2; exit 1; }
+
+for f in $FILES; do
+  [ -f "$f" ] || { echo "hee-site-publish: not a real file: $f" >&2; exit 1; }
+  echo "adding: $f -> $RESUME_DIR/dist/$(basename "$f")"
+  [ "$DRY_RUN" -eq 1 ] || cp "$f" "$RESUME_DIR/dist/$(basename "$f")"
+done
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "dry-run: not deploying. Real dist/ tree would now contain the above additions"
+  echo "alongside everything already there."
+  exit 0
+fi
+
+# Real, non-obvious: the sealed token lives in tcos-www's own
+# .hee/secrets/ (named for that repo), not resume's -- hee-cred's
+# storage path is CWD-relative, so it must be invoked from there even
+# though the actual deploy target is the resume repo/directory.
+#
+# Real, serious bug found and fixed 2026-08-30: without an explicit
+# --branch, `wrangler pages deploy` infers the deployment's real branch
+# from whatever LOCAL git branch happens to be checked out in
+# $RESUME_DIR -- if that's not the project's real production branch,
+# Cloudflare silently deploys to a PREVIEW environment (its own
+# separate, Access-gated URL) instead of production, and the real
+# custom domain keeps serving whatever the last real production deploy
+# was. Confirmed live: a deploy from a stray feature branch went out as
+# environment=preview and never reached spencer.blog.tcos.us at all,
+# despite `wrangler` printing a clean, confident-looking success message.
+# --branch is hardcoded to the project's real production branch so this
+# always deploys for real, regardless of whatever branch is checked out.
+cd "$HOME/git/tcos-www"
+"$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
+  cd '$RESUME_DIR' && CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" npx wrangler pages deploy dist --project-name resume --branch main
+"

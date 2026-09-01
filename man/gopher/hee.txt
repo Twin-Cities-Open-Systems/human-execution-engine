@@ -1,0 +1,53 @@
+HEE(1)                           User Commands                          HEE(1)
+
+NAME
+       hee - Human Execution Engine command dispatcher
+
+SYNOPSIS
+       hee [help]
+       hee subcommand [args...]
+
+DESCRIPTION
+       hee  dispatches  to installed HEE tools. Runtime truth is the installed
+       toolchain under ~/.hee/bin (or a repo-local prefix during test-drive).
+
+SUBCOMMANDS
+       Built-in:
+
+       help   Show help. Works after any verb, and nothing to the right of  it
+              is executed.
+
+       list   List every available subcommand, built-in and extension.
+
+       lint   Validate HEE object envelopes.
+
+       hooks install
+              Install this repo's git hooks.
+
+       git merge
+              Mass review/approve/merge open PRs.
+
+       ssh send-keys
+              Distribute SSH keys between hosts.
+
+       contract review
+              Review contract objects.
+
+EXTENSIONS
+       Any  executable named hee-<cmd> in the target repo's tooling/bin or the
+       tool repo's,  resolved  in  that  order  —  so  hee  check  runs  tool‐
+       ing/bin/hee-check.   Run  hee  list  for the current set; it is derived
+       from what is installed, not from a list kept here.
+
+FILES
+       ~/.hee/bin
+              Installed truth for the toolchain.
+
+       ~/.local/share/bash-completion/completions/hee
+              Bash completion file (if installed/loaded).
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+HEE                               2026-02-15                            HEE(1)

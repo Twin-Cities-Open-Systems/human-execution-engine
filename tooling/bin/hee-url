@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-url -- real, simple URL shortener with real SQL search.
+
+Real trigger (2026-08-22): "./hee -url -short -sql 'thesis AND punk
+rock' -or -str 1976." Deliberately fresh and minimal, not built on top
+of the old gh/spencerbutler link-shortener-django project -- "no touch
+sb, we make. simple." Own tools, own store, real SQLite (a real SQL
+engine, not a simulation of one) so the -sql framing is literal, not
+metaphorical.
+
+Storage: .hee/urls.db (SQLite), one real table -- hash, url, tags,
+created_at. Search is real SQL LIKE matching over the tags column,
+combined with AND/OR the way the tool is called, not a fabricated
+full-text index.
+
+Usage:
+  hee-url -short URL [-tags "space separated tags"]
+  hee-url -get HASH
+  hee-url -search TERM [TERM ...] [-or]   # AND by default between terms, -or switches to OR
+"""
+import argparse
+import hashlib
+import sqlite3
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+DB_PATH = Path(".hee/urls.db")
+
+
+def db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS urls (
+            hash TEXT PRIMARY KEY,
+            url TEXT NOT NULL,
+            tags TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    return conn
+
+
+def real_hash(url: str) -> str:
+    # real, deterministic -- same url always gets the same short hash,
+    # not a random one that'd collide/duplicate on re-shortening
+    return hashlib.sha256(url.encode()).hexdigest()[:7]
+
+
+def cmd_short(url: str, tags: str):
+    conn = db()
+    h = real_hash(url)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO urls (hash, url, tags, created_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(hash) DO UPDATE SET tags=excluded.tags",
+        (h, url, tags, now),
+    )
+    conn.commit()
+    print(f"hee-url: {h} -> {url}" + (f"  [{tags}]" if tags else ""))
+
+
+def cmd_get(h: str):
+    conn = db()
+    row = conn.execute("SELECT url, tags, created_at FROM urls WHERE hash = ?", (h,)).fetchone()
+    if not row:
+        sys.exit(f"hee-url: no entry for {h}")
+    url, tags, created = row
+    print(f"{url}" + (f"  [{tags}]" if tags else "") + f"  ({created})")
+
+
+def cmd_search(terms: list, use_or: bool):
+    conn = db()
+    clauses = " OR ".join(["tags LIKE ? OR url LIKE ?"] * len(terms)) if use_or else \
+              " AND ".join(["(tags LIKE ? OR url LIKE ?)"] * len(terms))
+    params = []
+    for t in terms:
+        like = f"%{t}%"
+        params += [like, like]
+    rows = conn.execute(f"SELECT hash, url, tags FROM urls WHERE {clauses}", params).fetchall()
+    if not rows:
+        joiner = " OR " if use_or else " AND "
+        print(f"hee-url: no match for {joiner.join(terms)!r}", file=sys.stderr)
+        sys.exit(1)
+    for h, url, tags in rows:
+        print(f"{h}: {url}" + (f"  [{tags}]" if tags else ""))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-url")
+    ap.add_argument("-short", metavar="URL")
+    ap.add_argument("-tags", default="", metavar="TAGS")
+    ap.add_argument("-get", metavar="HASH")
+    ap.add_argument("-search", nargs="+", metavar="TERM")
+    ap.add_argument("-or", dest="use_or", action="store_true")
+    args = ap.parse_args()
+
+    if args.short:
+        cmd_short(args.short, args.tags)
+    elif args.get:
+        cmd_get(args.get)
+    elif args.search:
+        cmd_search(args.search, args.use_or)
+    else:
+        print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

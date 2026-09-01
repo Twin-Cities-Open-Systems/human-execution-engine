@@ -42,33 +42,83 @@ command | cat
 command > file.txt
 
 # INCORRECT: Pager invocation allowed
-git --no-pager log         # Prevents pager invocation
-man page                   # May invoke pager
-command                    # May invoke pager
+git log                     # No --no-pager -- may invoke pager
+man page                    # May invoke pager
+command                     # May invoke pager
 ```
 
 ### 2. Branch Management Policy
 
 **Requirement**: ALL changes MUST use feature branches
 
+**Rewritten 2026-08-27**, then **corrected again same day** after Spencer's
+review of the first rewrite caught two more real problems — matching this
+section's own history of drift, worth stating plainly rather than
+smoothing over: the *original* text here required `feature/`-prefixed
+branches deleted immediately post-merge, while real practice was 71
+`touchy/`-prefixed branches kept post-merge as an audit trail versus 5
+real `feature/` branches (canonized as the org's own "Logic Loop" example,
+`GLOSSARY.md`). The *first rewrite* fixed that but introduced two new
+problems Spencer flagged directly: it hardcoded one machine's real
+identity (`touchy`) as if it were a universal literal prefix rather than
+an example of a pattern, and its example commands used raw `git`/`gh`
+instead of the required wrapper (`prompts/PROMPTING_RULES.md` rule 1).
+Both fixed below.
+
 **Enforcement**:
 
-- Never commit directly to main branch
-- Feature branches named: `feature/description-of-work`
-- Delete merged branches immediately to prevent confusion
-- All changes made on feature branches only
+- Never commit directly to main branch.
+- Branches used for real, ongoing agent-driven work are named
+  `<host-or-session-identity>/description-of-work` and are **kept after
+  merge** as an audit trail — this is the dominant real pattern in this
+  org, not an exception. The identity segment is real, not decorative:
+  it's whatever host/session actually did the work (`touchy` is the real,
+  currently-dominant example — the kiosk host this convention was
+  observed on, 71 real branches) — but the rule is the *pattern*, not the
+  literal string `touchy`. Don't read this as requiring every branch
+  everywhere to say `touchy/...` regardless of which machine or session
+  produced it.
+  - This is namespacing, not attribution — who/what actually did the
+    work is already tracked for real elsewhere (commit author, PR
+    assignee, the `Model:`/co-author trailer convention) and the branch
+    prefix isn't a second copy of that record. It exists to keep
+    concurrent sessions' branches visually distinct in `git branch -a`.
+- `feature/`-prefixed branches remain valid for standard, short-lived
+  engineering work and follow the standard squash-merge-and-delete flow
+  (see `human-execution-engine/prompts/PROMPTING_RULES.md`,
+  which also carries the org-wide commit/merge conventions).
+- Whichever prefix is used, all changes are made on a branch, never
+  directly on `main`.
+- **Ordinary `git`/`gh` commands are the workflow.** The
+  `scripts/hee_git_ops.sh` wrapper and `HEE_TOOL_MODE` were retired
+  2026-08-31 — see `docs/guides/GIT_GH_WORKFLOW.md` for the full
+  reasoning. The one hard rule that remains is above: never commit or
+  push directly to `main`, and let branch protection enforce it
+  server-side rather than a script an agent must choose to call.
 
-**Workflow**:
+**Workflow (identity-prefixed, kept post-merge)**:
 
 ```bash
-git checkout -b feature/work-description
-# Make changes, commit frequently
-git push origin feature/work-description
-gh pr create --base main --head feature/work-description
-# Wait for merge, then cleanup
-git checkout main && git pull origin main
-git branch -D feature/merged-branch  # Local
-git push origin --delete feature/merged-branch  # Remote
+git switch -c <host-or-session-id>/work-description
+# Make changes, commit frequently:
+git add <paths...>
+git commit -m "type(scope): ..."
+git push -u origin HEAD
+gh pr create --base main --title "..." --body "..."
+# Merge via the dedicated merge tool, not a raw `gh pr merge` --
+# no --delete-branch: this prefix is kept.
+hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-branch
+```
+
+**Workflow (feature/, deleted post-merge)**:
+
+```bash
+git switch -c feature/work-description
+git add <paths...>
+git commit -m "type(scope): ..."
+git push -u origin HEAD
+gh pr create --base main --title "..." --body "..."
+hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --delete-branch
 ```
 
 ### 3. State Preservation Policy
@@ -109,34 +159,51 @@ git push origin --delete feature/merged-branch  # Remote
 
 ### 5. Documentation Policy
 
-**Requirement**: Documentation is paramount - no undefined references
-
-**Enforcement**:
-
-- No references to non-existent files/tools
-- All README examples must work immediately
-- API documentation must reflect actual implementation
-- Specs must be canonical and complete
-
-**Documentation Standards**:
-
-- Use relative paths for portability
-- Include file references and cross-links for navigation
-- Design for smooth handoffs and team onboarding
-- Maintain consistency with existing documentation patterns
+**Superseded 2026-08-27**: the doc-type taxonomy, authority levels, and
+placeholder/real-link rules that used to open this section are now defined
+once, live and current, in `docs/DOCUMENTATION_POLICY.md` -- read that
+instead of this section for those. What's left below are specific,
+real, dated technical rules that file doesn't cover (link formatting
+detail, external-link targets, ordered-steps encoding) — kept here rather
+than duplicated there.
 
 **Real-Link Requirement**:
 
-- Bare shorthand references to issues/PRs (e.g. `fleet-ops#151`) are not
-  sufficient on their own — every reference to an issue, PR, or comment,
-  in both GitHub content (issue bodies, comments, PR descriptions) and
-  chat/agent output, must be a real markdown link to the actual URL
-  (`[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`)
-- The shorthand text is fine as the link label; the `(url)` is the
-  required part
-- Rationale: bare shorthand only auto-links inside GitHub's own
-  same-org rendering — it renders as dead text everywhere else (chat
-  transcripts, cross-repo bodies, anything copy-pasted elsewhere)
+- Every reference to an issue, PR, or comment — in GitHub content
+  (issue bodies, comments, PR descriptions) **and** in chat/agent
+  output — is written as a **short label linked to the full URL**:
+  `[fleet-ops#151](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/151)`.
+  Short to read, and the URL travels with it.
+- **This was settled by measurement, not inference** (operator probe,
+  2026-08-31 — four candidate forms rendered live in both a terminal and
+  a browser). It had already been rewritten twice the same day from
+  reasoning alone, each time wrongly. Do not relitigate it without new
+  measurements.
+  - `fleet-ops#151` (owner-less) resolves **nowhere** — not even inside
+    GitHub. Dead text everywhere, always.
+  - Bare `#151` and `owner/repo#151` autolink only in GitHub
+    conversations and commit messages — dead in repo files, wikis, and
+    issue/PR titles.
+  - A **bare full URL** works everywhere but is **too long to read** in
+    chat. Operator's verdict on seeing it: "works, but too long."
+  - **OSC 8 terminal hyperlinks cannot be emitted from an agent's chat
+    output.** The ESC bytes are stripped in transit, silently
+    concatenating the URL and label into one broken string that 404s.
+    Measured, not assumed. Tools writing straight to a TTY are
+    unaffected and *should* emit OSC 8 — that is what `hee-link` is for.
+  - The **linked short label** renders correctly in both surfaces.
+    Operator's verdict: "looks good in both… browser -> perfect." It is
+    not click-through in a terminal — a renderer limitation nothing in
+    this repo can fix — but it is the best form that exists today.
+- **Exceptions, because the renderer differs**:
+  - **Repo `.md` files**: bare full URL. Nothing autolinks inside repo
+    files, so a short label has nothing to fall back on.
+  - **Structured work files** (contracts, blueprints, doctrine YAML):
+    the compact `issue:`/`pr:` notation from §13 — machine-parsed, no
+    renderer involved.
+- Markdown links remain correct for prose linking *words* to a
+  destination (`see the [workflow guide](url)`), where the link text is
+  not itself the reference. This rule is about issue/PR references.
 - A bare relative path (`docs/doctrine/HEE_POLICY.md`) is not a link
   either — it is not resolvable outside a checkout of this repo. Any
   reference to a repo file must be a full `https://github.com/...` URL
@@ -151,8 +218,21 @@ git push origin --delete feature/merged-branch  # Remote
 - **Scope note**: this requirement covers GitHub content and chat/agent
   output — prose meant for a human or a general renderer. Structured
   work files (contracts, blueprints, doctrine YAML) use the compact
-  `tick:`/`pr:` notation from §13 instead, not markdown links — see §13
+  `issue:`/`pr:` notation from §13 instead, not markdown links — see §13
   for why
+
+**External-Link Target Policy** (real, rendered TCOS web pages — not
+markdown citations above, which have no `target` attribute at all):
+
+- Any `<a>` pointing off of TCOS's own real properties (i.e. not
+  `tcos.us`, `lab.tcos.us`, or their subdomains, and not our own GitHub
+  org) must open in a new tab: `target="_blank" rel="noopener"`
+- Rationale, Spencer 2026-08-25: a reference/citation link (an artist's
+  real profile, a source we're crediting) should never navigate the
+  reader away from the page they're on
+- Navigation within our own real properties (e.g. a "back to tcos.us"
+  link on a `lab.tcos.us` page) stays in the same tab — this policy is
+  about leaving the site, not about every link
 
 **Ordered-Steps Requirement**:
 
@@ -167,20 +247,77 @@ git push origin --delete feature/merged-branch  # Remote
 
 ### 6. Command Safety Policy
 
-**Requirement**: PRE-VALIDATION required for all commands
+**Rewritten 2026-08-27**: this section previously required `bash -n`
+syntax validation "for all shell commands" — also canonized as part of the
+org's own "Logic Loop" example (`GLOSSARY.md`): not actually run before
+most real one-off commands in real sessions. Rather than keep stating a
+rule that isn't followed, or start mechanically enforcing `bash -n` on
+every command (which the org has never actually wanted enough to do),
+this scopes the requirement down to what's real: judgment, not a blanket
+gate, and the two dated incidents below, which *are* the actual, currently
+enforced discipline (restated compactly in
+`prompts/PROMPTING_RULES.md` rule 2).
 
 **Enforcement**:
 
-- Syntax validation with `bash -n` for all shell commands
-- Path verification before file operations
-- Git state verification before repository operations
-- No execution without explicit validation
+- Use `bash -n` (or equivalent dry-run/syntax-check) for complex,
+  multi-step, or destructive commands you're not confident are correct —
+  not a blanket requirement for every command.
+- Path verification before file operations; git state verification before
+  repository operations, when the operation is destructive or hard to
+  reverse.
+- **Never redirect stderr to `/dev/null` (or otherwise discard a
+  command's exit code) when the command's result is about to be
+  interpreted or reported as fact.** Real incident, 2026-08-21:
+  `whois "$d" 2>/dev/null | grep -i phone` produced no output because
+  `whois` wasn't installed on the box at all -- the `2>/dev/null` hid
+  `command not found`, and the resulting silence got reported as "WHOIS
+  came back empty (privacy-protected registration)" -- a specific,
+  plausible-sounding, **wrong** explanation for a result that was
+  actually just a missing binary. Caught only because Spencer happened
+  to retry with a different invocation. "No output" and "ran
+  successfully and found nothing" are not the same fact, and treating
+  suppressed-failure silence as if it were the latter is a subtler
+  version of the fabrication Rule 2 (`prompts/PROMPTING_RULES.md`)
+  already bans -- not inventing a claim outright, but accepting the
+  first plausible interpretation of an ambiguous result without
+  checking which interpretation is actually true.
 
 **Validation Pattern**:
 
 ```bash
 # Pattern: Validate then execute
 [ -f file.txt ] && echo "File exists" || echo "File missing - plan violation"
+
+# Pattern: check success before interpreting output as a real result --
+# don't let a suppressed stderr turn "the command failed" into
+# "the query legitimately found nothing"
+command -v whois >/dev/null || { echo "whois not installed"; exit 1; }
+whois "$domain" || { echo "whois query failed (exit $?)"; exit 1; }
+```
+
+**Real addendum, 2026-08-21 -- long `&&`-chains fail the same way**:
+a multi-step `step1 && step2 && step3 && step4` chain has the exact
+same silent-failure risk as suppressed stderr -- if `step1` fails,
+`step2` through `step4` never run, and if nothing in the chain prints
+a distinguishable failure message, that reads identically to "all four
+steps succeeded" unless the exit code is actually checked. Real
+incident this same session: `git add && git commit && git push && gh
+pr create` silently died at `git add` (a `.gitignore` rejection) --
+the PR was reported as shipped, and the gap wasn't caught for several
+follow-up exchanges. Spencer's own framing: run critical multi-step
+sequences with a real failure path, not a bare `&&`-chain assumed to
+either fully succeed or obviously fail --
+
+```bash
+# Wrong -- a failure anywhere in the chain is silent past that point
+git add file && git commit -m "..." && git push && gh pr create ...
+
+# Right -- every real step's failure is caught and reported explicitly
+git add file || { echo "add failed"; exit 1; }
+git commit -m "..." || { echo "commit failed"; exit 1; }
+git push || { echo "push failed"; exit 1; }
+gh pr create ... || { echo "pr create failed"; exit 1; }
 ```
 
 ### 7. Integration Compliance Policy
@@ -300,6 +437,22 @@ reason it doesn't
   blocked on a decision, needs triage)
 - Close tickets as soon as their work is actually done — don't let
   finished or stale work sit open
+- **Only whoever opened a ticket or PR closes/merges it.** Real sysadmin
+  practice, not HEE-invented: it's a guard against the opener's own
+  reviewer clicking through too fast, not a judgment on the work itself
+  — approving is not the same act as merging, and reviewing everything
+  in bulk (the normal mode when a human is behind on review) makes an
+  accidental merge easy without this. This is a **default, not an
+  absolute** — deviate freely with an **explicit** exception from the
+  opener in the moment ("go ahead and merge/close this one"), never
+  inferred from silence, a prior approval, or "they'll probably want
+  this merged." An agent's own work is closed/merged by the human who
+  requested it or by the agent that opened it, never by a different
+  agent filling in. Prompted by
+  [`human-execution-engine#249`](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/249#pullrequestreview-4996249864) —
+  Spencer approved but deliberately didn't merge his own contracted
+  agent's PR, precisely because review-approval and having-read-every-line
+  aren't the same thing, and merge authority should track the latter.
 
 **Known platform constraint: GitHub blocks self-approval, always**
 
@@ -383,7 +536,7 @@ effect of issue triage.
 ### 13. Compact Reference Notation (structured work files)
 
 **Requirement**: contracts, blueprints, and doctrine YAML reference other
-issues/PRs with a compact `tick:`/`pr:` token, not a markdown link
+issues/PRs with a compact `issue:`/`pr:` token, not a markdown link
 
 **Rationale**, per Spencer's review on pr:223@human-execution-engine: a full
 `[text](url)` markdown link is the right shape for prose meant for a human
@@ -393,11 +546,20 @@ actual content for a reader's attention, and not meaningfully more useful
 to tooling than a short token would be. Work files want a real k:v pair,
 not a link.
 
+**Naming, corrected 2026-08-25**: this notation originally used `tick:` for
+GitHub issues. Spencer caught a real clash: `hee-ticket` is a separate,
+already-real system (a local, git-tracked, idea→footgun→dogfood work
+pipeline under `.hee/tickets/`) — "tick" as a root belongs exclusively to
+that system, not to a GitHub-issue shorthand. Renamed `tick:` → `issue:`
+everywhere (this doc and the 2 real files that had used it,
+`blueprints/shift-init-v1.yaml` and `contracts/shift-metrics-v1.contract.yaml`)
+to remove the ambiguity, not just here.
+
 **Notation**:
 
-- In-org issue: `tick:<N>@<repo>` — e.g. `tick:225@human-execution-engine`
+- In-org issue: `issue:<N>@<repo>` — e.g. `issue:225@human-execution-engine`
 - In-org PR: `pr:<N>@<repo>` — e.g. `pr:223@human-execution-engine`
-- Cross-org: `tick:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
+- Cross-org: `issue:<N>@<org>/<repo>` / `pr:<N>@<org>/<repo>` — the org
   segment is present specifically when it isn't
   `Twin-Cities-Open-Systems`
 - Commit: `commit:<sha>@<repo>`
@@ -408,13 +570,548 @@ not a link.
   machine-parsed doctrine YAML — not to prose docs (`docs/`, `README.md`)
   or chat/agent output, which stay under §5's real-link rule
 - The token is mechanically expandable to a full URL
-  (`tick:N@repo` → `https://github.com/Twin-Cities-Open-Systems/repo/issues/N`)
+  (`issue:N@repo` → `https://github.com/Twin-Cities-Open-Systems/repo/issues/N`)
   by any tooling that wants one — nothing is lost by using the short form
   in the source file
 - This is a new convention as of 2026-08-18, applied first in
   `blueprints/shift-init-v1.yaml` and its companion contracts — not yet
   retrofitted across the rest of the repo, tracked as future cleanup, not
   claimed as done everywhere
+
+### 14. Signature Policy (agent identity + published content)
+
+**Status: pending ratification.** This section describes what
+`contracts/agent-instance-signature-v1.contract.yaml` and
+`contracts/content-signing-v1.contract.yaml` require. Both are staged
+(`status: ratified`, unsigned) as of this writing and take effect the
+moment Spencer's real GPG signature lands on each — not before. This
+section is written now so it can land in the same commit as, or
+immediately after, the signatures, rather than lagging behind them.
+
+**Agent identity signatures — SendMessage traffic and GitHub comments**:
+
+- Every SendMessage delivery and every GitHub issue/PR comment written
+  by an agent identity must carry the full `agent-instance-signature-v1`
+  block (session_id, host, gh_actor, timestamp), per
+  `contracts/agent-instance-signature-v1.contract.yaml`
+- Rationale: same-account concurrent sessions are otherwise
+  indistinguishable from each other (§10's "Known platform constraint"
+  above) — the signature is what lets a reader tell which real session
+  did what
+- **tmux send-keys is a real, lighter-weight exception**: a plain `# `
+  -prefixed comment is sufficient there, not the full block — resolved
+  directly by Spencer and recorded in
+  `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`. The
+  distinction: a live tmux pane on a real, currently-running server
+  already proves physical/session identity the way the full block exists
+  to establish for a remote, unverified peer (SendMessage, a GitHub
+  comment) — see that card's `important_nuance` for how this reconciles
+  with `human-execution-engine#303`'s framing of SendMessage's approval
+  gate as a deliberate security feature, not a flaw being routed around
+
+**Content signatures — published artifacts**:
+
+- Per `contracts/content-signing-v1.contract.yaml`: lab-published
+  artifacts are signed (GPG detached `.asc`) by whoever built them; a
+  prod promotion is signed by whoever actually performs the promotion
+  (Spencer or an agent, case-by-case, never assumed) — everyone signs
+  their own work, never proxy-signs for someone else
+- EXIF `Artist`/`Copyright` fields are set only when real
+  authorship/assignment is actually known — never auto-defaulted to the
+  org's name. See `hee/cards/attribution-standing.method.card.v1.yaml`
+  for the real mistake (crediting TCOS for a photo TCOS didn't create)
+  this rule exists to prevent
+- A signature is computed over final bytes — anything that mutates a
+  file after signing (including writing a hash-of-itself back into its
+  own metadata) invalidates that file's own signature. Verify with
+  `gpg --verify` immediately after signing, every time, rather than
+  trusting the signing step's own exit status
+
+### 15. External Data Sourcing Policy
+
+**Requirement**: a strict, real three-tier order for any external data a
+tool/feature needs — **(1) default/preferred: free, open intel that is
+not scraped; (2) paid, when the value is genuinely justified; (3)
+scraping, the actual last resort after every other option has been
+considered, which should never actually happen**
+
+**Rationale**, per Spencer directly (2026-08-24, deciding how to source
+comp/skill-market data for a real resume-badge feature), in his own
+words and order: "free openintel > scrape or pay every single time" →
+"avoid scrape like the plague, nasty business is that one" → precise
+correction of a first-pass summary of this policy that mis-ordered paid
+vs. scrape: "default(prefered) free open intel that is not scraped
+paid(when val is justified), scrape is last resort after every other
+thing we can think of, should never ever happen." Paid is a legitimate,
+reasonably-reached-for middle tier (a real cost/value call, not gated
+behind an exhaustive search first) — scraping sits *below* paid, not
+alongside it, and carries real, ongoing exposure this org already takes
+seriously elsewhere (ToS violations, legal risk, brittleness to the
+target site's own changes).
+
+**Already real, existing practice, now made explicit**: `thesis-engine`
+already sources macro data this way — FRED for credit-spread/bond index
+data, BLS/FRED for CPI/PPI/yield-curve data — real, free, government-
+licensed sources, no scraping, no paid vendor. This policy names that
+existing discipline instead of leaving it an unstated habit.
+
+**Enforcement**:
+
+- Default: a free, openly-licensed real source — government stats
+  agencies (BLS, FRED, Census, and equivalents), public datasets, or a
+  project's own official open API — obtained through its real, sanctioned
+  channel, not scraped just because it happens to be free to view
+- Paid is acceptable whenever its value is genuinely justified — a real
+  cost/value judgment call, not something that requires proving no free
+  option exists first
+- Scraping is the true last resort, reached for only after every other
+  real option has actually been considered and ruled out — and the
+  standing expectation is that this should never actually happen; if a
+  real need seems to leave no free or paid option, surface that as an
+  explicit decision point for Spencer rather than defaulting to scraping
+
+**Downloaded artifact integrity is a separate, mandatory requirement —
+sourcing tier doesn't excuse skipping it.** Per Spencer directly
+(2026-08-24, after a binary was fetched and used without checksum
+verification): "make sure we are getting and verify sums and shit for
+things we download." A free/open source being trustworthy in principle
+doesn't mean any individual download wasn't corrupted in transit or
+served from a compromised mirror/CDN — checksum verification catches
+that regardless of tier.
+
+- Before running or trusting any downloaded binary/artifact, fetch its
+  publisher's own checksum file (not a third-party mirror's) and verify
+  the download against it (`sha256sum -c`, or equivalent)
+- Pin the exact version being used (a real, current release tag checked
+  directly — e.g. via the project's own release API — not guessed or
+  assumed from memory)
+- A detached cryptographic signature (GPG, cosign, etc.), when the
+  publisher provides one, is a stronger guarantee than a checksum alone
+  and should be preferred when available — note explicitly when a
+  project does *not* publish one, rather than silently treating checksum
+  verification as equivalent
+- Real worked example: `gitleaks` v8.30.1 ([human-execution-engine#337](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/337))
+  — version confirmed via the real GitHub releases API, binary verified
+  against the publisher's own `gitleaks_8.30.1_checksums.txt` before use
+  (`sha256sum -c`, confirmed `OK`); no detached signature is published
+  for this project, noted as a real limitation rather than assumed away
+
+### 16. GNU Tools Preference Policy
+
+**Requirement**: target GNU coreutils/GNU tool syntax and behavior by
+default in any script or one-liner — not BSD, not another
+implementation — whenever a real choice exists
+
+**Rationale**: real, well-known, meaningfully different flag syntax
+between implementations, not a style preference. Named example, per
+Spencer directly ("I have that scar"): `sed -i` — GNU allows
+`sed -i 's/x/y/' file` with no argument to `-i`; BSD/macOS `sed`
+*requires* an explicit suffix argument, even an empty one:
+`sed -i '' 's/x/y/' file`. Same-looking invocation, silently different
+(and on BSD, error-if-omitted) behavior — a genuinely common
+cross-platform scripting trap, not a hypothetical one. Same underlying
+hazard class as `date -d` (GNU) vs. `date -v`/`-j -f` (BSD), already
+load-bearing throughout this session's epoch-0 work.
+
+**Enforcement**:
+
+- Default to GNU syntax/behavior in every script and one-liner — this
+  already matches the real environment (Debian-family Linux throughout,
+  including the kiosk reinstall's planned OS) so it's mostly already
+  true in practice, now explicit rather than incidental
+- When a tool's GNU vs. BSD behavior genuinely differs in a
+  security-or-correctness-relevant way (like `sed -i`'s required-vs-
+  optional suffix argument), don't just pick GNU silently — a comment
+  noting the divergence is worth it, the same way `date -d` usage
+  already gets called out when it matters
+- If a script genuinely needs to run on a non-GNU target (a real BSD
+  box, macOS), that's an explicit, stated exception at the point of
+  use — not a default anyone should assume without saying so
+
+### 17. Prod Promotion Requires Human Sign-off
+
+**Requirement**: a lab-to-prod promotion step is never run as an
+automatic consequence of syncing/building lab content. Prod is only
+ever updated after the human who owns that surface has actually
+reviewed lab and explicitly said to proceed -- not after a script
+finishes, not after CI is green, not because lab "looked done."
+
+**Rationale**: real incident, [fleet-ops#312](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/312)
+(2026-08-26) -- a deploy script synced lab then pushed the identical
+bytes to prod in the same run, with no checkpoint in between. Spencer,
+direct: "I did not approve that, I wanted to check first." He had real
+issues queued to review on lab before it went live; the auto-promotion
+denied him that window entirely. The underlying gap had already been
+raised once (Spencer: "you are deploying straigt to prod, why?",
+deferred as a follow-up rather than fixed) -- deferring it is what let
+the real incident happen.
+
+**Enforcement**:
+
+- Any tool that promotes lab content to a public surface MUST expose
+  "build/sync to lab" and "promote to prod" as two separate, explicitly
+  invoked steps -- never one command that does both. `resume`'s
+  `tux-tattoo/deploy.sh lab` / `deploy.sh promote` split (post-#312) is
+  the real reference implementation.
+- "Promote" is never re-run automatically because lab changed again --
+  a new lab change re-opens the review, it doesn't extend a prior
+  approval.
+- This does not require a *ratified* sign-off scheme (no new contract,
+  no formal ceremony) -- a plain "go" from the human who owns the
+  surface, given after they've actually looked, satisfies this. What's
+  prohibited is skipping that step, not the lightness of it.
+
+### 18. Issues Get Every Real Field Filled, Not Just a Title
+
+**Requirement**: an issue is not considered filed until `type`,
+`priority`, and any other real fields the tracker offers are actually
+set -- not left at their default, not deferred to "backfill later."
+A title and body alone are an incomplete issue, not a lightweight one.
+
+**Rationale**: real, repeated pattern this session and the ones before
+it -- issues that read as Epics or Incidents by title
+([fleet-ops#298](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/298),
+[#300](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/300))
+sat with `issueType: null`; [HEE#341](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/341)
+exists solely to backfill type/Priority/Effort/Target-Date/epic across
+the whole org after the fact; contracts sat with no `status` field at
+all ([fleet-ops#210](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/210)).
+Every one of these is the same mistake at a different layer: filing
+first, structuring later, and "later" not reliably happening. Spencer,
+direct: "should be policy to always fill out all issue fields... or
+you will have more cleanup."
+
+**Enforcement**:
+
+- When filing an issue via `gh issue create`, set `--label`, the real
+  issue type (Task/Bug/Feature/Epic/Incident, once assigned via the
+  GitHub UI/API), and any project fields (Priority, Effort,
+  Target-Date) the same session, not as a follow-up.
+- `hee-fields` (tooling/bin/hee-fields, real GraphQL field-setting,
+  [PR#348](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/348))
+  is the real tool for this -- use it rather than leaving fields unset
+  because the CLI path is less obvious than the web UI's.
+- A backfill pass existing (HEE#341) does not satisfy this policy going
+  forward -- it's a one-time cleanup for the debt that already
+  accumulated, not a substitute for filling fields at file-time.
+
+### 19. Canonization Policy (doctrine-vs-practice drift)
+
+**Requirement**: when stated documentation and actual real precedent
+contradict each other, the contradiction gets surfaced and reconciled
+through a real procedure — never silently papered over by picking one
+side, and never left standing as an unremarked contradiction
+
+**Rationale**: fast-moving, high-level concept work outruns its own
+documentation as a matter of course, not as a failure — a design
+principle gets written down, then real practice (a recovered legacy
+script, a pragmatic workaround, a decision made in chat and never
+back-filled into the doc) diverges from it before anyone revisits the
+page. Left alone, this produces exactly the failure mode found
+2026-08-21: `glass-browser/README.md` stated "no password flow exists
+anywhere in this repo, on purpose," while `do-login.mjs` — a real,
+already-in-use scripted password flow, recovered from an earlier
+identity 2026-08-16 — sat right next to it, undocumented and
+uncontradicted-in-the-open. Neither the old doc nor the new practice
+was wrong to have existed; the drift between them just never got
+resolved.
+
+**Enforcement — the actual procedure, Spencer's own framing**:
+
+1. **Surface the tension explicitly, don't pick a side quietly.** State
+   both what the doc says and what practice actually does, as a real
+   named contradiction — not "the doc is outdated" (presumes the doc
+   loses) and not silently following whichever one the current task
+   happens to need (presumes practice wins by default).
+2. **Review both the old standard's reasoning and current practice's
+   reasoning.** The old doc's principle existed for a real reason
+   (here: minimizing where credentials could leak); so did the
+   departure from it (here: Xwayland/xdotool synthetic input proved
+   unreliable enough that a real Playwright-driven login flow was
+   worth building). Understand why each side exists before choosing
+   between them.
+3. **Reason toward the best of both, not a unilateral pick.** The
+   resolution doesn't have to be "old wins" or "new wins" — it can (and
+   often should) preserve what made the old principle sound while
+   adopting what made the new practice necessary. The glass-browser
+   resolution keeps the old boundary that ongoing *task* files never
+   touch credentials, while adopting the new pattern that *bootstrap*
+   scripts are the sanctioned, scripted way a session gets established
+   in the first place.
+4. **The human makes the actual call when it's a real decision, not a
+   mechanical fix.** Present the reconciliation options plainly;
+   don't resolve a genuine design tradeoff unilaterally just because a
+   plausible synthesis exists.
+5. **Canonize and move on.** Update the doc to state the resolved rule,
+   dated and attributed, with enough of the reasoning kept that a
+   future re-read of the doc explains itself rather than reading as an
+   arbitrary decree. Then the tension is closed — this isn't a standing
+   review process to revisit, it's a one-time reconciliation per drift
+   found.
+6. **Doctrine PRs get reviewed and merged as soon as possible, not left
+   open.** Spencer, direct, 2026-08-29: "always merge/pull doctring
+   asap." Real trigger: multiple real doctrine PRs sitting open at once
+   this same session produced actual section-number collisions (three
+   separate branches independently claiming the same next section
+   number) -- a direct, avoidable cost of doctrine changes accumulating
+   unmerged. Merging is still gated on a real review actually landing
+   (branch protection requires `REVIEW_REQUIRED` to clear -- this rule
+   doesn't and can't override that), but once approval lands, merge and
+   pull immediately, without queuing it behind other work.
+
+### 20. Mail Search Tooling Policy
+
+**Requirement**: searching or reading mail on TCOS's behalf goes through a
+tool (a script, an API call, an AI assistant with account-linked access),
+never a human or agent manually browsing a native webmail UI.
+
+**Rationale**: a tool-mediated search is a real, repeatable, scriptable
+step — the same query run twice gives the same answer, and what was
+searched and what was found are both real artifacts that can be shown, not
+just recalled from memory. Manually clicking through a webmail UI produces
+none of that; it's a dead end for automation and leaves no trail. Same
+principle as this doc's existing observability stance — a check that can't
+be re-run or shown isn't a check, it's an assertion.
+
+**Current state, transitional**: as of 2026-08-21 there is no TCOS-owned
+mail infrastructure yet, so this is done today via the Gmail-linked AI
+tooling workflow (`docs/guides/ASK_GOOGLE_AI.md`) — real first use: checking
+an inbox for a Mailman confirmation email
+(`inspector@tcos.us`/`tclug-list@mn-linux.org`), not a hypothetical.
+Real, current limitation worth naming: that check itself came back as a
+negative result ("hasn't arrived yet") without the underlying tool call
+being independently visible/verifiable the way a shell command's output is
+— so this policy also stands as a marker that the current interim tooling
+doesn't yet meet the bar it sets. Once TCOS has its own mail exchangers
+(`mx-N.tcos.us`, plural — multiple, not a single point of failure), this
+becomes a first-party, fully observable tool rather than a routed-through
+workflow — tracked as an open dependency-removal item in the same spirit
+as [[primitives#5]] and `fleet-ops#208`'s primitives epic, not built yet.
+
+**Enforcement**:
+
+- No standing exception for "just checking real quick" — the tool-mediated
+  path is standard op even for a one-off look, not just recurring/automated
+  checks
+- When the interim (third-party AI assistant) tooling is used, its
+  answer is reported as what the tool returned, not restated as an
+  independently-verified fact — the distinction matters until the tool
+  call itself is as inspectable as a shell command
+
+### 21. Tool-Maturity Language Ladder: shfn → sh → bash → py → go
+
+**Requirement**: a new real tool starts at the least-capable language that
+can actually do the job (a `library/bash/*.shfn.bash` sourced function),
+and only graduates to a more capable language (`sh`/`bash` standalone
+script, then `python3` in `tooling/bin/`, then eventually a real `hee`
+subcommand once `cmd/hee/` exists) when it's actually outgrown the tier
+it's on -- never started at a heavier language "to be safe" or "for
+consistency" when a lighter one already does the real job.
+
+**Rationale**: real, working convention this whole session -- every new
+tool built used exactly this ladder without anyone having to be told
+(`hee-repo-refresh`/`hee-og-check` as `sh`, `hee-fields` as Python, the
+GNU-parallel work reusing existing `sh` scripts rather than reaching for
+a heavier language). It was already documented at length, just not in
+governance: `docs/guides/OPERATOR_GUIDE.md`'s "The tool-maturity
+convention" section, and `hee/cards/uiboss-repohub-next.wip.yaml`. Real
+trigger for canonizing it here, 2026-08-29: Spencer, after approving the
+nuc-1 hardware-report script (deliberately plain `sh`, no `dmidecode`
+dependency, matching this ladder), direct: "we will make this a more
+generic script in the programing convention of shfn->...go/rust/c/etc,"
+then "our programing convention should be in governance, confirm." It
+wasn't -- this section is that confirmation, acted on rather than just
+answered.
+
+**Enforcement**:
+
+- `library/bash/*.shfn.bash` -- a function you `source`, not a standalone
+  script (`source library/bash/rg.scan.shfn.bash` then call `rg_scan
+  '<pattern>'`). The real starting tier for something small, reusable,
+  and cheap to prove out.
+- `tooling/bin/*` (`sh`/`bash`, no `.shfn.` suffix) -- a standalone script
+  you run directly, once the tool needs to be invoked on its own rather
+  than sourced into another script's shell.
+- `tooling/bin/*.py` -- once real data structures, JSON/YAML parsing, or
+  logic too awkward in shell is actually needed, not by default.
+- Real `hee` subcommand (`cmd/hee/`, currently a stub, not built yet for
+  most tools) -- the eventual destination for a mature, heavily-used
+  tool. This is where things are headed, not a requirement to preemptively
+  build there.
+- Go/Rust/C (or any language beyond this list) is a real, later step for
+  a tool that's outgrown Python -- performance, distribution as a single
+  binary, or similar -- not named further here because none of this
+  org's real tools have needed it yet; add the next rung when one
+  actually does, don't pre-build the ladder past current real need.
+- Two tools solving similar problems living in different tiers
+  (`library/bash/cards.scan.shfn.bash`'s fast count vs.
+  `tooling/bin/scan-hee-cards.py`'s full classification, per
+  `OPERATORS.md`) is expected, not a sign one should replace the other --
+  each stays at the tier its own real job actually needs.
+
+### 22. DNS Configuration Policy (search domains, ndots, resolver order)
+
+**Requirement**: every real TCOS infra host's `/etc/resolv.conf` (or
+equivalent) sets:
+
+- `search` listing every real, currently-active domain the host or its
+  LAN peers actually use, **the host's own domain first** — not just
+  the domain being configured, and never dropping a domain because it
+  looks unfamiliar or legacy. Two real domains coexist on the TCOS LAN
+  today: `lab.tcos.us` (TCOS org infra -- pve, ns1, the LXC fleet) and
+  `crooked.tcos.us` (Spencer's personal home-lab, hosted on nuc-1 --
+  Plex, Sonarr, Home Assistant). Neither is legacy or a fallback; a
+  host's search list includes both, ordered by which domain the host
+  itself belongs to.
+- `options ndots:1` set **explicitly**, not left implicit. This is
+  glibc's own default, but writing it out documents the intent instead
+  of relying on an unstated default -- and explicitly rules out the
+  common `ndots:5`-style anti-pattern (popularized by Kubernetes) where
+  even real external single-dot FQDNs get tried against internal search
+  domains first, adding latency for no benefit on a LAN this size.
+- `nameserver` lines in a real, deliberate order: the LAN's own
+  authoritative internal DNS first (`ns1.lab.tcos.us`, `10.0.0.194`),
+  then the LAN-wide Pi-hole (`10.0.0.72`), then a public resolver last
+  (`1.1.1.1`) as the real fallback.
+
+**Rationale**: real trigger, 2026-08-29 -- auditing `pve` and `ns1`
+(fleet-ops#243) found both TCOS infra hosts still carrying stale
+`*.crooked.tcos.us` hostnames (the wrong domain for what they *are* --
+they're TCOS infra, not Spencer's personal home-lab) and `pve`'s
+`resolv.conf` had no internal resolver at all (`search crooked.tcos.us`
+/ `nameserver 8.8.8.8` only) -- meaning short-name LAN resolution
+(`ssh ns1`, `ssh bastion`) never worked from pve itself, and the host's
+own hostname didn't match real DNS (`hostname -f` returning a name with
+no matching record). Fixed by adding the missing real `pve` A record to
+`db.lab.tcos.us`, correcting both hosts' actual hostnames, and writing
+a real, explicit `resolv.conf`.
+
+**Not the same as**: deciding one domain is more real than the other.
+The fix here was moving two TCOS-infra hosts onto the domain they
+actually belong to (`lab.tcos.us`) -- not deprecating `crooked.tcos.us`,
+which stays real, active, and must keep resolving correctly on the LAN
+for nuc-1 and anything else that's genuinely part of Spencer's personal
+home-lab. A clearer real boundary between the two is expected to emerge
+once pve can take some real load off `nuc-1.crooked.tcos.us` -- not yet
+done, stated direction only.
+
+**Enforcement**: when standing up or auditing a real TCOS infra host,
+check `hostname -f` matches a real DNS record before anything else, then
+check `/etc/resolv.conf` against this policy's real shape. `dotfiles`
+carries the corresponding client-side convention for personal/dev
+machines -- see its own README for the current real shape, since that
+one covers per-person machines rather than fleet infra hosts.
+
+### 23. Sidecar File Convention
+
+**Requirement**: real auxiliary data about a file -- a signature, embedded
+metadata worth a plain-text record, or similar -- is written as a real
+sidecar file next to the original (`<filename>.<ext>`), never only left
+buried inside the original's own binary/opaque format.
+
+**Real, established instances**:
+
+- `.asc` -- detached GPG signatures (ASCII-armored), already real,
+  established practice across this org's signed-evidence workflows
+  (contract ratification, `seal-secret.sh`-sealed material) -- see the
+  Glossary's `Ratify` entry.
+- `.exif` -- real image EXIF metadata, written out as a plain sidecar
+  next to the source image rather than left only in the binary. Real
+  trigger, 2026-08-29: Spencer, direct, while planning a real shared
+  images store on nuc-1 (`/mnt/nuc1-pool/storage/docs/shared/images/`):
+  "write[e] exif next to file" -- so metadata survives and stays
+  inspectable even if a downstream copy of the image gets its EXIF
+  stripped (a common, real thing that happens when images are shared
+  further).
+
+**Rationale**: a sidecar keeps real auxiliary data in an open, greppable,
+diffable, tool-agnostic form next to the thing it describes -- the same
+"committed evidence, never opaque" discipline already applied to signed
+secrets, extended to any other real per-file metadata worth keeping
+independently of whatever tool originally produced it.
+
+**Enforcement**: when a real workflow generates auxiliary data tied to
+one specific file (a signature, extracted metadata, a checksum, etc.),
+default to a `<filename>.<ext>` sidecar next to the original rather than
+inventing a separate index/database for it, unless a real, stated reason
+argues otherwise. New sidecar types get added to this list as real
+precedent for them shows up -- this isn't meant to enumerate every kind
+in advance.
+
+**Open, not yet settled**: Spencer, same session, floated `.asc.meta` --
+a second-order sidecar carrying real metadata *about* a `.asc` signature
+(signer, purpose, date) that doesn't fit inside the bare ASCII-armored
+signature itself -- explicitly flagged as tentative ("if we need more
+data, unsure"), not a real, dated precedent yet. Noted here so it isn't
+lost, not canonized as a requirement until an actual real use shows up.
+
+### 24. Key and Secrets Management SOP
+
+**Requirement**: real GPG keys and sealed secrets follow one of two
+distinct real patterns, never conflated:
+
+1. **Personal identity keys** -- one real key per real person, used for
+   commit signing and public identity verification, consistent across
+   every host that person works from. Sourced from the person's own
+   real GitHub-registered key (`gh api users/<login>/gpg_keys`), not
+   generated fresh per machine. Saved as
+   `fleet-ops/keys/gh/<login>.gpg`.
+2. **Per-host secret-management keys** -- one real key *per host*, used
+   to seal/unseal that host's own local secrets (credentials, sealed
+   passwords). Already the real, established convention for
+   `touchy-claude` (its own real GitHub key metadata literally reads
+   "touchy-claude (touchy host, generated 2026-08-14)") -- generalized
+   here rather than left as an unstated precedent. A new host gets a
+   new key; never copy a secret-management key between hosts, even for
+   the same real person, since that widens the blast radius of a single
+   compromised machine to every host sharing that key.
+
+**Real trigger**: Spencer, direct, 2026-08-30, mid-task (rotating
+Dad TV's root password after achieving real persistent root SSH,
+issue: https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/87):
+"make sure this goes in governance as the sop for making and storing
+secrets." Refined through direct real questions the same session --
+"should [we] cp from kiosk, or new[?]", "one from gh is official, why
+need more?" -- resolved by checking real GitHub API data rather than
+guessing: Spencer's real official key is `inspector@tcos.us`
+(personal-identity key, pattern 1); his real kiosk key is a separate,
+already-existing per-host key (pattern 2) predating this policy;
+nuc-1 needed its own fresh key generated, not a copy of kiosk's, per
+the same pattern 2 rule.
+
+**Sealing a generated (not typed) secret**: `hee-cred -seal` deliberately
+refuses non-interactive/piped input (real, correct security behavior --
+prevents a secret leaking through an agent's own visible tool output).
+For a genuinely *generated* secret (`hee-pwgen` output, a freshly
+`ssh-keygen`'d private key) rather than a human-typed one, pipe directly
+into the same real `gpg --encrypt --armor -r ... -r ... -o ...` call
+`hee-cred` itself uses internally -- the same real exemption `-genfrom`
+already gets, extended to any machine-generated secret. The generated
+value must never pass through an agent's own visible output at any
+point in this chain.
+
+**Real, known, not-yet-solved gaps** (explicitly not resolved by this
+section -- tracked separately, not guessed here):
+
+- **Central key store**: Spencer, direct, same session: "secrets will
+  live on a bast server on pve" -- a real, stated future direction
+  (the existing real `bastion` LXC container, VMID 100 on pve) that
+  isn't built yet. Sealed secrets currently live scattered across
+  per-repo locations (`.hee/secrets/`, `fleet-ops/hosts/<name>/`) as a
+  real, known interim state.
+- **Key rights and ACLs**: Spencer, direct, same session: "we need
+  process for key rights and acls, that is gap." No real, stated
+  process yet exists for who should hold which real key, or what a
+  given key is actually authorized to seal/unseal. Tracked as real,
+  open work -- see the `HEE ACL` glossary entry for the related, but
+  distinct, access-control-mechanism concept this connects to.
+
+**Enforcement**: before sealing anything, know which of the two real
+patterns applies -- a personal identity (use the real GH-sourced key,
+one per person) or a host secret (use that host's own real key, never
+borrowed from another host). When in doubt, check `gh api
+users/<login>/gpg_keys` for the real, authoritative personal key before
+assuming which key someone "really" uses.
 
 ### HEE Rule Violation Documentation
 
@@ -494,17 +1191,21 @@ not a link.
 
 ## References
 
-- [HEE Definition](HEE.md)
-- ~~Prompting Rules (`../prompts/PROMPTING_RULES.md`)~~ — **deprecated**,
-  per Spencer 2026-08-18: the relative path resolves to `docs/prompts/`,
-  which 404s. A same-named file exists at the true repo root
-  (`prompts/PROMPTING_RULES.md`) but is an intentionally-empty CI
-  placeholder ("exists to satisfy CI documentation invariants... keep
-  CI green"), no real content either way. The ceremony this reference
-  would have covered is superseded by the `shift-init-v1` blueprint
-  instead. Removed rather than backfilled.
-- [State Capsule Guide](STATE_CAPSULE_GUIDE.md)
-- [Troubleshooting Guide](TROUBLESHOOTING.md)
+- [Prompting Rules](../../prompts/PROMPTING_RULES.md) — the compact,
+  agent-facing summary of this policy, read at the top of every session
+  per `prompts/INIT.md`. **Corrected 2026-08-27**: this entry previously
+  called the file deprecated/an empty CI placeholder, true as of
+  2026-08-18 but stale since — the file was rewritten with real content
+  on 2026-08-26 and has been live and current since. This reference was
+  never updated after that, which is itself worth noting: even a
+  back-reference inside live doctrine can drift silently if nothing
+  re-checks it.
+- [Documentation Policy](../DOCUMENTATION_POLICY.md) — doc-type taxonomy
+  and authority levels; §5 above only covers what that file doesn't.
+- [State Capsule Guide](../STATE_CAPSULE_GUIDE.md) (path corrected
+  2026-08-27 -- was missing the `../`, pointing at a nonexistent
+  `docs/STATE_CAPSULE_GUIDE.md`)
+- [Troubleshooting Guide](../TROUBLESHOOTING.md) (same correction)
 
 ---
 

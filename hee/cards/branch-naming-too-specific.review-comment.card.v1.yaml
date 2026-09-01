@@ -1,0 +1,35 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: branch-naming-too-specific
+  ts_human: 2026-08-27_1830
+  description: "Spencer's real review comment flagging the touchy/ branch-prefix example as too specific -- captured retroactively as the first real instance of the review-comment card schema."
+  labels:
+    hee.object: "true"
+    card.type: review-comment
+spec:
+  repo: human-execution-engine
+  path: docs/doctrine/HEE_POLICY.md
+  line: null
+  text: >
+    this is far too specific. we need to discuss a real strategy for
+    creating branches. I do not think we need to have an oper/agent name
+    we capture that elsewhere.
+  quoted_context: "Workflow (touchy/, kept post-merge):"
+  author: spencer
+  status: resolved
+  resolved_note: >
+    Section rewritten same session: the identity segment is now
+    documented as an example of a pattern
+    (<host-or-session-identity>/description-of-work), not a hardcoded
+    literal, with an explicit note that identity is already tracked
+    elsewhere (commit author, assignee, Model: trailer) and the branch
+    prefix is namespacing, not a second attribution record. See
+    docs/doctrine/HEE_POLICY.md section 2's own revision history note.
+  origin: >
+    Real dogfood instance (per docs/DOCUMENTATION_POLICY.md rule 6):
+    logged live on view.lab.tcos.us/follow-up.html as item #1 during
+    Spencer's real review of this session's instruction-set
+    consolidation, then resolved live in the same session. Captured here
+    after the fact as the first real review-comment card -- the schema
+    didn't exist yet when the comment was made.

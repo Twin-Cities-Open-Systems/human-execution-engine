@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-inv — inventory tool (v1.1)
 # Contract: hee/contracts/inventory.contract.v1.md
 #

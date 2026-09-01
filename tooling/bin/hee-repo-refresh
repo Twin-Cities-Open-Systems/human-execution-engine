@@ -1,0 +1,284 @@
+#!/bin/bash
+# section: 1
+# hee-repo-refresh -- real per-repo health-check/pull worker for
+# bootstrap.mk's health-all-repos and pull-all-repos targets. Extracted
+# into its own script, rather than embedded inline in the Makefile
+# recipe twice, so the GNU-parallel path and the sequential fallback
+# path call the exact same real logic instead of two copies that can
+# silently drift -- HEE#415, Spencer direct 2026-08-28: "add gnu
+# parallel to this tool." Real trigger for parallelizing at all: with
+# ~19-24 real repos each doing a real git fetch/pull over the network,
+# the old one-at-a-time loop was a real, avoidable wall-clock cost,
+# confirmed live refreshing both claude@kiosk and spencer@kiosk.
+#
+# Deliberately its own script (not a Makefile-only trick) so it can be
+# invoked identically two ways: `parallel hee-repo-refresh health ::: $repos`
+# (concurrent) or a plain `for d in $repos; do hee-repo-refresh health "$d"; done`
+# (sequential fallback when GNU parallel isn't installed) -- bootstrap.mk
+# picks whichever via `command -v parallel`.
+#
+# Usage:
+#   hee-repo-refresh <health|pull|hygiene|prune|refresh> <repo-dir>
+#   hee-repo-refresh <health|pull|hygiene|prune|refresh> [all|-all]
+#   hee-repo-refresh <health|pull|hygiene|prune|refresh> -repo <name>[,<name>...]
+#
+# The bare <repo-dir> positional form (a real filesystem path) is what
+# bootstrap.mk's own health-all-repos/pull-all-repos targets pass
+# internally -- kept exactly as-is, never break that. `all`/`-all` (both
+# accepted) and `-repo <name-csv>` are the real, human-facing entry
+# points added 2026-08-29, Spencer direct: "needs switches., ./hee repo
+# refresh -all or -repo dotfiles, etc" then "csv of repos" -- -repo
+# takes real repo *names* (dotfiles, not /home/x/git/dotfiles),
+# resolved under ${HEE_GIT_ROOT:-$HOME/git}, comma-separated for more
+# than one.
+#
+# health/pull print one real 🟢/🟡/🟠/🔴-prefixed line to stdout -- same
+# format the old inline Makefile loop produced, byte-for-byte, so
+# parallel output (each job's single line prints atomically, GNU
+# parallel's own default --group behavior) reads exactly the way the
+# sequential output always did. hygiene (added for
+# fleet-ops/hosts/spencer/bin/hee-git-hygiene-report.sh's real,
+# distinct check -- dirty-file-count + no-upstream-branch-count across
+# ALL local branches, not just the current one) prints nothing at all
+# for a clean repo, matching that script's original silent-unless-a-
+# problem behavior exactly. refresh (added 2026-08-29, Spencer direct:
+# "hee repo refresh I think for now" -- a single real command instead
+# of two-plus-a-Makefile-target) runs the exact same real sequence as
+# bootstrap.mk's refresh-all-repos: a full health pass, then a full
+# pull pass, then the governance reminder -- printed once per real
+# invocation of a scope (all/-all/-repo), not once per repo inside it.
+# Only the bare <repo-dir> positional form (a real filesystem path --
+# what bootstrap.mk's own targets pass internally) skips the reminder
+# entirely, since that form is always one worker among many others
+# already fanned out by something else, never the whole real scope.
+
+set -u
+
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+GIT_ROOT="${HEE_GIT_ROOT:-$HOME/git}"
+
+MODE="${1:?usage: hee-repo-refresh <health|pull|hygiene|prune|refresh> [<repo-dir>|all|-all|-repo <name-csv>]}"
+shift
+
+SCOPE_ARG="${1:-all}"
+
+case "$SCOPE_ARG" in
+  all|-all)
+    repos="$(find "$GIT_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"
+    ;;
+  -repo)
+    names="${2:?usage: hee-repo-refresh <mode> -repo <name>[,<name>...]}"
+    repos=""
+    IFS=,
+    for name in $names; do
+      repos="$repos $GIT_ROOT/$name"
+    done
+    unset IFS
+    ;;
+  *)
+    # A real filesystem path -- the single-repo case bootstrap.mk's own
+    # health-all-repos/pull-all-repos targets pass internally. Never
+    # change this branch's behavior; other tooling depends on it.
+    DIR="$SCOPE_ARG"
+    R=$(basename "$DIR")
+
+    [ -d "$DIR/.git" ] || exit 0
+
+    case "$MODE" in
+      health)
+        git -C "$DIR" fetch --quiet 2>/dev/null
+        branch=$(git -C "$DIR" branch --show-current 2>/dev/null)
+        status=$(git -C "$DIR" status --porcelain 2>/dev/null)
+        tracked_dirty=$(printf '%s\n' "$status" | rg -v '^\?\?' | rg -c . || echo 0)
+        untracked=$(printf '%s\n' "$status" | rg -c '^\?\?' || echo 0)
+        upstream=$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+        if [ -n "$upstream" ]; then
+          set -- $(git -C "$DIR" rev-list --left-right --count "HEAD...$upstream" 2>/dev/null)
+          ahead=${1:-0}; behind=${2:-0}
+        else
+          ahead=0; behind=0
+        fi
+        untracked_note=""
+        [ "$untracked" != "0" ] && untracked_note=" ($untracked untracked, fine to pull through)"
+        if [ "$tracked_dirty" != "0" ] && [ "$behind" != "0" ]; then
+          echo "🔴 $R: dirty ($tracked_dirty uncommitted) AND $behind behind $branch -- resolve by hand first"
+        elif [ "$tracked_dirty" != "0" ]; then
+          echo "🟠 $R: dirty ($tracked_dirty uncommitted) on $branch"
+        elif [ "$ahead" != "0" ] && [ "$behind" != "0" ]; then
+          echo "🟠 $R: diverged ($ahead ahead / $behind behind $branch)"
+        elif [ -z "$upstream" ]; then
+          echo "🟡 $R: no upstream tracking branch ($branch)$untracked_note"
+        elif [ "$behind" != "0" ]; then
+          echo "🟡 $R: $behind behind $branch -- pull-all-repos will fast-forward$untracked_note"
+        else
+          echo "🟢 $R: clean, up to date ($branch)$untracked_note"
+        fi
+        ;;
+      pull)
+        tracked_dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | rg -v '^\?\?' | rg -c . || echo 0)
+        if [ "$tracked_dirty" != "0" ]; then
+          echo "🟠 $R: skipped -- $tracked_dirty uncommitted change(s) to tracked files, not touching"
+          exit 0
+        fi
+        # An EMPTY remote has nothing to pull, ever. Reporting that as a red
+        # failure on every run is a permanently-red check, which trains people
+        # to skip past red -- the same cost rule 16 names for CI.
+        #
+        # Detected generically by asking the remote for its branches, not by
+        # matching a repo name: any repo created but never pushed to behaves
+        # this way. Operator, 2026-08-31, on `inbound`: "inbound is special,
+        # no git just inbound ... make exception here" -- so the exception is
+        # the CONDITION, not the name.
+        if [ -z "$(git -C "$DIR" ls-remote --heads origin 2>/dev/null)" ]; then
+          echo "⚪ $R: remote is empty (no branches) -- nothing to pull"
+          exit 0
+        fi
+        out=$(git -C "$DIR" pull --ff-only 2>&1)
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+          echo "🟢 $R: $(printf '%s\n' "$out" | tail -1)"
+        else
+          # Report the line that NAMES the failure, not the last line.
+          #
+          # `tail -1` gave fragments that hid the cause, repeatedly. Two real
+          # examples from one session:
+          #
+          #   "pull failed -- Updating fbc2470..ff02d19"
+          #       reads like success; the real error (untracked files would be
+          #       overwritten) was several lines above.
+          #
+          #   "pull failed -- from the remote, but no such ref was fetched."
+          #       the sentence starts on the PREVIOUS line, which is the half
+          #       that names the missing ref.
+          #
+          # git puts the useful text on error:/fatal: lines, so prefer those.
+          # rg, not grep -- org rule, and this is an operator-local tool so
+          # rg is reliably present (unlike CI runners, where hee#450 was caused
+          # by a runner without it).
+          why="$(printf '%s\n' "$out" | rg '^(error|fatal):' | head -2 | tr '\n' ' ')"
+          [ -z "$why" ] && why="$(printf '%s\n' "$out" | rg -v '^$' | tail -2 | tr '\n' ' ')"
+          echo "🔴 $R: pull failed -- $why"
+
+          # Two causes account for nearly every failure seen in practice, and
+          # neither is obvious from git's wording. Name the fix.
+          case "$out" in
+            *"no such ref was fetched"*|*"couldn't find remote ref"*)
+              _def="$(git -C "$DIR" remote show origin 2>/dev/null | awk '/HEAD branch/{print $NF}')"
+              _cur="$(git -C "$DIR" branch --show-current 2>/dev/null)"
+              echo "     ↳ '$_cur' tracks a remote branch that no longer exists"
+              echo "       (deleted on merge, or a stale origin/HEAD)."
+              echo "       fix: git -C $DIR remote set-head origin -a"
+              echo "            git -C $DIR switch ${_def:-main}"
+              ;;
+            *"untracked working tree files would be overwritten"*)
+              echo "     ↳ incoming tracked files collide with untracked local copies."
+              echo "       'git checkout --' does NOT remove untracked files."
+              echo "       fix: git -C $DIR clean -nd <dir>   # dry run first"
+              echo "            git -C $DIR clean -fd <dir>"
+              ;;
+          esac
+        fi
+        ;;
+      prune)
+        # Real, deliberate: git branch --merged can't see squash-merged
+        # branches (squash creates a new commit, no shared ancestry with
+        # the original branch), so it silently misses almost everything
+        # under this org's real default merge flow (PROMPTING_RULES.md
+        # rule 8, gh pr merge --squash). GitHub's own real PR state is
+        # the only correct source of truth for "is this branch's work
+        # actually landed" -- checked here directly, not inferred from
+        # local git ancestry. Real trigger: 400+ stale local branches
+        # found across the fleet the same session this mode was added,
+        # 2026-08-30, Spencer direct: "automate that shit... that is how
+        # it was supposed to be."
+        default=$(git -C "$DIR" remote show origin 2>/dev/null | awk '/HEAD branch/{print $NF}')
+        [ -z "$default" ] && default="main"
+        origin_url=$(git -C "$DIR" remote get-url origin 2>/dev/null)
+        gh_repo=$(printf '%s\n' "$origin_url" | sed -E 's#.*[:/]([^/]+/[^/.]+)(\.git)?$#\1#')
+        [ -z "$gh_repo" ] && { echo "🔴 $R: no real origin remote, skipped"; exit 0; }
+        local_branches=$(git -C "$DIR" branch --format='%(refname:short)' | rg -v "^${default}\$")
+        [ -z "$local_branches" ] && { echo "🟢 $R: no stray local branches"; exit 0; }
+        merged=$(gh pr list --repo "$gh_repo" --state merged --limit 1000 --json headRefName -q '.[].headRefName' 2>/dev/null)
+        to_delete=$(comm -12 <(printf '%s\n' "$local_branches" | sort -u) <(printf '%s\n' "$merged" | sort -u))
+        [ -z "$to_delete" ] && { echo "🟢 $R: 0 real GitHub-confirmed-merged local branches to prune"; exit 0; }
+        current=$(git -C "$DIR" branch --show-current 2>/dev/null)
+        if printf '%s\n' "$to_delete" | rg -qx "$current"; then
+          git -C "$DIR" checkout "$default" --quiet 2>/dev/null
+        fi
+        deleted=0; skipped=0
+        while IFS= read -r b; do
+          [ -z "$b" ] && continue
+          # Real case found live 2026-08-30: a merged branch still
+          # checked out in a separate worktree (e.g. a /tmp scratch
+          # worktree from an earlier fix) can't be deleted until that
+          # worktree is removed first. Only auto-remove it when
+          # confirmed clean -- never discard real uncommitted work.
+          wt_path=$(git -C "$DIR" worktree list --porcelain 2>/dev/null | awk -v b="refs/heads/$b" '/^worktree /{p=$2} /^branch /{if ($2==b) print p}')
+          if [ -n "$wt_path" ]; then
+            if [ -z "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]; then
+              git worktree remove "$wt_path" 2>/dev/null
+            else
+              echo "🟠 $R: $b skipped -- checked out in $wt_path with real uncommitted changes"
+              skipped=$((skipped + 1))
+              continue
+            fi
+          fi
+          if git -C "$DIR" branch -D "$b" >/dev/null 2>&1; then
+            deleted=$((deleted + 1))
+          else
+            echo "🟠 $R: $b real GitHub-confirmed-merged but delete failed, left in place"
+            skipped=$((skipped + 1))
+          fi
+        done <<EOF
+$to_delete
+EOF
+        note=""
+        [ "$skipped" -gt 0 ] && note=" ($skipped skipped, see above)"
+        echo "🟢 $R: pruned $deleted real GitHub-confirmed-merged local branch(es)$note"
+        ;;
+      hygiene)
+        dirty=$(git -C "$DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+        no_upstream=$(git -C "$DIR" for-each-ref --format='%(refname:short) %(upstream)' refs/heads 2>/dev/null | awk '$2==""' | wc -l | tr -d ' ')
+        if [ "$dirty" -gt 0 ] || [ "$no_upstream" -gt 0 ]; then
+          echo "$R: ${dirty} uncommitted file(s), ${no_upstream} branch(es) with no upstream"
+        fi
+        ;;
+      refresh)
+        "$SELF" health "$DIR"
+        "$SELF" pull "$DIR"
+        ;;
+      *)
+        echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh)" >&2
+        exit 2
+        ;;
+    esac
+    exit 0
+    ;;
+esac
+
+# Reached only for the all/-all/-repo scopes above -- $repos is a real,
+# space-separated list of repo dirs to fan out over.
+case "$MODE" in
+  health|pull|hygiene|prune)
+    if command -v parallel >/dev/null 2>&1; then
+      parallel "$SELF" "$MODE" ::: $repos
+    else
+      for d in $repos; do "$SELF" "$MODE" "$d"; done
+    fi
+    ;;
+  refresh)
+    if command -v parallel >/dev/null 2>&1; then
+      parallel "$SELF" health ::: $repos
+      parallel "$SELF" pull ::: $repos
+    else
+      for d in $repos; do "$SELF" health "$d"; done
+      for d in $repos; do "$SELF" pull "$d"; done
+    fi
+    BOOTSTRAP_MK="$(cd "$(dirname "$SELF")/.." && pwd)/bootstrap.mk"
+    [ -f "$BOOTSTRAP_MK" ] && make -f "$BOOTSTRAP_MK" print-governance-reminder
+    ;;
+  *)
+    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh)" >&2
+    exit 2
+    ;;
+esac

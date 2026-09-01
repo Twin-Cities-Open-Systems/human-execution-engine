@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-ticket -- the real, minimal first step of an internal ticket
+system, dogfooded, not the full thing.
+
+Real trigger (2026-08-21): "we need a workflow for that, ticket may
+not be right and just glogging gh, we need internal ticket system...
+./hee ticket -new 'perm change for oper/agent@host:/foo/bar'". GitHub
+Issues is itself an external dependency for all of TCOS's tracking
+(same class of concern as primitives#5's dependency-removal work) --
+this is the smallest real, dogfoodable step toward a TCOS-owned
+alternative, not a declaration that it replaces GitHub Issues as
+standard practice yet.
+
+Storage: `.hee/tickets/<id>.yaml`, one real record per ticket -- .hee/
+is already real, git-tracked working-state (see .hee/spool/*.yaml's
+phase_id/status/timestamps shape, same idea, this is a sibling of
+that, not a new convention invented from nothing).
+
+Real trigger for the `stage` field specifically (2026-08-21): Spencer's
+own pseudocode, `idea:{1,}->footgun:{1,}->dogfood:{1,}` -- the real
+idea->footgun->dogfood pipeline named as a heeism much earlier the same
+session, now made structural rather than staying prose-only. Real,
+not aspirational: `stage_history` records every transition with a
+timestamp, so "how many tickets are actually at each stage, and how
+long did each stage take" is a real, derivable count -- not asserted.
+
+Usage:
+  hee-ticket -new "description text"
+  hee-ticket -list
+  hee-ticket -advance ID     # idea -> footgun -> dogfood, one step at a time
+  hee-ticket -close SPEC     # mark one or more tickets closed
+                             #   SPEC: comma list (1,2,3), ranges (1-3,7),
+                             #   or mixed (1-3,7,9) -- digits/commas/hyphens
+                             #   only. Anything else is treated as a regex
+                             #   matched against each ticket's description.
+"""
+import argparse
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+STAGES = ["idea", "footgun", "dogfood"]
+
+# Help is contextual: `help` as the LAST argument prints help for wherever
+# you are in the command (issue:462@human-execution-engine).
+#   hee-ticket help          -> the tool
+#   hee-ticket -close help   -> the -close action
+# A trailing help ALWAYS wins, even where the action takes a value. That
+# is deliberate and safety-relevant: `-close help` reading "help" as a
+# regex would close every ticket whose description contains the word.
+# To really match that pattern, write it so it is not the bare word --
+# `hee-ticket -close 'hel[p]'`.
+HELP_NEW = """hee-ticket -new -- open a ticket
+
+SYNOPSIS
+  hee-ticket -new "DESCRIPTION"
+
+DESCRIPTION
+  Writes one new record to .hee/tickets/<id>.yaml and prints its id,
+  stage and repo-relative path.
+
+  The id is the highest existing numeric id plus one, zero-padded to four
+  digits, so ids are per-repo and never reused. New tickets always start
+  at status open, stage idea, with the first stage_history entry stamped
+  in UTC.
+
+  DESCRIPTION is stored verbatim and is the only field you can set at
+  creation -- there is no priority, assignee, or label. Quote it; an
+  unquoted multi-word description is not concatenated for you.
+
+EXIT STATUS
+  0 OK   ticket written
+  1      not inside a git repo, or pyyaml is not installed
+"""
+
+HELP_LIST = """hee-ticket -list -- every ticket in this repo
+
+SYNOPSIS
+  hee-ticket -list
+
+DESCRIPTION
+  Prints one line per ticket:
+
+      <id>  [<status>]  (<stage>)  <description>  (<created_at>)
+
+  Ordered by filename, which for zero-padded numeric ids is creation
+  order. Closed tickets are listed alongside open ones -- there is no
+  filter, and no count summary. Prints "No tickets yet." when the
+  directory is empty.
+
+EXIT STATUS
+  0 OK   listing printed, including the empty case
+  1      not inside a git repo, or pyyaml is not installed
+"""
+
+HELP_ADVANCE = """hee-ticket -advance -- move a ticket one stage forward
+
+SYNOPSIS
+  hee-ticket -advance ID
+
+DESCRIPTION
+  Advances exactly one stage along the real idea -> footgun -> dogfood
+  pipeline, never more, and never backwards. There is no way to skip a
+  stage or to reverse one with this tool.
+
+  ID is zero-padded to four digits for you, so 7 and 0007 are the same
+  ticket. Every transition appends {stage, at} to the ticket's
+  stage_history with a UTC timestamp, which is what makes "how long did
+  each stage take" a derivable number rather than an assertion.
+
+  A ticket already at dogfood prints a "nothing to advance to" line and
+  succeeds -- advancing is idempotent at the end of the pipeline.
+
+EXIT STATUS
+  0 OK   advanced, or already at the final stage
+  1      no such ticket, the ticket carries an unrecognised stage, not
+         inside a git repo, or pyyaml is not installed
+"""
+
+HELP_CLOSE = """hee-ticket -close -- close one or more tickets
+
+SYNOPSIS
+  hee-ticket -close SPEC
+
+DESCRIPTION
+  Sets status to closed and stamps closed_at (UTC) on every ticket SPEC
+  selects. Stage is left exactly as it was -- closing is not advancing.
+
+  SPEC is resolved by the shared selector in library/py/hee_range, the
+  same one hee-git-merge uses, and takes one of two forms:
+
+    id / range list   digits, commas and hyphens only: 3, 1,2,3, 1-3,
+                      or mixed 1-3,7,9. Matched against ticket ids
+                      ignoring zero-padding, so 7 selects 0007. Ids in
+                      the spec that do not exist are reported to stderr
+                      and make the run exit 1, but every id that DOES
+                      exist is still closed.
+    regex             anything containing another character is compiled
+                      as a case-insensitive Python regex and searched
+                      (not fullmatched) against each description. No
+                      match at all is an error; there is no confirmation
+                      prompt before closing whatever it does match.
+
+  A ticket that is already closed is reported as a no-op and is not
+  re-stamped.
+
+  Note the trailing-`help` rule above: `hee-ticket -close help` prints
+  this page rather than closing tickets whose description says "help".
+
+EXIT STATUS
+  0 OK   every selected ticket is now closed
+  1      an id in the spec does not exist, a regex matched nothing, not
+         inside a git repo, or pyyaml is not installed
+
+EXAMPLES
+  hee-ticket -close 7
+  hee-ticket -close 1-3,9
+  hee-ticket -close 'perm change'
+"""
+
+HELP = """hee-ticket -- repo-local tickets, stored as real YAML in git
+
+SYNOPSIS
+  hee-ticket -new "DESCRIPTION"
+  hee-ticket -list
+  hee-ticket -advance ID
+  hee-ticket -close SPEC
+  hee-ticket [-ACTION] help
+
+DESCRIPTION
+  The smallest real, dogfoodable step toward tracking that TCOS owns
+  outright, rather than renting from GitHub Issues. It does not replace
+  GitHub Issues and does not sync with them -- nothing here reaches the
+  network at all.
+
+  Storage is one file per ticket at .hee/tickets/<id>.yaml under the
+  repo root of the CURRENT directory, so which repo you are standing in
+  decides which ticket set you are looking at. The files are ordinary
+  tracked YAML: commit them like anything else, and read or edit them by
+  hand when this tool cannot express what you need.
+
+  Every ticket carries the real idea -> footgun -> dogfood pipeline as a
+  structural `stage` field plus a `stage_history` of timestamped
+  transitions -- so stage counts and durations are derived from record,
+  never asserted.
+
+ACTIONS
+  -new       open a ticket at stage idea
+  -list      print every ticket in this repo
+  -advance   move one ticket one stage forward
+  -close     close tickets by id, range, or description regex
+
+  Exactly one action runs per invocation. If several are passed they are
+  tested in the order above and the first one present wins; the rest are
+  silently ignored rather than rejected.
+
+  Add `help` after any action for its own page:
+      hee-ticket -close help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK        the action completed
+  1 WARNING   no action given (this page is printed), not inside a git
+              repo, pyyaml missing, or the action's own failure -- see
+              each action's page. Note: several of these are UNKNOWN- or
+              CRITICAL-shaped in the org vocabulary; the tool really
+              exits 1 today and is documented as-is, not changed here.
+
+ENVIRONMENT
+  No environment variables are read. `git` must be on PATH, the current
+  directory must be inside a git repo, and pyyaml must be importable.
+
+FILES
+  .hee/tickets/<id>.yaml   one record per ticket, under the repo root
+
+SEE ALSO
+  hee-git-merge -- shares the same id/range/regex selector
+  (library/py/hee_range)
+"""
+
+_ACTION_HELP = {
+    "-new": HELP_NEW,
+    "-list": HELP_LIST,
+    "-advance": HELP_ADVANCE,
+    "-close": HELP_CLOSE,
+}
+
+
+def _print_help_and_exit(argv):
+    """Answer help BEFORE the pyyaml import below. A tool must be able to
+    explain itself on a machine where its dependencies are not installed
+    -- that is exactly when someone reads the help."""
+    if argv and argv[-1] in ("help", "--help", "-h"):
+        print(_ACTION_HELP.get(argv[0] if len(argv) > 1 else "", HELP), end="")
+        sys.exit(0)
+
+
+_print_help_and_exit(sys.argv[1:])
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("Requires pyyaml: pip install pyyaml")
+
+# library/py lives in this tool's own repo, not the target repo -- derive
+# from this script's own location, not repo_root() (which resolves to
+# whatever repo this tool is currently invoked against).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_range import resolve_spec  # noqa: E402
+
+
+def repo_root() -> Path:
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if out.returncode != 0:
+        sys.exit("hee-ticket: not inside a git repo")
+    return Path(out.stdout.strip())
+
+
+def tickets_dir() -> Path:
+    d = repo_root() / ".hee" / "tickets"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def next_id(d: Path) -> str:
+    existing = sorted(p.stem for p in d.glob("*.yaml") if p.stem.isdigit())
+    n = int(existing[-1]) + 1 if existing else 1
+    return f"{n:04d}"
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def cmd_new(description: str):
+    d = tickets_dir()
+    tid = next_id(d)
+    ts = now_iso()
+    record = {
+        "id": tid,
+        "created_at": ts,
+        "description": description,
+        "status": "open",
+        "stage": STAGES[0],
+        "stage_history": [{"stage": STAGES[0], "at": ts}],
+    }
+    path = d / f"{tid}.yaml"
+    with open(path, "w") as f:
+        yaml.safe_dump(record, f, sort_keys=False)
+    print(f"hee-ticket {tid}: {description}")
+    print(f"  stage: {STAGES[0]}")
+    print(f"  {path.relative_to(repo_root())}")
+
+
+def cmd_advance(tid: str):
+    tid = tid.zfill(4)
+    path = tickets_dir() / f"{tid}.yaml"
+    if not path.exists():
+        sys.exit(f"hee-ticket: no ticket {tid}")
+    with open(path) as f:
+        rec = yaml.safe_load(f)
+    cur = rec.get("stage", STAGES[0])
+    if cur not in STAGES:
+        sys.exit(f"hee-ticket: unknown stage '{cur}' on ticket {tid} -- can't advance")
+    idx = STAGES.index(cur)
+    if idx == len(STAGES) - 1:
+        print(f"hee-ticket {tid}: already at final stage ({cur}), nothing to advance to")
+        return
+    new_stage = STAGES[idx + 1]
+    rec["stage"] = new_stage
+    rec.setdefault("stage_history", []).append({"stage": new_stage, "at": now_iso()})
+    with open(path, "w") as f:
+        yaml.safe_dump(rec, f, sort_keys=False)
+    print(f"hee-ticket {tid}: {cur} -> {new_stage}")
+
+
+def die(msg):
+    sys.exit(f"hee-ticket: {msg}")
+
+
+def cmd_close(spec: str):
+    from hee_range import is_id_range_spec, parse_id_range
+
+    d = tickets_dir()
+    all_ids = sorted(p.stem for p in d.glob("*.yaml") if p.stem.isdigit())
+    records = []
+    for tid in all_ids:
+        with open(d / f"{tid}.yaml") as f:
+            records.append(yaml.safe_load(f))
+
+    matched = resolve_spec(spec, records, lambda r: r["id"], lambda r: r.get("description"))
+
+    missing = []
+    if is_id_range_spec(spec):
+        requested = {tid.zfill(4) for tid in parse_id_range(spec)}
+        missing = sorted(tid for tid in requested if tid not in {r["id"] for r in records})
+    elif not matched:
+        print(f"hee-ticket -close: no tickets matched '{spec}'", file=sys.stderr)
+        sys.exit(1)
+
+    ok, already = [], []
+    for rec in matched:
+        tid = rec["id"]
+        if rec.get("status") == "closed":
+            already.append(tid)
+            continue
+        rec["status"] = "closed"
+        rec["closed_at"] = now_iso()
+        with open(d / f"{tid}.yaml", "w") as f:
+            yaml.safe_dump(rec, f, sort_keys=False)
+        ok.append(tid)
+    for tid in ok:
+        print(f"hee-ticket {tid}: closed")
+    for tid in already:
+        print(f"hee-ticket {tid}: already closed, no-op")
+    for tid in missing:
+        print(f"hee-ticket {tid}: no such ticket", file=sys.stderr)
+    if missing:
+        sys.exit(1)
+
+
+def cmd_list():
+    d = tickets_dir()
+    tickets = sorted(d.glob("*.yaml"))
+    if not tickets:
+        print("No tickets yet.")
+        return
+    for p in tickets:
+        with open(p) as f:
+            rec = yaml.safe_load(f)
+        stage = rec.get("stage", "?")
+        print(f"{rec['id']}  [{rec['status']}]  ({stage})  {rec['description']}  ({rec['created_at']})")
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=False)
+    ap.add_argument("-new", dest="new_desc", metavar="DESCRIPTION")
+    ap.add_argument("-list", action="store_true")
+    ap.add_argument("-advance", dest="advance_id", metavar="ID")
+    ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
+    args = ap.parse_args()
+
+    if args.new_desc:
+        cmd_new(args.new_desc)
+    elif args.list:
+        cmd_list()
+    elif args.advance_id:
+        cmd_advance(args.advance_id)
+    elif args.close_ids:
+        cmd_close(args.close_ids)
+    else:
+        print(HELP, end="")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

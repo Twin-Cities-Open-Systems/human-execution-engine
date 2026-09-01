@@ -10,7 +10,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - name: hee-lint (warn-first)
         env:
           HEE_LINT_MODE: warn
         run: tooling/ci/hee-lint
+      - name: hee-index freshness check
+        run: |
+          # Real, deliberate choice: verify + fail rather than auto-commit
+          # back to main. A CI job committing directly to main would bypass
+          # the normal PR-review flow this repo otherwise requires -- this
+          # instead makes a stale hee/INDEX.md a real, blocking check, so
+          # whoever changed a HEE object regenerates and commits it
+          # themselves as part of their own real PR.
+          cp hee/INDEX.md /tmp/hee-index-before.md
+          tooling/bin/hee-index
+          if ! diff -q /tmp/hee-index-before.md hee/INDEX.md > /dev/null; then
+            echo "::error::hee/INDEX.md is stale -- run 'tooling/bin/hee-index' and commit the result"
+            diff /tmp/hee-index-before.md hee/INDEX.md || true
+            exit 1
+          fi

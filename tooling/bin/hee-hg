@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# section: 1
 """HEE Hunter-Gatherer: Pill-based patch discovery and application orchestrator."""
 
 import sys
@@ -9,6 +10,60 @@ from pathlib import Path
 script_dir = Path(__file__).parent
 lib_dir = script_dir.parent / "hee-hg" / "lib"
 sys.path.insert(0, str(lib_dir))
+
+# `help` as the LAST argument, plus --help/-h as synonyms -- the org's
+# tool-help contract (issue:462@human-execution-engine).
+#
+# This page deliberately documents almost nothing about how to USE the
+# tool, because there is nothing here to read: every argument this script
+# accepts is parsed by cli.main(), and tooling/hee-hg/lib/ has never
+# existed in this repo (`git log` finds no commit that ever added or
+# deleted it). Inventing a subcommand list from the one-line docstring
+# would be a man page that lies, which is worse than none.
+HELP = """hee-hg -- launcher for the Hunter-Gatherer orchestrator (LIBRARY MISSING)
+
+SYNOPSIS
+  hee-hg [ARGUMENTS...]
+  hee-hg help
+
+DESCRIPTION
+  A thin launcher, and nothing more. It puts tooling/hee-hg/lib on
+  sys.path, imports `cli`, and calls cli.main(), which parses every
+  argument itself.
+
+  THAT LIBRARY IS NOT IN THIS REPOSITORY. tooling/hee-hg/lib/ does not
+  exist on disk and git history has no record of it ever being added or
+  removed here, so as shipped this script cannot run: any invocation
+  prints an import error naming the missing module and the paths it
+  searched, then exits 1.
+
+  Consequently no synopsis, no options and no exit codes beyond that one
+  can be documented honestly. The only description of intent that exists
+  is the script's own docstring: "HEE Hunter-Gatherer: Pill-based patch
+  discovery and application orchestrator." What a "pill" is here, what
+  subcommands exist, and what the tool does to a repository are all
+  unknown from this repository alone. Restore or vendor the library and
+  this page can be replaced with a real one.
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK   this help was printed
+  1      the `cli` module could not be imported -- the current state of
+         every real invocation. Note: an unusable dependency is
+         3 UNKNOWN in the org vocabulary; the launcher really exits 1
+         today and is documented as-is, not changed here.
+  Any other status comes from cli.main(), which is not present to inspect.
+
+FILES
+  tooling/hee-hg/lib/cli.py   required, and absent from this repository
+
+ENVIRONMENT
+  Unknown -- whatever the missing cli module reads.
+"""
+
+if len(sys.argv) > 1 and sys.argv[-1] in ("help", "--help", "-h"):
+    print(HELP, end="")
+    sys.exit(0)
 
 try:
     from cli import main

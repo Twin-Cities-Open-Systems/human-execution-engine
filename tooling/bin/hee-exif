@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-exif: real EXIF read + a real, doctrine-grounded signature write
+for any photo TCOS serves publicly.
+
+Real trigger (2026-08-25, Spencer): "make sure we have all exif we can
+get in exif on all photos we serve" + "need to settle on our sig" --
+while publishing the first real spencer.media.lab.tcos.us photo
+gallery and finding that Google Photos' own album-level date range was
+actively misleading (a real single-session tattoo mis-read as spanning
+years) until each photo's own real EXIF DateTimeOriginal corrected it.
+
+Signature design is NOT invented here. contracts/agent-instance-
+signature-v1.contract.yaml already defines the real signature-block
+this org uses for messages/comments and explicitly says: "if a
+stronger identifier is ever needed, extend this contract's
+signature-block rather than starting a third parallel identity
+scheme." Confirmed with Spencer (2026-08-25): reuse those same 4
+fields (session_id, host, gh_actor, timestamp) verbatim, sourced the
+same way tools/agent-signature.sh sources them -- don't reimplement
+that sourcing logic, shell out to the real script.
+
+Requires exiftool (libimage-exiftool-perl) -- the only tool here
+robust enough to both read everything a JPEG can carry and write
+custom fields without clobbering real original data (DateTimeOriginal,
+Model, any pre-existing Artist/Copyright, embedded Photoshop history,
+etc). Never touches those; only ever ADDS to UserComment and sets
+Artist/Copyright when explicitly given AND not already present.
+
+Usage:
+  hee-exif read <file> [--json]
+  hee-exif sign <file> [--artist NAME] [--copyright TEXT]
+                        [--force] [--dry-run]
+      --force overwrites an already-set Artist/Copyright; without it,
+      an existing real value is left alone and reported, never guessed
+      over. Artist/Copyright are mirrored into IPTC/XMP equivalents
+      too (IPTC:By-line/XMP:Creator/XMP:ImageCreatorName for Artist;
+      IPTC:CopyrightNotice/XMP:Rights for Copyright) -- real prior art
+      from Spencer's own 2020 exif-update.sh, since different
+      platforms only read one of the three metadata standards for the
+      same real-world fact.
+  hee-exif regen-pubkey <target-html> <var-name> <github-login>
+      Front-loads a GPG public key from the real canonical source
+      (github.com/<login>.gpg) into a `var <var-name> = "...";` JS
+      constant in target-html. Real trigger (2026-08-26, Spencer):
+      "front load that var from gh/oper.gpg instead" of hand-copying a
+      key once -- covers a future key rotation with a re-run, not
+      another manual copy-paste. Has to embed at generation time, not
+      fetch client-side: github.com/*.gpg has no CORS headers,
+      confirmed live.
+  hee-exif embed-exif <target-html> <var-name> <photo-dir>
+                       [--exclude field1,field2,...]
+      Embeds real, complete (non-blank) exiftool output for every
+      .jpg/.jpeg in photo-dir into a `var <var-name> = {...};` JS
+      constant in target-html, keyed by filename (no extension).
+      --exclude defaults to fields tied to the *local copy* used for
+      extraction, not the real photo (paths, local access/modify/inode
+      timestamps, permissions) -- override if a target has different
+      needs.
+"""
+import argparse
+import json
+import re
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+AGENT_SIG = REPO_ROOT / "tools" / "agent-signature.sh"
+
+# Real, confirmed legal name (Spencer, 2026-08-25) -- the registered
+# MN entity name, not the domain. Deliberately NOT auto-applied as a
+# --copyright default (real mistake, caught the same day): copyright
+# vests in whoever actually created the work (17 U.S.C. Sec 102) --
+# writing this org's name onto a photo someone else took is a false
+# legal claim, not a formatting choice. --copyright must be passed
+# explicitly, only when real authorship/assignment is actually known.
+TCOS_LEGAL_NAME = "Twin Cities Open Systems - Operations LLC"
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
+def require_exiftool():
+    if run(["which", "exiftool"]).returncode != 0:
+        sys.exit("hee-exif: exiftool not found -- install libimage-exiftool-perl")
+
+
+def cmd_read(args):
+    require_exiftool()
+    fmt = ["-j"] if args.json else ["-a", "-G1"]
+    proc = run(["exiftool", *fmt, args.file])
+    if proc.returncode != 0:
+        sys.exit(f"hee-exif: exiftool failed:\n{proc.stderr}")
+    if args.json:
+        print(json.dumps(json.loads(proc.stdout)[0], indent=2))
+    else:
+        print(proc.stdout)
+
+
+def get_agent_signature_fields():
+    """Real fields only, sourced via tools/agent-signature.sh -- not
+    reimplemented here, so there is exactly one place that knows how
+    to read session_id/host/gh_actor/timestamp from this environment."""
+    if not AGENT_SIG.exists():
+        sys.exit(f"hee-exif: {AGENT_SIG} not found -- can't source signature fields")
+    proc = run(["bash", str(AGENT_SIG)])
+    if proc.returncode != 0:
+        sys.exit(f"hee-exif: agent-signature.sh failed:\n{proc.stderr}")
+    wanted = {"session_id", "host", "gh_actor", "timestamp"}
+    fields = {}
+    for line in proc.stdout.splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        k = k.strip()
+        if k in wanted:
+            fields[k] = v.strip()
+    missing = wanted - fields.keys()
+    if missing:
+        sys.exit(f"hee-exif: agent-signature.sh didn't report expected fields: {missing}")
+    return fields
+
+
+def existing_tag(file, tag):
+    proc = run(["exiftool", f"-{tag}", "-s3", file])
+    val = proc.stdout.strip()
+    return val or None
+
+
+def cmd_sign(args):
+    require_exiftool()
+    fields = get_agent_signature_fields()
+    comment = "; ".join(f"{k}={v}" for k, v in fields.items())
+
+    exif_args = ["exiftool", "-overwrite_original"]
+    report = []
+
+    exif_args.append(f"-UserComment={comment}")
+    report.append(f"UserComment: {comment}")
+
+    # Real prior art, found live 2026-08-26 (Spencer's own 2020
+    # exif-update.sh): different platforms/tools read different
+    # metadata standards for the same real-world fact -- some only
+    # check legacy EXIF, others only IPTC or XMP. Mirroring
+    # Artist/Copyright across all three is what actually makes
+    # attribution show up everywhere, not just in exiftool's own dump.
+    # Gate stays on the primary EXIF tag's existing value, same
+    # never-guess-over-a-real-value rule as before -- if that one's
+    # already set, none of its mirrors get touched either.
+    MIRROR_TAGS = {
+        "Artist": ["IPTC:By-line", "XMP:Creator", "XMP:ImageCreatorName"],
+        "Copyright": ["IPTC:CopyrightNotice", "XMP:Rights"],
+    }
+    for tag, value in (("Artist", args.artist), ("Copyright", args.copyright)):
+        if value is None:
+            continue
+        current = existing_tag(args.file, tag)
+        if current and not args.force:
+            report.append(f"{tag}: SKIPPED (already set to {current!r}; use --force to overwrite)")
+            continue
+        exif_args.append(f"-{tag}={value}")
+        report.append(f"{tag}: {value}" + (" (overwriting real existing value!)" if current else ""))
+        for mirror in MIRROR_TAGS[tag]:
+            exif_args.append(f"-{mirror}={value}")
+            report.append(f"{mirror}: {value}")
+
+    if args.dry_run:
+        print("hee-exif sign --dry-run, would write:")
+        for line in report:
+            print(f"  {line}")
+        return
+
+    exif_args.append(args.file)
+    proc = run(exif_args)
+    if proc.returncode != 0:
+        sys.exit(f"hee-exif: exiftool write failed:\n{proc.stderr}")
+    for line in report:
+        print(line)
+    print(f"hee-exif: wrote signature to {args.file}")
+
+
+def gpg_sign_one(file, key, dry_run):
+    """Real detached GPG signature (file.jpg.asc), same convention
+    already used elsewhere in this repo (hee/cards/*.asc) -- not a
+    custom EXIF-embedded crypto scheme. A detached .asc survives the
+    metadata-stripping most photo hosts/re-exports do to EXIF; plain
+    `gpg --verify` checks it.
+
+    Real bug, found and fixed the same day: an earlier version of this
+    function wrote a sha256 reference into the file's own EXIF
+    *after* signing, as a "here's a checkable signature" pointer --
+    but that write mutates the very bytes just signed, invalidating
+    the signature (a self-referential-hash problem: the file's hash
+    can't include a correct note about its own hash). Fix: don't
+    touch the file at all here. The .asc sidecar sitting next to it
+    IS the pointer -- same as the existing hee/cards/*.asc precedent,
+    no embedded reference needed. Run this LAST regardless, after any
+    `hee-exif sign` call, so nothing signs, then still gets modified
+    by something else afterward."""
+    asc_path = file + ".asc"
+    gpg_cmd = ["gpg", "--batch", "--yes", "--detach-sign", "--armor", "--output", asc_path]
+    if key:
+        gpg_cmd += ["--local-user", key]
+    gpg_cmd.append(file)
+
+    if dry_run:
+        print(f"hee-exif gpg-sign --dry-run: {file}")
+        print(f"  would run: {' '.join(gpg_cmd)}")
+        return True
+
+    proc = run(gpg_cmd)
+    if proc.returncode != 0:
+        print(f"hee-exif: gpg sign failed for {file}:\n{proc.stderr}", file=sys.stderr)
+        return False
+
+    verify = run(["gpg", "--verify", asc_path, file])
+    if verify.returncode != 0:
+        print(f"hee-exif: wrote {asc_path} but self-check verify failed:\n{verify.stderr}", file=sys.stderr)
+        return False
+
+    print(f"hee-exif: wrote {asc_path}, verified good")
+    print(f"verify yourself with: gpg --verify {asc_path} {file}")
+    return True
+
+
+def cmd_gpg_sign(args):
+    ok = all([gpg_sign_one(f, args.key, args.dry_run) for f in args.files])
+    if not ok:
+        sys.exit(1)
+
+
+def _replace_js_var(target_html, var_name, new_value_literal, kind):
+    """Shared substitution core for regen-pubkey/embed-exif. Uses a
+    function as re.sub's repl, not a string -- a real bug hit and
+    fixed live (2026-08-26): a string repl gets its own backslash
+    escapes re-processed by the re module (for \\g<name> group refs),
+    which silently corrupts literal backslash sequences (e.g. "\\n" in
+    an armored key, or inside a JSON string value) into something else
+    entirely. A function's return value is inserted as-is."""
+    with open(target_html, "r", encoding="utf-8") as f:
+        content = f.read()
+    pattern = re.compile(r"var " + re.escape(var_name) + r" = (?:\"[^\"]*\"|\{.*?\});", re.DOTALL)
+    new_content, n = pattern.subn(lambda m: "var " + var_name + " = " + new_value_literal + ";", content)
+    if n != 1:
+        sys.exit(f"hee-exif {kind}: expected exactly 1 match for '{var_name}' in {target_html}, found {n}")
+    with open(target_html, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+
+def _js_string_literal(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+def cmd_regen_pubkey(args):
+    url = f"https://github.com/{args.github_login}.gpg"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            armored = r.read().decode().rstrip("\n") + "\n"
+    except Exception as e:
+        sys.exit(f"hee-exif regen-pubkey: fetch failed for {url}: {e}")
+    if "BEGIN PGP PUBLIC KEY BLOCK" not in armored:
+        sys.exit(f"hee-exif regen-pubkey: fetched content for {args.github_login} doesn't look like a real key")
+    _replace_js_var(args.target_html, args.var_name, _js_string_literal(armored), "regen-pubkey")
+    print(f"hee-exif regen-pubkey: {args.var_name} <- {url} (refreshed)")
+
+
+EXIF_LOCAL_ARTIFACT_FIELDS = {
+    "SourceFile", "Directory", "FileAccessDate",
+    "FileInodeChangeDate", "FileModifyDate", "FilePermissions",
+}
+
+
+def _is_blank(v):
+    if v is None:
+        return True
+    if isinstance(v, str) and v.strip() == "":
+        return True
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return True
+    return False
+
+
+def cmd_embed_exif(args):
+    require_exiftool()
+    exclude = set(EXIF_LOCAL_ARTIFACT_FIELDS)
+    if args.exclude:
+        exclude |= set(args.exclude.split(","))
+
+    proc = run(["exiftool", "-json", args.photo_dir])
+    if proc.returncode != 0:
+        sys.exit(f"hee-exif embed-exif: exiftool failed: {proc.stderr}")
+    # exiftool's JSON can contain raw control characters in text fields
+    # (e.g. UserComment) that aren't valid strict JSON.
+    data = json.loads(proc.stdout, strict=False)
+
+    out = {}
+    for d in data:
+        name = d.get("FileName", "")
+        if not name.lower().endswith((".jpg", ".jpeg")):
+            continue
+        photo_id = name.rsplit(".", 1)[0]
+        out[photo_id] = {k: v for k, v in d.items() if k not in exclude and not _is_blank(v)}
+
+    if not out:
+        sys.exit(f"hee-exif embed-exif: no .jpg/.jpeg files found in {args.photo_dir}, refusing to embed nothing")
+
+    embed = json.dumps(out, separators=(",", ":"), ensure_ascii=False)
+    _replace_js_var(args.target_html, args.var_name, embed, "embed-exif")
+    print(f"hee-exif embed-exif: embedded {len(out)} photo(s), {len(embed)} bytes, into {args.var_name}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-exif")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    r = sub.add_parser("read", help="dump all real EXIF/metadata for a file")
+    r.add_argument("file")
+    r.add_argument("--json", action="store_true")
+
+    s = sub.add_parser("sign", help="write the real agent-instance-signature block + optional Artist/Copyright")
+    s.add_argument("file")
+    s.add_argument("--artist", default=None)
+    s.add_argument("--copyright", default=None,
+                    help=f"only set when real authorship/assignment is known -- not auto-applied. "
+                         f"The real org legal name, if it ever legitimately applies, is: {TCOS_LEGAL_NAME!r}")
+    s.add_argument("--force", action="store_true", help="overwrite an already-set Artist/Copyright")
+    s.add_argument("--dry-run", action="store_true")
+
+    g = sub.add_parser("gpg-sign", help="real detached GPG signature (file.asc) -- supports bulk, pass multiple files")
+    g.add_argument("files", nargs="+")
+    g.add_argument("--key", default=None, help="gpg --local-user selector (fingerprint or user-id); default gpg signing key if omitted")
+    g.add_argument("--dry-run", action="store_true")
+
+    rp = sub.add_parser("regen-pubkey", help="front-load a GPG public key from github.com/<login>.gpg into a JS var in a target HTML file")
+    rp.add_argument("target_html")
+    rp.add_argument("var_name")
+    rp.add_argument("github_login")
+
+    ee = sub.add_parser("embed-exif", help="embed real, non-blank exiftool output for every photo in a dir into a JS var in a target HTML file")
+    ee.add_argument("target_html")
+    ee.add_argument("var_name")
+    ee.add_argument("photo_dir")
+    ee.add_argument("--exclude", default=None, help="comma-separated extra field names to exclude, added to the default local-artifact exclusion list")
+
+    args = ap.parse_args()
+    {
+        "read": cmd_read, "sign": cmd_sign, "gpg-sign": cmd_gpg_sign,
+        "regen-pubkey": cmd_regen_pubkey, "embed-exif": cmd_embed_exif,
+    }[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()

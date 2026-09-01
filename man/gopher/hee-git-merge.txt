@@ -1,0 +1,32 @@
+HEE-GIT-MERGE(1)                   HEE Tools                  HEE-GIT-MERGE(1)
+
+NAME
+       hee-git-merge - hee-git-merge command
+
+SYNOPSIS
+              hee-git-merge [-h] [-r REGEX] [--org ORG] [--author AUTHOR]
+
+DESCRIPTION
+                                   [--action {merge,approve,batch,optimize,prime}]
+                                   [--batch-size BATCH_SIZE] [--squash | --merge | --rebase]
+                                   [--delete-branch | --no-delete-branch] [--no-cache]
+
+              options:
+                -h, --help            show this help message and exit
+                -r REGEX, --regex REGEX
+                                      PR number id/range list (123 / 45-50 / 1,2,3), or a
+                                      regex against title+body
+                --org ORG
+                --author AUTHOR       filter by login, or 'all' for every open PR org-wide
+                --action {merge,approve,batch,optimize,prime}
+                --batch-size BATCH_SIZE
+                                      max PRs per batch under --action batch (default 5)
+                --squash
+                --merge
+                --rebase
+                --delete-branch
+                --no-delete-branch
+                --no-cache            skip the 60s PR-detail cache, always fetch live (e.g.
+                                      right before an actual merge)
+
+                                                              HEE-GIT-MERGE(1)

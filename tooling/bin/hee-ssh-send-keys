@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+# section: 8
+# System administration -- distributes SSH keys to remote hosts, changing their auth config. man-pages(7) puts commands that
+# administer the system in 8, not 1.
+"""hee-ssh-send-keys -- real SSH CA cert issuance, GPG-receipted.
+
+Real trigger (2026-08-22): `./hee -ssh -send-keys -source spencer@nuc-1.lab
+-dest spencer@kiosk`, refined through a real "ask" pass -- the safe,
+recommended option (public-key-only push) got explicitly upgraded to
+"full SSH CA now": ssh-keygen -s certs instead of raw authorized_keys,
+GPG-signed issuance receipts (hee-cred pattern), fingerprint recorded in
+profile.json.
+
+Real, deliberate naming: the CA key is "tcos-ssh-ca" -- explicitly NOT
+"root key". fleet-ops#74/#102's SLIP-39 air-gapped root-of-trust
+ceremony key ("org-hee-tcos root key") is a real, separate, much bigger
+concept, still in prep, not yet generated. Conflating the two names
+would be a real, dangerous mistake -- don't.
+
+How trust works: run TrustedUserCAKeys /etc/ssh/tcos-ssh-ca.pub on any
+host that should accept CA-signed certs (one-time, per-host, additive --
+doesn't remove existing authorized_keys-based access). Once that's set,
+no more per-key authorized_keys edits -- just issue/revoke certs
+centrally.
+
+CA private key is sealed via hee-cred (`hee cred -seal tcos-ssh-ca
+-recipients ...`) -- real, TTY-gated, has to be run by a human, not an
+agent (same rule that already applies to every other hee-cred seal this
+session). Signing retrieves it via `hee cred -pass tcos-ssh-ca -exec`,
+which decrypts straight into a child process's env (HEE_CRED_PASS) --
+never printed, written to a 0600 tempfile only long enough for
+ssh-keygen -s to read it, then shredded.
+
+Usage:
+  hee-ssh-send-keys -source USER@HOST -dest USER@HOST [--generate] [--validity +52w]
+
+Run this ON the source host (matches ssh-copy-id convention) -- issues
+a cert for the source's own key, authorizing it to log in as -dest's
+user on any host that trusts tcos-ssh-ca.
+"""
+import argparse
+import getpass
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+CA_PUBKEY = "/etc/ssh/tcos-ssh-ca.pub"
+RECEIPTS_DIR = Path.home() / ".hee" / "ssh-ca-receipts"
+
+
+def whoami_host():
+    return f"{getpass.getuser()}@{socket.gethostname().split('.')[0]}"
+
+
+def find_tool(name):
+    # tries alongside this script first (same tooling/bin/), then PATH
+    here = Path(__file__).resolve().parent
+    local = here / name
+    if local.exists():
+        return str(local)
+    found = shutil.which(name)
+    if found:
+        return found
+    sys.exit(f"hee-ssh-send-keys: can't find {name} (checked {local} and PATH)")
+
+
+def do_sign(pubkey_path, identity, principal, validity):
+    """Real signing step -- invoked as the child of `hee cred -pass
+    tcos-ssh-ca -exec`, reads the decrypted CA key from HEE_CRED_PASS,
+    never from a file that outlives this call."""
+    ca_key_content = os.environ.get("HEE_CRED_PASS")
+    if not ca_key_content:
+        sys.exit("hee-ssh-send-keys: HEE_CRED_PASS not set -- must run via "
+                  "hee cred -pass tcos-ssh-ca -exec, not called directly")
+    import tempfile
+    fd, ca_tmp = tempfile.mkstemp(prefix="tcos-ssh-ca-")
+    try:
+        os.chmod(ca_tmp, 0o600)
+        # OpenSSH's key parser needs the trailing newline after "-----END
+        # OPENSSH PRIVATE KEY-----" -- real bug hit testing this: env-var
+        # round-trips (including hee-cred's own decrypt-into-env step)
+        # can silently strip it, and ssh-keygen fails with an opaque
+        # "error in libcrypto" instead of a clear message. Always restore it.
+        if not ca_key_content.endswith("\n"):
+            ca_key_content += "\n"
+        with os.fdopen(fd, "w") as f:
+            f.write(ca_key_content)
+        subprocess.run(
+            ["ssh-keygen", "-s", ca_tmp, "-I", identity, "-n", principal,
+             "-V", validity, pubkey_path],
+            check=True,
+        )
+    finally:
+        subprocess.run(["shred", "-u", ca_tmp], check=False)
+        if os.path.exists(ca_tmp):
+            os.unlink(ca_tmp)
+
+
+def gpg_receipt(identity, source, dest, principal, validity, cert_path, gpg_key):
+    RECEIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    fingerprint = subprocess.run(
+        ["ssh-keygen", "-lf", cert_path], capture_output=True, text=True
+    ).stdout.strip()
+    receipt = {
+        "identity": identity,
+        "source": source,
+        "dest": dest,
+        "principal": principal,
+        "validity": validity,
+        "cert_fingerprint": fingerprint,
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+        "issued_by": whoami_host(),
+    }
+    receipt_path = RECEIPTS_DIR / f"{identity}.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    if gpg_key:
+        subprocess.run(
+            ["gpg", "--local-user", gpg_key, "--armor", "--detach-sign",
+             "--output", str(receipt_path) + ".asc", str(receipt_path)],
+            check=True,
+        )
+        print(f"receipt GPG-signed: {receipt_path}.asc")
+    else:
+        print(f"receipt written (not GPG-signed -- no --gpg-key given): {receipt_path}")
+    return receipt
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-ssh-send-keys")
+    ap.add_argument("-source", required=False)
+    ap.add_argument("-dest", required=False)
+    ap.add_argument("--generate", action="store_true")
+    ap.add_argument("--validity", default="+52w")
+    ap.add_argument("--gpg-key", default=None, help="GPG key to sign the receipt with")
+    ap.add_argument("--key-path", default=os.path.expanduser("~/.ssh/id_ed25519"))
+    # internal, hidden -- reinvoked by hee-cred -exec
+    ap.add_argument("--_sign", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--_pubkey", help=argparse.SUPPRESS)
+    ap.add_argument("--_identity", help=argparse.SUPPRESS)
+    ap.add_argument("--_principal", help=argparse.SUPPRESS)
+    ap.add_argument("--_validity", help=argparse.SUPPRESS)
+    args = ap.parse_args()
+
+    if args._sign:
+        do_sign(args._pubkey, args._identity, args._principal, args._validity)
+        return
+
+    if not args.source or not args.dest:
+        sys.exit("usage: hee-ssh-send-keys -source USER@HOST -dest USER@HOST [--generate]")
+
+    real = whoami_host()
+    if args.source != real:
+        print(f"WARNING: running as {real}, but -source was {args.source} -- "
+              f"this tool signs the LOCAL key, run it on the source host. Continuing anyway.",
+              file=sys.stderr)
+
+    if not os.path.exists(CA_PUBKEY):
+        sys.exit(f"hee-ssh-send-keys: {CA_PUBKEY} not found -- this host hasn't been set up "
+                  "with the tcos-ssh-ca trust yet")
+
+    keypath = args.key_path
+    if args.generate or not os.path.exists(keypath):
+        print(f"generating new ed25519 keypair at {keypath}")
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-f", keypath, "-N", "", "-C", args.source],
+            check=True,
+        )
+
+    dest_user = args.dest.split("@")[0]
+    identity = f"{args.source}-to-{args.dest}-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+
+    hee_cred = find_tool("hee-cred")
+    subprocess.run(
+        [hee_cred, "-pass", "tcos-ssh-ca", "-exec",
+         sys.executable, __file__, "--_sign",
+         "--_pubkey", keypath + ".pub",
+         "--_identity", identity,
+         "--_principal", dest_user,
+         "--_validity", args.validity],
+        check=True,
+    )
+
+    cert_path = keypath + "-cert.pub"
+    if not os.path.exists(cert_path):
+        sys.exit("hee-ssh-send-keys: signing didn't produce a cert -- check the hee-cred output above")
+
+    receipt = gpg_receipt(identity, args.source, args.dest, dest_user, args.validity, cert_path, args.gpg_key)
+    print(f"\ncert issued: {cert_path}")
+    print(f"principal: {dest_user}  validity: {args.validity}  fingerprint: {receipt['cert_fingerprint']}")
+    print(f"\nDest host needs: TrustedUserCAKeys {CA_PUBKEY} in sshd_config.d/ (one-time, per host).")
+    print(f"Then {args.source} logs into {args.dest} using {keypath} + {cert_path} -- no authorized_keys edit needed.")
+
+
+if __name__ == "__main__":
+    main()

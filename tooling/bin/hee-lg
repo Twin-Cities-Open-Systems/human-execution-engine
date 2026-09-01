@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-lg -- a real, minimal BGP looking glass wrapper.
+
+Real trigger (2026-08-21/22): researching Honeycomb Internet Services
+(AS25720) for a possible deploy/hosting partnership meant hand-running
+whois, RIPEstat, and PeeringDB lookups in sequence. Spencer's own name
+for that class of tool once he had it -- "looking glass" -- then asked
+for it as a real command: `./hee lg honeycomb.net`. This is that,
+dogfooded against the exact target that prompted it.
+
+Data sources, all real public APIs, no auth, no scraping:
+  - Team Cymru whois (`whois.cymru.com`) -- resolves an IP to its
+    origin ASN and announcing BGP prefix
+  - RIPEstat (stat.ripe.net) -- AS holder name + real announced
+    prefix list
+  - PeeringDB (peeringdb.com/api) -- peering policy, IX/facility
+    presence, looking-glass URL if the network publishes one
+
+Usage:
+  hee-lg <domain>       # resolves -> IP -> ASN, then reports on it
+  hee-lg <ip>           # IP -> ASN directly
+  hee-lg AS<N>           # ASN directly, e.g. hee-lg AS25720
+"""
+import ipaddress
+import json
+import re
+import socket
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+UA = "hee-lg/1.0 (Twin-Cities-Open-Systems/human-execution-engine)"
+
+# `help` as the LAST argument, plus --help/-h as synonyms -- the org's
+# tool-help contract (issue:462@human-execution-engine). One target, no
+# subcommands, so there is a single page.
+HELP = """hee-lg -- BGP looking glass for a domain, IP, or ASN
+
+SYNOPSIS
+  hee-lg <domain>
+  hee-lg <ip>
+  hee-lg AS<number>
+  hee-lg help
+
+DESCRIPTION
+  Takes exactly one target and prints a short, flat report on the
+  autonomous system behind it. Read-only: three public lookups, no auth,
+  no scraping, nothing written anywhere.
+
+  How the target is resolved, in order:
+    AS<number>   used directly, no resolution step (case-insensitive)
+    an IP        used directly
+    anything else  resolved with gethostbyname(3) -- IPv4 only, and only
+                   the FIRST address returned, so a multi-homed name
+                   reports on whichever A record resolution hands back
+
+  From the IP, the origin ASN comes from a Team Cymru whois query
+  (whois -h whois.cymru.com), which needs the whois(1) binary on PATH.
+
+  Then, for that ASN:
+    holder          RIPEstat as-overview
+    announced now   RIPEstat announced-prefixes, counted as IPv4 / IPv6
+    peeringdb       policy, scope and type from the PeeringDB net record,
+                    plus the network's published looking-glass URL if it
+                    has one
+
+  Each of the three ASN lookups fails independently and prints its own
+  "(lookup failed)" line -- a dead RIPEstat does not stop the PeeringDB
+  line from printing, and does NOT change the exit status. Read the
+  lines, not the exit code, to know whether every source answered.
+
+  Every network call has a 15 second timeout; a fully unreachable run
+  therefore takes about a minute rather than hanging.
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK        a report was printed -- possibly with some sources failed
+  1 WARNING   wrong number of arguments (this page is printed), the target
+              would not resolve to an IP, or Team Cymru returned nothing
+              usable for it. Note: these are usage/UNKNOWN-shaped failures
+              that the org vocabulary would put at 2 CRITICAL or 3 UNKNOWN;
+              the tool really exits 1 today and is documented as-is, not
+              changed here.
+
+ENVIRONMENT
+  No environment variables are read. Real external requirements: the
+  whois(1) binary on PATH, and outbound network access to
+  whois.cymru.com, stat.ripe.net and www.peeringdb.com.
+
+EXAMPLES
+  hee-lg AS25720
+  hee-lg honeycomb.net
+  hee-lg 8.8.8.8
+"""
+
+
+def wants_help(argv):
+    return bool(argv) and argv[-1] in ("help", "--help", "-h")
+
+
+def resolve_ip(target: str):
+    try:
+        return socket.gethostbyname(target)
+    except OSError:
+        return None
+
+
+def cymru_asn_lookup(ip: str):
+    try:
+        out = subprocess.run(
+            ["whois", "-h", "whois.cymru.com", f" -v {ip}"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = [l for l in out.stdout.strip().splitlines() if l.strip()]
+    if len(lines) < 2:
+        return None
+    header = [h.strip() for h in lines[0].split("|")]
+    fields = [f.strip() for f in lines[1].split("|")]
+    return dict(zip(header, fields))
+
+
+def http_json(url: str):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r)
+
+
+def main():
+    if wants_help(sys.argv[1:]):
+        print(HELP, end="")
+        return
+    if len(sys.argv) != 2:
+        print(HELP, end="")
+        sys.exit(1)
+    target = sys.argv[1]
+
+    m = re.match(r"^[Aa][Ss](\d+)$", target)
+    ip = None
+    if m:
+        asn = m.group(1)
+    else:
+        try:
+            ipaddress.ip_address(target)
+            ip = target
+        except ValueError:
+            ip = resolve_ip(target)
+            if not ip:
+                sys.exit(f"hee-lg: couldn't resolve '{target}' to an IP")
+        cymru = cymru_asn_lookup(ip)
+        if not cymru or not cymru.get("AS"):
+            sys.exit(f"hee-lg: no ASN data for {ip} (Team Cymru whois returned nothing usable)")
+        asn = cymru["AS"]
+
+    header = f"hee-lg: {target}"
+    if ip:
+        header += f" -> {ip}"
+    header += f" -> AS{asn}"
+    print(header)
+
+    try:
+        overview = http_json(f"https://stat.ripe.net/data/as-overview/data.json?resource=AS{asn}")
+        holder = overview.get("data", {}).get("holder", "?")
+        print(f"  holder: {holder}")
+    except (urllib.error.URLError, json.JSONDecodeError):
+        print("  holder: (RIPEstat lookup failed)")
+
+    try:
+        prefixes = http_json(f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn}")
+        pfx_list = prefixes.get("data", {}).get("prefixes", [])
+        v4 = [p["prefix"] for p in pfx_list if ":" not in p["prefix"]]
+        v6 = [p["prefix"] for p in pfx_list if ":" in p["prefix"]]
+        print(f"  announced now: {len(v4)} IPv4 / {len(v6)} IPv6 prefixes")
+    except (urllib.error.URLError, json.JSONDecodeError):
+        print("  announced now: (RIPEstat lookup failed)")
+
+    try:
+        pdb = http_json(f"https://www.peeringdb.com/api/net?asn={asn}")
+        rows = pdb.get("data") or []
+        if rows:
+            net = rows[0]
+            print(f"  peeringdb: policy={net.get('policy_general')!r} scope={net.get('info_scope')!r} type={net.get('info_type')!r}")
+            lg = net.get("looking_glass")
+            print(f"  looking glass: {lg or '(none published)'}")
+        else:
+            print("  peeringdb: no record")
+    except (urllib.error.URLError, json.JSONDecodeError):
+        print("  peeringdb: (lookup failed)")
+
+
+if __name__ == "__main__":
+    main()

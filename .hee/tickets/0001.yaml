@@ -1,0 +1,12 @@
+id: '0001'
+created_at: '2026-08-22T01:07:41Z'
+description: perm change for oper/agent@host:/foo/bar
+status: open
+stage: dogfood
+stage_history:
+- stage: idea
+  at: '2026-08-22T01:07:41Z'
+- stage: footgun
+  at: '2026-08-22T01:07:41Z'
+- stage: dogfood
+  at: '2026-08-22T01:07:41Z'

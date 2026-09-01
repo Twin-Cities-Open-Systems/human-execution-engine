@@ -216,7 +216,7 @@ fi
 # Check 5: Documentation References
 echo ""
 echo "📋 Checking Documentation References..."
-required_docs=("docs/HEE_POLICY.md" "docs/STATE_CAPSULE_GUIDE.md" "prompts/PROMPTING_RULES.md")
+required_docs=("docs/HEE_POLICY.md" "docs/STATE_CAPSULE_GUIDE.md" "prompts/INIT.md")
 missing_docs=()
 
 for doc in "${required_docs[@]}"; do

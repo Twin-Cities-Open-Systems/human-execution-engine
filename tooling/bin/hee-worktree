@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-worktree -- per-session git worktree, no extra clone.
+
+Real trigger (2026-08-24): a real, live collision -- multiple concurrent
+touchy-claude sessions sharing one working directory
+(~/git/human-execution-engine), each running `git checkout <their-branch>`
+against the same single HEAD. One session got yanked mid-task onto
+another's branch, unnoticed until a diff looked wrong. Spencer's ask:
+"a clean simple solution to avoid these collision without using more
+diskapce."
+
+Real, verified answer: `git worktree`. A worktree checks out a branch
+into its own directory while sharing the *same* .git/objects store as
+the main clone -- proven live before building this: a fresh worktree
+cost 4.9M (working files only) against the main clone's 14M full size,
+and both branches were genuinely checked out simultaneously with zero
+conflict. Not a new idea either -- `git worktree list` already showed
+another real session using this exact pattern
+(~/.claude/jobs/*/tmp/hee-respawn-doctrine).
+
+This tool just makes the convention consistent instead of every session
+picking its own ad hoc worktree path.
+
+Usage:
+  hee-worktree start BRANCH [--from BASE]   # create (or reuse) a
+                                             # worktree, print its path
+  hee-worktree list                         # git worktree list, as-is
+  hee-worktree done BRANCH                  # remove the worktree
+                                             # (branch itself is untouched
+                                             # -- still real, still
+                                             # pushed/PR-able)
+
+Path convention: a sibling directory to the repo root,
+<repo-root>.worktrees/<sanitized-branch-name> -- deliberately NOT nested
+inside the tracked tree, so it can't confuse `git ls-files`/status in the
+main clone.
+"""
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+# Help is contextual: `help` as the LAST argument prints help for wherever
+# you are in the command, not always the top-level page
+# (issue:462@human-execution-engine).
+#   hee-worktree help         -> the tool
+#   hee-worktree start help   -> the start subcommand
+# --help and -h are accepted as synonyms, and are intercepted before
+# argparse, which is built with add_help=False.
+HELP_START = """hee-worktree start -- create or reuse a worktree for a branch
+
+SYNOPSIS
+  hee-worktree start BRANCH [--from BASE]
+
+DESCRIPTION
+  Prints the path of a worktree for BRANCH, creating it if it does not
+  already exist. The path is the only thing written to stdout, so it is
+  safe to capture: cd "$(hee-worktree start my/branch)".
+
+  Idempotent by design. If the directory already exists the path is
+  printed and nothing else happens -- no checkout, no reset, no warning,
+  and BASE is ignored. Re-running is how you resume a session.
+
+  Whether BRANCH already exists decides which git command runs:
+    existing branch   git worktree add <path> BRANCH
+    new branch        git worktree add -b BRANCH <path> BASE
+
+OPTIONS
+  --from BASE   commit-ish a NEW branch is cut from. Default: main.
+                Has no effect when BRANCH already exists, or when the
+                worktree directory is already there.
+
+EXIT STATUS
+  0 OK   path printed -- created or already present
+  1      not inside a git repo, or `git worktree add` failed; git's own
+         stderr is included in the message
+
+EXAMPLES
+  hee-worktree start feature/tool-help-coverage
+  hee-worktree start hotfix/x --from origin/main
+"""
+
+HELP_DONE = """hee-worktree done -- remove a branch's worktree
+
+SYNOPSIS
+  hee-worktree done BRANCH
+
+DESCRIPTION
+  Removes the worktree directory for BRANCH via `git worktree remove`.
+
+  The BRANCH ITSELF IS NOT TOUCHED -- it stays a real local branch, with
+  every commit still in the shared object store, still pushable and still
+  PR-able. This removes a working directory, never work.
+
+  Removal is refused by git if the worktree has uncommitted changes; the
+  tool reports git's own stderr rather than forcing.
+
+EXIT STATUS
+  0 OK   worktree removed
+  1      not inside a git repo, no worktree exists for BRANCH at the
+         conventional path, or git refused the removal
+
+EXAMPLES
+  hee-worktree done feature/tool-help-coverage
+"""
+
+HELP_LIST = """hee-worktree list -- every worktree of the current repo
+
+SYNOPSIS
+  hee-worktree list
+
+DESCRIPTION
+  Passes `git worktree list` straight through, unfiltered and
+  unformatted. It shows every worktree of the repo you are standing in,
+  including the main checkout and any worktree created by something
+  other than this tool.
+
+EXIT STATUS
+  0 OK   listing printed. Note: git's own exit code is discarded here, so
+         a failed `git worktree list` still exits 0 with empty output --
+         documented as-is, not changed here.
+"""
+
+HELP = """hee-worktree -- per-session git worktree, no extra clone
+
+SYNOPSIS
+  hee-worktree start BRANCH [--from BASE]
+  hee-worktree list
+  hee-worktree done BRANCH
+  hee-worktree [SUBCOMMAND] help
+
+DESCRIPTION
+  Gives each concurrent session its own checked-out directory instead of
+  every session fighting over one HEAD. A git worktree shares the same
+  .git/objects store as the main clone, so a second branch costs working
+  files only, not a second copy of the history.
+
+  Path convention, and the whole point of the tool being a tool rather
+  than a habit:
+
+      <repo-root>.worktrees/<branch-with-unsafe-chars-replaced-by->
+
+  A sibling of the repo root, deliberately NOT nested inside the tracked
+  tree, so it can never confuse `git ls-files` or `git status` in the
+  main clone. Every character outside [A-Za-z0-9._-] in the branch name
+  becomes a hyphen, so two branches differing only in those characters
+  would collide on one directory.
+
+  The repo root is resolved from the CURRENT directory, so where you run
+  this from decides which repo gets the worktree.
+
+SUBCOMMANDS
+  start   create or reuse a worktree, print its path
+  list    git worktree list, as-is
+  done    remove the worktree; the branch itself is untouched
+
+  Add `help` after any subcommand for its own page:
+      hee-worktree start help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK        the subcommand did its job
+  1 WARNING   not in a git repo, git refused the operation, or no
+              subcommand was given (this page is printed). Note: the org
+              vocabulary would put these at 2 CRITICAL / 3 UNKNOWN; the
+              tool really exits 1 today and is documented as-is, not
+              changed here.
+
+ENVIRONMENT
+  No environment variables are read. `git` must be on PATH and the
+  current directory must be inside a git repo.
+
+SEE ALSO
+  git-worktree(1)
+"""
+
+
+def die(msg):
+    sys.exit(f"hee-worktree: {msg}")
+
+
+def repo_root() -> Path:
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if out.returncode != 0:
+        die("not inside a git repo")
+    return Path(out.stdout.strip())
+
+
+def sanitize(branch: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", branch)
+
+
+def worktrees_root(root: Path) -> Path:
+    d = root.parent / f"{root.name}.worktrees"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def run(args):
+    return subprocess.run(["git", *args], capture_output=True, text=True)
+
+
+def cmd_start(branch: str, base: str):
+    root = repo_root()
+    path = worktrees_root(root) / sanitize(branch)
+    if path.exists():
+        print(str(path))
+        return
+
+    # branch may already exist (resuming) or need creating fresh
+    exists = run(["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]).returncode == 0
+    if exists:
+        out = run(["worktree", "add", str(path), branch])
+    else:
+        out = run(["worktree", "add", "-b", branch, str(path), base])
+    if out.returncode != 0:
+        die(f"git worktree add failed:\n{out.stderr}")
+    print(str(path))
+
+
+def cmd_list():
+    out = run(["worktree", "list"])
+    print(out.stdout, end="")
+
+
+def cmd_done(branch: str):
+    root = repo_root()
+    path = worktrees_root(root) / sanitize(branch)
+    if not path.exists():
+        die(f"no worktree for '{branch}' at {path}")
+    out = run(["worktree", "remove", str(path)])
+    if out.returncode != 0:
+        die(f"git worktree remove failed (uncommitted changes?):\n{out.stderr}")
+    print(f"hee-worktree: removed {path} -- branch '{branch}' itself is untouched")
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv and argv[-1] in ("help", "--help", "-h"):
+        pages = {"start": HELP_START, "list": HELP_LIST, "done": HELP_DONE}
+        print(pages.get(argv[0] if len(argv) > 1 else "", HELP), end="")
+        return
+
+    ap = argparse.ArgumentParser(add_help=False)
+    sub = ap.add_subparsers(dest="cmd")
+
+    p_start = sub.add_parser("start", add_help=False)
+    p_start.add_argument("branch")
+    p_start.add_argument("--from", dest="base", default="main")
+
+    p_done = sub.add_parser("done", add_help=False)
+    p_done.add_argument("branch")
+
+    sub.add_parser("list", add_help=False)
+
+    args = ap.parse_args()
+
+    if args.cmd == "start":
+        cmd_start(args.branch, args.base)
+    elif args.cmd == "list":
+        cmd_list()
+    elif args.cmd == "done":
+        cmd_done(args.branch)
+    else:
+        print(HELP, end="")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

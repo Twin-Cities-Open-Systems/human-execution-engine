@@ -1,0 +1,49 @@
+#!/bin/sh
+# section: 1
+# hee-shell -- ssh into a known TCOS host by short alias.
+#
+# Real, deliberately thin: this is `ssh` with TCOS's own host aliases
+# baked in, not a new protocol or a permissions mechanism. It cannot
+# grant access a key doesn't already have -- if the calling session's
+# key isn't authorized on the target host/account, this fails exactly
+# like a bare `ssh` call would, with the same real error.
+#
+# Alias table only includes hosts actually confirmed reachable by name
+# this session -- not speculative. Add more here as they're verified,
+# not guessed.
+#
+# usage:
+#   hee-shell <alias|host> [user]
+
+set -eu
+
+usage() {
+  cat <<'TXT'
+hee-shell -- ssh into a known TCOS host by alias
+
+usage:
+  hee-shell <alias|host> [user]
+
+known aliases:
+  kiosk -> kiosk.lab.tcos.us
+TXT
+}
+
+target="${1:-}"
+user="${2:-}"
+
+if [ -z "$target" ]; then
+  usage
+  exit 1
+fi
+
+case "$target" in
+  kiosk) host="kiosk.lab.tcos.us" ;;
+  *) host="$target" ;;
+esac
+
+if [ -n "$user" ]; then
+  exec ssh "${user}@${host}"
+else
+  exec ssh "$host"
+fi

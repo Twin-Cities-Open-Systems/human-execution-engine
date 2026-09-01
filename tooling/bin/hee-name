@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-name: allocate unique, human-readable names from a pool, for
+anything that needs one -- tmux-agent session names, bastion containers
+(fleet-ops#76), or whatever comes next.
+
+Real trigger (2026-08-24, Spencer, fleet-ops#253): "let's get the naming
+sorted, that will avoid having to ever have that convo again... supa-
+extendable... an oper can choose from a list what char set they want to
+use or any other cult ref." Real, stated design constraints, not
+invented: (1) an OPER picks the pool, not a hardcoded one; (2) adding a
+new pool must not require touching this file; (3) it has to actually
+last -- exhaustion-resistant, not a one-shot list.
+
+## Pools
+
+Each pool is a flat YAML file under tooling/name-pools/<pool>.yaml:
+
+  pool: south-park
+  names: [stan, kyle, cartman, ...]
+
+Adding a new pool -- any "cult ref" -- means dropping in one new file.
+No code change, no registry to update. `hee-name -list-pools` discovers
+whatever's actually in that directory at runtime.
+
+## Allocation and exhaustion
+
+Allocations are scoped (e.g. "tmux-agent", "bastion") so two different
+systems drawing from the same pool don't collide, tracked in
+`.hee/name-allocations/<scope>.yaml` -- same real, disk-based,
+git-trackable pattern as hee-ticket's `.hee/tickets/`.
+
+Once every name in a pool is taken within a scope, allocation doesn't
+fail or wrap silently -- it appends a numeric suffix (`kyle-2`, `kyle-3`,
+...), cycling back through the pool. A 20-name pool with this scheme
+comfortably outlasts any realistic churn; there's no hardcoded ceiling.
+
+Usage:
+  hee-name -list-pools
+  hee-name -allocate --pool south-park --scope tmux-agent [--prefix bast-]
+  hee-name -list --scope tmux-agent
+  hee-name -release <name> --scope tmux-agent
+"""
+import argparse
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("Requires pyyaml: pip install pyyaml")
+
+
+def repo_root() -> Path:
+    import subprocess
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if out.returncode != 0:
+        sys.exit("hee-name: not inside a git repo")
+    return Path(out.stdout.strip())
+
+
+def pools_dir() -> Path:
+    # tooling/bin/hee-name -> tooling/name-pools
+    return Path(__file__).resolve().parent.parent / "name-pools"
+
+
+def allocations_dir() -> Path:
+    d = repo_root() / ".hee" / "name-allocations"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def list_pools() -> list[str]:
+    d = pools_dir()
+    if not d.is_dir():
+        return []
+    return sorted(p.stem for p in d.glob("*.yaml"))
+
+
+def load_pool(name: str) -> list[str]:
+    path = pools_dir() / f"{name}.yaml"
+    if not path.exists():
+        available = ", ".join(list_pools()) or "(none found)"
+        sys.exit(f"hee-name: no such pool '{name}'. Available: {available}")
+    doc = yaml.safe_load(path.read_text())
+    names = doc.get("names") or []
+    if not names:
+        sys.exit(f"hee-name: pool '{name}' has no names defined")
+    return names
+
+
+def load_allocations(scope: str) -> dict:
+    path = allocations_dir() / f"{scope}.yaml"
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def save_allocations(scope: str, records: dict) -> None:
+    path = allocations_dir() / f"{scope}.yaml"
+    path.write_text(yaml.safe_dump(records, sort_keys=True))
+
+
+def cmd_allocate(pool: str, scope: str, prefix: str) -> None:
+    names = load_pool(pool)
+    records = load_allocations(scope)
+    used = set(records.keys())
+
+    chosen = None
+    # first pass: any bare name from the pool not yet used in this scope
+    for n in names:
+        candidate = f"{prefix}{n}"
+        if candidate not in used:
+            chosen = candidate
+            break
+    # exhausted: cycle the pool again with an incrementing numeric suffix
+    if chosen is None:
+        suffix = 2
+        while chosen is None:
+            for n in names:
+                candidate = f"{prefix}{n}-{suffix}"
+                if candidate not in used:
+                    chosen = candidate
+                    break
+            suffix += 1
+
+    records[chosen] = {
+        "pool": pool,
+        "scope": scope,
+        "allocated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    save_allocations(scope, records)
+    print(chosen)
+
+
+def cmd_release(name: str, scope: str) -> None:
+    records = load_allocations(scope)
+    if name not in records:
+        sys.exit(f"hee-name: '{name}' is not currently allocated in scope '{scope}'")
+    del records[name]
+    save_allocations(scope, records)
+    print(f"hee-name: released '{name}' from scope '{scope}'")
+
+
+def cmd_list(scope: str) -> None:
+    records = load_allocations(scope)
+    if not records:
+        print(f"(no allocations in scope '{scope}')")
+        return
+    for name, rec in sorted(records.items()):
+        print(f"{name}\t{rec['pool']}\t{rec['allocated_at']}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-name")
+    ap.add_argument("-list-pools", action="store_true")
+    ap.add_argument("-allocate", action="store_true")
+    ap.add_argument("-release", metavar="NAME")
+    ap.add_argument("-list", action="store_true")
+    ap.add_argument("--pool", default=None)
+    ap.add_argument("--scope", default="default")
+    ap.add_argument("--prefix", default="")
+    args = ap.parse_args()
+
+    if args.list_pools:
+        pools = list_pools()
+        if not pools:
+            print("(no pools found under tooling/name-pools/)")
+        for p in pools:
+            print(f"{p}\t({len(load_pool(p))} names)")
+        return
+
+    if args.allocate:
+        if not args.pool:
+            sys.exit("hee-name -allocate requires --pool (see -list-pools)")
+        cmd_allocate(args.pool, args.scope, args.prefix)
+        return
+
+    if args.release:
+        cmd_release(args.release, args.scope)
+        return
+
+    if args.list:
+        cmd_list(args.scope)
+        return
+
+    print(__doc__)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,41 @@
+#!/bin/sh
+# section: 1
+# hee-sqz: squeeze a loop's OK:/FAIL: lines into one pass/fail-ratio JSON line.
+#
+# Real trigger (2026-08-22): "need an ok for all, and not fail, over all
+# pass/fail score with ratio" -- then "hee sqz that for short one line fun
+# times", after the real fleet-ops#244 branch-protection rollout (15/15,
+# json parseable, no scrollback to eyeball). Real convention, not a guess:
+# every loop iteration emits exactly one line, "OK: <name>" or
+# "FAIL: <name>" (or "PASS:"/"ERROR:" -- same meaning) -- hee-sqz counts,
+# never infers.
+#
+# Usage:
+#   for r in ...; do <cmd> && echo "OK: $r" || echo "FAIL: $r"; done | hee sqz
+set -u
+
+ok=0
+fail=0
+fails=""
+
+while IFS= read -r line; do
+  case "$line" in
+    OK:*|PASS:*) ok=$((ok + 1)) ;;
+    FAIL:*|ERROR:*) fail=$((fail + 1)); fails="${fails}${fails:+,}\"$(printf '%s' "${line#*: }" | sed 's/"/\\"/g')\"" ;;
+    *) : ;; # unmarked lines pass through silently, not counted -- real, not fabricated
+  esac
+done
+
+total=$((ok + fail))
+status="ok"
+[ "$fail" -gt 0 ] && status="fail"
+
+if [ -n "$fails" ]; then
+  printf '{"status":"%s","ok":%d,"fail":%d,"ratio":"%d/%d","failed":[%s]}\n' \
+    "$status" "$ok" "$fail" "$ok" "$total" "$fails"
+else
+  printf '{"status":"%s","ok":%d,"fail":%d,"ratio":"%d/%d"}\n' \
+    "$status" "$ok" "$fail" "$ok" "$total"
+fi
+
+[ "$fail" -eq 0 ]

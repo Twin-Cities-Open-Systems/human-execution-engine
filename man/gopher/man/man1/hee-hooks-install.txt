@@ -1,0 +1,9 @@
+HEE-HOOKS-INSTALL(1)               HEE Tools              HEE-HOOKS-INSTALL(1)
+
+NAME
+       hee-hooks-install - hee-hooks-install command
+
+DESCRIPTION
+              🟢 🟦 b # OK: installed pre-commit hook -> ~/git/human-execution-engine/.git/hooks/pre-commit
+
+                                                          HEE-HOOKS-INSTALL(1)

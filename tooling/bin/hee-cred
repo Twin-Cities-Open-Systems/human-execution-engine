@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-cred -- real, minimal GPG-backed credential store.
+
+Real trigger (2026-08-22): "we need to get you all the keys, need a key
+store... key/pass store now." Real, scoped answer, three decisions
+Spencer made explicitly before any of this was written (not assumed):
+
+  1. Storage: git-tracked, ciphertext only -- .hee/secrets/<account>.gpg,
+     same "committed evidence, never plaintext" pattern as everything
+     else this session (ratification evidence, seal-secret.sh).
+  2. Retrieval: exec-only. `hee cred -pass X` never prints a decrypted
+     value -- it decrypts straight into a single child process's
+     environment and runs it. This is the same discipline that got a
+     plaintext-echo attempt correctly blocked by this session's
+     classifier earlier: a decrypted secret must never pass through an
+     agent's own visible tool output.
+  3. Scope: build for multiple accounts from the start (kiosk, X, etc.),
+     not just one -- account names are free text, `user@host`-shaped by
+     convention (matches hee-shell's alias style), not hardcoded.
+
+Sibling of fleet-ops/bin/seal-secret.sh (multi-recipient GPG sealing) --
+this is the retrieval half that didn't exist yet, built to the same
+"never print plaintext" standard.
+
+Real extension (2026-08-22): "-genfrom" -- real, corpus-derived
+passphrase generation, folded into hee-cred rather than a new
+top-level tool ("picky about top level hee cmds... put it there").
+Real trigger: "build cool wordlists... can be for play slip word
+thingys" -- real words pulled from real media dialogue (same rg-backed
+corpus search as hee-srtscan), joined into a SLIP-39/Diceware-shaped
+passphrase. This is generated, not typed, so it doesn't go through the
+interactive-terminal prompt -- but the "never printed" invariant still
+holds: the generated value flows straight into the same GPG encrypt
+call as a typed one, never echoed anywhere.
+
+Usage:
+  hee-cred -seal <account> -recipients "<gpg-id>[,<gpg-id>...]" [-dir PATH]
+  hee-cred -seal <account> -recipients "..." -genfrom TERM [-blocks N] [-root PATH]
+  hee-cred -pass <account> -exec CMD [ARGS...] [-dir PATH]
+
+-seal (typed) reads the secret from an interactive prompt (hidden
+input) -- refuses to run at all if stdin isn't a real terminal,
+specifically so a secret can never be piped in from a chat/log/script
+and end up recorded somewhere it shouldn't.
+
+-seal -genfrom (generated) instead pulls real words out of real media
+dialogue matching TERM (ripgrep against /var/local/hee-corpus by
+default), joins -blocks of them (default 4) into a real passphrase --
+still never printed, same as the typed path.
+
+-pass decrypts and injects the secret into the HEE_CRED_PASS environment
+variable of the -exec child process only -- never argv (visible to other
+users via `ps`), never printed to stdout/stderr by this tool.
+"""
+import argparse
+import getpass
+import json
+import os
+import re
+import secrets as secrets_mod
+import subprocess
+import sys
+from pathlib import Path
+
+DEFAULT_DIR = ".hee/secrets"
+ENV_VAR = "HEE_CRED_PASS"
+DEFAULT_CORPUS_ROOT = "/var/local/hee-corpus"
+WORD_RE = re.compile(r"[A-Za-z']{3,}")
+
+
+def genfrom(term: str, blocks: int, root: str) -> str:
+    """Real corpus-derived passphrase: real words pulled from real media
+    dialogue matching `term` (same rg-backed search as hee-srtscan), a
+    random CSPRNG pick among the real matches -- not the human typing
+    anything, but not predictable either."""
+    proc = subprocess.run(
+        ["/usr/bin/rg", "--json", "-i", "-g", "*.srt", "-g", "*.txt", "--", term, root],
+        capture_output=True, text=True,
+    )
+    if proc.returncode not in (0, 1, 2):
+        sys.exit(f"hee-cred: rg failed: {proc.stderr}")
+
+    words = []
+    for line in proc.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "match":
+            continue
+        # real edge case: non-UTF8 lines carry "bytes" (base64) instead
+        # of "text" -- skip those rather than crash, still real data
+        # loss avoided by just not sourcing words from that one line
+        text = event["data"]["lines"].get("text")
+        if text is None:
+            continue
+        words += WORD_RE.findall(text)
+
+    words = [w.lower() for w in words if w.isalpha()]
+    if len(words) < blocks:
+        sys.exit(f"hee-cred: only found {len(words)} real word(s) matching '{term}' -- need at least {blocks}")
+
+    # real CSPRNG pick among real matched words, not the raw match order
+    chosen = [secrets_mod.choice(words) for _ in range(blocks)]
+    return "-".join(chosen)
+
+
+def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT):
+    recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
+    if not recipient_list:
+        sys.exit("hee-cred: -recipients required, at least one real GPG key id/email")
+
+    if genfrom_term:
+        # Generated, not typed -- doesn't need the interactive-terminal
+        # guard (nothing is being piped in from outside), but stays
+        # unprinted the same as the typed path.
+        secret = genfrom(genfrom_term, blocks, corpus_root)
+        print(f"hee-cred: generated a {blocks}-word passphrase from real dialogue matching '{genfrom_term}' (not shown)")
+    else:
+        if not sys.stdin.isatty():
+            sys.exit(
+                "hee-cred: -seal requires an interactive terminal -- refusing "
+                "to read a secret from a pipe/redirect/script"
+            )
+        secret = getpass.getpass(f"hee-cred: enter secret for '{account}' (hidden): ")
+        if not secret:
+            sys.exit("hee-cred: empty secret, aborting")
+        confirm = getpass.getpass("hee-cred: confirm: ")
+        if secret != confirm:
+            sys.exit("hee-cred: secrets did not match, aborting")
+
+    secrets_dir.mkdir(parents=True, exist_ok=True)
+    out_path = secrets_dir / f"{account}.gpg"
+
+    recipient_args = []
+    for r in recipient_list:
+        recipient_args += ["-r", r]
+
+    cmd = ["gpg", "--encrypt", "--armor", *recipient_args, "-o", str(out_path)]
+    proc = subprocess.run(cmd, input=secret.encode(), capture_output=True)
+    if proc.returncode != 0:
+        sys.exit(f"hee-cred: gpg encrypt failed: {proc.stderr.decode(errors='replace')}")
+    print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
+
+
+def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path):
+    in_path = secrets_dir / f"{account}.gpg"
+    if not in_path.exists():
+        sys.exit(f"hee-cred: no sealed credential at {in_path}")
+    if not exec_cmd:
+        sys.exit("hee-cred: -exec <command...> required -- hee-cred never prints a decrypted secret directly")
+
+    proc = subprocess.run(["gpg", "--decrypt", "--quiet", str(in_path)], capture_output=True)
+    if proc.returncode != 0:
+        sys.exit(f"hee-cred: gpg decrypt failed: {proc.stderr.decode(errors='replace')}")
+    secret = proc.stdout.decode()
+
+    child_env = os.environ.copy()
+    child_env[ENV_VAR] = secret
+    result = subprocess.run(exec_cmd, env=child_env, shell=False)
+    sys.exit(result.returncode)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-cred", add_help=True)
+    ap.add_argument("-seal", dest="seal_account", metavar="ACCOUNT")
+    ap.add_argument("-recipients", default="", metavar="GPGID1,GPGID2,...")
+    ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")
+    ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD")
+    ap.add_argument("-dir", default=DEFAULT_DIR, metavar="PATH")
+    ap.add_argument("-genfrom", dest="genfrom_term", metavar="TERM")
+    ap.add_argument("-blocks", type=int, default=4, metavar="N")
+    ap.add_argument("-root", default=DEFAULT_CORPUS_ROOT, metavar="PATH")
+    args = ap.parse_args()
+
+    secrets_dir = Path(args.dir)
+
+    if args.seal_account:
+        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root)
+    elif args.pass_account:
+        unseal_and_exec(args.pass_account, args.exec_cmd or [], secrets_dir)
+    else:
+        print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

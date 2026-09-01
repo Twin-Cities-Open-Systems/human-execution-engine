@@ -1,0 +1,499 @@
+#!/bin/sh
+# section: 1
+# hee-gen-manpages -- real 0-token man-page generator. Mechanically
+# extracts each tool's own --help/-h output (or, for shell scripts
+# without one, its header comment block) into man/<tool>.1.md, then
+# converts each into real roff man(1) format via pandoc.
+# No LLM reasoning per tool -- pure extraction, so this scales to all
+# 42+ tooling/bin/* entries at zero per-tool token cost. Re-run any
+# time tools change; output is deterministic from the tool's own
+# --help text, never hand-authored here.
+#
+# Real fix, 2026-08-30: this script previously had no --help of its
+# own, so `hee-gen-manpages --help` ran a full real generation pass
+# instead of printing usage -- slow enough to hit the per-tool 5s
+# timeout used when THIS tool is scanned by a run of itself. Caught
+# live, Spencer + touchy-claude, both independently hit the same
+# hang running it fresh.
+# The bare word `help` MUST be handled here, not only --help/-h.
+#
+# Real bug, 2026-08-31 (issue:471@human-execution-engine). The case below
+# used to match only --help|-h, so the two call paths disagreed:
+#
+#   hee gen-manpages help    -> dispatcher translates it, prints usage
+#   hee-gen-manpages help    -> fell through and REGENERATED EVERY MAN PAGE
+#
+# Asking for help must never be able to do anything. It went unnoticed for
+# so long because the regenerated output is normally byte-identical, so
+# `git status` stays clean and only mtime reveals the write.
+case "${1:-}" in
+  help|--help|-h)
+    echo "hee-gen-manpages -- generate man/tools/*.N.md and manN/*.N from each tool's --help"
+    echo ""
+    echo "SYNOPSIS"
+    echo "  hee-gen-manpages"
+    echo ""
+    echo "DESCRIPTION"
+    echo "  No arguments. Re-run after any tool change."
+    echo ""
+    echo "  Writes into the repo that owns the TOOL, never the current"
+    echo "  directory: it resolves its own location and writes to"
+    echo "  <tool-repo>/man/tools."
+    echo ""
+    echo "  The resolved absolute path is printed when it RUNS, not here --"
+    echo "  help output is captured verbatim into the generated man page, so"
+    echo "  a machine-specific path in help becomes a machine-specific path"
+    echo "  in checked-in documentation (fleet-ops#352)."
+    echo ""
+    echo "  Each page is generated FROM the --help output of each tool, so"
+    echo "  tool help text is what becomes its man page."
+    echo ""
+    echo "EXIT STATUS"
+    echo "  0 OK   1 nothing generated"
+    exit 0
+    ;;
+esac
+set -eu
+cd "$(dirname "$0")/../.."
+BIN_DIR="tooling/bin"
+OUT_DIR="man/tools"
+mkdir -p "$OUT_DIR"
+
+# Say WHERE, once, in absolute form. Operator, 2026-08-31: "if you run sans
+# help it sayes it is genereted, where I hav no idea" -- because every line
+# below prints a path relative to a directory this script already cd-ed to,
+# which is not the directory the operator ran it from.
+printf 'writing to: %s/%s\n' "$(pwd)" "$OUT_DIR"
+
+# man_section FILE -- which manual section this tool belongs in.
+#
+# Declared BY THE TOOL, in its own header:
+#
+#     # section: 8
+#
+# not by a lookup table here. A table in the generator goes stale the moment
+# someone adds a tool and forgets it, and the tool's own author is the one who
+# knows whether it administers the system or just talks to it.
+#
+# Defaults to 1 (user commands), which is what the overwhelming majority are.
+# 8 is system administration -- per man-pages(7), commands that manage the
+# system and generally want root. That distinction is what tells a reader
+# `hee-ssh-trust-ca` edits sshd config while `hee-print` formats a file, and
+# it is what apropos/whatis categorise on.
+man_section() {
+  _s="$(sed -n 's/^#[[:space:]]*section:[[:space:]]*\([1-9]\)[[:space:]]*$/\1/p' "$1" 2>/dev/null | head -1)"
+  [ -n "$_s" ] && printf '%s\n' "$_s" || printf '1\n'
+}
+
+
+# HAND-WRITTEN PAGES WIN. Operator, 2026-08-31: "use the hand written and
+# update the tool so it presents this to our other tools. fix the source, no
+# oneoffs!"
+#
+# man/ holds 9 pages written BY HAND, with real man structure -- .TH, NAME,
+# SYNOPSIS, DESCRIPTION, FILES, ORGANIZATION. What this tool generates is a
+# fenced --help dump under a single .SH. The authored pages are strictly
+# better, and regenerating over them would replace documentation with a
+# transcript.
+#
+# So generation SKIPS any tool that already has an authored page, and says so.
+# The skip is reported rather than silent, because a stale authored page is
+# the real failure mode here: man/hee.1 still documents ls, fileident,
+# pathcheck, http404, uiboss and serve -- subcommands that no longer exist --
+# and nothing ever flagged it.
+AUTHORED_DIR="man"
+
+# --gopher: render the artifacts man.tcos.us serves, as a SECTION TREE.
+#
+# A gopher menu is a directory, so the man section layout maps onto it
+# one-to-one: root lists sections as type-1 entries, each section has its own
+# gophermap of type-0 text entries. What is live today is one flat menu of
+# every page, which carries no section signal and only grows.
+#
+# Only sections that actually have pages get a directory or a menu entry --
+# no empty man2/man3/man4 stubs.
+#
+# `man -l FILE | col -bx` is byte-for-byte what gophernicus serves; verified
+# against the live endpoint. col -bx strips backspace-overstrike bold and
+# expands tabs, which is what makes it plain text rather than terminal output.
+_sec_title() {
+  case "$1" in
+    1) echo "User Commands" ;;
+    2) echo "System Calls" ;;
+    3) echo "Library Functions" ;;
+    4) echo "Special Files" ;;
+    6) echo "Games" ;;
+    5) echo "File Formats" ;;
+    7) echo "Overviews and Conventions" ;;
+    8) echo "System Administration" ;;
+    *) echo "Section $1" ;;
+  esac
+}
+
+gen_gopher() {
+  _out="${1:-man/gopher}"
+  rm -rf "$_out"; mkdir -p "$_out/man"
+  command -v man >/dev/null 2>&1 || { echo "man(1) unavailable -- cannot render" >&2; return 3; }
+
+  _total=0
+  for _secdir in "$AUTHORED_DIR"/man[1-9] "$OUT_DIR"/man[1-9]; do
+    [ -d "$_secdir" ] || continue
+    _n="${_secdir##*/man}"
+    for _src in "$_secdir"/*."$_n"; do
+      [ -f "$_src" ] || continue
+      _name="$(basename "$_src" ".$_n")"; _name="${_name%.py}"
+      # Authored wins over generated, same precedence as the rest of the tool.
+      if [ "$_secdir" != "$AUTHORED_DIR/man$_n" ] && [ -f "$AUTHORED_DIR/man$_n/$_name.$_n" ]; then
+        continue
+      fi
+      mkdir -p "$_out/man/man$_n"
+      man -l "$_src" 2>/dev/null | col -bx > "$_out/man/man$_n/$_name.txt" || continue
+      _total=$((_total + 1))
+    done
+  done
+
+  for _d in "$_out"/man/man[1-9]; do
+    [ -d "$_d" ] || continue
+    _n="${_d##*/man}"
+    {
+      printf 'iTwin Cities Open Systems -- section %s: %s\t\tman.tcos.us\t70\n' "$_n" "$(_sec_title "$_n")"
+      printf 'i\t\tman.tcos.us\t70\n'
+      [ -f "$_d/hee.txt" ] && printf '0hee(%s)\thee.txt\tman.tcos.us\t70\n' "$_n"
+      for _f in "$_d"/*.txt; do
+        [ -f "$_f" ] || continue
+        _b="$(basename "$_f" .txt)"; [ "$_b" = "hee" ] && continue
+        printf '0%s(%s)\t%s\tman.tcos.us\t70\n' "$_b" "$_n" "$(basename "$_f")"
+      done
+      printf 'i\t\tman.tcos.us\t70\n'
+      printf '1all sections\t/man\tman.tcos.us\t70\n'
+    } > "$_d/gophermap"
+  done
+
+  {
+    printf 'iTwin Cities Open Systems -- real man pages, real tools\t\tman.tcos.us\t70\n'
+    printf 'iIANA Private Enterprise Number: 1.3.6.1.4.1.66550\t\tman.tcos.us\t70\n'
+    printf 'i\t\tman.tcos.us\t70\n'
+    for _d in "$_out"/man/man[1-9]; do
+      [ -d "$_d" ] || continue
+      _n="${_d##*/man}"
+      _c=$(ls "$_d"/*.txt 2>/dev/null | wc -l)
+      printf '1%s -- section %s (%s pages)\t/man/man%s\tman.tcos.us\t70\n' "$(_sec_title "$_n")" "$_n" "$_c" "$_n"
+    done
+  } > "$_out/man/gophermap"
+  cp "$_out/man/gophermap" "$_out/gophermap"
+
+  # FLAT COPIES AT THE ROOT, for URL compatibility.
+  #
+  # Every page used to live flat at the root, so /gopher/0/<tool>.txt was the
+  # published URL contract -- and docs/guides/ZERO_TOKEN_CONTINUITY.md links
+  # every tool that way. Moving to man/manN/ 404'd all of them at once.
+  # Operator hit it immediately:
+  #
+  #   curl gopher://man.tcos.us/gopher/0/hee.txt
+  #   Error: File or directory not found!
+  #
+  # So both live: the section tree is the structure, the flat copies keep
+  # existing links and bookmarks working. They are copies of generated output,
+  # regenerated together, so they cannot drift from each other.
+  for _d in "$_out"/man/man[1-9]; do
+    [ -d "$_d" ] || continue
+    for _f in "$_d"/*.txt; do
+      [ -f "$_f" ] || cp "$_f" "$_out/" 2>/dev/null
+      cp "$_f" "$_out/$(basename "$_f")" 2>/dev/null
+    done
+  done
+
+  echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s), plus flat copies -> $(pwd)/$_out"
+}
+
+case "${1:-}" in
+  --gopher) shift 2>/dev/null || true; gen_gopher "${1:-man/gopher}"; exit $? ;;
+esac
+authored_kept=""
+
+# Structured rendering lives in library/py -- turning help text into man
+# sections is real parsing, so it graduates out of sh per rule 13. Missing
+# library falls back to the old dump rather than failing the run.
+HEE_MANPAGE_PY=""
+if [ -f "library/py/hee_manpage/__init__.py" ] && command -v python3 >/dev/null 2>&1; then
+  HEE_MANPAGE_PY=1
+fi
+
+# A page is generated if pandoc stamped it, authored otherwise.
+_is_authored() {
+  [ -f "$1" ] || return 1
+  head -3 "$1" | grep -q 'Automatically generated by Pandoc' && return 1
+  return 0
+}
+
+authored_page_for() {
+  # authored_page_for TOOLNAME -> path, or empty
+  _p="$AUTHORED_DIR/man1/$1.1"
+  if _is_authored "$_p"; then printf '%s\n' "$_p"; fi
+}
+
+
+# extract_doc FILE -- the tool's own leading documentation block, in whatever
+# comment syntax its language uses.
+#
+# Real gap, measured 2026-08-31: the old extractor read '#' comments ONLY.
+# But 31 of this repo's 32 Python tools document themselves with a MODULE
+# DOCSTRING, which it could not see. Any Python tool whose --help also failed
+# fell through to a fallback that returned nothing and was SKIPPED outright --
+# which is why hee-ticket, hee-stat, hee-hg, hee-lg, hee-filter, hee-publish,
+# hee-worktree, hee-contract-review and hee-ssh-trust-ca have no published man
+# page at all.
+#
+# Go and Rust use '//' (and Rust '//!' for module docs), so a compiled tool
+# would have hit the same wall the moment one was added. cmd/hee is already Go.
+#
+# Comparisons use substr(), never a regex literal, because a triple-quote
+# inside an awk regex inside a shell single-quoted string is unquotable in
+# POSIX sh -- and mawk does not support \x27 escapes to get around it.
+extract_doc() {
+  _f="$1"
+
+  # 1. Python/other module docstring: triple-quoted block at top level.
+  _doc="$(awk -v dq='"""' -v sq="'''" '
+    function opener(s) { return (substr(s,1,3) == dq || substr(s,1,3) == sq) }
+    # Leading comments -- shebang, section declaration -- are metadata, not
+    # the start of code. Exiting on them is what made a declared section
+    # suppress the docstring entirely. No apostrophes in this comment: the
+    # awk program is inside a single-quoted shell string.
+    /^#/ { next }
+    !started && opener($0) {
+      started = 1
+      q = substr($0,1,3)
+      line = substr($0,4)
+      i = index(line, q)
+      if (i > 0) { line = substr(line,1,i-1); if (length(line)) print line; exit }
+      if (length(line)) print line
+      next
+    }
+    started {
+      i = index($0, q)
+      if (i > 0) { line = substr($0,1,i-1); if (length(line)) print line; exit }
+      print; next
+    }
+    NF { exit }
+  ' "$_f")"
+  if [ -n "$_doc" ]; then printf '%s\n' "$_doc"; return 0; fi
+
+  # 2. Shell-style leading '#' block.
+  _doc="$(awk '/^#!/{next} /^#[ \t]*section:[ \t]*[1-9][ \t]*$/{next} /^#/{print substr($0,3); next} {exit}' "$_f")"
+  if [ -n "$_doc" ]; then printf '%s\n' "$_doc"; return 0; fi
+
+  # 3. Go / Rust leading '//' or '//!' block. Build tags and //go: directives
+  #    are machine pragmas, not prose, so they are skipped rather than printed.
+  _doc="$(awk '
+    substr($0,1,5) == "//go:" { next }
+    substr($0,1,3) == "//!" { print substr($0,4); next }
+    substr($0,1,2) == "//"  { print substr($0,3); next }
+    NF { exit }
+  ' "$_f")"
+  if [ -n "$_doc" ]; then printf '%s\n' "$_doc"; return 0; fi
+
+  return 1
+}
+
+
+for f in "$BIN_DIR"/*; do
+  [ -f "$f" ] && [ -x "$f" ] || continue
+  name="$(basename "$f")"
+  _sec="$(man_section "$f")"
+  out="$OUT_DIR/$name.$_sec.md"
+
+  # Authored page wins -- never regenerate over hand-written documentation.
+  _authored="$(authored_page_for "$name")"
+  if [ -n "$_authored" ]; then
+    echo "authored (kept, not regenerated): $_authored"
+    authored_kept="$authored_kept $name"
+    # Remove a stale generated sibling. Leaving it means two pages for one
+    # tool, and whichever the installer or publisher happens to reach first
+    # wins -- which is exactly how man/hee.1 and man/tools/hee.1 diverged.
+    [ -e "$out" ] && { rm -f "$out" "$OUT_DIR/man1/$name.1"; echo "  removed stale generated: $out"; }
+    continue
+  fi
+  help_text=""
+  help_text="$(timeout -s KILL 5 "$f" --help </dev/null 2>&1)" && ok=1 || ok=0
+  if [ "$ok" -ne 1 ] || [ -z "$help_text" ]; then
+    help_text="$(timeout -s KILL 5 "$f" -h </dev/null 2>&1)" && ok=1 || ok=0
+  fi
+  if [ "$ok" -eq 1 ] && [ -n "$help_text" ]; then
+      # Structured man markdown, not a fenced transcript. The old form gave
+      # pandoc no title, so every page rendered "()" as its header and footer
+      # instead of "HEE-VER(1)  HEE Tools  HEE-VER(1)", with no NAME,
+      # SYNOPSIS or DESCRIPTION at all. Operator: "all pro style man for all
+      # our shit."
+      _rendered=0
+      if [ -n "$HEE_MANPAGE_PY" ]; then
+        if printf '%s\n' "$help_text" | PYTHONPATH="$PWD/library/py" python3 -c \
+             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), int(sys.argv[2])))' \
+             "$name" "$_sec" > "$out" 2>/dev/null && [ -s "$out" ]; then
+          _rendered=1
+        fi
+      fi
+      if [ "$_rendered" -eq 0 ]; then
+        # Same structured rendering as the --help path. Without this the
+        # 15 tools whose --help genuinely fails (hee-cache-prune errors with
+        # "find: invalid argument") kept the old shape and still rendered
+        # "()" as their header.
+        _rendered=0
+        if [ -n "$HEE_MANPAGE_PY" ]; then
+          if printf '%s\n' "$header" | PYTHONPATH="$PWD/library/py" python3 -c \
+               'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read()))' \
+               "$name" > "$out" 2>/dev/null && [ -s "$out" ]; then
+            _rendered=1
+            printf '\n*(no --help output -- generated from the script header comment)*\n' >> "$out"
+          fi
+        fi
+        if [ "$_rendered" -eq 0 ]; then
+          {
+            echo "# $name(1)"
+            echo
+            echo "$header"
+            echo
+            echo "*(no --help/-h output -- generated from the script's own header comment)*"
+          } > "$out"
+        fi
+      fi
+    echo "generated (from --help): $out"
+  else
+    # No working --help -- fall back to the tool's own leading '#'
+    # comment block (shell scripts document themselves this way in
+    # this repo already; still 0-token, just a different extraction).
+    header="$(extract_doc "$f" || true)"
+    if [ -n "$header" ]; then
+      {
+        echo "# $name(1)"
+        echo
+        echo "$header"
+        echo
+        echo "*(no --help/-h output -- generated from the script's own header comment)*"
+      } > "$out"
+      echo "generated (from header, no --help): $out"
+    else
+      echo "SKIPPED (no --help and no header comment): $name" >&2
+    fi
+  fi
+done
+
+{
+  echo "# HEE Tooling Reference"
+  echo
+  echo "Auto-generated by \`tooling/bin/hee-gen-manpages\` -- mechanical extraction"
+  echo "of each tool's own --help output, not hand-written. Re-run after any"
+  echo "tool change; do not hand-edit the per-tool files, edit the tool's"
+  echo "--help text instead so this stays accurate."
+  echo
+  for f in "$OUT_DIR"/*.[1-9].md; do
+    n="$(basename "$f" | sed 's/\.[1-9]\.md$//')"
+    [ "$n" = "README" ] && continue
+    echo "- [\`$n\`]($n.1.md)"
+  done
+
+# Compiled-language tools (Go, Rust) live as SOURCE under cmd/, not as an
+# executable in tooling/bin, so the loop above never saw them. cmd/hee is
+# already Go. Without this they are silently absent from the man pages --
+# the operator asked specifically that py/go/rust all be captured.
+#
+# A built binary is preferred when present (its --help is the real thing);
+# otherwise the leading doc comment is extracted, same as any other tool.
+for d in cmd/*/; do
+  [ -d "$d" ] || continue
+  name="$(basename "$d")"
+  src=""
+  [ -f "$d/main.go" ] && src="${d%/}/main.go"
+  [ -f "$d/src/main.rs" ] && src="${d%/}/src/main.rs"
+  [ -n "$src" ] || continue
+
+  _sec="$(man_section "$f")"
+  out="$OUT_DIR/$name.$_sec.md"
+  if [ -e "$out" ] || [ -n "$(authored_page_for "$name")" ]; then
+    # NOT a conflict -- the same tool at two rungs of the maturity ladder.
+    # Operator, 2026-08-31: "what conflict, this is _the_ hee we are building
+    # now. one damn script at a time. we are working _towards_ cmd/hee.go".
+    # Rule 13 has a tool climb sh -> py -> Go/Rust, so tooling/bin/hee (sh,
+    # current) and cmd/hee/main.go (Go, destination) are one tool mid-climb.
+    # One page documents the tool, not the implementation, so the existing
+    # page stands and the Go source is simply noted as the next rung.
+    echo "ladder: $name also has $src (next rung) -- existing page kept" >&2
+    continue
+  fi
+
+  help_text=""
+  if [ -x "${d%/}/$name" ]; then
+    help_text="$(timeout -s KILL 5 "${d%/}/$name" --help </dev/null 2>&1)" || help_text=""
+  fi
+  if [ -n "$help_text" ]; then
+    { echo "# $name(1)"; echo; echo '```'; printf '%s\n' "$help_text"; echo '```'; } > "$out"
+    echo "generated (from --help, compiled): $out"
+  else
+    header="$(extract_doc "$src" || true)"
+    if [ -n "$header" ]; then
+      { echo "# $name(1)"; echo; echo "$header"; echo
+        echo "*(no built binary -- generated from the doc comment in $src)*"; } > "$out"
+      echo "generated (from source doc comment): $out"
+    else
+      echo "SKIPPED (no binary, no doc comment): $src" >&2
+    fi
+  fi
+done
+
+  if [ -n "$authored_kept" ]; then
+    echo
+    echo "## Hand-authored pages (authoritative)"
+    echo
+    echo "These live in \`man/\` and are written by hand. They are NOT"
+    echo "regenerated: an authored page has real man structure, while a"
+    echo "generated one is a fenced \`--help\` dump. Any tool consuming this"
+    echo "index -- installer, publisher, freshness check -- must prefer these."
+    echo
+    for _a in $authored_kept; do
+      echo "- [$_a](../$_a.1) -- authored"
+    done
+  fi
+} > "$OUT_DIR/README.md"
+# REDACT HOME PATHS FROM EVERY GENERATED PAGE.
+#
+# Pages are built from each tool's --help, verbatim, so any tool that prints a
+# resolved absolute path bakes THAT MACHINE's homedir into checked-in docs.
+# That already happened once and has its own incident: fleet-ops#352,
+# "man-page regen tool run under Spencer's own account, baked his personal
+# homedir path into checked-in docs".
+#
+# Caught again here, 2026-08-31, on 8 pages -- including one caused by this
+# very tool, whose help had started printing its own resolved output path.
+# Fixing the four offending tools one at a time would not stop the fifth, so
+# the guard belongs at the point of writing.
+#
+# ~/ is the org's own convention for a portable home-relative path, and is
+# what PROMPTING_RULES already requires in shared scripts.
+for _p in "$OUT_DIR"/*.[1-9].md "$OUT_DIR"/README.md; do
+  [ -f "$_p" ] || continue
+  if grep -q '/home/[a-z]' "$_p" 2>/dev/null; then
+    sed -i 's#/home/[a-z][a-z0-9_-]*/#~/#g' "$_p"
+    echo "redacted home path: $_p"
+  fi
+done
+
+echo "index: $OUT_DIR/README.md"
+
+# Real md -> real roff man(1) conversion, 2026-08-30. The .1.md files
+# above are the real source; these .1 files are what a real `man`
+# command (or gophernicus, which serves plain real man-format text)
+# actually wants. Requires pandoc -- skip conversion with a clear
+# message rather than fail the whole run if it's not installed.
+if command -v pandoc >/dev/null 2>&1; then
+  for f in "$OUT_DIR"/*.[1-9].md; do
+    n="$(basename "$f" | sed 's/\.[1-9]\.md$//')"
+    [ "$n" = "README" ] && continue
+    _s="$(basename "$f" | sed 's/^.*\.\([1-9]\)\.md$/\1/')"
+    mkdir -p "$OUT_DIR/man$_s"
+    pandoc -s -f markdown-smart -t man "$f" -o "$OUT_DIR/man$_s/$n.$_s" 2>/dev/null && \
+      echo "converted (real roff): $OUT_DIR/man$_s/$n.$_s" || \
+      echo "SKIPPED roff conversion (pandoc error): $n" >&2
+  done
+else
+  echo "pandoc not found -- skipping real .1.md -> .1 roff conversion" >&2
+fi

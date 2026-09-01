@@ -1,0 +1,58 @@
+# path: blueprints/hee-intra-repo-layout-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: hee-intra-repo-layout-v1
+  description: "Canonical doctrine for where files live inside the human-execution-engine repo itself: one home per concept (contracts, scripts/tooling, docs taxonomy), sibling to dir-layout-v1 which governs repo-vs-shared-storage placement instead."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: repo-structure
+    topic: intra-repo-layout
+    artifact: blueprint
+  annotations:
+    updated-at: "2026-08-23T00:00:00Z"
+    related: "blueprints/dir-layout-v1.yaml (repo-vs-shared-storage axis, also unratified)"
+spec:
+  result: false
+  schema-version: 1
+  status: draft
+  problem:
+    - "contracts/ content exists in 5 separate directories (contracts/, hee/contracts/, hee/gcic/contracts/, tooling/smart-approval/contracts/, docs/contracts/ui-dom/) despite contracts/README.md already declaring itself canonical and stating machine schemas belong in schemas/"
+    - "scripts/, tooling/, and tools/ are three separate homes for repo automation with no documented boundary between them (matches fleet-ops#205, filed as an unscoped idea, never resolved)"
+    - "hee/ duplicates root-level directory names (contracts, docs, library, tools, evidence, policy, governance) with no documented relationship between the hee/ copy and the root copy"
+    - "docs/ has grown to 26 subdirectories against a 4-category target (doctrine/specs/guides/decisions) proposed by a January 2026 structure audit (docs/HEE_STRUCTURE_COMPLIANCE_AUDIT.md) -- that audit also claimed docs/decisions/ was created and docs/HEE.md + docs/HEE_POLICY.md were moved out of docs/ root; both claims verified false against the live tree as of 2026-08-23, 7 months later"
+    - "math/, rfcs/ at repo root collide by name with docs/math/, docs/rfc/ -- unclear which is authoritative for either topic"
+    - "docs/MODULES and docs/TEMPLATES break the otherwise all-lowercase docs/ naming convention"
+  non_goals:
+    - not_a_shared_storage_spec (see dir-layout-v1 for repo-vs-shared-storage placement)
+    - not_a_retroactive_bulk_move (this doctrine defines the target; migration happens in separate, small, reviewable PRs per category)
+    - not_a_ci_enforcement_spec (enforcement tooling is separate follow-on work once the target is ratified)
+  rules:
+    - one_canonical_home_per_concept
+    - directory_name_implies_content_type
+    - namespace_prefix_over_duplicate_tree
+    - lowercase_directory_names
+    - orphaned_single_topic_dirs_get_folded_in
+    - migration_requires_reference_grep_before_merge
+  rule_definitions:
+    one_canonical_home_per_concept: "exactly one top-level (or documented-nested) directory owns each concept; a second directory with the same name elsewhere in the tree is a defect to resolve, not a second valid home"
+    directory_name_implies_content_type: "a directory named for a concept (contracts, schemas, docs) holds only that concept's content-type; machine-readable validation schemas are schemas/ content even when a tool-specific subdirectory would rather call them 'contracts'"
+    namespace_prefix_over_duplicate_tree: "when a subsystem (e.g. hee/, gcic/) needs its own contracts, they live as a prefixed/namespaced subset within the canonical directory (contracts/hee.*.yaml, matching the hee.kind-registry.contract.v1.yaml naming already in use at root), not as a same-named directory elsewhere in the tree"
+    lowercase_directory_names: "all directory names under docs/ (and repo-wide, by extension) are lowercase; MODULES and TEMPLATES are non-compliant and get renamed, not grandfathered"
+    orphaned_single_topic_dirs_get_folded_in: "a directory holding exactly one topic's files (docs/contracts/ui-dom/) folds into the canonical home for that content-type rather than staying a standalone top-level entry"
+    migration_requires_reference_grep_before_merge: "every physical move is preceded by a grep across CI configs, Makefile, package.json, and docs cross-links for the old path, with those references updated in the same PR -- no move merges with a known-dangling reference"
+  evidence_guardrails:
+    - directory_creation_requires_recorded_rationale
+    - no_silent_migration
+    - audit_claims_must_be_verified_against_live_tree_not_taken_on_faith
+  open_decisions:
+    - id: contracts-canonical-home
+      question: "contracts/ (root) is the only one of the 5 with a stated README/policy already in place -- does it stay canonical, or does canonical move to hee/contracts/ to match cmd/hee's Go-entrypoint namespace?"
+      status: "held open per Spencer, 2026-08-23 -- needs full-info pass before deciding, see below"
+    - id: hee-vs-root-duplication
+      question: "hee/ mirrors contracts/docs/library/tools/evidence/policy/governance at root -- does hee/ absorb root, does root absorb hee/, or is the split intentional (e.g. hee/ = published/vendored surface, root = source of truth) and just undocumented?"
+      status: "open, no default proposed -- content comparison needed per directory pair before either root or hee/ can be called canonical"
+    - id: shared-storage-scope
+      question: "storage/docs/projects/hee-reconciliation/laptop-import/git-content/ holds full historical checkouts of human-execution-engine, market-thesis, tcos-plan-private, tick-task, MT-logo-render, and an unexplained 3547-remodel/ -- imported from a laptop, no tracking issue found, owned by touchy. Is this active reconciliation work, or a stale one-time import that should be salvage-reviewed and deleted?"
+      status: "open -- not discovered until this pass, no prior ticket exists"

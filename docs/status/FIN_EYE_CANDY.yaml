@@ -13,8 +13,8 @@ fin:
     recorded_at: "2026-01-28T23:07:59-06:00"
 pointers:
   contracts:
-    - contracts/events.schema.json
-    - contracts/metrics.schema.json
+    - tooling/smart-approval/contracts/events.schema.json
+    - tooling/smart-approval/contracts/metrics.schema.json
   library:
     - lib/ingest.py
     - lib/transform.py

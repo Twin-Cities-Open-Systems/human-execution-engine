@@ -1,0 +1,38 @@
+HEE-QDB(1)                       User Commands                      HEE-QDB(1)
+
+NAME
+       hee-qdb - real quote search across a source document
+
+SYNOPSIS
+       hee qdb -source PATH -search TERM
+
+DESCRIPTION
+       Searches  a  real source text file (a roster/quote-log document such as
+       WHO-WE-ARE.md) for lines matching TERM and prints real  matches  --  no
+       fabricated quotes, no paraphrasing.
+
+OPTIONS
+       -source PATH
+              Path to the source document to search.
+
+       -search TERM
+              Search term. Required.
+
+EXAMPLES
+              hee  qdb  -source  ~/.local/bin/WHO-WE-ARE.md  -search "counting
+              fact"
+
+IRSSI INTEGRATION
+              QDB   =   "EXEC   -o   ~/.local/bin/hee   qdb   -source   ~/.lo‐
+              cal/bin/WHO-WE-ARE.md -search"
+
+       then /QDB TERM in a channel.
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-scrob(1), hee-scan(1)
+
+HEE                               2026-08-22                        HEE-QDB(1)

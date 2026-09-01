@@ -1,0 +1,14 @@
+id: '0007'
+created_at: '2026-08-24T08:46:20Z'
+description: 'fleet-ops#69: two independent AI proposals (unnamed + Gemini) both hallucinated
+  that thesis-engine has a general usage-governor/integrity-scoring primitive; Gemini
+  also fabricated hee-ticket auto-push behavior and filename format. Real content
+  prepared at /home/claude/.claude/jobs/ae94b352/tmp/fleet-ops-69-comment.md, blocked
+  on GitHub secondary rate limit, not yet posted.'
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-08-24T08:46:20Z'
+- stage: footgun
+  at: '2026-08-27T19:23:11Z'

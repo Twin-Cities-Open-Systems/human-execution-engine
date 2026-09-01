@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-filter -- shared publish-safety gate, per contracts/publish-sanitization-v1.contract.yaml.
+
+Real trigger: hee-publish (HEE#331) got a repo-visibility filter +
+content scan built inline, then Spencer asked directly "did you apply
+[it] to [tcos-www's generator] too?" -- the answer was no, because the
+logic lived inline in one tool instead of somewhere shareable. This is
+that shared tool, so a second consumer calls it instead of a second
+copy-paste (see [[feedback_sweep_pattern_not_spot_fix]]).
+
+Usage:
+  hee-filter check-repo <owner/repo>
+      Prints "public" or "private" to stdout. Exit 0 if confirmed
+      public, exit 1 otherwise (private, or the check itself failed --
+      fails closed, never assumes public on error).
+
+  hee-filter prime-repos [org, default Twin-Cities-Open-Systems]
+      CDN-style precache: warms the repo-visibility cache for every
+      real repo in the org in one call (org-wide repos listing),
+      instead of leaving every consumer to hit N separate cold misses
+      the first time it touches each repo.
+
+  hee-filter scan [--i-reviewed-manually]
+      Reads content on stdin, runs tcos-audit's real ruleset against
+      it. Clean: exit 0, no output. Findings: printed to stderr, exit 1.
+      Scanner unavailable (tcos-audit not checked out): exit 2, unless
+      --i-reviewed-manually is passed, which prints a loud warning to
+      stderr and exits 0 -- never a silent skip.
+
+  hee-filter check-mode <requested> --venue <name> --supported a,b,c
+      Real "which language-profile mode is safe here" policy, extracted
+      from resume/convert.sh's own inline bash (same default-to-
+      professional-for-resume/sane logic, now in one shared place
+      instead of re-derived per consumer). Prints the mode to actually
+      use. An explicit, valid --requested still wins -- this centralizes
+      the *default*, it doesn't add a new restriction beyond what
+      convert.sh already did.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+# Real shared cache-dir convention: ~/.config/hee/cache/<namespace>/ --
+# same root kenny's PR#349 established for hee-git-merge's PR-detail
+# cache (~/.config/hee/gh-pr-cache/), standardized here per kenny's own
+# suggestion (relayed via Spencer) so tools don't each invent their own
+# location. 60s TTL, same real number kenny's cache uses.
+CACHE_DIR = os.path.expanduser("~/.config/hee/cache/repo-visibility")
+CACHE_TTL = 60
+
+# Help is contextual: `help` as the LAST argument prints help for wherever
+# you are in the command (issue:462@human-execution-engine).
+#   hee-filter help        -> the tool
+#   hee-filter scan help   -> the scan subcommand
+# --help and -h are accepted as synonyms.
+HELP_CHECK_REPO = """hee-filter check-repo -- is this repo really public
+
+SYNOPSIS
+  hee-filter check-repo OWNER/REPO
+
+DESCRIPTION
+  Prints "public" or "private" on stdout and encodes the same answer in
+  the exit status, so it is usable either way.
+
+  The live answer comes from `gh api repos/OWNER/REPO --jq .private`.
+  It FAILS CLOSED: anything other than a confirmed `false` -- a 404, an
+  unauthenticated gh, a network failure -- is reported as private. A
+  publish gate must never treat an unanswered question as a yes.
+
+  Answers are cached under ~/.config/hee/cache/repo-visibility/ for 60
+  seconds, one JSON file per repo with the slash replaced by a double
+  underscore. A corrupt or partial cache file is ignored and re-checked
+  live rather than trusted.
+
+  Footgun worth knowing: because the check fails closed and the result
+  is cached either way, a transient gh failure caches "private" for the
+  next 60 seconds. Delete the repo's file under the cache directory to
+  force an immediate re-check.
+
+EXIT STATUS
+  0 OK        confirmed public
+  1 WARNING   private, or the check itself could not confirm public
+  2 CRITICAL  wrong number of arguments
+
+EXAMPLES
+  hee-filter check-repo Twin-Cities-Open-Systems/human-execution-engine
+"""
+
+HELP_PRIME_REPOS = """hee-filter prime-repos -- warm the visibility cache for a whole org
+
+SYNOPSIS
+  hee-filter prime-repos [ORG]
+
+DESCRIPTION
+  CDN-style precache. One paginated `gh api orgs/ORG/repos` call writes a
+  cache entry for every repo in the org, instead of leaving each consumer
+  to take N separate cold misses the first time it touches each repo.
+
+  ORG defaults to Twin-Cities-Open-Systems. Prints a one-line count of
+  how many repos were primed.
+
+  The entries it writes are ordinary check-repo cache files with the same
+  60 second TTL -- this makes the next minute of checks fast, it does not
+  pin an answer.
+
+EXIT STATUS
+  0 OK        cache primed, count printed
+  1 WARNING   listing the org's repos failed (gh stderr is echoed)
+
+EXAMPLES
+  hee-filter prime-repos
+  hee-filter prime-repos Twin-Cities-Open-Systems
+"""
+
+HELP_SCAN = """hee-filter scan -- run the mandatory content scan over stdin
+
+SYNOPSIS
+  ... | hee-filter scan [--i-reviewed-manually]
+
+DESCRIPTION
+  Reads the content to publish on STDIN and runs tcos-audit's real
+  ruleset against it (bank/SSN/EIN-shaped numbers, credential-shaped
+  tokens, currency-near-vendor, hardcoded home paths). Clean content
+  produces no output at all; findings are printed to STDERR, one block
+  per finding with its rule, line number, reason and snippet, so stdout
+  stays free for whatever the caller is piping.
+
+  The scanner is tcos-audit's own scan_common.py, imported from
+  ~/git/tcos-audit/bin -- a fixed path, not a search. If tcos-audit is
+  not checked out there, this REFUSES with exit 2 rather than passing
+  content it did not scan.
+
+OPTIONS
+  --i-reviewed-manually   Turn that refusal into a pass: prints a loud
+                          multi-line banner to stderr saying the scan did
+                          NOT run, and exits 0. Never a silent skip. It
+                          only affects the scanner-unavailable case -- it
+                          cannot suppress real findings.
+
+EXIT STATUS
+  0 OK        no findings (or scanner unavailable and the override passed)
+  1 WARNING   findings printed to stderr -- do not publish
+  2 CRITICAL  the scan could not run and no override was given
+
+EXAMPLES
+  cat post.md | hee-filter scan
+  cat post.md | hee-filter scan --i-reviewed-manually
+"""
+
+HELP_CHECK_MODE = """hee-filter check-mode -- which language-profile mode is safe here
+
+SYNOPSIS
+  hee-filter check-mode REQUESTED --venue NAME --supported a,b,c
+
+DESCRIPTION
+  Prints the single mode name a consumer should actually use. This
+  centralizes a DEFAULT that resume/convert.sh already applied inline; it
+  adds no restriction that script did not already have.
+
+  Resolution order, as really implemented:
+    1. the venue's safe default, if that venue has one and it appears in
+       --supported
+    2. otherwise the first entry of --supported
+    3. otherwise REQUESTED, unchanged
+    4. and finally: an explicit REQUESTED that appears in --supported
+       always wins over all of the above
+
+  Venue defaults are a two-entry table today -- `resume` and `sane` both
+  default to `professional`. Any other venue name has no default and
+  falls through to the first supported mode.
+
+  --supported is a comma-separated list; an empty or missing list means
+  nothing is supported, and REQUESTED is echoed back as-is.
+
+EXIT STATUS
+  0 OK        a mode was printed -- this subcommand has no failure path
+  2 CRITICAL  REQUESTED was missing
+
+EXAMPLES
+  hee-filter check-mode raw --venue resume --supported professional,raw
+  hee-filter check-mode raw --venue blog --supported raw,professional
+"""
+
+HELP = """hee-filter -- the shared publish-safety gate
+
+SYNOPSIS
+  hee-filter check-repo OWNER/REPO
+  hee-filter prime-repos [ORG]
+  hee-filter scan [--i-reviewed-manually]
+  hee-filter check-mode REQUESTED --venue NAME --supported a,b,c
+  hee-filter [SUBCOMMAND] help
+
+DESCRIPTION
+  One implementation of the checks that must run before anything is
+  published, per contracts/publish-sanitization-v1.contract.yaml, so a
+  second consumer calls this tool instead of growing a second copy of
+  the logic. It exists because exactly that happened: the visibility
+  filter and content scan were built inline in hee-publish and were then
+  found missing from tcos-www's generator.
+
+  Every subcommand is a gate, and every gate FAILS CLOSED -- an
+  unanswerable question is answered "not safe", never "probably fine".
+
+SUBCOMMANDS
+  check-repo    confirm a repo is really public (live, cached 60s)
+  prime-repos   warm that cache for a whole org in one call
+  scan          run tcos-audit's ruleset over content on stdin
+  check-mode    pick the safe language-profile mode for a venue
+
+  Add `help` after any subcommand for its own page:
+      hee-filter scan help
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK        the gate passed
+  1 WARNING   the gate did not pass -- private repo, or real findings
+  2 CRITICAL  the gate could not run -- missing/unknown subcommand, wrong
+              arguments, or the scanner is unavailable
+
+ENVIRONMENT
+  HOME   locates the 60s visibility cache at
+         ~/.config/hee/cache/repo-visibility/ and the scanner at
+         ~/git/tcos-audit/bin/scan_common.py. Neither path is
+         configurable today.
+
+  `gh` must be installed and authenticated for check-repo and
+  prime-repos. Whatever gh honours (GH_TOKEN, GH_HOST) applies to them.
+
+SEE ALSO
+  hee-publish -- the first consumer
+  contracts/publish-sanitization-v1.contract.yaml
+"""
+
+_SUB_HELP = {
+    "check-repo": HELP_CHECK_REPO,
+    "prime-repos": HELP_PRIME_REPOS,
+    "scan": HELP_SCAN,
+    "check-mode": HELP_CHECK_MODE,
+}
+
+
+def _cache_path(full_name):
+    return os.path.join(CACHE_DIR, full_name.replace("/", "__") + ".json")
+
+
+def check_repo(full_name):
+    path = _cache_path(full_name)
+    if os.path.isfile(path):
+        try:
+            entry = json.load(open(path))
+            if time.time() - entry["checked_at"] < CACHE_TTL:
+                print(entry["visibility"])
+                return 0 if entry["visibility"] == "public" else 1
+        except (json.JSONDecodeError, KeyError, OSError):
+            pass  # real corrupt/partial cache entry -- fall through and re-check live
+
+    out = subprocess.run(["gh", "api", f"repos/{full_name}", "--jq", ".private"],
+                          capture_output=True, text=True)
+    is_public = out.returncode == 0 and out.stdout.strip() == "false"
+    visibility = "public" if is_public else "private"
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"visibility": visibility, "checked_at": time.time()}, f)
+
+    print(visibility)
+    return 0 if is_public else 1
+
+
+def find_tcos_audit():
+    bin_dir = os.path.join(os.path.expanduser("~/git/tcos-audit"), "bin")
+    if os.path.isfile(os.path.join(bin_dir, "scan_common.py")):
+        return bin_dir
+    return None
+
+
+def scan(i_reviewed_manually):
+    audit_bin = find_tcos_audit()
+    if audit_bin is None:
+        if not i_reviewed_manually:
+            print("hee-filter: mandatory content scan could not run -- tcos-audit not found at "
+                  "~/git/tcos-audit. Pass --i-reviewed-manually if you've reviewed this content "
+                  "yourself and are certain it's safe.", file=sys.stderr)
+            return 2
+        print("!!! WARNING: publishing WITHOUT the mandatory content scan -- tcos-audit "
+              "unavailable, --i-reviewed-manually was passed. This content has NOT been "
+              "automatically checked. !!!", file=sys.stderr)
+        return 0
+    sys.path.insert(0, audit_bin)
+    from scan_common import scan_text  # noqa: E402
+    text = sys.stdin.read()
+    findings = scan_text(text)
+    if not findings:
+        return 0
+    print(f"hee-filter: {len(findings)} real finding(s) from the mandatory content scan:", file=sys.stderr)
+    for f in findings:
+        print(f"  [{f.rule}] line {f.line_no}: {f.reason}\n      {f.snippet}", file=sys.stderr)
+    return 1
+
+
+# Real, existing policy from resume/convert.sh -- which venues default
+# away from a profile's raw/informal modes. Not a new restriction; this
+# is the same default that script already applied, just centralized.
+VENUE_SAFE_DEFAULT = {
+    "resume": "professional",
+    "sane": "professional",
+}
+
+
+def check_mode(requested, venue, supported_csv):
+    supported = [m for m in (supported_csv or "").split(",") if m]
+    default = VENUE_SAFE_DEFAULT.get(venue)
+    mode = default if (default and default in supported) else (supported[0] if supported else requested)
+    if requested and requested in supported:
+        mode = requested  # explicit, valid request still wins -- same as before
+    print(mode)
+    return 0
+
+
+def prime_repos(org):
+    """CDN-style precache, Spencer's real framing 2026-08-24: warm the
+    real repo-visibility cache for every repo in the org in one pass,
+    via the org-wide repos listing (one call for N repos), instead of
+    waiting for N separate cold misses the first time each consumer
+    (hee-publish, tcos-www's generator) happens to touch them."""
+    out = subprocess.run(["gh", "api", f"orgs/{org}/repos", "--paginate",
+                           "--jq", ".[] | .full_name + \" \" + (.private|tostring)"],
+                          capture_output=True, text=True)
+    if out.returncode != 0:
+        print(f"hee-filter: failed to list org repos: {out.stderr}", file=sys.stderr)
+        return 1
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    n = 0
+    for line in out.stdout.splitlines():
+        full_name, is_private = line.rsplit(" ", 1)
+        visibility = "private" if is_private == "true" else "public"
+        with open(_cache_path(full_name), "w") as f:
+            json.dump({"visibility": visibility, "checked_at": time.time()}, f)
+        n += 1
+    print(f"hee-filter: primed {n} repo(s) from {org}")
+    return 0
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv and argv[-1] in ("help", "--help", "-h"):
+        print(_SUB_HELP.get(argv[0] if len(argv) > 1 else "", HELP), end="")
+        return 0
+    if len(sys.argv) < 2:
+        print(HELP, end="")
+        return 2
+    cmd = sys.argv[1]
+    if cmd == "check-repo":
+        if len(sys.argv) != 3:
+            print("usage: hee-filter check-repo <owner/repo>", file=sys.stderr)
+            return 2
+        return check_repo(sys.argv[2])
+    if cmd == "prime-repos":
+        org = sys.argv[2] if len(sys.argv) > 2 else "Twin-Cities-Open-Systems"
+        return prime_repos(org)
+    if cmd == "scan":
+        return scan("--i-reviewed-manually" in sys.argv[2:])
+    if cmd == "check-mode":
+        if len(sys.argv) < 3:
+            print("usage: hee-filter check-mode <requested> --venue <name> --supported a,b,c", file=sys.stderr)
+            return 2
+        requested = sys.argv[2]
+        rest = sys.argv[3:]
+        venue = rest[rest.index("--venue") + 1] if "--venue" in rest else ""
+        supported = rest[rest.index("--supported") + 1] if "--supported" in rest else ""
+        return check_mode(requested, venue, supported)
+    print(HELP, end="")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

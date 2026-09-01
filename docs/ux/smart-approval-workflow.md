@@ -262,7 +262,7 @@ open /tmp/dashboard/index.html
 
 #### Adding New Metrics
 
-1. Update `contracts/metrics.schema.json` with new fields
+1. Update `tooling/smart-approval/contracts/metrics.schema.json` with new fields
 2. Modify `lib/transform.py` to compute new aggregations
 3. Update renderers to display new metrics in views
 

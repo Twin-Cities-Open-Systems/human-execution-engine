@@ -1,0 +1,70 @@
+HEE-TOOLS-UPDATE(1)                HEE Tools               HEE-TOOLS-UPDATE(1)
+
+NAME
+       hee-tools-update - install or refresh the pinned external toolchain
+
+SYNOPSIS
+              hee-tools-update [MANIFEST] [EVIDENCE_DIR]
+              hee-tools-update help
+
+DESCRIPTION
+              Walks the toolchain manifest and acts on each entry according to its
+              `kind` column. This tool WRITES to the filesystem and DOWNLOADS from
+              the network -- it is the mutating half of the pair; hee-tools-check is
+              the read-only half.
+
+              MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
+              this script, so it works from any directory. EVIDENCE_DIR defaults to
+              the relative path hee/evidence/tools, which means it is created under
+              whatever directory you happen to run this from -- run it from a repo
+              root if you want the log to land in that repo's evidence tree.
+
+              Manifest lines are `name kind desired`. Blank lines and # comments are
+              skipped. Handled kinds, and only these:
+
+                go tar <version>    downloads https://go.dev/dl/go<version>.linux-amd64.tar.gz,
+                                    records its sha256 in the log, wipes and re-extracts
+                                    $HOME/.local/go/<version>, then symlinks go and gofmt
+                                    into $HOME/.local/bin. Always reinstalls -- there is no
+                                    "already at this version" short-circuit for go.
+                yq bin <version>    compares `yq --version` against <version> and, only if
+                                    they differ (or yq is absent), downloads the
+                                    mikefarah/yq linux_amd64 release binary to
+                                    $HOME/.local/bin/yq and chmod +x's it.
+                <name> pkg <any>    reports presence only and prints an apt hint. NEVER
+                                    installs anything. Recognised for jq, bat, glow, rg
+                                    and tmux by name; any other name:kind pair is logged
+                                    as an unknown manifest entry and skipped.
+
+              Architecture is hardcoded linux/amd64 for both downloading kinds. On
+              any other OS or architecture this tool will fetch the wrong artifact
+              rather than refuse -- a real limitation, not a documented option.
+
+              Real footgun: every line of output goes to the log file only. `log()`
+              pipes through `tee -a "$OUT" >/dev/null`, and the downloads are quiet
+              (curl -fsSL), so a successful run prints NOTHING to the terminal. Read
+              EVIDENCE_DIR/tools-update.<UTC-timestamp>.log to see what happened.
+
+ENVIRONMENT
+              HOME               install prefix -- $HOME/.local/bin and $HOME/.local/go
+              TMPDIR             download scratch space for the go tarball (default /tmp)
+              PATH               must contain $HOME/.local/bin for the installed
+                                 binaries to be reachable; the log says so if it is not
+              HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
+
+FILES
+              tooling/tools.manifest.txt              default manifest
+              hee/evidence/tools/tools-update.*.log   per-run evidence log
+
+EXIT STATUS
+              Nagios plugin convention.
+              0 OK   every manifest line was processed
+              Any other status is the exit code of whichever command failed under
+              `set -e` (curl, tar, sha256sum, mkdir), passed through unmapped -- a
+              failed download exits with curl's own code, not 2 CRITICAL. Documented
+              as-is, not changed here.
+
+SEE ALSO
+              hee-tools, hee-tools-check
+
+                                                           HEE-TOOLS-UPDATE(1)

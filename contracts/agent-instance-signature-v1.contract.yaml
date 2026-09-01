@@ -2,7 +2,7 @@
 version: agent-instance-signature-v1
 name: agent-instance-signature
 title: Agent Instance Signature Contract
-status: proposed
+status: ratified
 
 intent:
   - "make every inter-agent message and every agent-authored public post
@@ -15,7 +15,7 @@ intent:
     'merged and deployed' when it was still open -- neither claim carried
     anything identifying which process made it"
   - "reuse the fleet's existing UUID mechanism (hee.kind-registry's
-    metadata.annotations.inuid, contracts/hee.kind-registry.contract.v1.yaml)
+    metadata.annotations.inuid, hee/contracts/hee.kind-registry.contract.v1.yaml)
     rather than inventing a new one -- Claude Code already assigns a real
     UUID per running instance (env: CLAUDE_CODE_SESSION_ID), so the
     'new' mechanism this contract needs is zero new infrastructure: read
@@ -38,7 +38,7 @@ actors:
 
 boundaries:
   governs: "inter-agent SendMessage traffic and agent-authored GitHub comments"
-  does_not_govern: "git commit authorship (already covered by docs/guides/GIT_GH_WORKFLOW.md) or file-level HEE-object identity (already covered by inuid, contracts/hee.kind-registry.contract.v1.yaml)"
+  does_not_govern: "git commit authorship (already covered by docs/guides/GIT_GH_WORKFLOW.md) or file-level HEE-object identity (already covered by inuid, hee/contracts/hee.kind-registry.contract.v1.yaml)"
 
 signature-block:
   description: >

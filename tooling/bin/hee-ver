@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# section: 1
+# hee-ver -- version and verification discovery
+#
+# Named for the duality the operator pointed at: hee ver{sion,ify}. It
+# REPORTS what is here (versions, platform, hardware, session) and VERIFIES
+# that recorded claims still hold. Same probes either way -- a claim is only
+# worth recording if the thing that recorded it can re-run it.
+#
+# Logic lives in library/py/hee_toolver so it is testable and reusable; this
+# is the thin CLI over it, per rule 13.
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
+
+# shellcheck source=/dev/null
+if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
+  . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
+else
+  hee_status() { lvl="$1"; shift; printf '%s %s\n' "$lvl" "$*"; }
+fi
+
+usage_tool() {
+  cat <<'EOF'
+hee-ver tool -- a tool's version, from every source that has an opinion
+
+SYNOPSIS
+  hee-ver tool <name>... [--source auto|self|package|path] [--json]
+
+DESCRIPTION
+  Three sources, each authoritative about something different:
+
+    self     what the binary reports. Authoritative for behaviour, but
+             tools under-report: jq says 1.7 while 1.7.1 is installed.
+    package  what the package manager has. Authoritative for provenance
+             and patch level -- carries epochs and distro patches the
+             binary never mentions (git: 1:2.43.0-1ubuntu7.3).
+    path     the version in the install path. Often the ONLY source for
+             version-managed runtimes: nvm's node has no package at all.
+
+  Every source that answers is reported, not just the chosen one, and a
+  disagreement is shown rather than resolved silently:
+
+    conflict   a genuine mismatch; neither is a refinement of the other
+    imprecise  the binary is coarser than the package (jq 1.7 vs 1.7.1)
+
+  A version is only accepted from a ZERO-EXIT invocation whose output
+  matches a real version shape. `sh --version` is an error and `uname -v`
+  is the kernel build string; neither is a version.
+
+EXIT STATUS
+  0 OK   2 CRITICAL a conflict, or the tool is missing   3 UNKNOWN
+EOF
+}
+
+usage_platform() {
+  cat <<'EOF'
+hee-ver platform -- what this host says it is
+
+SYNOPSIS
+  hee-ver platform [--json]
+
+DESCRIPTION
+  Reads every source that answers, not just the first, because they
+  disagree usefully: os-release may say Linux Mint while every package
+  carries an Ubuntu version string.
+
+  os-release        Linux, FreeBSD 13+, NetBSD, DragonFly
+  lsb_release       often NOT independent -- on Debian/Ubuntu it is a shell
+                    script that reads os-release, so it corroborates rather
+                    than confirms
+  sw_vers           macOS
+  freebsd-version   FreeBSD, where kernel and userland can differ
+  uname, ldd        always available; libc decides binary portability
+
+EXIT STATUS
+  0 OK   3 UNKNOWN nothing answered
+EOF
+}
+
+usage_hardware() {
+  cat <<'EOF'
+hee-ver hardware -- host hardware and firmware, unprivileged
+
+SYNOPSIS
+  hee-ver hardware [--json]
+
+DESCRIPTION
+  Reads /sys/class/dmi/id, NOT dmidecode. Sysfs exposes the same SMBIOS
+  fields and needs no root; dmidecode reads the raw SMBIOS tables and
+  fails with Permission denied as a normal user. Needing root to read a
+  BIOS date is a reason to pick a different source, not to escalate.
+
+  Serial numbers are deliberately not collected. They identify a specific
+  machine, they are root-only for that reason, and they are a privacy
+  problem the moment they land in a git repo.
+
+EXIT STATUS
+  0 OK   3 UNKNOWN no DMI available (common in a container)
+EOF
+}
+
+usage_session() {
+  cat <<'EOF'
+hee-ver session -- this agent instance's identity
+
+SYNOPSIS
+  hee-ver session [--json] [--signature]
+
+DESCRIPTION
+  The fields contracts/agent-instance-signature-v1.contract.yaml requires:
+  session_id, host, gh_actor, timestamp, tmux URI. Every one read from
+  this process's own environment -- nothing invented, nothing centrally
+  issued, which is the contract's own requirement.
+
+  Also reports whether this terminal can carry OSC 8 hyperlinks, which
+  decides whether tool output may use short clickable links.
+
+OPTIONS
+  --signature   emit the markdown signature footer for a GitHub comment
+
+EXIT STATUS
+  0 OK   3 UNKNOWN session id unavailable
+EOF
+}
+
+usage_verity() {
+  cat <<'EOF'
+hee-ver verity -- fs-verity state and DIGEST for a file
+
+SYNOPSIS
+  hee-ver verity <path>... [--json]
+
+DESCRIPTION
+  Reports whether the kernel has fs-verity enabled on a file, and if so its
+  root digest.
+
+  THE DIGEST IS THE PRODUCT, not the boolean. Per the org's fs-verity
+  design (hee/docs/IMPLEMENTATION_MANUAL-partial.md -- WIP, a draft
+  direction rather than settled doctrine), the digest is what gets compiled
+  into the SNMP MIB tree as the identifier for an exact state of logic, and
+  what a DNS TXT record publishes alongside an agent's public key. Drift
+  detection is a digest comparison against a recorded reference.
+
+  Read through the kernel ioctl, NOT the fsverity CLI. This host has
+  CONFIG_FS_VERITY=y but no fsverity userspace tool installed, so going
+  through the ioctl is what makes this work on a stock node with nothing
+  added -- the low-dependency premise the design rests on.
+
+  Once fs-verity is enabled on a file it becomes immutable: even root can
+  only unlink it, never modify it.
+
+EXIT STATUS
+  0 OK enabled   1 WARNING not enabled   3 UNKNOWN unreadable or no kernel support
+
+EOF
+}
+
+usage_verify() {
+  cat <<'EOF'
+hee-ver verify -- re-run recorded claims and check they still hold
+
+SYNOPSIS
+  hee-ver verify [PATH_TO_primitives.yaml]
+
+DESCRIPTION
+  The other half of ver{sion,ify}. A provenance record is only worth
+  keeping if the command that produced it can be re-run and still produce
+  it. This replays every entry's `verified.command` and compares.
+
+  Defaults to ~/git/primitives/primitives.yaml.
+
+  A recorded claim that no longer reproduces is CRITICAL, not a warning:
+  it means the record is now fiction.
+
+EXIT STATUS
+  0 OK all claims reproduce   2 CRITICAL one or more do not   3 UNKNOWN
+EOF
+}
+
+usage() {
+  cat <<'EOF'
+hee-ver -- version and verification discovery (hee ver{sion,ify})
+
+SYNOPSIS
+  hee-ver tool <name>... [--source auto|self|package|path] [--json]
+  hee-ver platform [--json]
+  hee-ver hardware [--json]
+  hee-ver session  [--json] [--signature]
+  hee-ver all      [--json]
+  hee-ver verify   [PATH]
+  hee-ver [SUBCOMMAND] help
+
+DESCRIPTION
+  One discovery surface. It reports what is actually here, and verifies
+  that what was recorded is still true.
+
+  Nothing is asserted. A version is accepted only from a zero-exit
+  invocation whose output matches a real version shape, so an error
+  message or a kernel build string is never mistaken for a version.
+
+SUBCOMMANDS
+  tool       a tool's version, from every source
+  platform   OS, distro, kernel, libc
+  hardware   DMI/BIOS, CPU, memory -- unprivileged
+  session    this agent instance's identity and signature fields
+  all        everything above
+  verify     re-run recorded claims and check they still hold
+
+  Add `help` after any subcommand for its own page.
+
+EXIT STATUS
+  Nagios convention. 0 OK  1 WARNING  2 CRITICAL  3 UNKNOWN
+
+ENVIRONMENT
+  HEE_STATUS_STYLE   icon (default), ascii, plain. See heerc.
+
+SEE ALSO
+  hee-check, hee-tools-check, hee-print
+EOF
+}
+
+_last=""; for _a in "$@"; do _last="$_a"; done
+case "$_last" in
+  help|--help|-h)
+    case "${1:-}" in
+      tool) usage_tool ;; platform) usage_platform ;; hardware) usage_hardware ;;
+      session) usage_session ;; verity) usage_verity ;; verify) usage_verify ;; *) usage ;;
+    esac
+    exit 0 ;;
+esac
+
+command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; exit 3; }
+export PYTHONPATH="$TOOL_ROOT/library/py:${PYTHONPATH:-}"
+
+cmd="${1:-all}"; shift 2>/dev/null || true
+HEE_VER_ARGS="$*" HEE_VER_CMD="$cmd" python3 "$TOOL_ROOT/library/py/hee_toolver/_cli.py"

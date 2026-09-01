@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-lint: fast lint gate for HEE-object YAML (apiVersion: hee/v1)
 # Modes:
 #   --mode warn|error   (default warn)
@@ -55,11 +56,11 @@ check_file() {
     }
     my $meta = $2;
 
-    if ($meta !~ /(^|\n)\s*annotations:\s*\n(.*?)(\n\s*\S|$)/s) {
+    if ($meta !~ /(^|\n)(\s*)annotations:\s*\n((?:\2[ \t]+\S.*\n?)*)/s) {
       print "🔴 🟦 b # ERROR: missing metadata.annotations: $ARGV\n";
       exit 3;
     }
-    my $ann = $2;
+    my $ann = $3;
 
     if ($ann =~ /(^|\n)\s*inuid:\s*(.*?)\s*(\n|$)/s) {
       $inuid = 1;
@@ -114,9 +115,14 @@ if [ "${MODE}" = "error" ]; then
   fi
 fi
 
+# Real bug fix (2026-08-24): mode=warn's own name promises a non-blocking
+# report, but this exited 1 on any FAIL, silently gating commits/hooks the
+# same as mode=error -- hit live blocking an unrelated pve/haproxy commit
+# on ~23 pre-existing, unrelated blueprint/card failures. mode=warn now
+# always reports and exits 0; only mode=error (handled above) blocks.
 if [ $FAIL -ne 0 ]; then
   echo "🔴 🟦 b # RESULT: fail=${FAIL} warn=${WARN} (mode=warn)"
-  exit 1
+  exit 0
 fi
 
 if [ $WARN -ne 0 ]; then

@@ -1,4 +1,5 @@
 #!/bin/sh
+# section: 1
 # hee-hooks-install: installs optional git hooks (non-destructive, idempotent)
 # usage: tooling/bin/hee-hooks-install [--repo <path>]
 REPO=""

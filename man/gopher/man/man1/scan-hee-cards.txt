@@ -1,0 +1,27 @@
+()                                                                          ()
+
+scan-hee-cards.py(1)
+       scan-hee-cards.py -- tolerant inventory of hee/cards/*.
+
+       Prior  scanners here reportedly kept failing.  The likely reason, found
+       by actually reading ~20 real files first instead of assuming a  schema:
+       the  directory  is  NOT  homogeneous.   It  mixes:  -  kind:  Card (the
+       majority) - kind: Pill (at least one -- uiboss-repohub-next.wip.yaml) -
+       kind: GreenCard (a  template  placeholder,  lives  elsewhere  but  same
+       shape)  -  plain  .md  files  with  no  YAML  frontmatter  at all (gpt-
+       prompting-guide.md,  handoff..pr.134.v2.md)  -  .yaml  files  with   no
+       apiVersion/kind  at  all  (editor.vscode-specials.yaml)  - detached PGP
+       signature files that happen to end in .yaml  (spencer-blank-generation-
+       lyric.card.v1.yaml.asc  and  .yaml.spencer.asc)  -  completely freeform
+       spec: shapes -- there is no fixed sub-schema
+
+       So: this scanner never assumes a shape.  It classifies what  each  file
+       actually  is,  reports  parse failures as data (not crashes), and never
+       requires a specific field  to  exist  before  reporting  on  the  file.
+       Usage: scan-hee-cards.py
+
+       [--json]
+
+       (no --help/-h output -- generated from the script's own header comment)
+
+                                                                            ()

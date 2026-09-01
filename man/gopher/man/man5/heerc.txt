@@ -1,0 +1,45 @@
+HEERC(5)                         File Formats                         HEERC(5)
+
+NAME
+       heerc - per-operator shell environment for the HEE toolchain
+
+SYNOPSIS
+       ~/git/human-execution-engine/tooling/heerc
+
+DESCRIPTION
+       A  POSIX  shell fragment sourced by the operator's bash(1) startup, de‐
+       liberately minimal: it makes bare hee resolve, and carries per-operator
+       display preference. It is not a general dotfile — aliases,  prompt  and
+       other opinion stay in personal dotfiles.
+
+       Sourced  from dotfiles' .bashrc behind an existence guard, so an opera‐
+       tor using dotfiles without this repo cloned is unaffected.
+
+WHAT IT DOES
+       PATH bootstrap
+              Prepends ~/.local/bin if absent. Real trigger, 2026-08-26:  PATH
+              resolution  depended on one operator's personal dotfiles happen‐
+              ing to add that directory, and broke for a fresh homedir and for
+              any other identity.
+
+       Governance reminder
+              Prints a one-line reminder to  read  prompts/PROMPTING_RULES.md.
+              Real  footgun,  2026-08-28:  a  session  ran mutating git across
+              three repos before reading rule 1 (never push directly to main).
+
+VARIABLES
+       HEE_STATUS_STYLE
+              Status rendering for every  HEE  tool:  icon  (default),  ascii,
+              plain.   See  hee-status(7).   Per-operator preference, which is
+              why it lives in an rc file rather than being hardcoded.
+
+NOT SET HERE
+       Runtime  variables  consumed  by  individual  tools   —   HEE_REPO_DIR,
+       HEE_CRED_PASS,  HEE_DERIVED_DIRS  — are passed per invocation or by the
+       calling tool, not declared here.  This file  stays  PATH-and-preference
+       only.
+
+SEE ALSO
+       hee(1), hee-status(7)
+
+HEE                               2026-09-01                          HEERC(5)

@@ -30,7 +30,7 @@ repos:
       - id: hee-policy-compliance
         name: HEE Policy Compliance Check
         entry: |
-          bash -c 'echo "🔍 Checking HEE policy compliance..." && if [ -f "docs/HEE_POLICY.md" ]; then echo "✅ HEE policy file found"; else echo "❌ HEE policy file missing"; exit 1; fi && if [ -f "prompts/PROMPTING_RULES.md" ]; then echo "✅ Prompting rules found"; else echo "❌ Prompting rules missing"; exit 1; fi'
+          bash -c 'echo "🔍 Checking HEE policy compliance..." && if [ -f "docs/HEE_POLICY.md" ]; then echo "✅ HEE policy file found"; else echo "❌ HEE policy file missing"; exit 1; fi && if [ -f "prompts/INIT.md" ]; then echo "✅ Init entry point found"; else echo "❌ Init entry point missing"; exit 1; fi'
         language: system
         files: '.*'
         pass_filenames: false
@@ -44,7 +44,7 @@ repos:
       - id: hee-documentation-check
         name: HEE Documentation Check
         entry: |
-          bash -c 'echo "🔍 Checking HEE documentation..." && for doc in "docs/HEE.md" "docs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md"; do if [ -f "$doc" ]; then echo "✅ $doc found"; else echo "⚠️  $doc missing"; fi; done'
+          bash -c 'echo "🔍 Checking HEE documentation..." && for doc in "docs/HEE.md" "docs/specs/HEER.md" "docs/TROUBLESHOOTING.md" "prompts/INIT.md"; do if [ -f "$doc" ]; then echo "✅ $doc found"; else echo "⚠️  $doc missing"; fi; done'
         language: system
         files: '.*'
         pass_filenames: false
@@ -124,6 +124,16 @@ repos:
       - id: yamllint
         args: ['-d', 'relaxed']
         files: '\.(yaml|yml)$'
+
+  # Real secret scanning -- fleet-ops#265, direct follow-on from
+  # fleet-ops#257 (real leaked-credential incident). hee-security-check
+  # above is a naive keyword grep, not equivalent to a real scanner --
+  # this is format-aware (GitHub PATs, AWS keys, etc.), not just
+  # word-matching. Free/open-source, per HEE_POLICY.md §14.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
 
 # Configuration for pre-commit
 default_stages: [pre-commit, pre-push]

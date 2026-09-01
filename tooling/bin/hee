@@ -1,10 +1,43 @@
 #!/bin/sh
+# section: 1
 # hee: tiny POSIX router (global tool root + local target repo)
 # - TOOL_ROOT derived from this script location ($0)
 # - TARGET_ROOT derived from cwd (git repo) if available
-# - extension: try target repo tooling/bin/hee-<cmd>, then tool repo tooling/bin/hee-<cmd>
+# - extension: try target repo tooling/bin/hee-<cmd>, then tool repo
+#   tooling/bin/hee-<cmd>, then every other repo under WORKSPACE_ROOT
 
 set -u
+
+# WORKSPACE_ROOT -- this org's own convention (bin/init-org.sh's
+# WORKSPACE_DIR="${HOME}/git", documented in every repo's CLAUDE.md) that
+# every repo lives under one flat workspace dir. Used as a last-resort
+# extension search so a repo-local command (e.g. .github's hee-make) is
+# reachable from anywhere, not just from inside that one repo -- real
+# trigger, Spencer direct 2026-08-28: "hee tools work from any dir, bake
+# that in the command... I am not going to go cd all over the place.
+# make the tool work for us."
+WORKSPACE_ROOT="${HOME}/git"
+
+# find_workspace_extension CMD -- scan every repo under WORKSPACE_ROOT
+# (skipping TARGET_ROOT/TOOL_ROOT, already checked by the caller) for
+# tooling/bin/hee-CMD. First match wins, directory-listing order -- fine
+# for the single-digit number of repos that define repo-local extensions
+# today; revisit with an explicit collision check if that ever changes.
+find_workspace_extension() {
+  _fwe_cmd="$1"
+  [ -d "${WORKSPACE_ROOT}" ] || return 1
+  for _fwe_repo in $(find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+    case "${_fwe_repo}" in
+      "${TARGET_ROOT}" | "${TOOL_ROOT}") continue ;;
+    esac
+    _fwe_cand="${_fwe_repo}/tooling/bin/hee-${_fwe_cmd}"
+    if [ -x "${_fwe_cand}" ]; then
+      printf '%s\n' "${_fwe_cand}"
+      return 0
+    fi
+  done
+  return 1
+}
 
 usage() {
   cat <<'TXT'
@@ -13,6 +46,10 @@ hee — tiny router (POSIX sh)
 usage:
   hee lint [--mode warn|error]
   hee hooks install [--repo <path>]
+  hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
+  hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
+  hee contract review [--dump [json]] [--gopher-menu]
+  hee list
   hee help
 
 design:
@@ -22,12 +59,81 @@ design:
 TXT
 }
 
-# resolve TOOL_ROOT from this script path
+# List every real hee-<cmd> extension actually found on disk, in both
+# search roots -- real trigger: "hee list" had no answer, a user could
+# only discover commands by reading source or already knowing the name.
+list_commands() {
+  echo "built-in:"
+  echo "  lint, hooks install, git merge, ssh send-keys, contract review, list, help"
+  echo ""
+  echo "extensions found:"
+  found=""
+  for root in "${TARGET_ROOT}" "${TOOL_ROOT}"; do
+    d="${root}/tooling/bin"
+    [ -d "${d}" ] || continue
+    for f in "${d}"/hee-*; do
+      [ -x "${f}" ] || continue
+      name="$(basename "${f}")"
+      case " ${found} " in
+        *" ${name} "*) continue ;;
+      esac
+      found="${found} ${name}"
+      echo "  ${name}"
+    done
+  done
+  # workspace-wide: repo-local extensions from every other repo under
+  # WORKSPACE_ROOT, annotated by repo so "where did this come from" is
+  # never a mystery. These differ from the two roots above only in that
+  # they're now reachable from anywhere, not just from inside their own
+  # repo -- same fix as the resolution logic below.
+  if [ -d "${WORKSPACE_ROOT}" ]; then
+    for repo in $(find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+      case "${repo}" in
+        "${TARGET_ROOT}" | "${TOOL_ROOT}") continue ;;
+      esac
+      d="${repo}/tooling/bin"
+      [ -d "${d}" ] || continue
+      for f in "${d}"/hee-*; do
+        [ -x "${f}" ] || continue
+        name="$(basename "${f}")"
+        case " ${found} " in
+          *" ${name} "*) continue ;;
+        esac
+        found="${found} ${name}"
+        echo "  ${name}  ($(basename "${repo}"))"
+      done
+    done
+  fi
+  [ -z "${found}" ] && echo "  (none found in ${TARGET_ROOT}/tooling/bin, ${TOOL_ROOT}/tooling/bin, or any repo under ${WORKSPACE_ROOT})"
+}
+
+# resolve TOOL_ROOT from this script's REAL path, not the PATH entry
+# used to invoke it. Real bug (2026-08-25): `command -v` on $0 returns
+# a symlink's own path (e.g. ~/.local/bin/hee), not its target -- so
+# TOOL_ROOT computed from a symlinked PATH entry pointed at the wrong
+# directory, and every extension command (hee-cred, hee-pve-*, etc)
+# silently failed with "unknown command" UNLESS run from inside this
+# repo (where TARGET_ROOT happened to also be correct). Broke the
+# entire "only ever hee command, from anywhere" workflow. Resolve the
+# real symlink target before deriving TOOL_ROOT.
 SELF="$0"
 case "$SELF" in
   /*) ;;
   *) SELF="$(command -v -- "$SELF" 2>/dev/null || echo "$SELF")" ;;
 esac
+# Resolve symlinks -- a `hee` symlinked onto PATH (e.g.
+# ~/.local/bin/hee -> <repo>/tooling/bin/hee, the real bootstrap.mk
+# install pattern) must resolve TOOL_ROOT from the real repo, not the
+# symlink's own directory. Real bug, found live 2026-08-24/25
+# dogfooding tooling/bootstrap.mk against spencer@kiosk (found twice,
+# independently, on two branches -- same root cause). realpath/readlink -f
+# over a hand-rolled loop, per the GNU Tools Preference Policy
+# (HEE_POLICY.md #16).
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
 SELF_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd)"
 TOOL_ROOT="$(cd "${SELF_DIR}/../.." 2>/dev/null && pwd)"
 
@@ -38,7 +144,15 @@ if [ -z "${TARGET_ROOT}" ]; then
 fi
 
 cmd="${1:-help}"
-shift 2>/dev/null || true
+# Real bug, found live 2026-08-31 while giving every tool a working help
+# (issue:462@human-execution-engine): a bare `hee` printed NOTHING and
+# exited 2 instead of printing usage. `shift` is a POSIX SPECIAL builtin,
+# so failing it exits a non-interactive shell outright -- neither
+# `2>/dev/null` nor `|| true` can catch that, they only hid the message.
+# Every `sub="${1:-help}"` shift below had the same defect, so `hee hooks`
+# / `hee git` / `hee ssh` / `hee contract` with no subcommand died silently
+# too. Guard the shift instead of trying to trap it.
+if [ "$#" -gt 0 ]; then shift; fi
 
 case "${cmd}" in
   lint)
@@ -48,7 +162,7 @@ case "${cmd}" in
     ;;
   hooks)
     sub="${1:-help}"
-    shift 2>/dev/null || true
+    if [ "$#" -gt 0 ]; then shift; fi
     case "${sub}" in
       install)
         # if user did not pass --repo, default to TARGET repo
@@ -56,6 +170,68 @@ case "${cmd}" in
           *" --repo "*) exec "${TOOL_ROOT}/tooling/bin/hee-hooks-install" "$@" ;;
           *) exec "${TOOL_ROOT}/tooling/bin/hee-hooks-install" --repo "${TARGET_ROOT}" "$@" ;;
         esac
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  git)
+    sub="${1:-help}"
+    if [ "$#" -gt 0 ]; then shift; fi
+    case "${sub}" in
+      merge)
+        # Real fix: "help" anywhere at the end (not just right after
+        # "merge") should work -- rotate args left-to-right $#-1 times
+        # so the true last arg lands at front, then swap it for
+        # --help, preserving every arg before it in original order.
+        if [ "$#" -gt 0 ]; then
+          eval "_last=\${$#}"
+          if [ "${_last}" = "help" ]; then
+            _n=$#
+            _i=1
+            while [ "${_i}" -lt "${_n}" ]; do
+              _first="$1"
+              shift
+              set -- "$@" "${_first}"
+              _i=$((_i + 1))
+            done
+            shift
+            set -- "$@" --help
+          fi
+        fi
+        exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  list)
+    list_commands
+    exit 0
+    ;;
+  ssh)
+    sub="${1:-help}"
+    if [ "$#" -gt 0 ]; then shift; fi
+    case "${sub}" in
+      send-keys)
+        exec "${TOOL_ROOT}/tooling/bin/hee-ssh-send-keys" "$@"
+        ;;
+      *)
+        usage
+        exit 0
+        ;;
+    esac
+    ;;
+  contract)
+    sub="${1:-help}"
+    if [ "$#" -gt 0 ]; then shift; fi
+    case "${sub}" in
+      review)
+        exec "${TOOL_ROOT}/tooling/bin/hee-contract-review" "$@"
         ;;
       *)
         usage
@@ -71,11 +247,38 @@ case "${cmd}" in
     ext_target="${TARGET_ROOT}/tooling/bin/hee-${cmd}"
     ext_tool="${TOOL_ROOT}/tooling/bin/hee-${cmd}"
 
+    # Real, general fix: "help" as the LAST arg -- at any depth, e.g.
+    # "hee pve-health status help", not just right after the command
+    # name -- must work the same as --help. Most argparse-based hee-*
+    # tools only recognize --help/-h, and Spencer's real ask was "help
+    # as last arg... hate having to move the verb around": rotate args
+    # left $#-1 times so the true last one lands at front, swap it for
+    # --help, everything before it keeps its original order.
+    if [ "$#" -gt 0 ]; then
+      eval "_last=\${$#}"
+      if [ "${_last}" = "help" ]; then
+        _n=$#
+        _i=1
+        while [ "${_i}" -lt "${_n}" ]; do
+          _first="$1"
+          shift
+          set -- "$@" "${_first}"
+          _i=$((_i + 1))
+        done
+        shift
+        set -- "$@" --help
+      fi
+    fi
+
     if [ -x "${ext_target}" ]; then
       exec "${ext_target}" "$@"
     fi
     if [ -x "${ext_tool}" ]; then
       exec "${ext_tool}" "$@"
+    fi
+    ext_workspace="$(find_workspace_extension "${cmd}")"
+    if [ -n "${ext_workspace}" ] && [ -x "${ext_workspace}" ]; then
+      exec "${ext_workspace}" "$@"
     fi
 
     echo "🟡 🟦 b # WARN: unknown command: ${cmd}" 1>&2

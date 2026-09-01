@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+# section: 1
+# hee-check-og -- real Open Graph / Twitter Card / title / canonical
+# tag check, for a live URL or a local HTML file.
+#
+# Real trigger (2026-08-29): Spencer manually ran a curl+grep one-liner
+# twice in the same session to check OG tags on live TCOS pages, then
+# asked to "roll this into a hee tool." Real extraction logic lives in
+# library/py/hee_ogtags (shared, not copy-pasted here) -- this script
+# is just the CLI: fetch-or-read, then print what that library finds.
+#
+# Usage: hee-check-og <url-or-local-path> [--raw]
+#   (default)  pretty key: value summary, deduplicated, easy to eyeball
+#   --raw      exact matched tags, in document order, like the original
+#              curl | grep -oE one-liner this replaces
+
+import sys
+import urllib.request
+from pathlib import Path
+
+_LIB_DIR = Path(__file__).resolve().parent.parent.parent / "library" / "py"
+sys.path.insert(0, str(_LIB_DIR))
+import hee_ogtags  # noqa: E402
+
+
+def fetch(target):
+    if target.startswith("http://") or target.startswith("https://"):
+        req = urllib.request.Request(target, headers={"User-Agent": "hee-check-og"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    return Path(target).read_text(encoding="utf-8", errors="replace")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print("usage: hee-check-og <url-or-local-path> [--raw]", file=sys.stderr)
+        return 2
+
+    target = argv[0]
+    raw = "--raw" in argv[1:]
+
+    try:
+        html = fetch(target)
+    except Exception as e:
+        print(f"hee-check-og: failed to read '{target}': {e}", file=sys.stderr)
+        return 1
+
+    if raw:
+        tags = hee_ogtags.extract_tags(html)
+        if not tags:
+            print("hee-check-og: no OG/Twitter/title/canonical tags found", file=sys.stderr)
+            return 1
+        for tag in tags:
+            print(tag)
+        return 0
+
+    pairs = hee_ogtags.extract_meta_pairs(html)
+    title_match = hee_ogtags.TITLE_RE.search(html)
+    canonical_match = hee_ogtags.CANONICAL_RE.search(html)
+
+    if not pairs and not title_match and not canonical_match:
+        print("hee-check-og: no OG/Twitter/title/canonical tags found", file=sys.stderr)
+        return 1
+
+    if title_match:
+        print(f"title: {title_match.group(0)}")
+    if canonical_match:
+        print(f"canonical: {canonical_match.group(0)}")
+    for key, value in pairs.items():
+        print(f"{key}: {value}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,69 @@
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: treasury-invariants
+  description: "Generic reserve/float/instrument/priority-tier financial-controls contract. Extracted and genericized 2026-08-24 from a real, private, org-specific treasury DIF (tcos-plan-private) as part of the fleet-ops#272 recovery epic -- no dollar figures, entity names, or other private specifics were carried over, only the reusable control pattern. The original, org-specific instance stays private and unchanged; this is the public schema it can conform to."
+  labels:
+    hee.object: "true"
+    hee.contract.type: financial-controls
+    domain: hee
+    scope: governance
+    topic: treasury
+    artifact: contract
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    recovered_utc: "2026-08-24T00:00:00Z"
+    origin_note: "genericized from a private tcos-plan-private DIF pill; see fleet-ops#272"
+
+spec:
+  invariants:
+    - "No vibes, no 'just send it' -- every transfer is an explicit, named instrument."
+    - "Reserve and float are separate concepts and must be tracked separately from day 1."
+    - "Treasury controls apply to every human party, including any founder -- no exemptions."
+    - "Verified evidence is the model; important actions require auditable evidence, not just a record."
+
+  eli5:
+    reserve: "War chest. Not for daily spend. Strategic only."
+    float: "Operating cash. Used daily/weekly under a real budget."
+
+  cash_locations:
+    default_rule: "Reserve lives at the top-level entity. Subsidiary/operating entities hold float only."
+    note: "Exact entity mapping is org-specific -- left as an open_question for the adopting org's own DIF, not prescribed here."
+
+  allowed_transfer_instruments:
+    - "capital_contribution"
+    - "intercompany_loan"
+    - "service_fee"
+    - "lease_payment"
+    - "ip_license_fee"
+    - "distribution"
+
+  priority_tiers:
+    note: "p0 is highest priority. Record p-tier decisions even under a single-approver model, so the record survives a later move to delegated approval."
+    tiers:
+      - p: 0
+        label: "strategic"
+        rule: "Requires an explicit instrument type + real physical/auditable evidence + (optional) cooldown."
+      - p: 1
+        label: "material"
+        rule: "Requires an explicit note + evidence pointers."
+      - p: 2
+        label: "routine"
+        rule: "Within budget; record reason + category, no further gate."
+
+  drift_detection:
+    rule: "If expected artifacts are missing or stale, alert -- don't silently assume they're current."
+    freshness:
+      inputs: ["mtime_age", "git_touch_age"]
+      note: "Both signals are used; exact weighting/thresholds are left to the adopting org's own doc, not prescribed here."
+    expected_artifact_examples:
+      - "latest handoff/status record"
+      - "this contract's own most recent amendment"
+      - "evidence pointers for any strategic (p0) action"
+
+  open_questions_for_adopters:
+    - "Exact entity mapping for reserve/float across your own entity structure."
+    - "Real numeric thresholds for each priority tier, and currency handling."
+    - "How instruments are enforced mechanically -- ledger categories, approval workflow, or both."
+    - "Delegation model over time (who inherits approval authority, and when)."

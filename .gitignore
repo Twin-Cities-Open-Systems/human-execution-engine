@@ -60,10 +60,17 @@ docs/AUTOMATION_CONFIG.json
 # GC Report Pack outputs (generated)
 /var/gc/
 
-# HEE local state - allow specific tracked files
-!.hee/spool/**
-!.hee/evidence/**
-.hee
+# HEE local state. Real fix, 2026-08-21: a bare `.hee` exclusion here,
+# with !.hee/spool/**-style negations meant to re-include specific
+# subdirectories, never actually worked -- git's own documented
+# limitation ("It is not possible to re-include a file if a parent
+# directory of that file is excluded") means the negations were dead
+# code; .hee/spool/ and .hee/evidence/ are only tracked today because
+# their files were force-added once, before anyone hit this. Correct
+# fix: don't exclude .hee/ itself at all -- only the specific
+# subdirectory that's genuinely local-only. spool/, evidence/,
+# tickets/ are untracked-by-default like anything else not listed here.
+.hee/notes/
 
 # node
 node_modules/
@@ -71,11 +78,6 @@ node_modules/
 # local build outputs
 /cmd/hee/hee
 /cmd/hee/cmd/
-
-# committed evidence (track)
-
-# repo-internal scratch (do not commit)
-.hee/
 
 # committed evidence (track)
 !hee/
@@ -88,3 +90,4 @@ generated/html/
 
 # hee: env for pve api comms
 hee/docs/00-hee-deploy-env-setup.sh
+.claude/worktrees/

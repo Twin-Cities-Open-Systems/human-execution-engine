@@ -1,0 +1,19 @@
+% HEE-INV(1) | HEE Tools
+
+# NAME
+
+hee-inv - hee inv unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+
+# SYNOPSIS
+
+      hee inv ingest <incoming_dir> [--tcos-repo <path>]
+
+      hee inv unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+
+    defaults:
+      --tcos-repo $HOME/git/tcos-plan-private
+      --warn-days 7
+      --crit-days 14
+
+    notes:
+      - ingest supports .zip in incoming: archive is preserved as evidence and contents are ingested.

@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+# section: 8
+# System administration -- creates and configures Proxmox containers. man-pages(7) puts commands that
+# administer the system in 8, not 1.
+"""hee-pve-deploy: real, extensible Proxmox LXC deploy from a declarative
+manifest -- one YAML file per service, this tool creates it via the real
+Proxmox API (pvesh over SSH to the node), idempotent.
+
+Real trigger (2026-08-24, Spencer): "build extensible deploy via api to
+pve strat" -- tiny, bare-minimum LXC per core service (bastion, qmail
+MTA, snmpd), matching docs/guides/PVE_CAPACITY_PLANNING_METHODOLOGY.md's
+step 5 ("a new service is a new manifest entry, not new deploy code").
+
+Never installs anything on the pve host itself -- pvesh is Proxmox's
+own real API-wrapper CLI, already there on any real Proxmox node; this
+tool just calls it over SSH from wherever hee runs.
+
+Manifest format (pve/services/<name>.yaml):
+  hostname: bastion
+  template: alpine-3.23-default_20260116_amd64.tar.xz
+  cores: 1
+  memory_mb: 256
+  disk_gb: 4
+  storage: local-lvm
+  bridge: vmbr0
+  unprivileged: true
+
+Usage:
+  hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
+"""
+import argparse
+import subprocess
+import sys
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("Requires pyyaml: pip install pyyaml")
+
+
+def pvesh(host, args, capture=True):
+    cmd = ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pvesh", *args]
+    proc = subprocess.run(cmd, capture_output=capture, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"hee-pve-deploy: pvesh {' '.join(args)} failed:\n{proc.stderr}")
+    return proc.stdout if capture else None
+
+
+def existing_hostnames(host, node):
+    import json
+    out = pvesh(host, ["get", f"/nodes/{node}/lxc", "--output-format", "json"])
+    return {c["name"]: c["vmid"] for c in json.loads(out)}
+
+
+def ensure_template(host, template_storage, template):
+    # Real, live-found gap: lvmthin storages (local-lvm/vmdata) only
+    # support content type images/rootdir, not vztmpl -- templates must
+    # live on a dir-type storage (real "local" on this node). Separate
+    # from where the LXC's actual rootfs disk lands.
+    local = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pveam", "list", template_storage],
+        capture_output=True, text=True,
+    ).stdout
+    if template not in local:
+        print(f"hee-pve-deploy: downloading template {template} to {template_storage}...")
+        pvesh_download = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pveam", "download", template_storage, template],
+            capture_output=True, text=True,
+        )
+        if pvesh_download.returncode != 0:
+            sys.exit(f"hee-pve-deploy: template download failed:\n{pvesh_download.stderr}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-pve-deploy")
+    ap.add_argument("manifest")
+    ap.add_argument("--node", default="pve")
+    ap.add_argument("--host", default="10.0.0.153")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    spec = yaml.safe_load(open(args.manifest))
+    hostname = spec["hostname"]
+
+    existing = existing_hostnames(args.host, args.node)
+    if hostname in existing:
+        print(f"hee-pve-deploy: '{hostname}' already exists (vmid {existing[hostname]}) -- skipping, idempotent.")
+        return
+
+    template_storage = spec.get("template_storage", "local")
+    ensure_template(args.host, template_storage, spec["template"])
+
+    vmid = pvesh(args.host, ["get", "/cluster/nextid"]).strip()
+
+    create_args = [
+        "create", f"/nodes/{args.node}/lxc",
+        "-vmid", vmid,
+        "-hostname", hostname,
+        "-ostemplate", f"{template_storage}:vztmpl/{spec['template']}",
+        "-cores", str(spec.get("cores", 1)),
+        "-memory", str(spec.get("memory_mb", 256)),
+        "-rootfs", f"{spec.get('storage', 'local-lvm')}:{spec.get('disk_gb', 4)}",
+        "-net0", f"name=eth0,bridge={spec.get('bridge', 'vmbr0')},ip=dhcp",
+        "-unprivileged", "1" if spec.get("unprivileged", True) else "0",
+        "-start", "1",
+    ]
+
+    if args.dry_run:
+        print(f"hee-pve-deploy: DRY RUN, would run: pvesh {' '.join(create_args)}")
+        return
+
+    print(f"hee-pve-deploy: creating '{hostname}' as vmid {vmid}...")
+    pvesh(args.host, create_args, capture=False)
+    print(f"hee-pve-deploy: '{hostname}' created and starting (vmid {vmid}).")
+
+
+if __name__ == "__main__":
+    main()

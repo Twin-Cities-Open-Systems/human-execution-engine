@@ -36,24 +36,23 @@ If these paths do not exist, this document MUST NOT be treated as active doctrin
 - AGENT execution directives MUST be written in plain TEXT.
 - Markdown, formatting, or structural markup is FORBIDDEN in execution directives.
 - AGENT execution directives:
-  - do not allow questions
   - do not allow scope negotiation
   - require disk evidence as output
 
 This rule applies ONLY to execution.
 Planning and discussion MAY use other formats.
 
+(Removed 2026-08-27: this rule originally also said execution directives
+"do not allow questions," and a separate NO-QUESTIONS EXECUTION RULE stood
+here as its own numbered contract. Both directly contradicted the live,
+current `prompts/PROMPTING_RULES.md` rule 5 -- "When in doubt, stop and ask
+rather than guess" -- which is how the fleet actually operates. Resolved in
+favor of the live rule per the Canonization Policy, not silently dropped:
+stop-and-ask wins, this file's no-questions language was the stale side.)
+
 ---
 
-### 2. NO-QUESTIONS EXECUTION RULE
-
-- During execution, AGENT MUST NOT ask clarifying questions.
-- Ambiguity MUST be resolved by choosing the safest interpretation consistent with the stated objective.
-- Failure to proceed due to ambiguity is a violation of this contract.
-
----
-
-### 3. WHITELIST PARSER INVARIANT
+### 2. WHITELIST PARSER INVARIANT
 
 - Governance output parsing is **whitelist-only**.
 - Only known, canonical violation formats are considered real violations.
@@ -69,7 +68,7 @@ Noise includes, but is not limited to:
 
 ---
 
-### 4. WAIVER SEMANTICS
+### 3. WAIVER SEMANTICS
 
 - WAIVER_APPLIED markers are NON-VIOLATING.
 - Waived violations MUST NEVER increment violation counters.
@@ -77,7 +76,7 @@ Noise includes, but is not limited to:
 
 ---
 
-### 5. STDOUT / STDERR CONTRACT
+### 4. STDOUT / STDERR CONTRACT
 
 - stdout is RESERVED for machine-parseable output only.
 - stderr is RESERVED for diagnostics and debug output.
@@ -87,7 +86,7 @@ Violation of this contract invalidates parser correctness.
 
 ---
 
-### 6. EXIT CODE SEMANTICS
+### 5. EXIT CODE SEMANTICS
 
 The following exit code meanings are frozen:
 
@@ -99,7 +98,7 @@ These meanings MUST remain stable across all governance tooling.
 
 ---
 
-### 7. EVIDENCE BUNDLE REQUIREMENT
+### 6. EVIDENCE BUNDLE REQUIREMENT
 
 All execution work MUST produce an evidence bundle containing:
 
@@ -114,17 +113,13 @@ Evidence is mandatory.
 
 ---
 
-### 8. ROLE SEPARATION
-
-The following role separation is enforced:
-
-- COG: decides and authorizes
-- OPER: plans and coordinates
-- AGENT: executes without questions
-
-Execution MUST NOT collapse these roles.
-
----
+(Removed 2026-08-27: a ROLE SEPARATION contract stood here defining
+COG/OPER/AGENT roles. It conflicted outright with `HEE_EXECUTION_ATTRIBUTION.md`'s
+different two-role AGENT/OPERATOR split -- same words, opposite meanings,
+in two doctrine files in the same directory -- and matched nothing in real
+practice, which just says "the human"/"the agent." Dropped rather than
+adjudicated between two dead vocabularies; `HEE_EXECUTION_ATTRIBUTION.md`
+was removed for the same reason in this same pass.)
 
 ## SOFT-FROZEN CONTRACTS
 

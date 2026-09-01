@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-view: one command, the whole real picture -- pve node, every
+container, HAProxy backend health, DNS. Same "only view to see them
+all" intent as view.lab.tcos.us, as a real CLI, no do-this-do-that.
+
+Real trigger (2026-08-24, Spencer): "not going to all this do this do
+that. slick hee view for all." Reuses hee-pve-health's real data
+(shells out to it --json, doesn't reimplement pvesh calls) and adds
+HAProxy + DNS checks in one terse report.
+
+Real trigger for --sites (2026-08-28, Spencer): "first thing may be to
+build a complete site map, setup monitor (simple) with hee view -sites
+(or similar) to make sure we get 200's everywhere, condense view
+(adding -nerd to that will be verbose as fuck)" -- reuses the real,
+already-established --nerd split (condensed by default, full per-URL
+detail only with --nerd) rather than inventing new verbosity flags.
+Default source is the real, live profile/SITEMAP.yaml on .github's
+main branch -- pass --sitemap to check a local copy instead.
+
+Usage:
+  hee-view [--pve-host IP] [--haproxy-host IP] [--dns-host IP]
+  hee-view --sites [--sitemap URL_OR_PATH] [--network lab|public|all] [--nerd]
+"""
+import argparse
+import json
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+DEFAULT_SITEMAP_URL = (
+    "https://raw.githubusercontent.com/Twin-Cities-Open-Systems/"
+    ".github/main/profile/SITEMAP.yaml"
+)
+
+
+def sh(cmd):
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def pve_health(pve_host):
+    tool = __file__.rsplit("/", 1)[0] + "/hee-pve-health"
+    code, out, err = sh([sys.executable, tool, "status", "--host", pve_host, "--json"])
+    if code != 0:
+        return None
+    return json.loads(out)
+
+
+def print_nerd_stats(health):
+    for c in health["lxc"]:
+        h, rem = divmod(c["uptime_s"], 3600)
+        m = rem // 60
+        print(f"   {c['name']:20} cpu {c['cpu_pct']:5.1f}%  mem {c['mem_mb']:5}/{c['maxmem_mb']:5}MB  "
+              f"disk r/w {c['diskread_mb']:6}/{c['diskwrite_mb']:6}MB  "
+              f"net in/out {c['netin_mb']:6}/{c['netout_mb']:6}MB  elapsed {h}h{m}m")
+    t = health["totals"]
+    print(f"🔹 totals across {len(health['lxc'])} container(s): mem {t['mem_mb']}MB  "
+          f"disk r/w {t['diskread_mb']}/{t['diskwrite_mb']}MB  net in/out {t['netin_mb']}/{t['netout_mb']}MB")
+
+
+def haproxy_backends(haproxy_host):
+    try:
+        with urllib.request.urlopen(f"http://{haproxy_host}:8404/;csv", timeout=3) as r:
+            body = r.read().decode()
+    except Exception:
+        return None
+    rows = {}
+    for line in body.strip().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        f = line.split(",")
+        if len(f) > 17 and f[1] not in ("FRONTEND", "BACKEND"):
+            rows[f"{f[0]}/{f[1]}"] = f[17]  # pxname/svname -> status
+    return rows
+
+
+def dns_check(dns_host, name="ns1.lab.tcos.us"):
+    code, out, err = sh(["dig", f"@{dns_host}", name, "+short", "+time=2"])
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def load_sitemap(source):
+    # Real trigger (2026-08-28, Spencer): "the sitemap and url tracking
+    # in ci and then hee view can pull from that" -- default source is
+    # the real, live profile/SITEMAP.yaml on .github's main branch, not
+    # a local copy that can silently drift from what's actually committed.
+    if yaml is None:
+        return None, "PyYAML not installed (pip install pyyaml)"
+    try:
+        if source.startswith("http://") or source.startswith("https://"):
+            with urllib.request.urlopen(source, timeout=5) as r:
+                text = r.read().decode()
+        else:
+            with open(source, encoding="utf-8") as f:
+                text = f.read()
+    except (urllib.error.URLError, OSError) as e:
+        return None, str(e)
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        return None, f"invalid YAML: {e}"
+    sites = data.get("sites") if isinstance(data, dict) else None
+    if not sites:
+        return None, "sitemap has no 'sites' list"
+    return sites, None
+
+
+# Which network a site lives on decides WHO CAN CHECK IT, which is a real
+# property of the site and not a preference.
+#
+# Real incident, fleet-ops#350: .github's scheduled site-health workflow was
+# permanently red on 14/14 *.lab.tcos.us hosts because a GitHub-hosted
+# runner has no route into the private lab network. Every 30 minutes, for
+# weeks. A genuine outage would have been invisible in that noise.
+#
+# So a site declares its network and each checker runs the scope it can
+# actually reach: public CI checks `public`, an on-host timer inside the lab
+# checks `lab`. Neither pretends to see the other.
+#
+# An entry with no explicit `network:` is inferred from its hostname, so the
+# sitemap did not have to be fully annotated before this could work.
+def site_network(entry):
+    declared = (entry.get("network") or "").strip().lower()
+    if declared in ("lab", "public"):
+        return declared
+    return "lab" if ".lab.tcos.us" in entry.get("url", "") else "public"
+
+
+def filter_sites(sites, network):
+    if network in (None, "", "all"):
+        return sites
+    return [e for e in sites if site_network(e) == network]
+
+
+def _fetch(url, method):
+    req = urllib.request.Request(url, method=method, headers={"User-Agent": "hee-view/1.0"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return r.status
+
+
+def sites_check(sites):
+    # Real gotcha, found dogfooding this against the real sitemap
+    # (2026-08-28): Cloudflare-fronted sites here return a real 403 to a
+    # bare HEAD request (WAF/bot-protection rule), even though a real
+    # browser -- or `curl` with its default GET -- gets a real 200. Try
+    # HEAD first (cheaper), fall back to a real GET on any non-2xx/3xx
+    # before calling it a failure, so this doesn't cry wolf about sites
+    # that are actually fine.
+    results = []
+    for entry in sites:
+        url = entry["url"]
+        start = time.monotonic()
+        code = None
+        error = None
+        for method in ("HEAD", "GET"):
+            try:
+                code = _fetch(url, method)
+            except urllib.error.HTTPError as e:
+                code = e.code  # a real HTTP error status (404, etc) is still a real answer
+            except Exception as e:
+                code = None
+                error = str(e)
+            if code and 200 <= code < 400:
+                error = None
+                break
+        elapsed_ms = round((time.monotonic() - start) * 1000)
+        results.append({"url": url, "code": code, "elapsed_ms": elapsed_ms,
+                         "note": entry.get("note", ""), "error": error})
+    return results
+
+
+def print_sites_condensed(results):
+    def is_ok(r):
+        return bool(r["code"]) and 200 <= r["code"] < 400
+    ok = [r for r in results if is_ok(r)]
+    bad = [r for r in results if not is_ok(r)]
+    for r in bad:
+        why = r["error"] or f"HTTP {r['code']}"
+        print(f"🔴 site {r['url']}: {why}")
+    flag = "🟢" if not bad else "🔴"
+    print(f"{flag} sites: {len(ok)}/{len(results)} real URLs answering 200-399")
+
+
+def print_sites_nerd(results):
+    for r in results:
+        flag = "🟢" if r["code"] and 200 <= r["code"] < 400 else "🔴"
+        status = r["error"] or r["code"] or "no answer"
+        print(f"{flag} {r['url']:55} {status!s:10} {r['elapsed_ms']:5}ms  {r['note']}")
+
+
+def inbound_status():
+    # Real trigger (2026-08-26): tcos.us/api/contact + /api/apply write
+    # real applicant/investor/press submissions straight into the private
+    # Twin-Cities-Open-Systems/inbound repo as issues -- confirmed live,
+    # 8 open (unanswered, some 5+ days old) the day this was added, zero
+    # prior monitoring. Spencer: "looks like some new stuff there and I
+    # am expecting more soon, need to monitor." Deliberately just an open
+    # count + oldest-open age here, not a spam/real-applicant judgment
+    # call -- that's inbound#12's real, still-open design question.
+    code, out, err = sh(["gh", "issue", "list", "--repo", "Twin-Cities-Open-Systems/inbound",
+                         "--state", "open", "--json", "number,title,createdAt", "--limit", "100"])
+    if code != 0:
+        return None
+    # Real submissions from the worker are titled "Contact (...): ..." or
+    # "Application: ... — ...". Anything else (e.g. inbound#12, "Design a
+    # real spam-handling workflow policy...") is a meta/tracking issue in
+    # the same repo, not an unprocessed submission -- exclude it, or the
+    # oldest-open figure below is misleading (confirmed live, 2026-08-26:
+    # #12 itself was being counted as the "oldest open submission").
+    return [i for i in json.loads(out) if i["title"].startswith(("Contact (", "Application:"))]
+
+
+def print_inbound(issues):
+    if issues is None:
+        print("🔴 inbound: unreachable (gh issue list failed)")
+        return
+    n = len(issues)
+    if n == 0:
+        print("🟢 inbound: 0 open submissions")
+        return
+    oldest = min(issues, key=lambda i: i["createdAt"])
+    from datetime import datetime, timezone
+    age_days = (datetime.now(timezone.utc) - datetime.fromisoformat(oldest["createdAt"].replace("Z", "+00:00"))).days
+    flag = "🔴" if age_days >= 3 else "🟡"
+    print(f"{flag} inbound: {n} open submission(s), oldest {age_days}d old (#{oldest['number']}) -- https://github.com/Twin-Cities-Open-Systems/inbound/issues")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-view")
+    ap.add_argument("--pve-host", default="10.0.0.153")
+    ap.add_argument("--haproxy-host", default="10.0.0.160")
+    ap.add_argument("--dns-host", default="10.0.0.194")
+    ap.add_argument("--nerd", action="store_true",
+                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals; also full per-URL --sites detail")
+    ap.add_argument("--sites", action="store_true",
+                     help="check every real URL in the site map answers 200-399")
+    ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
+                     help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
+    ap.add_argument("--network", default="all",
+                    choices=["lab", "public", "all"],
+                    help="only check sites on this network. A GitHub-hosted "
+                         "runner can only reach 'public'; an on-host checker "
+                         "inside the lab can reach 'lab'. Default all.")
+    args = ap.parse_args()
+
+    print("=== tcos lab -- hee view ===")
+
+    health = pve_health(args.pve_host)
+    if health is None:
+        print("🔴 pve: unreachable")
+    else:
+        n = health["node"]
+        print(f"🟢 pve node: cpu {n['cpu_pct']}%  mem {n['mem_used_mb']}/{n['mem_total_mb']}MB")
+        for sname, s in health["storage"].items():
+            flag = "🔴" if s["overcommit_ratio"] > 3 else ("🟡" if s["overcommit_ratio"] > 1 else "🟢")
+            print(f"{flag} storage {sname}: {s['overcommit_ratio']}x overcommit "
+                  f"({s['allocated_gb']}GB / {s['pool_total_gb']}GB pool)")
+        for c in health["lxc"]:
+            flag = "🟢" if c["status"] == "running" else "🔴"
+            print(f"{flag} lxc {c['name']}: {c['status']}")
+        if args.nerd:
+            print_nerd_stats(health)
+
+    backends = haproxy_backends(args.haproxy_host)
+    if backends is None:
+        print("🔴 haproxy: unreachable")
+    else:
+        for name, status in backends.items():
+            flag = "🟢" if status == "UP" else "🔴"
+            print(f"{flag} haproxy backend {name}: {status}")
+
+    dns = dns_check(args.dns_host)
+    flag = "🟢" if dns else "🔴"
+    print(f"{flag} dns (ns1): {dns or 'no answer'}")
+
+    sites_ok = True
+    if args.sites:
+        sites, err = load_sitemap(args.sitemap)
+        if not err:
+            total = len(sites)
+            sites = filter_sites(sites, args.network)
+            if args.network != "all":
+                print(f"# scope: {args.network} ({len(sites)} of {total} sites)")
+        if err:
+            print(f"🔴 sites: sitemap unavailable ({err})")
+            sites_ok = False
+        else:
+            results = sites_check(sites)
+            if args.nerd:
+                print_sites_nerd(results)
+            else:
+                print_sites_condensed(results)
+            sites_ok = all(r["code"] and 200 <= r["code"] < 400 for r in results)
+
+    print_inbound(inbound_status())
+
+    # Real exit code, --sites only: a scheduled CI run needs an actual
+    # pass/fail signal, not just a report nobody's watching. The other
+    # checks stay report-only (matches this tool's existing, deliberate
+    # "informational, not a gate" behavior) -- only --sites changes this,
+    # since it's the one being wired into real CI (fleet-ops#295).
+    if args.sites and not sites_ok:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
