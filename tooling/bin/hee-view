@@ -30,6 +30,13 @@ import time
 import urllib.error
 import urllib.request
 
+# library/py lives in this tool's own repo -- derive it from this script's
+# own location, resolved through symlinks, never from the repo the tool
+# happens to be invoked against.
+from pathlib import Path as _Path  # noqa: E402
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+
 try:
     import yaml
 except ImportError:
@@ -249,6 +256,16 @@ def main():
                     help="only check sites on this network. A GitHub-hosted "
                          "runner can only reach 'public'; an on-host checker "
                          "inside the lab can reach 'lab'. Default all.")
+    # Contextual help BEFORE argparse parses anything. argparse owns -h and
+    # --help but not the bare `help` verb, and resolves either only after
+    # parsing -- so an unrelated argument errors first and the help never
+    # prints. Measured: 8 tools exited non-zero for --help for exactly this
+    # reason. See library/py/hee_cli.
+    if help_wanted(sys.argv[1:]):
+        note_ignored(sys.argv[1:])
+        ap.print_help()
+        return 0
+
     args = ap.parse_args()
 
     print("=== tcos lab -- hee view ===")

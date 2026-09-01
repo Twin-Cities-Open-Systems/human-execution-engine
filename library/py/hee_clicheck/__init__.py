@@ -62,6 +62,10 @@ STATUS_WORD = re.compile(r"\b(OK|WARNING|CRITICAL|UNKNOWN|WARN|CRIT|UNKN)\b")
 SEV = {"OK": 0, "WARNING": 1, "CRITICAL": 2, "UNKNOWN": 3}
 
 # Structure that only a real help page has.
+# Mirrors hee_manpage's USAGE_LABEL/USAGE_INLINE: a line that IS the usage
+# label, or one that introduces it inline. Kept in lockstep with that module.
+_USAGE_LABEL = re.compile(r"^\s*(usage|synopsis)\s*:", re.I | re.M)
+
 HELP_SHAPE = re.compile(r"^\s*(SYNOPSIS|DESCRIPTION|USAGE|OPTIONS|EXIT STATUS)\s*$|^usage:",
                         re.M | re.I)
 
@@ -207,7 +211,13 @@ def judge(tool: str, results: dict[str, dict]) -> dict[str, Any]:
 
     if working:
         best = results[working[0]]["out"]
-        if "SYNOPSIS" not in best:
+        # argparse spells the synopsis `usage:`, and hee_manpage ALREADY
+        # renders that as `.SH SYNOPSIS` in the published page -- see its
+        # USAGE_LABEL/USAGE_INLINE. Demanding the literal word here made this
+        # a false positive on every argparse tool in the repo: 20 of them
+        # warned for a section their own man page demonstrably has.
+        # The renderer is the authority on what becomes a man page.
+        if "SYNOPSIS" not in best and not _USAGE_LABEL.search(best):
             findings.append(("WARNING", "help has no SYNOPSIS section"))
         if "EXIT" not in best.upper():
             findings.append(("WARNING", "help documents no EXIT STATUS"))
