@@ -108,10 +108,15 @@ served:
 `hee-gen-manpages` only ever writes `man/tools/`. The nine files at `man/`
 root are orphans: nothing regenerates them, and they are what reaches prod.
 
+<!-- hee-check:refs-off  the paths below name files #484 REMOVED. That they
+     no longer exist is the finding being recorded, so repointing them would
+     falsify the measurement. -->
 Settled by evidence, not inference. The live `hee.txt` documents six
 subcommands that do not exist -- `ls`, `fileident`, `pathcheck`, `http404`,
 `uiboss`, `serve`. Every one of those strings is present in `man/hee.1` and
 absent from `man/tools/hee.1`. The published page is the root copy.
+
+<!-- hee-check:refs-on -->
 
 ## 5. Reaching prod -- the gap
 
@@ -144,7 +149,7 @@ Two consequences worth stating plainly:
   exist. Those 17 are exactly the pages that render `Error: File or directory
   not found!`.
 - **Freshness is unbounded.** With no automation there is no cadence, and a
-  page can be arbitrarily stale. The root `man/hee.1` has been wrong since
+  page can be arbitrarily stale. The root `man/hee.1` has been wrong since <!-- hee-check:refs-ok  names the page #484 removed -->
   2026-08-26.
 
 ## 6. Lab does not promote to prod

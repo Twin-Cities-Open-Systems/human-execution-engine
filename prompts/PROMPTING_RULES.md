@@ -226,7 +226,7 @@ loaded, read this file directly rather than assume it did.
     - **Regenerate.** `hee gen-manpages` after any change to a tool's help,
       and `--gopher` when the published tree needs rebuilding.
     - **Never hand-edit a generated page.** Fix the tool's help, or the
-      generator. Hand-editing is how `man/hee.1` came to document six
+      generator. Hand-editing is how `man/hee.1` came to document six <!-- hee-check:refs-ok  that page was removed by #484; repointing this path would make the example describe a file that never had the problem -->
       subcommands that no longer exist.
 
     Authored pages under `man/manN/` win over generated ones and are the
