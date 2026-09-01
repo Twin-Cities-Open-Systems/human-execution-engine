@@ -247,8 +247,13 @@ while IFS= read -r line; do
     pkg:*)
       # Generic, with no per-name list to forget to extend. That list is
       # exactly what dropped smilint, and what would have dropped every
-      # future pkg entry -- #517 had just extended it again, by hand, for
-      # shellcheck and ruff. This removes the reason to.
+      # future pkg entry -- #517 had just extended it again, by hand, to
+      # add two more tools. This removes the reason to.
+      #
+      # Their names are deliberately not spelled out in this comment: a
+      # comment line that BEGINS with the linter's own name is parsed as a
+      # directive (SC1072/SC1073). Four attempts at writing this block hit
+      # that, and the blocking lint job caught every one before it merged.
       if _resolved="$(hee_manifest_resolve_tool "$name")"; then
         if [ "$_resolved" != "$name" ]; then
           log "== $name ok (present as $_resolved) =="
