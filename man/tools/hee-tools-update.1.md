@@ -6,7 +6,7 @@ hee-tools-update - install or refresh the pinned external toolchain
 
 # SYNOPSIS
 
-    hee-tools-update [MANIFEST] [EVIDENCE_DIR]
+    hee-tools-update [MANIFEST] [LOG_DIR]
     hee-tools-update help
 
 
@@ -19,10 +19,23 @@ hee-tools-update - install or refresh the pinned external toolchain
     the read-only half.
 
     MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
-    this script, so it works from any directory. EVIDENCE_DIR defaults to
-    the relative path hee/evidence/tools, which means it is created under
-    whatever directory you happen to run this from -- run it from a repo
-    root if you want the log to land in that repo's evidence tree.
+    this script, so it works from any directory.
+
+    LOG_DIR defaults to $XDG_STATE_HOME/hee/tools (that is
+    ~/.local/state/hee/tools unless XDG_STATE_HOME is set). A run log
+    records what got installed on THIS machine at one moment -- host
+    state, not repo content -- and XDG_STATE_HOME is the directory the
+    spec reserves for exactly that.
+
+    It used to default to the RELATIVE path hee/evidence/tools, which
+    landed the log wherever you happened to be standing. Run from a repo
+    root -- the documented way -- that dirtied the worktree, and
+    ci/git/hee-preflight.sh is a hard gate that refuses a dirty worktree.
+    So a SUCCESSFUL toolchain update blocked the next session's entry
+    until someone cleaned up after it. Real, and it happened
+    (issue:501@human-execution-engine).
+
+    Pass LOG_DIR explicitly if you do want the log inside a repo.
 
     Manifest lines are `name kind desired`. Blank lines and # comments are
     skipped. Handled kinds, and only these:
@@ -48,7 +61,8 @@ hee-tools-update - install or refresh the pinned external toolchain
     Real footgun: every line of output goes to the log file only. `log()`
     pipes through `tee -a "$OUT" >/dev/null`, and the downloads are quiet
     (curl -fsSL), so a successful run prints NOTHING to the terminal. Read
-    EVIDENCE_DIR/tools-update.<UTC-timestamp>.log to see what happened.
+    LOG_DIR/tools-update.<UTC-timestamp>.log to see what happened. The
+    resolved path is printed when the run starts.
 
 
 # ENVIRONMENT
@@ -63,7 +77,7 @@ hee-tools-update - install or refresh the pinned external toolchain
 # FILES
 
     tooling/tools.manifest.txt              default manifest
-    hee/evidence/tools/tools-update.*.log   per-run evidence log
+    $XDG_STATE_HOME/hee/tools/tools-update.*.log   per-run log
 
 
 # EXIT STATUS
