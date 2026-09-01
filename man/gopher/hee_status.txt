@@ -1,0 +1,52 @@
+HEE_STATUS(3)                  Library Functions                 HEE_STATUS(3)
+
+NAME
+       hee_status  -  emit  a  status  line  in  the org vocabulary (shell and
+       Python)
+
+SYNOPSIS
+   Shell
+       hee_status LEVEL MESSAGE...
+       hee_status_code LEVEL
+       hee_status_demo
+       hee_link TEXT URL
+       hee_link_issue REPO NUMBER
+
+   Python
+       from hee_status import status, render, emit, demo
+
+DESCRIPTION
+       Two implementations of one vocabulary — see hee-status(7) for the  lev‐
+       els and what they mean. They are kept in lockstep deliberately: a shell
+       tool  and a Python tool reporting the same condition must produce iden‐
+       tical text, or a parser downstream of both has  to  special-case  which
+       wrote the line.
+
+FUNCTIONS
+       hee_status  LEVEL MESSAGE...
+              Emit one status line in the current HEE_STATUS_STYLE.
+
+       hee_status_code  LEVEL
+              Print  the  Nagios exit code for a level. Use as exit $(hee_sta‐
+              tus_code CRITICAL), never a hardcoded integer.
+
+       hee_status_demo
+              Render every level in every style. For choosing a preference.
+
+       hee_link  TEXT URL
+              An OSC 8 terminal hyperlink when stdout is a TTY,  degrading  to
+              text <url> when it is not. Measured 2026-08-31: OSC 8 works from
+              a  tool  writing  to  a  TTY, but is stripped in transit from an
+              agent's chat output.
+
+       hee_link_issue  REPO NUMBER
+              The same, for an issue or PR reference.
+
+PARITY
+       tests/status-parity.sh runs 21 inputs across all three  styles  through
+       both implementations and fails if they disagree.
+
+SEE ALSO
+       hee-status(7), heerc(5)
+
+HEE                               2026-09-01                     HEE_STATUS(3)

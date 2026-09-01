@@ -1,0 +1,68 @@
+MT-LOGO-RENDER(1)                User Commands               MT-LOGO-RENDER(1)
+
+NAME
+       mt-logo-render - real Pillow renderer for the mt-logo recipe schema
+
+SYNOPSIS
+       render.py RECIPE.json -o OUT.png [--no-qr]
+       render.py --read-anchor OUT.png
+
+DESCRIPTION
+       Renders  a parametric logo from a JSON recipe, real 32-bit RGBA output.
+       Every render self-verifies: a real scannable QR corner badge and match‐
+       ing PNG metadata, both encoding the recipe's canonical SHA256 id -- see
+       hee-qr(1) to read either back.
+
+       This is the real, missing pixel-rendering  half  of  the  vendored  up‐
+       stream/mt-logo-render  (recipe.rs),  which  only  ever defined the data
+       model, never the actual rendering code.
+
+RECIPE SCHEMA
+       shape  circle | square | triangle | hex
+
+       size   "WxH", 16..4096 each dimension
+
+       base_color
+              "#RGB" / "#RRGGBB" or a PIL-recognized name
+
+       accent_color
+              same format, optional
+
+       fill   solid | pie:DEG | split:N | stripe:N
+
+       mark   check | x | dot
+
+       badge  corner_dot | corner_check
+
+       label  <=4 chars, centered
+
+       glyph  any unicode, centered (real color emoji via NotoColorEmoji  when
+              applicable, not a missing-glyph box)
+
+OPTIONS
+       -o OUT.png
+              Output path. Required unless --read-anchor.
+
+       --no-qr
+              Skip the scannable QR corner badge.
+
+       --read-anchor OUT.png
+              Read  the  embedded  recipe/hash  back out instead of rendering.
+              Same as hee-qr(1)'s PNG-metadata path.
+
+EXAMPLES
+              render.py hee-recipe.json -o hee-logo.png
+              render.py --read-anchor hee-logo.png
+
+VERIFICATION
+              sha256sum OUT.png       real, reproducible, bit-for-bit across runs
+              zbarimg --raw OUT.png   scans the real QR out of the pixels
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-qr(1)
+
+HEE                               2026-08-22                 MT-LOGO-RENDER(1)

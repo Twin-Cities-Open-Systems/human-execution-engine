@@ -182,7 +182,28 @@ gen_gopher() {
   } > "$_out/man/gophermap"
   cp "$_out/man/gophermap" "$_out/gophermap"
 
-  echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s) -> $(pwd)/$_out"
+  # FLAT COPIES AT THE ROOT, for URL compatibility.
+  #
+  # Every page used to live flat at the root, so /gopher/0/<tool>.txt was the
+  # published URL contract -- and docs/guides/ZERO_TOKEN_CONTINUITY.md links
+  # every tool that way. Moving to man/manN/ 404'd all of them at once.
+  # Operator hit it immediately:
+  #
+  #   curl gopher://man.tcos.us/gopher/0/hee.txt
+  #   Error: File or directory not found!
+  #
+  # So both live: the section tree is the structure, the flat copies keep
+  # existing links and bookmarks working. They are copies of generated output,
+  # regenerated together, so they cannot drift from each other.
+  for _d in "$_out"/man/man[1-9]; do
+    [ -d "$_d" ] || continue
+    for _f in "$_d"/*.txt; do
+      [ -f "$_f" ] || cp "$_f" "$_out/" 2>/dev/null
+      cp "$_f" "$_out/$(basename "$_f")" 2>/dev/null
+    done
+  done
+
+  echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s), plus flat copies -> $(pwd)/$_out"
 }
 
 case "${1:-}" in

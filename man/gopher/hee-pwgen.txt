@@ -1,0 +1,35 @@
+HEE-PWGEN(1)                     User Commands                    HEE-PWGEN(1)
+
+NAME
+       hee-pwgen - real cryptographically secure password generator
+
+SYNOPSIS
+       hee pwgen [LENGTH]
+
+DESCRIPTION
+       Generates  one  random  password  using Python's secrets module (a real
+       CSPRNG, not random, which is not cryptographically  secure  and  should
+       never  generate  anything credential-shaped). Alphabet is ASCII letters
+       and digits.
+
+       Prints directly to stdout -- this is the "just generate one" tool, sep‐
+       arate from hee-cred(1)'s sealed-storage path. Pipe the output into hee-
+       cred(1)'s interactive prompt yourself if it needs to  be  stored;  this
+       tool has no storage of its own.
+
+OPTIONS
+       LENGTH Password  length.  Default 20 if omitted. Below 12 prints a real
+              warning to stderr but still generates.
+
+EXAMPLES
+              hee pwgen
+              hee pwgen 24
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-cred(1)
+
+HEE                               2026-08-22                      HEE-PWGEN(1)

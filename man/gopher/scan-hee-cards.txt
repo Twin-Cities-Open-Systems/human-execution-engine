@@ -1,0 +1,8 @@
+()                                                                          ()
+
+scan-hee-cards.py(1)
+       section: 1
+
+       (no --help/-h output -- generated from the script's own header comment)
+
+                                                                            ()
