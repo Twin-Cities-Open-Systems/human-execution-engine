@@ -28,17 +28,13 @@ say(){ printf "%s\n" "$*"; }
 die(){ say "ERROR: $*"; exit 2; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "missing cmd: $1"; }
 
-need git
-need rg
-need yq
-need sha256sum
-need exiftool
-need unzip
-need date
-
-SOA_ANCHOR="$HOME/.hee/index/_.yaml"
-[ -f "$SOA_ANCHOR" ] || die "missing SOA anchor: $SOA_ANCHOR"
-
+# Help is answered BEFORE the dependency checks and the SOA anchor check
+# below. A tool must be able to explain itself on a machine where its
+# dependencies are not installed -- that is exactly when someone reads the
+# help. Measured 2026-09-01: this tool passed the CLI contract locally and
+# failed it in CI, because `need yq` / `need exiftool` / `need unzip` and the
+# missing ~/.hee/index/_.yaml each die with exit 2 on a fresh runner, long
+# before the help dispatch was reached. Same defect hee-check-og had.
 usage(){
   cat <<USAGE
 hee-inv -- ingest inventory evidence, and report on what is unaccounted for
@@ -66,6 +62,39 @@ EXIT STATUS
   0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 USAGE
 }
+
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+# Contextual help, via the shared contract. Replaces a positional check that
+# saw only one argument position, and announces what it discarded.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
+need git
+need rg
+need yq
+need sha256sum
+need exiftool
+need unzip
+need date
+
+SOA_ANCHOR="$HOME/.hee/index/_.yaml"
+[ -f "$SOA_ANCHOR" ] || die "missing SOA anchor: $SOA_ANCHOR"
+
 
 is_dir(){ [ -d "$1" ]; }
 
@@ -415,27 +444,6 @@ cmd_unknown_report(){
   fi
   exit 0
 }
-
-# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
-# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
-HEE_SELF="$0"
-if command -v realpath >/dev/null 2>&1; then
-  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
-elif command -v readlink >/dev/null 2>&1; then
-  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
-fi
-TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
-
-# shellcheck source=/dev/null
-[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
-
-# Contextual help, via the shared contract. Replaces a positional check that
-# saw only one argument position, and announces what it discarded.
-if hee_help_wanted "$@"; then
-  hee_help_note_ignored "$@"
-  usage
-  exit 0
-fi
 
 # --- main dispatch ---
 if [ "${1:-}" = "inv" ]; then shift; fi
