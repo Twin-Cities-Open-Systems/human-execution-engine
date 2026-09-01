@@ -455,10 +455,34 @@ DESCRIPTION
   express "this one is deliberate" until issue:504@human-execution-engine
   lands an exemption mechanism. FLIP TO CRITICAL when it does.
 
+  CONFIGURATION VOCABULARY IS NOT PROSE. tmux spells its own options in
+  en-GB -- `colour39`, `display-panes-colour`, `fg=colour232` -- and those
+  are API tokens someone else defined; rewriting them breaks the config. A
+  digit after the word, or a hyphen or underscore before it, marks an
+  identifier and is not reported. `colour-coded` still is.
+
   Not scanned: docs/history and */evidence/* (they record what was true
   then, and rewriting them would falsify the record), man/ (generated --
   fix the tool's help instead), library/regex/patterns.yaml and this tool
   itself (a detector necessarily contains what it detects).
+
+DELIBERATE USE
+  A word can be en-GB on purpose in a place no shape rule can recognise --
+  `colour${num}` in a script that prints terminal colour labels, where the
+  interpolation hides the digit the identifier rule looks for. Mark that
+  line, with a reason:
+
+      hee-check:style-ok   exempts the line it appears on
+
+  Same marker convention as `hee-check refs`. For a whole file whose format
+  is defined elsewhere -- a generated .pylintrc carrying upstream's own
+  prose -- use HEE_STYLE_SKIP instead of marking 149 lines.
+
+ENVIRONMENT
+  HEE_STYLE_SKIP   extra git pathspecs to exclude, space separated, for a
+                   file format defined elsewhere that the identifier rule
+                   above cannot recognise. Set it in heerc.
+                   Example: HEE_STYLE_SKIP=":!*.tmux :!vendor/*"
 
 EXIT STATUS
   0 OK   1 WARNING findings   3 UNKNOWN not a git repository
@@ -633,10 +657,26 @@ check_style() {
   # and it is wrong: measured on a real diff, it flags otherwise, raise and
   # four. Absent on purpose -- "grey" (a valid CSS keyword) and "centre"
   # (appears inside proper nouns).
-  # Boundary groups, not \b: awk has no \b (there it means BACKSPACE), so a
-  # \b pattern matches nothing in awk while working everywhere else. Caught
-  # by hee-check regex's own cross-engine test on this pattern's first run.
-  _ENGB='(^|[^A-Za-z])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours'
+  # THE BOUNDARIES EXCLUDE IDENTIFIER CHARACTERS, and that is the part that
+  # matters. tmux spells its own configuration vocabulary in en-GB:
+  #
+  #     set-option -g display-panes-colour "colour39"
+  #     set-option -g status-style "fg=colour232,bg=colour33"
+  #
+  # Those are API tokens someone else defined. Rewriting them breaks the
+  # config. A digit after the word, or a hyphen/underscore before it, means
+  # identifier -- not prose. Operator, 2026-09-01: "must exclude tmux (and
+  # other) config items from en.US. this is crucial, there are a few other
+  # apps I have encountered in my career that use en.GB in config vars."
+  #
+  # The asymmetry is deliberate: a hyphen BEFORE the word continues an
+  # identifier, a hyphen AFTER it usually starts an English compound. So
+  # `display-panes-colour` is ignored and `colour-coded` is still caught.
+  #
+  # Also \b is avoided entirely -- awk has no \b (there it is a BACKSPACE),
+  # so a \b pattern matches nothing in awk while working everywhere else.
+  # Kept in lockstep with library/regex/patterns.yaml's en-gb-spelling.
+  _ENGB='(^|[^A-Za-z0-9_-])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours'
   _ENGB="$_ENGB|[Aa]nalyse|[Aa]nalysed|[Aa]nalyses|[Aa]nalysing"
   _ENGB="$_ENGB|[Nn]ormalise|[Nn]ormalised|[Nn]ormalises"
   _ENGB="$_ENGB|[Rr]ecognise|[Rr]ecognised|[Rr]ecognises|[Uu]nrecognised"
@@ -645,7 +685,7 @@ check_style() {
   _ENGB="$_ENGB|[Pp]ersonalise|[Pp]ersonalised|[Pp]rioritise|[Pp]rioritised"
   _ENGB="$_ENGB|[Ss]tandardise|[Cc]ustomise|[Ii]nitialise|[Oo]ptimise"
   _ENGB="$_ENGB|[Ss]erialise|[Ss]pecialise|[Ss]ynchronise|[Uu]tilise"
-  _ENGB="$_ENGB|[Cc]atalogue|[Dd]efence)([^A-Za-z]|$)"
+  _ENGB="$_ENGB|[Cc]atalogue|[Dd]efence)([^A-Za-z0-9_]|$)"
 
   # History and evidence record what was true then. man/ is generated --
   # fix the tool's help, never the page. patterns.yaml and this tool hold
@@ -654,7 +694,23 @@ check_style() {
   _ST_SKIP="$_ST_SKIP ':!library/regex/patterns.yaml' ':!node_modules/*'"
   _ST_SKIP="$_ST_SKIP ':!tooling/bin/hee-check'"
 
-  _st="$(eval git -C '"$root"' grep -n -I -E "'$_ENGB'" -- $_ST_SKIP 2>/dev/null)"
+  # HEE_STYLE_SKIP -- extra pathspecs, space separated, for a file whose
+  # FORMAT is defined by someone else and spells its vocabulary in en-GB.
+  # The boundary rule above already handles the identifier shapes tmux uses,
+  # so this is the escape hatch for a format it cannot see, not the first
+  # line of defence. Set it in heerc, not in a script.
+  #
+  #     HEE_STYLE_SKIP=":!path/to/thing :!*.someconf"
+  for _sp in ${HEE_STYLE_SKIP:-}; do
+    _ST_SKIP="$_ST_SKIP '$_sp'"
+  done
+
+  # Same inline marker `hee check refs` uses, same reason: a word can be
+  # there on purpose and no shape rule can prove it. `colour${num}` in a
+  # script that prints terminal colour labels is the real case -- the
+  # interpolation hides the digit the identifier rule looks for.
+  _st="$(eval git -C '"$root"' grep -n -I -E "'$_ENGB'" -- $_ST_SKIP 2>/dev/null \
+         | grep -v -E 'hee-check:[[:space:]]*style-ok')"
   if [ -z "$_st" ]; then
     hee_status OK "US English: no en-GB spellings in authored text"
     return 0

@@ -93,23 +93,30 @@ spec:
     - name: en-gb-spelling
       description: "British spellings this org does not use. An EXPLICIT WORD LIST, never a generic -ise/-our rule: 'otherwise', 'raise', 'promise', 'concise', 'four', 'hour' and 'favour' are all -ise or -our and only one of them is wrong."
       lane: portable
-      ere: '(^|[^A-Za-z])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours|[Aa]nalyse|[Aa]nalysed|[Aa]nalyses|[Aa]nalysing|[Nn]ormalise|[Nn]ormalised|[Nn]ormalises|[Rr]ecognise|[Rr]ecognised|[Rr]ecognises|[Uu]nrecognised|[Oo]rganise|[Oo]rganised|[Oo]rganisation|[Ss]ummarise|[Ss]ummarised|[Ss]ummarises|[Pp]ersonalise|[Pp]ersonalised|[Pp]rioritise|[Pp]rioritised|[Ss]tandardise|[Cc]ustomise|[Ii]nitialise|[Oo]ptimise|[Ss]erialise|[Ss]pecialise|[Ss]ynchronise|[Uu]tilise|[Cc]atalogue|[Dd]efence)([^A-Za-z]|$)'
+      ere: '(^|[^A-Za-z0-9_-])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours|[Aa]nalyse|[Aa]nalysed|[Aa]nalyses|[Aa]nalysing|[Nn]ormalise|[Nn]ormalised|[Nn]ormalises|[Rr]ecognise|[Rr]ecognised|[Rr]ecognises|[Uu]nrecognised|[Oo]rganise|[Oo]rganised|[Oo]rganisation|[Ss]ummarise|[Ss]ummarised|[Ss]ummarises|[Pp]ersonalise|[Pp]ersonalised|[Pp]rioritise|[Pp]rioritised|[Ss]tandardise|[Cc]ustomise|[Ii]nitialise|[Oo]ptimise|[Ss]erialise|[Ss]pecialise|[Ss]ynchronise|[Uu]tilise|[Cc]atalogue|[Dd]efence)([^A-Za-z0-9_]|$)'
       capture: 2
       notes:
         - "US English is required org-wide (~/.claude/CLAUDE.md). The rule exists because spelling is invisible to whoever writes it -- an agent used 'colour' through a whole session and quoted infrastructure costs as £0 in a real GitHub comment before anyone noticed."
         - "A GENERIC -ise rule is the obvious implementation and it is wrong. Measured 2026-09-01 on a real diff: a broad '[a-z]+ise' sweep flagged 'otherwise' and 'raise'; a broad '[a-z]+our' sweep flagged 'four'. An explicit list has no false positives and is the only honest shape."
         - "'grey' is deliberately ABSENT. It is a valid CSS color keyword, so flagging it would break real stylesheets. 'centre' is absent for the same class of reason -- it appears inside proper nouns."
         - "'licence' is absent: US English uses 'license' for both noun and verb, so the noun form is not worth flagging separately from the verb."
+        - "THE BOUNDARIES EXCLUDE IDENTIFIER CHARACTERS, and that is the load-bearing part. tmux's configuration language spells its own vocabulary in en-GB: `colour39`, `display-panes-colour`, `clock-mode-colour`, `fg=colour232`. Those are API tokens defined by someone else -- rewriting them breaks the config. A digit after the word, or a hyphen/underscore before it, means identifier, not prose. Operator, 2026-09-01: \"must exclude tmux (and other) config items from en.US. this is crucial, there are a few other apps I have encountered in my career that use en.GB in config vars.\""
+        - "A trailing hyphen is still prose: `colour-coded` is caught, `display-panes-colour` is not. The asymmetry is deliberate -- a hyphen BEFORE the word continues an identifier, a hyphen AFTER it usually starts an English compound."
         - "Boundary groups, not \\b. awk has no \\b -- in awk regex it is a BACKSPACE -- so a \\b pattern silently matches nothing there while working everywhere else. Caught by this registry's own cross-engine test on the first run of this pattern, which is what the registry is for. Same technique the version pattern uses for its lookaround replacements."
       tests:
         match:
           - { input: "never colour alone", expect: "colour" }
+          - { input: "a colour-coded status line", expect: "colour" }
           - { input: "Authoritative for behaviour, but tools lie", expect: "behaviour" }
           - { input: "was not recognised as help", expect: "recognised" }
           - { input: "Legacy words normalise in", expect: "normalise" }
           - { input: "the ticket carries an unrecognised stage", expect: "unrecognised" }
           - { input: "Colour words are accepted for migration", expect: "Colour" }
         reject:
+          - "set-option -g display-panes-colour \"colour39\""
+          - "set-option -g status-style \"fg=colour39,bg=colour33\""
+          - "set-window-option -g clock-mode-colour \"colour39\""
+          - "bpaste,ccolour,clipboard,cstyle,focus,RGB,title"
           - "otherwise the tool exits 0"
           - "raise SystemExit(status)"
           - "four candidate forms tested live"
