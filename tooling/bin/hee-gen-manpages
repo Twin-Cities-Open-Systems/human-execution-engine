@@ -38,9 +38,11 @@ case "${1:-}" in
     echo "  Writes into the repo that owns the TOOL, never the current"
     echo "  directory: it resolves its own location and writes to"
     echo "  <tool-repo>/man/tools."
-    echo "  On this install that is:"
     echo ""
-    echo "    $(cd "$(dirname "$0")/../.." && pwd)/man/tools"
+    echo "  The resolved absolute path is printed when it RUNS, not here --"
+    echo "  help output is captured verbatim into the generated man page, so"
+    echo "  a machine-specific path in help becomes a machine-specific path"
+    echo "  in checked-in documentation (fleet-ops#352)."
     echo ""
     echo "  Each page is generated FROM the --help output of each tool, so"
     echo "  tool help text is what becomes its man page."
@@ -317,6 +319,29 @@ done
     done
   fi
 } > "$OUT_DIR/README.md"
+# REDACT HOME PATHS FROM EVERY GENERATED PAGE.
+#
+# Pages are built from each tool's --help, verbatim, so any tool that prints a
+# resolved absolute path bakes THAT MACHINE's homedir into checked-in docs.
+# That already happened once and has its own incident: fleet-ops#352,
+# "man-page regen tool run under Spencer's own account, baked his personal
+# homedir path into checked-in docs".
+#
+# Caught again here, 2026-08-31, on 8 pages -- including one caused by this
+# very tool, whose help had started printing its own resolved output path.
+# Fixing the four offending tools one at a time would not stop the fifth, so
+# the guard belongs at the point of writing.
+#
+# ~/ is the org's own convention for a portable home-relative path, and is
+# what PROMPTING_RULES already requires in shared scripts.
+for _p in "$OUT_DIR"/*.1.md "$OUT_DIR"/README.md; do
+  [ -f "$_p" ] || continue
+  if grep -q '/home/[a-z]' "$_p" 2>/dev/null; then
+    sed -i 's#/home/[a-z][a-z0-9_-]*/#~/#g' "$_p"
+    echo "redacted home path: $_p"
+  fi
+done
+
 echo "index: $OUT_DIR/README.md"
 
 # Real md -> real roff man(1) conversion, 2026-08-30. The .1.md files

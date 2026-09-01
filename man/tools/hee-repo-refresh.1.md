@@ -28,7 +28,7 @@ internally -- kept exactly as-is, never break that. `all`/`-all` (both
 accepted) and `-repo <name-csv>` are the real, human-facing entry
 points added 2026-08-29, Spencer direct: "needs switches., ./hee repo
 refresh -all or -repo dotfiles, etc" then "csv of repos" -- -repo
-takes real repo *names* (dotfiles, not /home/x/git/dotfiles),
+takes real repo *names* (dotfiles, not ~/git/dotfiles),
 resolved under ${HEE_GIT_ROOT:-$HOME/git}, comma-separated for more
 than one.
 

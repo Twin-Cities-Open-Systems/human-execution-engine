@@ -21,7 +21,7 @@ hee-contract-review - smart-sorted contract review, needed-first
     the interactive curses TUI.
 
     What it scans: *.yaml under any contracts/ or hee/contracts/ directory
-    one level inside /home/claude/git -- a HARDCODED workspace root, not
+    one level inside ~/git -- a HARDCODED workspace root, not
     $HOME/git and not the current repo. GitHub URLs are built assuming the
     Twin-Cities-Open-Systems org.
 

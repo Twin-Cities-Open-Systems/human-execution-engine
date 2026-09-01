@@ -17,9 +17,11 @@ hee-gen-manpages - generate man/tools/*.1.md and *.1 from each tool's --help
     Writes into the repo that owns the TOOL, never the current
     directory: it resolves its own location and writes to
     <tool-repo>/man/tools.
-    On this install that is:
 
-      /home/claude/git/human-execution-engine/man/tools
+    The resolved absolute path is printed when it RUNS, not here --
+    help output is captured verbatim into the generated man page, so
+    a machine-specific path in help becomes a machine-specific path
+    in checked-in documentation (fleet-ops#352).
 
     Each page is generated FROM the --help output of each tool, so
     tool help text is what becomes its man page.
