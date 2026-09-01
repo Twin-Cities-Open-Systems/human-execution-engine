@@ -119,6 +119,19 @@ case "$SCOPE_ARG" in
           echo "🟠 $R: skipped -- $tracked_dirty uncommitted change(s) to tracked files, not touching"
           exit 0
         fi
+        # An EMPTY remote has nothing to pull, ever. Reporting that as a red
+        # failure on every run is a permanently-red check, which trains people
+        # to skip past red -- the same cost rule 16 names for CI.
+        #
+        # Detected generically by asking the remote for its branches, not by
+        # matching a repo name: any repo created but never pushed to behaves
+        # this way. Operator, 2026-08-31, on `inbound`: "inbound is special,
+        # no git just inbound ... make exception here" -- so the exception is
+        # the CONDITION, not the name.
+        if [ -z "$(git -C "$DIR" ls-remote --heads origin 2>/dev/null)" ]; then
+          echo "⚪ $R: remote is empty (no branches) -- nothing to pull"
+          exit 0
+        fi
         out=$(git -C "$DIR" pull --ff-only 2>&1)
         rc=$?
         if [ "$rc" -eq 0 ]; then
