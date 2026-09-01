@@ -18,27 +18,39 @@
 .hy
 .SH NAME
 .PP
-hee-con - connect to IRC with a real native client, persistent in tmux;
+hee-con - connect to IRC in tmux, or send into an existing tmux pane
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
-  hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
-  hee-con -tmux-send \[aq]message\[aq] -target <session:window.pane>
-
-defaults:
-  -network irc.libera.chat
-  -session irc-<channel, # stripped>
-  -nick    hee<pid>
-
--tmux-send has no defaults -- -target is always required, sending into
-the wrong pane is a real footgun, not a hypothetical one.
+hee-con -irc CHANNEL [-network HOST] [-session NAME] [-nick NICK]
+hee-con -tmux-send \[aq]MESSAGE\[aq] -target SESSION:WINDOW.PANE
+hee-con help
 \f[R]
 .fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-or send a real message into an existing tmux pane
+Two jobs that share a transport. The IRC side starts a real native
+client inside a persistent tmux session, so the connection survives the
+shell that started it. The -tmux-send side puts one line into a pane
+that already exists.
+
+IRC defaults:
+  -network   irc.libera.chat
+  -session   irc-<channel, # stripped>
+  -nick      hee<pid>
+
+-tmux-send has NO defaults. -target is always required: sending into
+the wrong pane is a real footgun, not a hypothetical one.
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 connected, or the message was sent
+1 unknown argument, or a required argument was missing
 \f[R]
 .fi

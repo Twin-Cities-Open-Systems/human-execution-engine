@@ -18,22 +18,39 @@
 .hy
 .SH NAME
 .PP
-hee-inv - hee inv unknown report [--tcos-repo ] [--warn-days N]
-[--crit-days N]
+hee-inv - ingest inventory evidence, and report on what is unaccounted
+for
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
-  hee inv ingest <incoming_dir> [--tcos-repo <path>]
+hee inv ingest INCOMING_DIR [--tcos-repo PATH]
+hee inv unknown report [--tcos-repo PATH] [--warn-days N] [--crit-days N]
+hee inv help
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+ingest reads an incoming directory and files its contents as inventory
+evidence. A .zip is preserved AS the evidence and its contents are
+ingested alongside it -- the archive is not discarded once opened.
 
-  hee inv unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+unknown report ages the items that have not been reconciled, warning
+and then going critical as they get older.
 
-defaults:
-  --tcos-repo $HOME/git/tcos-plan-private
-  --warn-days 7
-  --crit-days 14
-
-notes:
-  - ingest supports .zip in incoming: archive is preserved as evidence and contents are ingested.
+Defaults:
+  --tcos-repo   $HOME/git/tcos-plan-private
+  --warn-days   7
+  --crit-days   14
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+Nagios plugin convention.
+0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 \f[R]
 .fi

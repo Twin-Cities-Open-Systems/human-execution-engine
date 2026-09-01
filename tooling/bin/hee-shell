@@ -53,9 +53,27 @@ TXT
 # This is the checker's own worst category -- help that executes something --
 # and here it executed a network connection to a machine the session had been
 # told not to touch.
-case "${1:-}" in
-  help|--help|-h) usage; exit 0 ;;
-esac
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+# Contextual help, via the shared contract. Replaces a positional check that
+# saw only one argument position, and announces what it discarded.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 
 target="${1:-}"
 user="${2:-}"

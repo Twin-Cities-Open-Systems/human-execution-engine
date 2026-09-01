@@ -25,6 +25,14 @@
 #       usage_for "$chain"; exit 0
 #     fi
 #
+# NOT MIRRORED HERE, deliberately: the Python sibling (library/py/hee_cli)
+# takes a `value_flags` argument, so a token after a value-taking flag is that
+# flag's VALUE rather than a help request -- `hee-stat -c help` names a
+# counter called "help". Two Python tools need it. No shell tool does, and
+# writing the shell half before anything calls it would be speculative code
+# that nothing proves. Add it here the day a shell tool takes a flag whose
+# value could be the word "help", and say so in both files.
+#
 # POSIX sh -- no bashisms, per rule 6 and the org's all-POSIX shell rule.
 
 # True if any argument is a help token. Scans the WHOLE argv, not $1.

@@ -47,9 +47,27 @@ TXT
 # exists -- `hee lint help` printed "not in a git repo" in bare color, which is
 # two defects in one line, and the generated man page became this tool's own
 # lint output because --help fell through to a silent `shift`.
-case "${1:-}" in
-  help|--help|-h) usage; exit 0 ;;
-esac
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+# Contextual help, via the shared contract. Replaces a positional check that
+# saw only one argument position, and announces what it discarded.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 
 MODE="warn"
 while [ $# -gt 0 ]; do
