@@ -17,6 +17,11 @@ and it is written down rather than guessed at.
 | 4 | Commit and land | PR into `main` | ✅ `OK` defined |
 | 5 | Content reaches prod | manual, undocumented | ❌ `CRITICAL` gap |
 | 6 | Lab renders it | automatic, no promotion step | ✅ `OK` see below |
+| L | **Read locally** | `make manpath` in dotfiles | ✅ `OK` see below |
+
+Stage L is a BRANCH, not a step after 6: a page is readable on a workstation
+straight from the checkout, without ever reaching prod. Stages 5 and L are
+independent, which is why man.tcos.us can be stale while `man hee` is current.
 
 ## 1. Create or change a tool
 
@@ -156,6 +161,88 @@ Lab is a **downstream view of prod**, not an upstream staging area. There is
 no lab-to-prod promotion step for man pages, and nothing to add one to.
 Publishing to lab is not a stage in this pipeline because lab has nothing to
 publish to.
+
+## L. Reading the pages locally
+
+Nothing is copied or installed. `man` is pointed AT the checkout, so `git pull`
+is the update mechanism and there is no second copy to drift.
+
+    cd ~/git/dotfiles && make manpath
+
+That target does three things, and ALL are required:
+
+1. **Registers the path.** Appends `MANDATORY_MANPATH <dir>` lines to
+   `~/.manpath` for `<repo>/man` and `<repo>/man/tools`. This is what makes
+   `man hee` resolve.
+
+2. **Disables cat-page caching** (`NOCACHE`). `man` writes a compressed "cat
+   page" -- its formatted-output cache -- for every page it renders. A
+   `MANDATORY_MANPATH` entry has no catdir mapping, so that write fails:
+
+       $ man hee >/dev/null
+       gzip: stdout: Bad file descriptor
+
+   On one account this only polluted stderr; on another the page rendered
+   EMPTY. Same config, different outcome -- so do not reason about this from a
+   single host. `NOCACHE` is manpath(5)'s own answer, and cat pages are only a
+   cache; formatting from source is fast.
+
+3. **Builds the mandb index.** This is what makes `man -k hee` / `apropos` /
+   `whatis` resolve.
+
+Step 2 is easy to miss because step 1 looks like success. `man <page>` resolves
+by WALKING the manpath; `man -k` reads the mandb INDEX and never scans
+directories. Register without indexing and you get a confusing half-state: the
+pages are installed, and searching for them returns unrelated system pages.
+
+Measured on kiosk 2026-09-01, clean slate, before and after:
+
+    before:  man hee     ->  empty, or `gzip: stdout: Bad file descriptor`
+    after:   man hee     ->  53 lines, 0 bytes on stderr
+
+    before:  man -k hee  ->  pam_wheel(8), runxlrd(1), sane-hpsj5s(5)
+    after:   man -k hee  ->  hee(1), hee-cred(1), hee-net(1), ... 53 pages
+
+Registering the path WITHOUT steps 2 and 3 produces a half-working install that
+looks registered: `man <page>` errors or renders nothing, and `man -k` silently
+returns unrelated system pages.
+
+`make manpath` now runs `mandb` itself, so the one command is sufficient. A
+failed `mandb` is reported WARNING rather than fatal -- `man` still works, only
+search degrades.
+
+### It is per-account, and it had never been run
+
+`~/.manpath` is per-user. On kiosk both `/home/spencer` and `/home/claude` are
+mode 0750 and mutually unreadable, so each account must register separately.
+
+As of 2026-09-01 NEITHER had: `make manpath` reported `registered:` rather than
+`already registered:` on both. Every generated page in this repo was unreadable
+via `man(1)` by anyone until that day, which is worth knowing when judging
+whether this pipeline was ever exercised end to end.
+
+### Verifying stage L
+
+    man -w hee              # -> <repo>/man/man1/hee.1, an AUTHORED page
+    man -w hee-check        # -> <repo>/man/tools/man1/hee-check.1, generated
+    man -w hee-ssh-trust-ca # -> <repo>/man/tools/man8/..., resolves by section
+    man -k hee              # apropos finds the set
+
+The third line is the real check on the `man/manN/` layout: `man(1)` honors the
+tool's own `# section: N` declaration. A flat `man/*.1` directory cannot be
+registered at all, which is why the section directories are structural rather
+than cosmetic.
+
+### Known limit of stage L
+
+`man -k` is only as useful as each page's NAME line. Tools whose help emits no
+NAME -- the argparse ones -- index as placeholders:
+
+    hee-exif (1)      - hee-exif command
+    hee-fields (1)    - hee-fields command
+
+Searchable, but not discoverable: `man -k exif` will not say what it does. Per
+rule 17 the fix belongs in each tool's own help text, not in the generator.
 
 ## Verifying a published page
 
