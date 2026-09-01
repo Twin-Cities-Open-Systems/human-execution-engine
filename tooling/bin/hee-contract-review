@@ -31,7 +31,6 @@ Modes:
       at once, fast.
 """
 import curses
-import glob
 import json
 import re
 import subprocess

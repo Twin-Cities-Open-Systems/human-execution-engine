@@ -1035,7 +1035,7 @@ def main():
                   "Pencil, not hyperscaler.")
 
         by_epic, no_epic = group_by_epic(ready)
-        print(f"\nBy epic (real cross-refs found in PR bodies, not asserted):")
+        print("\nBy epic (real cross-refs found in PR bodies, not asserted):")
         for title, prs in sorted(by_epic.items()):
             print(f"  {title}: {len(prs)} PR(s)")
         if no_epic:

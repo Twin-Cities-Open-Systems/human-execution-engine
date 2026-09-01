@@ -31,7 +31,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path as _Path
 
 # library/py lives in this tool's own repo -- derive it from this script's

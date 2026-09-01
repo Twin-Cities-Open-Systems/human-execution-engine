@@ -102,7 +102,7 @@ def main():
             print(f"hee-pve-users: creating user {userid}...")
             r = pveum(args.host, cmd, capture=False)
             if r.returncode != 0:
-                sys.exit(f"hee-pve-users: user creation failed")
+                sys.exit("hee-pve-users: user creation failed")
     else:
         print(f"hee-pve-users: user {userid} already exists -- skipping.")
 

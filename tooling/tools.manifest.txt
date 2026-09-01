@@ -36,3 +36,9 @@ tmux    pkg     any      -V
 # fleet. Optional: only MIB work needs it.
 # See human-execution-engine#400 and fleet-ops#356.
 smilint pkg     any      --version  optional
+# Rule 16's second layer: the standard linter for each language actually
+# present. Both are OPTIONAL here and REQUIRED in CI -- a dev box without
+# them is not broken, a merge without them is. Versions are the ones the
+# checks were measured against, 2026-09-01, by running each command.
+shellcheck pkg  any      --version  optional
+ruff    pkg     any      --version  optional

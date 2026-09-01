@@ -3,7 +3,6 @@
 """HEE Hunter-Gatherer: Pill-based patch discovery and application orchestrator."""
 
 import sys
-import os
 from pathlib import Path
 from pathlib import Path as _Path
 

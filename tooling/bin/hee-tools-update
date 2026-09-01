@@ -16,6 +16,10 @@ if command -v realpath >/dev/null 2>&1; then
 elif command -v readlink >/dev/null 2>&1; then
   SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
 fi
+# shellcheck disable=SC1007
+# `CDPATH= cd` is a deliberate one-command environment assignment, not a
+# missing value: it stops a user CDPATH from making `cd` print or land
+# somewhere else. SC1007 reads it as a typo.
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)"
 DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
 
@@ -23,6 +27,7 @@ DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
 # may not be present (still landing on its own branch --
 # pr:461@human-execution-engine); fall back to the same LABEL + message
 # shape HEE_STATUS_STYLE=plain produces so the label is never lost.
+# shellcheck disable=SC1007
 TOOL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
@@ -221,7 +226,7 @@ while IFS= read -r line; do
         install_yq_bin "$desired"
       fi
       ;;
-    jq:pkg|bat:pkg|glow:pkg|rg:pkg|tmux:pkg)
+    jq:pkg|bat:pkg|glow:pkg|rg:pkg|tmux:pkg|shellcheck:pkg|ruff:pkg)
       if have "$name"; then
         log "== $name ok (present) =="
       else
@@ -230,6 +235,14 @@ while IFS= read -r line; do
       fi
       ;;
     *)
+      # Still WARNING, and still wrong -- `bat|batcat` and `smilint` land here
+      # because this dispatch matches literal names and the manifest's name
+      # field can carry alternates. hee-tools-check's resolve_tool already
+      # handles that; this half never learned. An unhandled entry should also
+      # be CRITICAL, not WARNING: the tool cannot tell "this line is
+      # malformed" from "this tool is missing". Both tracked in issue 507 --
+      # not fixed here, because fixing it properly means both halves sharing
+      # one resolver rather than each keeping its own.
       log "$(hee_status WARNING "unknown manifest entry: $name $kind $desired")"
       ;;
   esac
