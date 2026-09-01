@@ -308,7 +308,7 @@ def package_for(path: str) -> tuple[str | None, str | None, str | None]:
 # right about a different thing:
 #
 #   self     what the binary says about itself (--version). Authoritative for
-#            behaviour, but tools lie: jq reports 1.7 while the installed
+#            behavior, but tools lie: jq reports 1.7 while the installed
 #            package is 1.7.1.
 #   package  what the package manager has installed. Authoritative for
 #            provenance and patching -- carries distro patch levels and epochs
