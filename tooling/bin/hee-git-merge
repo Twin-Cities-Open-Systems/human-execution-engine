@@ -879,7 +879,45 @@ def print_run_summary(stats, total_candidates):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-git-merge")
+    # The ORDERING section is not decoration. Merging is order-sensitive, and
+    # until 2026-09-01 that fact existed ONLY in order_candidates()'s docstring
+    # -- source, not help. `man hee-git-merge` had zero mentions of order, set,
+    # topological or dependency. Rule 17: a tool's --help IS its published man
+    # page, so behavior documented only in source is behavior nobody can find.
+    ap = argparse.ArgumentParser(
+        prog="hee-git-merge",
+        description=(
+            "Interactive, cross-repo mass review-and-merge for open PRs. "
+            "Default is a one-by-one y/N/s/e/c prompt, never a blind bulk merge."
+        ),
+        epilog=(
+            "ORDERING\n"
+            "  Merging is ORDER-SENSITIVE, and -r is a SET whose order is honored.\n"
+            "\n"
+            "    hee git merge -r '492,494,486,490'\n"
+            "\n"
+            "  merges 492 first because the others need it. Naming ids explicitly\n"
+            "  preserves your sequence; a bare range (45-50) or a regex falls back\n"
+            "  to (repo, number) ascending.\n"
+            "\n"
+            "  Real dependency edges still win over the requested order -- a stated\n"
+            "  dependency is a fact, a requested order is a preference. When they\n"
+            "  disagree you are told, not quietly overridden.\n"
+            "\n"
+            "  Ordering heuristics, strongest first:\n"
+            "    1. explicit dependency named in a PR body\n"
+            "    2. same-repo content overlap\n"
+            "    3. your -r order, or (repo, number) ascending\n"
+            "\n"
+            "  Cross-repo ordering is not attempted: separate repos have\n"
+            "  independent history and no shared merge order exists.\n"
+            "\n"
+            "EXIT STATUS\n"
+            "  0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    # Help text says "ordered set" because that is the contract, not a hint.
     ap.add_argument("-r", "--regex", default=None,
                      help="PR number id/range list (123 / 45-50 / 1,2,3), "
                           "or a regex against title+body")

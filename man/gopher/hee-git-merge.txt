@@ -1,7 +1,8 @@
 HEE-GIT-MERGE(1)                   HEE Tools                  HEE-GIT-MERGE(1)
 
 NAME
-       hee-git-merge - hee-git-merge command
+       hee-git-merge  - Interactive, cross-repo mass review-and-merge for open
+       PRs
 
 SYNOPSIS
               hee-git-merge [-h] [-r REGEX] [--org ORG] [--author AUTHOR]
@@ -10,6 +11,8 @@ DESCRIPTION
                                    [--action {merge,approve,batch,optimize,prime}]
                                    [--batch-size BATCH_SIZE] [--squash | --merge | --rebase]
                                    [--delete-branch | --no-delete-branch] [--no-cache]
+
+              Interactive, cross-repo mass review-and-merge for open PRs. Default is a one-by-one y/N/s/e/c prompt, never a blind bulk merge.
 
               options:
                 -h, --help            show this help message and exit
@@ -28,5 +31,29 @@ DESCRIPTION
                 --no-delete-branch
                 --no-cache            skip the 60s PR-detail cache, always fetch live (e.g.
                                       right before an actual merge)
+
+EXIT STATUS
+              0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
+
+ORDERING
+              Merging is ORDER-SENSITIVE, and -r is a SET whose order is honored.
+
+                hee git merge -r '492,494,486,490'
+
+              merges 492 first because the others need it. Naming ids explicitly
+              preserves your sequence; a bare range (45-50) or a regex falls back
+              to (repo, number) ascending.
+
+              Real dependency edges still win over the requested order -- a stated
+              dependency is a fact, a requested order is a preference. When they
+              disagree you are told, not quietly overridden.
+
+              Ordering heuristics, strongest first:
+                1. explicit dependency named in a PR body
+                2. same-repo content overlap
+                3. your -r order, or (repo, number) ascending
+
+              Cross-repo ordering is not attempted: separate repos have
+              independent history and no shared merge order exists.
 
                                                               HEE-GIT-MERGE(1)
