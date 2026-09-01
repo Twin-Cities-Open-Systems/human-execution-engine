@@ -34,6 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The tool-locale registry lives with the tool's other provenance, in
+      # primitives -- not hardcoded in the checker. Checked out so `locale`
+      # can read it; without it the check still runs and reports that it
+      # could not recognize a config vocabulary.
+      - uses: actions/checkout@v4
+        with:
+          repository: Twin-Cities-Open-Systems/primitives
+          path: primitives
+
       # hee-check itself needs no runtime, but `refs` and `regex` shell out
       # to rg and python3. python3 is preinstalled on ubuntu-latest.
       - name: Install rg
@@ -60,10 +69,14 @@ jobs:
       - name: cli -- every tool's help obeys the contract
         run: tooling/bin/hee-check cli
 
-      # GREEN, and green by construction: the 18 findings it would have
-      # reported were fixed in the same commit that added it (PR 514).
-      - name: style -- US English in authored text
-        run: tooling/bin/hee-check style
+      # GREEN. Renamed from `style` when the operator reframed it: this is
+      # locale conformance, not a list of British spellings. It needs the
+      # primitives checkout for tool-locale provenance, and says so rather
+      # than silently skipping the exemption if it is missing.
+      - name: locale -- text matches the declared locale
+        env:
+          HEE_PRIMITIVES: ${{ github.workspace }}/primitives
+        run: tooling/bin/hee-check locale
 
   shellcheck:
     name: shellcheck (standard, shell)
