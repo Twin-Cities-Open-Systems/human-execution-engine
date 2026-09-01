@@ -92,10 +92,19 @@ jobs:
       # FLIP TO -S style once those are triaged -- they need a ticket first.
       - name: shellcheck -S warning
         run: |
+          # `if`, not `cmd && printf`. GitHub runs these steps under
+          # `bash -e`, where a `&&` whose left side fails makes the whole
+          # compound return non-zero -- inside $( ) that aborts the
+          # substitution and kills the step. The ruff job below failed
+          # exactly this way on this workflow's first run, in 0.1s, with no
+          # output at all; this one passed only because the last file in its
+          # glob happened to match.
           files="$(for f in tooling/bin/* library/bash/*.bash \
                             tooling/hooks/*.sh ci/git/*.sh; do
             [ -f "$f" ] || continue
-            head -1 "$f" | grep -qE '^#!.*(sh|bash)' && printf '%s\n' "$f"
+            if head -1 "$f" | grep -qE '^#!.*(sh|bash)'; then
+              printf '%s\n' "$f"
+            fi
           done)"
           echo "checking $(printf '%s\n' "$files" | wc -l) shell files"
           # shellcheck disable=SC2086
@@ -131,9 +140,12 @@ jobs:
       # FLIP TO a wider --select once those are triaged -- ticket first.
       - name: ruff check --select E9,F
         run: |
+          # `if`, not `cmd && printf` -- see the note in the shellcheck job.
           files="$(for f in tooling/bin/*; do
             [ -f "$f" ] || continue
-            head -1 "$f" | grep -q python3 && printf '%s\n' "$f"
+            if head -1 "$f" | grep -q python3; then
+              printf '%s\n' "$f"
+            fi
           done)"
           echo "checking library/py, tools/ and $(printf '%s\n' "$files" | wc -l) Python tools"
           # shellcheck disable=SC2086
