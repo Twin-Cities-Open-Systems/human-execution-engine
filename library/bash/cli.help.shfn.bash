@@ -41,9 +41,29 @@ hee_help_wanted() {
   return 1
 }
 
+# Echo everything strictly to the LEFT of the first help token, unfiltered,
+# space-separated. Everything from the token rightward is deliberately
+# discarded -- that is property 3, and discarding it here is what makes it
+# impossible to run.
+#
+# Flags are KEPT, unlike hee_help_verbs, because some tools spell their
+# actions as flags: `hee-ticket -close help` must resolve to the -close page,
+# and a verbs-only view cannot see it.
+hee_help_left() {
+  _out=""
+  for _a in "$@"; do
+    case "$_a" in
+      help|--help|-h) break ;;
+      --) break ;;
+      *) _out="${_out:+$_out }$_a" ;;
+    esac
+  done
+  printf '%s\n' "$_out"
+}
+
 # Echo the verb chain to the LEFT of the first help token, space-separated.
-# Everything from the token rightward is deliberately discarded -- that is
-# property 3, and discarding it here is what makes it impossible to run.
+# Flags are not verbs and are skipped -- use hee_help_left when a tool's
+# actions are spelled as flags.
 hee_help_verbs() {
   _out=""
   for _a in "$@"; do

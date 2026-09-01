@@ -228,13 +228,32 @@ _ACTION_HELP = {
 }
 
 
+# library/py lives in this tool's own repo, not the target repo -- derive
+# from this script's own location, not repo_root() (which resolves to
+# whatever repo this tool is currently invoked against). Inserted here,
+# above the pyyaml import, because hee_cli must answer help first.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_left, help_wanted, note_ignored  # noqa: E402
+
+
 def _print_help_and_exit(argv):
     """Answer help BEFORE the pyyaml import below. A tool must be able to
     explain itself on a machine where its dependencies are not installed
-    -- that is exactly when someone reads the help."""
-    if argv and argv[-1] in ("help", "--help", "-h"):
-        print(_ACTION_HELP.get(argv[0] if len(argv) > 1 else "", HELP), end="")
-        sys.exit(0)
+    -- that is exactly when someone reads the help.
+
+    Help dispatch goes through the shared contract (library/py/hee_cli), not
+    the old `argv[-1]` idiom. That idiom only looked at the FINAL argument,
+    so `hee-ticket -close help --force` was not recognized as help at all and
+    ran the real -close. Asking for help must never be able to do anything.
+
+    Actions here are spelled as flags (-close), so the topic comes from
+    help_left, which keeps them, rather than help_verbs, which does not."""
+    if not help_wanted(argv):
+        return
+    note_ignored(argv)
+    left = help_left(argv)
+    print(_ACTION_HELP.get(left[0] if left else "", HELP), end="")
+    sys.exit(0)
 
 
 _print_help_and_exit(sys.argv[1:])
@@ -244,10 +263,6 @@ try:
 except ImportError:
     sys.exit("Requires pyyaml: pip install pyyaml")
 
-# library/py lives in this tool's own repo, not the target repo -- derive
-# from this script's own location, not repo_root() (which resolves to
-# whatever repo this tool is currently invoked against).
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_range import resolve_spec  # noqa: E402
 
 

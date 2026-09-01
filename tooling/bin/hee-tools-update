@@ -7,7 +7,16 @@
 # (library/bash/vis.status.shfn.bash): OK / WARNING / CRITICAL / UNKNOWN.
 set -eu
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# Resolve through symlinks first -- tools are symlinked onto PATH from
+# ~/.local/bin, where a bare `dirname "$0"` finds no library/. Same realpath
+# idiom the `hee` dispatcher uses, per the GNU Tools Preference Policy.
+SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)"
 DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
 
 # Where the TOOL lives -- used only to find its own library. The library
@@ -15,6 +24,9 @@ DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
 # pr:461@human-execution-engine); fall back to the same LABEL + message
 # shape HEE_STATUS_STYLE=plain produces so the label is never lost.
 TOOL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
 # shellcheck source=/dev/null
 if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
   . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
@@ -92,14 +104,21 @@ SEE ALSO
 EOF
 }
 
-# Contextual help: `help` (or --help/-h) as the LAST argument. Checked
-# before anything else -- this tool's first real act is `mkdir -p`, and
-# asking for help must never create directories or touch $HOME.
-_last=""
-for _a in "$@"; do _last="$_a"; done
-case "$_last" in
-  help|--help|-h) usage; exit 0 ;;
-esac
+# Contextual help, via the shared contract. Checked before anything else --
+# this tool's first real act is `mkdir -p`, and asking for help must never
+# create directories or touch $HOME.
+#
+# The `_last` idiom this replaces only looked at the FINAL argument, so
+# `hee tools-update help /some/manifest` was not recognized as help at all
+# and ran for real. That is not hypothetical: it wrote seven junk evidence
+# logs into hee/evidence/tools/ across 2026-08-30/31, each recording only
+# `manifest: --help`, and those logs dirtied the worktree until they broke
+# ci/git/hee-preflight.sh for the next session.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
 
 MANIFEST="${1:-$DEFAULT_MANIFEST}"
 EVD_DIR="${2:-hee/evidence/tools}"
