@@ -91,3 +91,11 @@ generated/html/
 # hee: env for pve api comms
 hee/docs/00-hee-deploy-env-setup.sh
 .claude/worktrees/
+
+# mandb writes its whatis/apropos index into every directory on the manpath.
+# `make manpath` in dotfiles registers man/ and man/tools/, so running it (or
+# any `mandb`) drops binary index.db files into this checkout. Derived state,
+# never committed -- and without this rule a single `git add -A` commits binary
+# blobs, which is exactly how a 53 KB coverage binary landed here before.
+man/**/index.db
+man/index.db
