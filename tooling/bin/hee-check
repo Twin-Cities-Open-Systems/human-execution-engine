@@ -357,6 +357,32 @@ if missing: line("WARNING", "engine not installed, not checked: "+", ".join(miss
 if not any(n=="rg" for n,_ in ENGINES):
     line("WARNING", "rg absent -- it is the org's preferred tool AND the strictest portability canary (Rust regex: no lookaround, no backrefs)")
 
+# python's re has no POSIX bracket classes, so [[:space:]] compiles to a class
+# of the literal characters [ : s p a c e ] -- silently wrong -- or fails
+# outright. Every shell engine here wants the POSIX form, so the registry is
+# written in it and python is the one that needs translating.
+#
+# Found 2026-09-01: a pattern using [[:space:]] passed in grep, bash, awk,
+# sed, rg and perl, and reported "python cannot compile". The harness was
+# calling the one engine that cannot read its own registry's dialect.
+POSIX_CLASSES = {
+    "alpha": "a-zA-Z", "digit": "0-9", "alnum": "a-zA-Z0-9",
+    "space": " \\t\\n\\r\\f\\v", "blank": " \\t",
+    "upper": "A-Z", "lower": "a-z",
+    "punct": "!-/:-@\\[-`{-~", "xdigit": "0-9A-Fa-f",
+}
+
+def posix_to_py(pat):
+    """Rewrite POSIX bracket classes into their python equivalents.
+
+    Only the [:name:] wrapper is replaced; it always appears inside an outer
+    bracket expression, so inlining the character set is exactly right.
+    """
+    out = pat
+    for name, chars in POSIX_CLASSES.items():
+        out = out.replace("[:%s:]" % name, chars)
+    return out
+
 fails=0; checked=0
 for p in reg["spec"]["patterns"]:
     name=p["name"]; pat=p["ere"]; cap=p.get("capture",0)
@@ -365,7 +391,7 @@ for p in reg["spec"]["patterns"]:
     if not allowed:
         line("CRITICAL", f"{name}: declares unknown lane {lane!r}"); fails+=1; continue
     lane_engines=[(n,f) for n,f in ENGINES if n in allowed]
-    try: rx=re.compile(pat)
+    try: rx=re.compile(posix_to_py(pat))
     except re.error as e:
         line("CRITICAL", f"{name}: python cannot compile: {e}"); fails+=1; continue
     for t in p.get("tests",{}).get("match",[]):
@@ -657,26 +683,28 @@ check_style() {
   # and it is wrong: measured on a real diff, it flags otherwise, raise and
   # four. Absent on purpose -- "grey" (a valid CSS keyword) and "centre"
   # (appears inside proper nouns).
-  # THE BOUNDARIES EXCLUDE IDENTIFIER CHARACTERS, and that is the part that
-  # matters. tmux spells its own configuration vocabulary in en-GB:
+  # MATCHES ONLY A STANDALONE ENGLISH WORD -- bounded by whitespace, a quote
+  # or an open paren, and followed by whitespace, end of line, or sentence
+  # punctuation that is itself followed by whitespace. Anything else -- a
+  # sigil, an operator, a digit, an underscore, a dot, a brace -- means the
+  # word is a TOKEN, not prose.
   #
-  #     set-option -g display-panes-colour "colour39"
-  #     set-option -g status-style "fg=colour232,bg=colour33"
+  # Operator, 2026-09-01: "should have style looks for any ref as var or
+  # config, and not juse colourFOO". Stated as a WHITELIST of prose
+  # positions rather than a blacklist of identifier shapes, because the
+  # blacklist could never be finished: the first version caught colour39 and
+  # display-panes-colour and still flagged $colour, --colour=always,
+  # colour: red, theme.colour.fg, colour_scheme and colour${num}.
   #
-  # Those are API tokens someone else defined. Rewriting them breaks the
-  # config. A digit after the word, or a hyphen/underscore before it, means
-  # identifier -- not prose. Operator, 2026-09-01: "must exclude tmux (and
-  # other) config items from en.US. this is crucial, there are a few other
-  # apps I have encountered in my career that use en.GB in config vars."
+  # Config vocabulary is real and common -- tmux spells its own options in
+  # en-GB, pylint ships analyse-fallback-blocks. Those are API tokens
+  # someone else defined; rewriting them breaks the file. A linter that
+  # tells you to introduce a bug is worse than no linter.
   #
-  # The asymmetry is deliberate: a hyphen BEFORE the word continues an
-  # identifier, a hyphen AFTER it usually starts an English compound. So
-  # `display-panes-colour` is ignored and `colour-coded` is still caught.
-  #
-  # Also \b is avoided entirely -- awk has no \b (there it is a BACKSPACE),
-  # so a \b pattern matches nothing in awk while working everywhere else.
-  # Kept in lockstep with library/regex/patterns.yaml's en-gb-spelling.
-  _ENGB='(^|[^A-Za-z0-9_-])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours'
+  # \b is avoided entirely: awk has no \b (there it is a BACKSPACE), so a
+  # \b pattern matches nothing in awk while working everywhere else. Kept
+  # in lockstep with library/regex/patterns.yaml's en-gb-spelling.
+  _ENGB='(^|[[:space:]]|["'"'"'(])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours'
   _ENGB="$_ENGB|[Aa]nalyse|[Aa]nalysed|[Aa]nalyses|[Aa]nalysing"
   _ENGB="$_ENGB|[Nn]ormalise|[Nn]ormalised|[Nn]ormalises"
   _ENGB="$_ENGB|[Rr]ecognise|[Rr]ecognised|[Rr]ecognises|[Uu]nrecognised"
@@ -685,7 +713,7 @@ check_style() {
   _ENGB="$_ENGB|[Pp]ersonalise|[Pp]ersonalised|[Pp]rioritise|[Pp]rioritised"
   _ENGB="$_ENGB|[Ss]tandardise|[Cc]ustomise|[Ii]nitialise|[Oo]ptimise"
   _ENGB="$_ENGB|[Ss]erialise|[Ss]pecialise|[Ss]ynchronise|[Uu]tilise"
-  _ENGB="$_ENGB|[Cc]atalogue|[Dd]efence)([^A-Za-z0-9_]|$)"
+  _ENGB="$_ENGB|[Cc]atalogue|[Dd]efence)(\$|[[:space:]]|[.,;!?)\"']([[:space:]]|\$))"
 
   # History and evidence record what was true then. man/ is generated --
   # fix the tool's help, never the page. patterns.yaml and this tool hold
