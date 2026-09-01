@@ -212,10 +212,29 @@ if [ -n "$real_stray_dirs" ]; then
   # .git/ -- a real repo is already version-controlled elsewhere, this
   # backup has no reason to duplicate it.
   repo_excludes=""
-  for gitdir in $(find $real_stray_dirs -maxdepth 3 -name .git -type d 2>/dev/null); do
+  # `for x in $(find ...)` splits on ALL whitespace, so a path with a space
+  # becomes two paths, neither of which exists (SC2044). A -print0 |
+  # while-read loop is the usual fix, but it needs bash's `read -d` and puts
+  # the loop in a subshell -- where repo_excludes, built here and used
+  # below, would be discarded. Splitting on newline only keeps this POSIX,
+  # subshell-free, and correct for paths with spaces.
+  _gitdirs="$(find $real_stray_dirs -maxdepth 3 -name .git -type d 2>/dev/null)"
+  _oldifs="$IFS"; IFS='
+'
+  # shellcheck disable=SC2086
+  for gitdir in $_gitdirs; do
     repo_excludes="$repo_excludes --exclude=$(dirname "$gitdir")"
   done
-  # shellcheck disable=SC2086 -- real word-splitting intended throughout: each dir/exclude is its own tar arg
+  IFS="$_oldifs"
+  # Word splitting is intended throughout: each dir/exclude is its own tar
+  # argument.
+  #
+  # The reason lives above the directive, never appended to it: the syntax
+  # has no free-text field, so "disable=SC2086 -- reason" is unparseable
+  # (SC1072/SC1073) and disables nothing. A comment line must also never
+  # BEGIN with the word shellcheck, or it is read as another directive --
+  # which is how the first attempt at this fix broke in the same way.
+  # shellcheck disable=SC2086
   tar -cjf "$META_BACKUP" \
     --exclude='__pycache__' --exclude='*.pyc' \
     --exclude='*.swp' --exclude='*.swo' --exclude='.DS_Store' \

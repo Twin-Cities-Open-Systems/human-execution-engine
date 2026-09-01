@@ -18,10 +18,15 @@ if command -v realpath >/dev/null 2>&1; then
 elif command -v readlink >/dev/null 2>&1; then
   HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
 fi
+# shellcheck disable=SC1007
+# `CDPATH= cd` is a deliberate one-command environment assignment, not a
+# missing value: it stops a user CDPATH from making `cd` print or land
+# somewhere else. SC1007 reads it as a typo.
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$HEE_SELF")" && pwd)"
 DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
 
 # Where the TOOL lives -- used only to find its own library.
+# shellcheck disable=SC1007
 TOOL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 # The library may not be present (it is still landing on its own branch --
 # pr:461@human-execution-engine). Fall back to the same LABEL + message

@@ -101,8 +101,8 @@ hee_vendor__check_mode() {
   status_before="$(git -C "$target_root" status --porcelain 2>/dev/null || true)"
 
   # Render what vendoring would produce into a temp workspace (no writes to target).
-  tmp=\"$(mktemp -d)\" || { echo \"ERROR: mktemp failed\"; return 94; }
-  trap '[[ -n \"${tmp:-}\" ]] && rm -rf \"${tmp:-}\"' RETURN
+  tmp="$(mktemp -d)" || { echo "ERROR: mktemp failed"; return 94; }
+  trap '[[ -n "${tmp:-}" ]] && rm -rf "${tmp:-}"' RETURN
   work="$tmp/work"
   mkdir -p "$work"
 

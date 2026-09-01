@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, json, os, pathlib, subprocess, sys
+import hashlib, json, pathlib, subprocess
 from datetime import datetime, timezone
 
 REPO = pathlib.Path(__file__).resolve().parents[3]  # repo root

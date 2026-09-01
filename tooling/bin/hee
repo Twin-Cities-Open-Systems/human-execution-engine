@@ -26,7 +26,19 @@ WORKSPACE_ROOT="${HOME}/git"
 find_workspace_extension() {
   _fwe_cmd="$1"
   [ -d "${WORKSPACE_ROOT}" ] || return 1
-  for _fwe_repo in $(find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+  # A glob, not `for x in $(find ...)`: command substitution splits on
+  # whitespace, so a workspace path containing a space silently becomes two
+  # paths, neither of which exists (SC2044). A -print0 | while-read loop
+  # would fix the splitting but needs bash's `read -d` AND puts the loop in
+  # a subshell, where the `return 0` below would return from the subshell
+  # and the function would always fall through. The glob has neither
+  # problem and stays POSIX.
+  #
+  # The second pattern catches dot-directories -- `.github` is a real repo
+  # in this workspace, and `*` alone would skip it. `[!.]` after the dot
+  # keeps `.` and `..` out.
+  for _fwe_repo in "${WORKSPACE_ROOT}"/* "${WORKSPACE_ROOT}"/.[!.]*; do
+    [ -d "${_fwe_repo}" ] || continue
     case "${_fwe_repo}" in
       "${TARGET_ROOT}" | "${TOOL_ROOT}") continue ;;
     esac
@@ -112,7 +124,9 @@ list_commands() {
   # they're now reachable from anywhere, not just from inside their own
   # repo -- same fix as the resolution logic below.
   if [ -d "${WORKSPACE_ROOT}" ]; then
-    for repo in $(find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+    # Same glob as find_workspace_extension, for the same reasons (SC2044).
+    for repo in "${WORKSPACE_ROOT}"/* "${WORKSPACE_ROOT}"/.[!.]*; do
+      [ -d "${repo}" ] || continue
       case "${repo}" in
         "${TARGET_ROOT}" | "${TOOL_ROOT}") continue ;;
       esac
@@ -212,7 +226,11 @@ case "${cmd}" in
         # so the true last arg lands at front, then swap it for
         # --help, preserving every arg before it in original order.
         if [ "$#" -gt 0 ]; then
+          # _last IS assigned, by the eval below. Static analysis cannot see
+          # through eval, which is the whole reason the eval is here: POSIX
+          # sh has no ${!#} indirection for "the last positional".
           eval "_last=\${$#}"
+          # shellcheck disable=SC2154
           if [ "${_last}" = "help" ]; then
             _n=$#
             _i=1

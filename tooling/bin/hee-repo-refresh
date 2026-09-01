@@ -155,6 +155,9 @@ case "$SCOPE_ARG" in
         untracked=$(printf '%s\n' "$status" | rg -c '^\?\?' || echo 0)
         upstream=$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
         if [ -n "$upstream" ]; then
+          # shellcheck disable=SC2046
+          # Splitting is the point: rev-list --count prints "AHEAD BEHIND" on
+          # one line, and `set --` turns those two fields into $1 and $2.
           set -- $(git -C "$DIR" rev-list --left-right --count "HEAD...$upstream" 2>/dev/null)
           ahead=${1:-0}; behind=${2:-0}
         else

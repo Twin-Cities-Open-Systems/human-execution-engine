@@ -128,7 +128,7 @@ def main():
 
     print(f"Would write: {conf_path}")
     print(f"  content: {conf_line.strip()}")
-    print(f"Would then run: sshd -t (validate), then reload sshd on success")
+    print("Would then run: sshd -t (validate), then reload sshd on success")
 
     if not args.yes:
         print("\nDry-run only -- rerun with --yes to actually apply.")
