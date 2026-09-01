@@ -1,9 +1,23 @@
 HEE-HOOKS-INSTALL(1)               HEE Tools              HEE-HOOKS-INSTALL(1)
 
 NAME
-       hee-hooks-install - hee-hooks-install command
+       hee-hooks-install - install this repo's optional git hooks
+
+SYNOPSIS
+              hee-hooks-install [--repo PATH]
+              hee-hooks-install help
 
 DESCRIPTION
-              🟢 🟦 b # OK: installed pre-commit hook -> ~/git/human-execution-engine/.git/hooks/pre-commit
+              Symlinks tooling/githooks/pre-commit into the repo's .git/hooks/. Both
+              non-destructive and idempotent -- re-running it changes nothing.
+
+                --repo   the repo to install into. Defaults to the repo containing
+                         the current directory.
+
+              A relative symlink is preferred so the hook keeps working if the
+              checkout moves; an absolute one is the fallback when that fails.
+
+EXIT STATUS
+              0 installed   2 not in a git repo, or the hook source is missing
 
                                                           HEE-HOOKS-INSTALL(1)

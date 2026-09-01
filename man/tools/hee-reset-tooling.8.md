@@ -1,0 +1,46 @@
+% HEE-RESET-TOOLING(8) | HEE Tools
+
+# NAME
+
+hee-reset-tooling - conservative "reset to new" for stray tool directories
+
+# SYNOPSIS
+
+    hee-reset-tooling [--yes] [--unattended] [--idle-mins N]
+                      [--canonical DIR] [--stray DIR ...]
+    hee-reset-tooling help
+
+
+# DESCRIPTION
+
+
+    Compares stray tool directories against the canonical one and cleans up
+    what is provably redundant. Deliberately hard to make destructive:
+
+      - Dry run by default. Nothing is removed without --yes. An operator
+        has to agree, not merely invoke the command.
+      - --unattended additionally requires the machine to be idle, checked
+        against `who -u`'s IDLE column -- not just "no tty attached". It
+        fails closed: if idleness cannot be confirmed, the host is busy.
+      - It NEVER touches ~/.ssh, ~/.gnupg, ~/.hee/secrets, ~/.config or
+        anything under ~/git, and refuses outright if a stray path resolves
+        inside one of them.
+      - A stray file is removed only when byte-identical to its tracked
+        equivalent. Anything that differs, or has no tracked equivalent, is
+        backed up first -- never silently destroyed.
+
+
+# OPTIONS
+
+    --yes           actually remove; without it, nothing is deleted
+    --unattended    cron-shaped invocation; adds the idle requirement
+    --idle-mins N   minutes of idle required by --unattended. Default: 10
+    --canonical DIR the authoritative tool directory.
+                    Default: ~/git/human-execution-engine/tooling/bin
+    --stray DIR     a directory to clean; repeatable.
+                    Default: ~/tooling/bin ~/bin
+
+
+# EXIT STATUS
+
+    0 completed (including a dry run)   2 unknown argument or refused path

@@ -18,18 +18,37 @@
 .hy
 .SH NAME
 .PP
-hee-print - hee-print command
+hee-print - render files nicely for terminal surfaces
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
-  hee-print [--no-header] [--] <file>...
-  hee-print [--no-header] --stdin [--hint md|yaml|json|text]
+hee-print [--no-header] [--] FILE...
+hee-print [--no-header] --stdin [--hint md|yaml|json|text]
+hee-print help
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+Picks a renderer from the file extension, falling back to cat whenever the
+nicer tool is not installed. Never prompts, never writes.
 
-behavior:
-  .md/.markdown -> glow -p (if available)
-  .yml/.yaml    -> yq -P   (if available)
-  .json         -> jq .    (if available)
-  other         -> bat/batcat -p --paging=never (if available) else cat
+  .md/.markdown -> glow -p
+  .yml/.yaml    -> yq -P
+  .json         -> jq .
+  other         -> bat/batcat -p --paging=never, else cat
+
+--no-header  suppress the per-file header printed when given several files
+--stdin      read the document from stdin instead of a path
+--hint       tell --stdin which renderer to use; ignored otherwise
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 rendered   2 usage error or no file given
 \f[R]
 .fi

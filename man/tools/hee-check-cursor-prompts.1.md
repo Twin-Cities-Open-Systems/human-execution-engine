@@ -2,9 +2,24 @@
 
 # NAME
 
-hee-check-cursor-prompts - hee-check-cursor-prompts command
+hee-check-cursor-prompts - is .cursor/prompts still in sync with policy
+
+# SYNOPSIS
+
+    hee-check-cursor-prompts
+    hee-check-cursor-prompts help
+
 
 # DESCRIPTION
 
-    OK: synced .hee/policy/prompts -> .cursor/prompts
-    OK: .cursor/prompts is in sync
+
+    Re-runs hee-sync-cursor-prompts and fails if that changed anything, which
+    means the committed .cursor/prompts had drifted from the active HEE policy
+    source. See hee-sync-cursor-prompts for how the source is chosen.
+
+    The read-only half of the pair. Run from a repo root.
+
+
+# EXIT STATUS
+
+    0 in sync   1 drifted -- re-run hee-sync-cursor-prompts and commit
