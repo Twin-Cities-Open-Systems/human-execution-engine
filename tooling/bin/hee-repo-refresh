@@ -124,7 +124,42 @@ case "$SCOPE_ARG" in
         if [ "$rc" -eq 0 ]; then
           echo "🟢 $R: $(printf '%s\n' "$out" | tail -1)"
         else
-          echo "🔴 $R: pull failed -- $(printf '%s\n' "$out" | tail -1)"
+          # Report the line that NAMES the failure, not the last line.
+          #
+          # `tail -1` gave fragments that hid the cause, repeatedly. Two real
+          # examples from one session:
+          #
+          #   "pull failed -- Updating fbc2470..ff02d19"
+          #       reads like success; the real error (untracked files would be
+          #       overwritten) was several lines above.
+          #
+          #   "pull failed -- from the remote, but no such ref was fetched."
+          #       the sentence starts on the PREVIOUS line, which is the half
+          #       that names the missing ref.
+          #
+          # git puts the useful text on error:/fatal: lines, so prefer those.
+          why="$(printf '%s\n' "$out" | grep -E '^(error|fatal):' | head -2 | tr '\n' ' ')"
+          [ -z "$why" ] && why="$(printf '%s\n' "$out" | grep -v '^$' | tail -2 | tr '\n' ' ')"
+          echo "🔴 $R: pull failed -- $why"
+
+          # Two causes account for nearly every failure seen in practice, and
+          # neither is obvious from git's wording. Name the fix.
+          case "$out" in
+            *"no such ref was fetched"*|*"couldn't find remote ref"*)
+              _def="$(git -C "$DIR" remote show origin 2>/dev/null | awk '/HEAD branch/{print $NF}')"
+              _cur="$(git -C "$DIR" branch --show-current 2>/dev/null)"
+              echo "     ↳ '$_cur' tracks a remote branch that no longer exists"
+              echo "       (deleted on merge, or a stale origin/HEAD)."
+              echo "       fix: git -C $DIR remote set-head origin -a"
+              echo "            git -C $DIR switch ${_def:-main}"
+              ;;
+            *"untracked working tree files would be overwritten"*)
+              echo "     ↳ incoming tracked files collide with untracked local copies."
+              echo "       'git checkout --' does NOT remove untracked files."
+              echo "       fix: git -C $DIR clean -nd <dir>   # dry run first"
+              echo "            git -C $DIR clean -fd <dir>"
+              ;;
+          esac
         fi
         ;;
       prune)
