@@ -31,6 +31,8 @@ DEFAULT_MANIFEST="$SCRIPT_DIR/../tools.manifest.txt"
 TOOL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/tools.manifest.shfn.bash" ] && . "$TOOL_ROOT/library/bash/tools.manifest.shfn.bash"
 
 # shellcheck source=/dev/null
 if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
@@ -102,6 +104,8 @@ DESCRIPTION
 EXIT STATUS
   Nagios plugin convention.
   0 OK   every manifest line was processed
+  2 CRITICAL  a manifest line names a kind this tool cannot act on. The
+              line was skipped, so a pin is going unapplied.
   Any other status is the exit code of whichever command failed under
   `set -e` (curl, tar, sha256sum, mkdir), passed through unmapped -- a
   failed download exits with curl's own code, not 2 CRITICAL. Documented
@@ -194,13 +198,23 @@ install_yq_bin() {
   log "curl $url -> $out"
   curl -fsSL -o "$out" "$url"
   chmod +x "$out"
-  log "yq version: $(yq --version || true)"
+  # "$out", not a bare `yq`. A bare name resolves through the shell's command
+  # hash, which still points at the PRE-install binary -- so a real run on
+  # 2026-09-01 installed v4.50.1 and then logged v4.53.3. The install had
+  # worked; the verification was reading a different file. A log that cannot
+  # tell a successful install from a failed one is worse than no log.
+  log "yq version: $("$out" --version || true)"
 }
 
 log "### hee-tools-update"
 log "manifest: $MANIFEST"
 log "out: $OUT"
 log ""
+
+# Worst status seen across the manifest. `set -e` already aborts on a failed
+# download; this carries the softer failure -- a line this tool cannot act on
+# -- out to the caller, which it previously swallowed.
+rc=0
 
 while IFS= read -r line; do
   case "$line" in
@@ -209,11 +223,15 @@ while IFS= read -r line; do
   set -- $line
   name="$1"; kind="$2"; desired="$3"
 
-  case "$name:$kind" in
-    go:tar)
+  # Dispatch on KIND, then on name -- never on the literal "$name:$kind"
+  # pair. The manifest's name field can carry alternates (`bat|batcat`), so
+  # a literal match silently skipped 2 of 8 entries, one of them the only
+  # `required` line (issue 507).
+  case "$kind:$name" in
+    tar:go)
       install_go_tar "$desired"
       ;;
-    yq:bin)
+    bin:yq)
       if have yq; then
         cur="$(yq --version | sed -n 's/.*version v\{0,1\}\([0-9.]\+\).*/\1/p' | head -n 1)"
         log "yq current: ${cur:-unknown} desired: $desired"
@@ -226,27 +244,41 @@ while IFS= read -r line; do
         install_yq_bin "$desired"
       fi
       ;;
-    jq:pkg|bat:pkg|glow:pkg|rg:pkg|tmux:pkg|shellcheck:pkg|ruff:pkg)
-      if have "$name"; then
-        log "== $name ok (present) =="
+    pkg:*)
+      # Generic, with no per-name list to forget to extend. That list is
+      # exactly what dropped smilint, and what would have dropped every
+      # future pkg entry -- #517 had just extended it again, by hand, for
+      # shellcheck and ruff. This removes the reason to.
+      if _resolved="$(hee_manifest_resolve_tool "$name")"; then
+        if [ "$_resolved" != "$name" ]; then
+          log "== $name ok (present as $_resolved) =="
+        else
+          log "== $name ok (present) =="
+        fi
       else
         log "== $name missing =="
-        log "hint (debian/ubuntu): sudo apt install $name"
+        log "hint (debian/ubuntu): sudo apt install $(hee_manifest_primary "$name")"
       fi
       ;;
     *)
-      # Still WARNING, and still wrong -- `bat|batcat` and `smilint` land here
-      # because this dispatch matches literal names and the manifest's name
-      # field can carry alternates. hee-tools-check's resolve_tool already
-      # handles that; this half never learned. An unhandled entry should also
-      # be CRITICAL, not WARNING: the tool cannot tell "this line is
-      # malformed" from "this tool is missing". Both tracked in issue 507 --
-      # not fixed here, because fixing it properly means both halves sharing
-      # one resolver rather than each keeping its own.
-      log "$(hee_status WARNING "unknown manifest entry: $name $kind $desired")"
+      # CRITICAL, not WARNING. The tool cannot tell "this line is malformed"
+      # from "this tool is missing", and the whole point of a manifest is
+      # that every line is acted on. A skipped line that reads as a warning
+      # is a pin nobody is applying. #517 left a comment here saying this
+      # was tracked in issue 507 and not fixed there; this is that fix.
+      log "$(hee_status CRITICAL "unhandled manifest entry: $name $kind $desired")"
+      rc=2
       ;;
   esac
 done < "$MANIFEST"
 
 log ""
 log "done"
+
+# The loop runs in this shell, not a subshell, so rc survives -- `done <
+# "$MANIFEST"` redirects input rather than piping into the loop, which is
+# what would have put it in a subshell and discarded rc.
+if [ "$rc" -ne 0 ]; then
+  hee_status CRITICAL "manifest had entries this tool cannot act on -- see $OUT"
+fi
+exit "$rc"

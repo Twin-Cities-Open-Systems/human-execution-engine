@@ -41,6 +41,9 @@ else
   hee_status() { _lvl="$1"; shift; printf '%s %s\n' "$_lvl" "$*"; }
 fi
 
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/tools.manifest.shfn.bash" ] && . "$TOOL_ROOT/library/bash/tools.manifest.shfn.bash"
+
 usage() {
   cat <<'EOF'
 hee-tools-check -- is every external tool this org expects actually here
@@ -109,23 +112,11 @@ have() { command -v "$1" >/dev/null 2>&1; }
 #           falls back to cat. Optional by construction.
 #   go   -- nothing builds it. cmd/hee/main.go is a stub, and per rule 13 Go is
 #           the rung this toolchain has not reached yet.
-# NAME may list alternates as name|alt1|alt2 -- the FIRST one present wins.
-#
-# Real case, measured 2026-09-01: Debian/Ubuntu ship bat as `batcat`, because
-# `bat` collides with bacula-console-qt. So `apt install bat` produces
-# /usr/bin/batcat and NO `bat`, and a manifest naming only `bat` reports
-# "missing" on a machine where the tool is installed and working.
-# tooling/bin/hee-print already resolves this with pick_bat(); the manifest had
-# no equivalent, so the check disagreed with the tool it was checking for.
-resolve_tool() {
-  _spec="$1"
-  _old_ifs="$IFS"; IFS='|'
-  for _cand in $_spec; do
-    if command -v "$_cand" >/dev/null 2>&1; then IFS="$_old_ifs"; printf '%s\n' "$_cand"; return 0; fi
-  done
-  IFS="$_old_ifs"
-  return 1
-}
+# Alternate resolution lives in library/bash/tools.manifest.shfn.bash, so
+# this half and hee-tools-update read the manifest the same way. They did
+# not: this tool understood `bat|batcat` and the updater did not, so the
+# updater silently skipped the manifest's only `required` entry (issue 507).
+resolve_tool() { hee_manifest_resolve_tool "$@"; }
 
 vline() {
   spec="$1"
