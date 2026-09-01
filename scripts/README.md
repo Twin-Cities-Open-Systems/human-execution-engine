@@ -29,7 +29,7 @@ python scripts/hee_compliance_monitor.py --report
 **Integration**:
 
 - Can be run manually or integrated into CI/CD pipelines
-- Creates violation logs in `docs/history/state_capsules/compliance_violations.json`
+- Creates violation logs in `docs/history/state_capsules/compliance_violations.json` <!-- hee-check:refs-ok  written at runtime, not committed -->
 - Provides actionable feedback for violation resolution
 
 ## Pre-commit Hooks

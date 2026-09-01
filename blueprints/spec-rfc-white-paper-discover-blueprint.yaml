@@ -1,5 +1,5 @@
 # path: blueprints/spec-rfc-white-paper-discover-blueprint.yaml
-schema: contracts/oob_apply_request.v1.yaml
+schema: contracts/oob-apply-request-v1.yaml
 id: oob-apply-hee-cli-dash-0001
 title: "Add repo-local hee CLI with dash + ignore local state"
 intent:

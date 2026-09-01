@@ -228,7 +228,7 @@ artifacts:
   placeholder_policy:
     unknown_placeholder: art.disk.unknown
   examples:
-    art.disk: "hee/evidence/ui-dom/E20260202T000000Z-ui-dom.txt"
+    art.disk: "hee/evidence/ui-dom/E20260202T000000Z-ui-dom.txt"  # hee-check:refs-ok  an example value, not a reference
     art.gh: "gh-raw-url-unknown"
     art.hee: "hee://contracts/ui-dom/UI-DOM-v1"
 

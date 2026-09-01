@@ -5,9 +5,10 @@
 Keep `main` protected and every change reviewable — without a wrapper
 script standing between an agent and ordinary git.
 
+<!-- hee-check:refs-off  both scripts named below were removed by that supersession -->
 **Superseded 2026-08-31.** `scripts/hee_git_ops.sh`, its CI presence
 check `scripts/hee_ci_gitops_enforce.sh`, and the `HEE_TOOL_MODE`
-environment variable are **retired**. The reasoning is recorded below so
+environment variable are **retired**. <!-- hee-check:refs-on --> The reasoning is recorded below so
 this is not relitigated from memory.
 
 ## Non-negotiables

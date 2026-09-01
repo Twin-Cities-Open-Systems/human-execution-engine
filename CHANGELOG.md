@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - State capsule: `2026-01-28-GNU-BARROW-LOCK.yml`
 - Release notes: `docs/releases/hee-r2-pre-2026-01-28.001-gnu-barrow.md`
-- Completion record: `docs/history/completions/2026-01-28-HW-DISCOVERY-SPEC-APPLY-0001.yml`
+- Completion record: `docs/history/completions/2026-01-28-HW-DISCOVERY-SPEC-APPLY-0001.yml <!-- hee-check:refs-ok  a changelog records what was true then -->`
 
 ---
 

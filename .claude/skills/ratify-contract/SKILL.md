@@ -49,8 +49,10 @@ approver share an account) and never a majority vote.
    - `gpg --verify <contract.yaml>.asc <contract.yaml>` and confirm
      "Good signature."
 4. **Commit the contract and its `.asc` together, in the same commit**
-   -- via `scripts/hee_git_ops.sh commit --act --reason "..."` per
-   this repo's own git-mutation governance, never raw `git commit`.
+   -- with an ordinary `git commit`. The `scripts/hee_git_ops.sh` <!-- hee-check:refs-ok  naming what was removed is the point -->
+   wrapper this step used to name was retired 2026-08-31 (#456);
+   branch protection on `main` is the real control, and it binds every
+   operator and machine equally. See PROMPTING_RULES rule 1.
 5. **Never edit the contract again after signing.** Any further edit
    invalidates the signature. If a change is truly needed, the
    contract must be un-ratified and re-signed from step 1 -- there is

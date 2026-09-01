@@ -1,8 +1,8 @@
 # path: blueprints/enforcer-blueprint.yaml
 review:
   submission:
-    - contracts/oob_apply_request.v1.yaml
-    - blueprints/enforcer.blueprint.yaml
+    - contracts/oob-apply-request-v1.yaml
+    - blueprints/enforcer-blueprint.yaml
   status: accepted
 
 validation:
@@ -38,8 +38,8 @@ conditions:
 
 evidence:
   disk:
-    - contracts/oob_apply_request.v1.yaml
-    - blueprints/enforcer.blueprint.yaml
+    - contracts/oob-apply-request-v1.yaml
+    - blueprints/enforcer-blueprint.yaml
 
 verdict:
   quality: high

@@ -221,8 +221,7 @@ next_chat_bootstrap:
 ### Related Documentation
 
 - `docs/HEE_POLICY.md` - Governance rules and standards
-- `prompts/AGENT_STATE_HANDOFF.md` - Agent transition procedures
-- `docs/TROUBLESHOOTING.md` - Problem resolution guides
+- `prompts/PROMPTING_RULES.md` - The agent-facing rulebook
 
 ### Tools and Scripts
 

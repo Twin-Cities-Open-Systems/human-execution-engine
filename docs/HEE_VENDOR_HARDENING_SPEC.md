@@ -151,7 +151,7 @@ Failure MUST abort early with a clear error message.
 Each consumer repo MUST contain:
 
 ```sh
-docs/hee/VENDORED_FROM.yml
+docs/hee/VENDORED_FROM.yml <!-- hee-check:refs-ok  created in the consumer repo, never present here -->
 ```
 
 **Minimum contents:**

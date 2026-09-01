@@ -281,7 +281,7 @@ Hazard tiers:
 
 ## 7. Minimal CLI Contract (Implementation Target)
 
-`hee-discover-hw` (or `scripts/hee-discover-hw.py`) MUST support:
+`hee-discover-hw` (or `scripts/hee-discover-hw.py`) MUST support: <!-- hee-check:refs-ok  an implementation target; this spec is what would build it -->
 
 - `--out <dir>` (default: `docs/history/ops/discovery/<UTCSTAMP>`)
 - `--level L0|L1` (default L0)

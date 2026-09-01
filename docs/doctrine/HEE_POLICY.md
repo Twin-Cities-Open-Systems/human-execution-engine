@@ -90,7 +90,7 @@ Both fixed below.
 - Whichever prefix is used, all changes are made on a branch, never
   directly on `main`.
 - **Ordinary `git`/`gh` commands are the workflow.** The
-  `scripts/hee_git_ops.sh` wrapper and `HEE_TOOL_MODE` were retired
+  `scripts/hee_git_ops.sh` wrapper and `HEE_TOOL_MODE` were retired <!-- hee-check:refs-ok  the retirement is the point of the sentence -->
   2026-08-31 — see `docs/guides/GIT_GH_WORKFLOW.md` for the full
   reasoning. The one hard rule that remains is above: never commit or
   push directly to `main`, and let branch protection enforce it
