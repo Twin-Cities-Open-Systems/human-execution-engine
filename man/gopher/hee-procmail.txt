@@ -1,0 +1,14 @@
+HEE-PROCMAIL(1)                    HEE Tools                   HEE-PROCMAIL(1)
+
+NAME
+       hee-procmail - hee-procmail command
+
+SYNOPSIS
+              hee-procmail [-h] [-rules PATH]
+
+DESCRIPTION
+              options:
+                -h, --help   show this help message and exit
+                -rules PATH
+
+                                                               HEE-PROCMAIL(1)

@@ -1,0 +1,14 @@
+HEE-SITE-PUBLISH(1)                HEE Tools               HEE-SITE-PUBLISH(1)
+
+NAME
+       hee-site-publish  -  add  real  files  into resume/dist/ and deploy the
+       whole tree
+
+SYNOPSIS
+              hee-site-publish --add <file> [--add <file> ...] [--dry-run]
+
+DESCRIPTION
+              Never deploys a partial directory -- Cloudflare Pages deploys are full-tree
+              atomic replaces, so this always ships the existing site plus your additions.
+
+                                                           HEE-SITE-PUBLISH(1)

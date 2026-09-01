@@ -1,0 +1,83 @@
+HEE-CRED(1)                      User Commands                     HEE-CRED(1)
+
+NAME
+       hee-cred - real, minimal GPG-backed credential store
+
+SYNOPSIS
+       hee cred -seal ACCOUNT -recipients ID[,ID...]  [-dir PATH]
+       hee  cred  -seal ACCOUNT -recipients ID[,ID...]  -genfrom TERM [-blocks
+       N] [-root PATH]
+       hee cred -pass ACCOUNT -exec COMMAND [ARGS...]  [-dir PATH]
+
+DESCRIPTION
+       hee-cred stores secrets as ciphertext-only  GPG  files  under  .hee/se‐
+       crets/ACCOUNT.gpg,  and  never  lets a decrypted value reach an agent's
+       own visible output.  Retrieval is exec-only:  the  secret  is  injected
+       into a single child process's environment and nowhere else.
+
+       -seal  (typed)  reads  the secret from an interactive hidden prompt. It
+       refuses to run at all if stdin isn't a real terminal  --  deliberately,
+       so a secret can never be piped in from a chat, log, or script.
+
+       -seal  -genfrom  instead  pulls  real words out of a local media corpus
+       matching TERM, joins them into a passphrase.  Still  never  printed  --
+       flows straight into the same GPG encrypt call as a typed secret.
+
+       -pass  decrypts  and  sets  the secret in the HEE_CRED_PASS environment
+       variable of the -exec child process only -- never argv (visible via  ps
+       to other users), never stdout, never a log line.
+
+OPTIONS
+       -seal ACCOUNT
+              Seal a new secret under the given account name.
+
+       -recipients ID[,ID...]
+              Comma-separated  GPG  key  IDs or emails to encrypt to. At least
+              one required. Multiple recipients means any one of them can  in‐
+              dependently decrypt.
+
+       -pass ACCOUNT
+              Decrypt the named account's secret for one -exec call.
+
+       -exec COMMAND [ARGS...]
+              The command to run with HEE_CRED_PASS set. Required with -pass.
+
+       -genfrom TERM
+              Generate  a  passphrase  from real corpus text matching TERM in‐
+              stead of typing one.
+
+       -blocks N
+              Number of corpus-derived words to join (default 4).
+
+       -dir PATH
+              Secrets directory (default .hee/secrets, relative to cwd).
+
+       -root PATH
+              Corpus root for -genfrom (default /var/local/hee-corpus).
+
+EXAMPLES
+       Seal a secret, two recipients:
+
+              hee cred -seal my-api-key \
+                  -recipients 6A58FE47...3188,73B1462A...FDA0
+
+       Use a sealed secret without ever seeing it:
+
+              hee cred -pass my-api-key -exec bash -c \
+                  'curl    -H    "Authorization:    Bearer     $HEE_CRED_PASS"
+              https://api.example.com'
+
+SECURITY
+       A  secret  sealed to multiple recipients can be decrypted independently
+       by any one of them -- this is intentional, not a  weakness.  Add  every
+       real  party that legitimately needs access as a recipient at seal time;
+       there is no way to add a recipient after the fact without re-sealing.
+
+ORGANIZATION
+       Twin Cities Open Systems - Operations LLC
+       IANA Private Enterprise Number: 1.3.6.1.4.1.66550
+
+SEE ALSO
+       hee-pwgen(1), hee-qr(1)
+
+HEE                               2026-08-22                       HEE-CRED(1)
