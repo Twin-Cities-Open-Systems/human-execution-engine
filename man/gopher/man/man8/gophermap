@@ -1,7 +1,9 @@
 iTwin Cities Open Systems -- section 8: System Administration		man.tcos.us	70
 i		man.tcos.us	70
+0hee-cache-prune(8)	/man/man8/hee-cache-prune.txt	man.tcos.us	70
 0hee-pve-deploy(8)	/man/man8/hee-pve-deploy.txt	man.tcos.us	70
 0hee-pve-users(8)	/man/man8/hee-pve-users.txt	man.tcos.us	70
+0hee-reset-tooling(8)	/man/man8/hee-reset-tooling.txt	man.tcos.us	70
 0hee-ssh-send-keys(8)	/man/man8/hee-ssh-send-keys.txt	man.tcos.us	70
 0hee-ssh-trust-ca(8)	/man/man8/hee-ssh-trust-ca.txt	man.tcos.us	70
 i		man.tcos.us	70

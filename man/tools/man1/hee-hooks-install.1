@@ -18,11 +18,33 @@
 .hy
 .SH NAME
 .PP
-hee-hooks-install - hee-hooks-install command
+hee-hooks-install - install this repo\[aq]s optional git hooks
+.SH SYNOPSIS
+.IP
+.nf
+\f[C]
+hee-hooks-install [--repo PATH]
+hee-hooks-install help
+\f[R]
+.fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-🟢 🟦 b # OK: installed pre-commit hook -> \[ti]/git/human-execution-engine/.git/hooks/pre-commit
+Symlinks tooling/githooks/pre-commit into the repo\[aq]s .git/hooks/. Both
+non-destructive and idempotent -- re-running it changes nothing.
+
+  --repo   the repo to install into. Defaults to the repo containing
+           the current directory.
+
+A relative symlink is preferred so the hook keeps working if the
+checkout moves; an absolute one is the fallback when that fails.
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 installed   2 not in a git repo, or the hook source is missing
 \f[R]
 .fi

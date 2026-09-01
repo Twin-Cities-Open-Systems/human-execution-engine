@@ -8,6 +8,9 @@ hee-check - repo boundary and integrity checks
 
     hee-check [boundary] [PATH]
     hee-check refs [--fix] [PATH]
+    hee-check systemd [PATH]
+    hee-check cli [TOOLDIR] [--json] [--quiet]
+    hee-check regex
     hee-check all [PATH]
     hee-check [SUBCOMMAND] help
 
@@ -29,6 +32,8 @@ hee-check - repo boundary and integrity checks
     boundary   generated state is not committed (default)
     refs       every file reference resolves
     systemd    systemd unit files are valid
+    cli        every hee tool's own help obeys the CLI contract
+    regex      shared regex patterns behave identically in every engine
     all        boundary + refs
 
     Add `help` after any subcommand for its own page:

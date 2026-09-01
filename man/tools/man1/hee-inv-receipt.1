@@ -14,20 +14,55 @@
 . ftr VB CB
 . ftr VBI CBI
 .\}
-.TH "" "" "" "" ""
+.TH "HEE-INV-RECEIPT" "1" "" "" "HEE Tools"
 .hy
-.SH hee-inv-receipt(1)
+.SH NAME
 .PP
-hee-inv-receipt \[em] receipt ingest (v1)
-.PP
-Goal: convert a receipt image into: - inventory.purchase object -
-inventory.purchase_line objects (best-effort parse) - OCR text stored as
-evidence
-.PP
-Usage: hee-inv-receipt ingest [--tcos-repo ] [--vendor ] [--store ]
-.PP
-Defaults: --tcos-repo $HOME/git/tcos-plan-private --vendor unknown
---store unknown
-.PP
-\f[I](no --help/-h output -- generated from the script\[aq]s own header
-comment)\f[R]
+hee-inv-receipt - turn a receipt image into HEE inventory objects
+.SH SYNOPSIS
+.IP
+.nf
+\f[C]
+hee-inv-receipt ingest IMAGE [--tcos-repo PATH] [--vendor TOKEN]
+                             [--store TOKEN]
+hee-inv-receipt help
+\f[R]
+.fi
+.SH DESCRIPTION
+.IP
+.nf
+\f[C]
+OCRs a receipt image and writes, into the TCOS planning repo:
+
+  - one inventory.purchase object
+  - inventory.purchase_line objects, best-effort parsed
+  - the raw OCR text, stored as evidence
+
+Line parsing is best-effort by design: a receipt is not a structured
+document, and a wrong line is worse than a missing one. The stored OCR
+text is the authority to re-check against.
+\f[R]
+.fi
+.SH OPTIONS
+.IP
+.nf
+\f[C]
+--tcos-repo PATH  target repo. Default: $HOME/git/tcos-plan-private
+--vendor TOKEN    vendor tag. Default: unknown
+--store TOKEN     store tag. Default: unknown
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 ingested   2 missing dependency, or the target is not the expected repo
+\f[R]
+.fi
+.SH REQUIRES
+.IP
+.nf
+\f[C]
+sha256sum, rg, perl, tesseract, date, exiftool
+\f[R]
+.fi

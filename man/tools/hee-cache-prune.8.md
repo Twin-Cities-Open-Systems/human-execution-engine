@@ -1,0 +1,34 @@
+% HEE-CACHE-PRUNE(8) | HEE Tools
+
+# NAME
+
+hee-cache-prune - prune stale entries from the hee-* disk caches
+
+# SYNOPSIS
+
+    hee-cache-prune [DAYS]
+    hee-cache-prune help
+
+
+# DESCRIPTION
+
+
+    Deletes cached JSON older than DAYS (default 7) from every hee-* disk
+    cache -- hee-filter's repo-visibility cache and hee-git-merge's PR-detail
+    cache. A TTL alone never deletes an entry nobody re-queries; it just sits
+    forever, which is what this exists to fix.
+
+    Meant to be cron'd via bootstrap.mk's own unprivileged-by-design
+    mechanism (`make -f tooling/bootstrap.mk install-cron`), not copied
+    somewhere and run by hand.
+
+    Pruned files are printed as they are removed.
+
+    Caches, both under $HOME/.config/hee:
+      cache/          hee-filter repo visibility
+      gh-pr-cache/    hee-git-merge PR details
+
+
+# EXIT STATUS
+
+    0 pruned (including when there was nothing to prune)

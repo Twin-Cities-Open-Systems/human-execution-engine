@@ -18,11 +18,37 @@
 .hy
 .SH NAME
 .PP
-hee-sync-cursor-prompts - hee-sync-cursor-prompts command
+hee-sync-cursor-prompts - copy canonical HEE prompts into
+\&.cursor/prompts
+.SH SYNOPSIS
+.IP
+.nf
+\f[C]
+hee-sync-cursor-prompts
+hee-sync-cursor-prompts help
+\f[R]
+.fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-OK: synced .hee/policy/prompts -> .cursor/prompts
+Syncs the active HEE policy prompts into Cursor\[aq]s convenience location so
+the editor reads the same text governance does. Run from a repo root.
+
+Source priority, first that exists wins:
+  1. prompts/hee            vendored policy
+  2. .hee/policy/prompts    detached policy
+
+Destination: .cursor/prompts
+
+The destination is generated state. hee-check-cursor-prompts is the
+read-only half that verifies it has not drifted.
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 synced   1 no policy source found
 \f[R]
 .fi

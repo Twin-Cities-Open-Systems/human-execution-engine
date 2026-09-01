@@ -184,11 +184,15 @@ report_plan() {
   printf '  %s changed  %s new  %s removed  %s unchanged\n' \
     "$_changed" "$_new" "$_gone" "$_same"
   if [ "$_changed" -gt 0 ] || [ "$_new" -gt 0 ] || [ "$_gone" -gt 0 ]; then
-    sed -e "s#$_staged#<generated>#g" -e "s#^Files #  changed: #" \
-        -e "s# and <generated>.* differ\$##" \
-        -e "s#^Only in <generated>\(.*\): #  new:     \1/#" \
-        -e "s#^Only in \($_real[^:]*\): #  removed: \1/#" \
-        "$_staged.diff"
+    # Classify BEFORE rewriting paths: `Only in <staged>` is a new file and
+    # `Only in <real>` is one that would go away, and once both are rewritten
+    # to the same prefix they are indistinguishable. Every line names a path
+    # under the REAL destination, never the temp one -- reporting a path the
+    # operator cannot go and look at is worse than reporting none.
+    sed -e "s#^Files \([^ ]*\) and .* differ\$#  changed: \1#" \
+        -e "s#^Only in $_staged\(.*\): \(.*\)\$#  new:     $_real\1/\2#" \
+        -e "s#^Only in $_real\(.*\): \(.*\)\$#  removed: $_real\1/\2#" \
+        "$_staged.diff" | sort
   fi
   rm -f "$_staged.diff"
 }
@@ -439,6 +443,29 @@ for f in "$BIN_DIR"/*; do
   name="$(basename "$f")"
   _sec="$(man_section "$f")"
   out="$OUT_DIR/$name.$_sec.md"
+
+  # A tool's section can CHANGE (# section: 1 -> 8, as hee-cache-prune and
+  # hee-reset-tooling just did). The page in the old section is not
+  # overwritten by the new one, it is ORPHANED -- and the pandoc pass at the
+  # bottom converts every *.[1-9].md it finds, so the orphan regenerates
+  # itself on every subsequent run. Two pages for one tool, and whichever the
+  # publisher reaches first wins, which is exactly how man/hee.1 and
+  # man/tools/hee.1 diverged.
+  #
+  # Caught 2026-09-01 by the dry run predicting four removals that --write
+  # then did not perform. A dry run and a real run disagreeing is the one
+  # thing this tool must never do, so the real run was wrong, not the report.
+  for _os in 1 2 3 4 5 6 7 8 9; do
+    [ "$_os" = "$_sec" ] && continue
+    if [ -e "$OUT_DIR/$name.$_os.md" ]; then
+      rm -f "$OUT_DIR/$name.$_os.md"
+      echo "  removed stale section-$_os page: $OUT_DIR/$name.$_os.md"
+    fi
+    if [ -e "$OUT_DIR/man$_os/$name.$_os" ]; then
+      rm -f "$OUT_DIR/man$_os/$name.$_os"
+      echo "  removed stale section-$_os roff: $OUT_DIR/man$_os/$name.$_os"
+    fi
+  done
 
   # Authored page wins -- never regenerate over hand-written documentation.
   _authored="$(authored_page_for "$name")"
