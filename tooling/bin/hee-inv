@@ -41,18 +41,29 @@ SOA_ANCHOR="$HOME/.hee/index/_.yaml"
 
 usage(){
   cat <<USAGE
-usage:
-  hee inv ingest <incoming_dir> [--tcos-repo <path>]
+hee-inv -- ingest inventory evidence, and report on what is unaccounted for
 
-  hee inv unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+SYNOPSIS
+  hee inv ingest INCOMING_DIR [--tcos-repo PATH]
+  hee inv unknown report [--tcos-repo PATH] [--warn-days N] [--crit-days N]
+  hee inv help
 
-defaults:
-  --tcos-repo \$HOME/git/tcos-plan-private
-  --warn-days 7
-  --crit-days 14
+DESCRIPTION
+  ingest reads an incoming directory and files its contents as inventory
+  evidence. A .zip is preserved AS the evidence and its contents are
+  ingested alongside it -- the archive is not discarded once opened.
 
-notes:
-  - ingest supports .zip in incoming: archive is preserved as evidence and contents are ingested.
+  unknown report ages the items that have not been reconciled, warning
+  and then going critical as they get older.
+
+  Defaults:
+    --tcos-repo   \$HOME/git/tcos-plan-private
+    --warn-days   7
+    --crit-days   14
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 USAGE
 }
 
@@ -405,12 +416,33 @@ cmd_unknown_report(){
   exit 0
 }
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+# Contextual help, via the shared contract. Replaces a positional check that
+# saw only one argument position, and announces what it discarded.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 # --- main dispatch ---
 if [ "${1:-}" = "inv" ]; then shift; fi
 
 cmd="${1:-}"
 case "$cmd" in
-  ""|-h|--help|help) usage; exit 0 ;;
+  "") usage; exit 0 ;;
   ingest)
     shift
     incoming="${1:-}"

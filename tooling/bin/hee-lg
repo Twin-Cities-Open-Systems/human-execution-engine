@@ -30,6 +30,12 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path as _Path
+
+# library/py lives in this tool's own repo -- derive it from this script's
+# own location, resolved through symlinks.
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_left, help_wanted, note_ignored  # noqa: E402
 
 UA = "hee-lg/1.0 (Twin-Cities-Open-Systems/human-execution-engine)"
 
@@ -97,7 +103,12 @@ EXAMPLES
 
 
 def wants_help(argv):
-    return bool(argv) and argv[-1] in ("help", "--help", "-h")
+    # Was `argv[-1] in (...)`, which only saw the FINAL argument -- so
+    # `hee-lg help 1.1.1.1` was not help at all and ran the real lookup.
+    if help_wanted(argv):
+        note_ignored(argv)
+        return True
+    return False
 
 
 def resolve_ip(target: str):

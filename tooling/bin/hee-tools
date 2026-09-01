@@ -52,17 +52,30 @@ EOF
 }
 
 # Contextual help: `help` (or --help/-h) as the LAST argument.
-_last=""
-for _a in "$@"; do _last="$_a"; done
-case "$_last" in
-  help|--help|-h)
-    case "${1:-}" in
-      check)  exec "$(dirname "$0")/hee-tools-check" --help ;;
-      update) exec "$(dirname "$0")/hee-tools-update" --help ;;
-      *)      usage; exit 0 ;;
-    esac
-    ;;
-esac
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+# Contextual help, via the shared contract. The `_last` idiom this replaces
+# read only the FINAL argument, so `hee-tools update help /some/manifest` was
+# not help at all -- it ran a real toolchain update.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  case "$(hee_help_topic "$@")" in
+    check)  exec "$(dirname "$HEE_SELF")/hee-tools-check" --help ;;
+    update) exec "$(dirname "$HEE_SELF")/hee-tools-update" --help ;;
+    *)      usage; exit 0 ;;
+  esac
+fi
 
 sub="${1:-check}"
 case "$sub" in

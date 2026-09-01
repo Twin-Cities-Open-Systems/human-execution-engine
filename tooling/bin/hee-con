@@ -34,20 +34,30 @@ set -eu
 
 usage() {
   cat <<'TXT'
-hee-con -- connect to IRC with a real native client, persistent in tmux;
-           or send a real message into an existing tmux pane
+hee-con -- connect to IRC in tmux, or send into an existing tmux pane
 
-usage:
-  hee-con -irc <channel> [-network HOST] [-session NAME] [-nick NICK]
-  hee-con -tmux-send 'message' -target <session:window.pane>
+SYNOPSIS
+  hee-con -irc CHANNEL [-network HOST] [-session NAME] [-nick NICK]
+  hee-con -tmux-send 'MESSAGE' -target SESSION:WINDOW.PANE
+  hee-con help
 
-defaults:
-  -network irc.libera.chat
-  -session irc-<channel, # stripped>
-  -nick    hee<pid>
+DESCRIPTION
+  Two jobs that share a transport. The IRC side starts a real native
+  client inside a persistent tmux session, so the connection survives the
+  shell that started it. The -tmux-send side puts one line into a pane
+  that already exists.
 
--tmux-send has no defaults -- -target is always required, sending into
-the wrong pane is a real footgun, not a hypothetical one.
+  IRC defaults:
+    -network   irc.libera.chat
+    -session   irc-<channel, # stripped>
+    -nick      hee<pid>
+
+  -tmux-send has NO defaults. -target is always required: sending into
+  the wrong pane is a real footgun, not a hypothetical one.
+
+EXIT STATUS
+  0 connected, or the message was sent
+  1 unknown argument, or a required argument was missing
 TXT
 }
 
@@ -58,6 +68,27 @@ channel=""
 tmux_message=""
 tmux_target=""
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+# Contextual help, via the shared contract. Replaces a positional check that
+# saw only one argument position, and announces what it discarded.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 while [ $# -gt 0 ]; do
   case "$1" in
     -irc) channel="${2:-}"; shift 2 ;;
@@ -66,7 +97,6 @@ while [ $# -gt 0 ]; do
     -nick) nick="${2:-}"; shift 2 ;;
     -tmux-send) tmux_message="${2:-}"; shift 2 ;;
     -target) tmux_target="${2:-}"; shift 2 ;;
-    -h|--help|help) usage; exit 0 ;;
     *) echo "hee-con: unknown arg: $1" 1>&2; usage; exit 1 ;;
   esac
 done

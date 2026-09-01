@@ -11,12 +11,23 @@
 # is the thin CLI over it, per rule 13.
 set -uo pipefail
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve through symlinks first -- tools are symlinked onto PATH from
+# ~/.local/bin, where a bare `dirname "$0"` finds no library/, so both the
+# help contract and the status vocabulary silently fail to load.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+SELF_DIR="$(cd "$(dirname "$HEE_SELF")" && pwd)"
 TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
 # shellcheck source=/dev/null
 if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
   . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
+  # shellcheck source=/dev/null
+  [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
 else
   hee_status() { lvl="$1"; shift; printf '%s %s\n' "$lvl" "$*"; }
 fi
@@ -221,15 +232,17 @@ SEE ALSO
 EOF
 }
 
-_last=""; for _a in "$@"; do _last="$_a"; done
-case "$_last" in
-  help|--help|-h)
-    case "${1:-}" in
-      tool) usage_tool ;; platform) usage_platform ;; hardware) usage_hardware ;;
-      session) usage_session ;; verity) usage_verity ;; verify) usage_verify ;; *) usage ;;
-    esac
-    exit 0 ;;
-esac
+# Contextual help, via the shared contract. The `_last` idiom this replaces
+# saw only the final argument, so `hee-ver verify help --sign` was not
+# recognized as help and ran the real --sign.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  case "$(hee_help_topic "$@")" in
+    tool) usage_tool ;; platform) usage_platform ;; hardware) usage_hardware ;;
+    session) usage_session ;; verity) usage_verity ;; verify) usage_verify ;; *) usage ;;
+  esac
+  exit 0
+fi
 
 command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; exit 3; }
 export PYTHONPATH="$TOOL_ROOT/library/py:${PYTHONPATH:-}"

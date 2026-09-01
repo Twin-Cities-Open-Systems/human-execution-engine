@@ -18,11 +18,47 @@
 .hy
 .SH NAME
 .PP
-hee-sqz - hee-sqz command
+hee-sqz - squeeze a loop\[aq]s OK:/FAIL: lines into one JSON line
+.SH SYNOPSIS
+.IP
+.nf
+\f[C]
+<command producing OK:/FAIL: lines> | hee-sqz
+hee-sqz help
+\f[R]
+.fi
 .SH DESCRIPTION
 .IP
 .nf
 \f[C]
-{\[dq]status\[dq]:\[dq]ok\[dq],\[dq]ok\[dq]:0,\[dq]fail\[dq]:0,\[dq]ratio\[dq]:\[dq]0/0\[dq]}
+Reads stdin and counts lines by their leading marker, emitting a single
+JSON object with the pass/fail ratio. It COUNTS, never infers: an
+unmarked line passes through uncounted rather than being guessed at.
+
+  OK: NAME       counted as a pass
+  PASS: NAME     same
+  FAIL: NAME     counted as a failure, and NAME is listed
+  ERROR: NAME    same
+  anything else  ignored
+
+Real convention, not a guess: every loop iteration emits exactly one
+marked line. Written for the fleet-ops#244 branch-protection rollout --
+15/15, JSON-parseable, no scrollback to eyeball.
+\f[R]
+.fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+0 always -- the ratio is the output, not the exit code
+\f[R]
+.fi
+.SH EXAMPLES
+.IP
+.nf
+\f[C]
+for r in $repos; do
+  check \[dq]$r\[dq] && echo \[dq]OK: $r\[dq] || echo \[dq]FAIL: $r\[dq]
+done | hee-sqz
 \f[R]
 .fi

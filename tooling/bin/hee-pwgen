@@ -20,6 +20,12 @@ Usage:
 import secrets
 import string
 import sys
+from pathlib import Path as _Path
+
+# library/py lives in this tool's own repo -- derive it from this script's
+# own location, resolved through symlinks.
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_left, help_wanted, note_ignored  # noqa: E402
 
 DEFAULT_LENGTH = 20
 ALPHABET = string.ascii_letters + string.digits
@@ -73,7 +79,8 @@ SEE ALSO
 
 def main():
     argv = sys.argv[1:]
-    if argv and argv[-1] in ("help", "--help", "-h"):
+    if help_wanted(argv):
+        note_ignored(argv)
         print(HELP, end="")
         return
 

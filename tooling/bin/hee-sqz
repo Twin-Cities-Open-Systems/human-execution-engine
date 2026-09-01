@@ -12,7 +12,60 @@
 #
 # Usage:
 #   for r in ...; do <cmd> && echo "OK: $r" || echo "FAIL: $r"; done | hee sqz
-set -u
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-sqz -- squeeze a loop's OK:/FAIL: lines into one JSON line
+
+SYNOPSIS
+  <command producing OK:/FAIL: lines> | hee-sqz
+  hee-sqz help
+
+DESCRIPTION
+  Reads stdin and counts lines by their leading marker, emitting a single
+  JSON object with the pass/fail ratio. It COUNTS, never infers: an
+  unmarked line passes through uncounted rather than being guessed at.
+
+    OK: NAME       counted as a pass
+    PASS: NAME     same
+    FAIL: NAME     counted as a failure, and NAME is listed
+    ERROR: NAME    same
+    anything else  ignored
+
+  Real convention, not a guess: every loop iteration emits exactly one
+  marked line. Written for the fleet-ops#244 branch-protection rollout --
+  15/15, JSON-parseable, no scrollback to eyeball.
+
+EXAMPLES
+  for r in $repos; do
+    check "$r" && echo "OK: $r" || echo "FAIL: $r"
+  done | hee-sqz
+
+EXIT STATUS
+  0 always -- the ratio is the output, not the exit code
+USAGE
+}
+
+# Before the read loop, and this one mattered more than most: this tool
+# consumes stdin, so with no help handling at all `hee-sqz help` did not
+# print anything or fail -- it BLOCKED, waiting on a terminal.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
 
 ok=0
 fail=0

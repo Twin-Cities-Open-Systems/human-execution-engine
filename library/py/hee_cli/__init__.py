@@ -76,20 +76,37 @@ HELP_TOKENS = ("help", "--help", "-h")
 _END_OF_OPTIONS = "--"
 
 
-def help_wanted(argv: Sequence[str]) -> bool:
+def _is_help_token(argv: Sequence[str], i: int, value_flags: Sequence[str]) -> bool:
+    """Is argv[i] a help request, rather than some flag's value?
+
+    ``hee-stat -c help`` names a counter called "help"; ``hee-publish -blog
+    help`` names a blog called "help". Both tools guarded against this by
+    hand before adopting the contract, and dropping the guard would have
+    turned a lookup into a help page. A token immediately after a
+    value-taking flag is that flag's VALUE, never a help token.
+    """
+    if argv[i] not in HELP_TOKENS:
+        return False
+    return not (i > 0 and argv[i - 1] in value_flags)
+
+
+def help_wanted(argv: Sequence[str], value_flags: Sequence[str] = ()) -> bool:
     """True if any argument is a help token. Scans the WHOLE argv, not argv[0].
 
     Stops at ``--``: everything after it is an operand, never a help request.
+
+    ``value_flags`` names flags that take a value, so the token after one is
+    that value rather than a help request -- see :func:`_is_help_token`.
     """
-    for arg in argv:
-        if arg in HELP_TOKENS:
-            return True
+    for i, arg in enumerate(argv):
         if arg == _END_OF_OPTIONS:
             return False
+        if _is_help_token(argv, i, value_flags):
+            return True
     return False
 
 
-def help_left(argv: Sequence[str]) -> list[str]:
+def help_left(argv: Sequence[str], value_flags: Sequence[str] = ()) -> list[str]:
     """Everything strictly to the LEFT of the first help token, unfiltered.
 
     Everything from the token rightward is deliberately discarded -- that is
@@ -100,8 +117,8 @@ def help_left(argv: Sequence[str]) -> list[str]:
     ``-close`` page, and a verbs-only view cannot see it.
     """
     left: list[str] = []
-    for arg in argv:
-        if arg in HELP_TOKENS or arg == _END_OF_OPTIONS:
+    for i, arg in enumerate(argv):
+        if arg == _END_OF_OPTIONS or _is_help_token(argv, i, value_flags):
             break
         left.append(arg)
     return left
@@ -125,19 +142,20 @@ def help_topic(argv: Sequence[str]) -> str:
     return verbs[-1] if verbs else ""
 
 
-def help_ignored(argv: Sequence[str]) -> list[str]:
+def help_ignored(argv: Sequence[str], value_flags: Sequence[str] = ()) -> list[str]:
     """What was to the RIGHT of the help token -- the part that was NOT run."""
     seen = False
     ignored: list[str] = []
-    for arg in argv:
+    for i, arg in enumerate(argv):
         if seen:
             ignored.append(arg)
-        elif arg in HELP_TOKENS:
+        elif _is_help_token(argv, i, value_flags):
             seen = True
     return ignored
 
 
-def note_ignored(argv: Sequence[str], stream=None) -> None:
+def note_ignored(argv: Sequence[str], stream=None,
+                 value_flags: Sequence[str] = ()) -> None:
     """Tell the operator, on stderr, that the rest of the line was discarded.
 
     Operator, 2026-08-31, on seeing the discard proved in a table: "add that
@@ -148,7 +166,7 @@ def note_ignored(argv: Sequence[str], stream=None) -> None:
 
     stderr, not stdout, so ``hee foo help | ...`` still pipes clean help text.
     """
-    ignored = help_ignored(argv)
+    ignored = help_ignored(argv, value_flags)
     if not ignored:
         return
     print(
