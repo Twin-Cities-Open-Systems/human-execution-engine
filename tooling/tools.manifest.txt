@@ -18,9 +18,15 @@
 go      tar     1.26.0   --version  optional
 yq      bin     4.50.1   --version
 jq      pkg     any      --version
-# bat: library/sh/hee-print guards it with `command -v bat` and falls back to
-# cat. Optional by construction, so absence is not CRITICAL.
-bat     pkg     any      --version  optional
+# bat|batcat: REQUIRED. hee-print falls back to cat without it, which does not
+# crash but silently turns a pretty-printer into `cat` -- a quality regression
+# nobody notices. Operator, 2026-09-01: "bat is prettier, and we need it for
+# hee print".
+#
+# Listed with its alternate because Debian/Ubuntu install the binary as
+# `batcat` (the name `bat` collides with bacula-console-qt). A manifest naming
+# only `bat` reports missing on a machine where it is installed and working.
+bat|batcat pkg  any      --version  required
 glow    pkg     any      --version
 rg      pkg     any      --version
 tmux    pkg     any      -V
