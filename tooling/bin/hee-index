@@ -8,15 +8,53 @@
 #
 # Usage:
 #   hee-index [--out <file>]   (default: hee/INDEX.md)
-case "${1:-}" in
-  --help|-h)
-    echo "hee-index -- generate hee/INDEX.md, a real persisted index of every"
-    echo "HEE object (apiVersion: hee/v1), grouped by kind, with pass/fail"
-    echo "compliance status from hee-lint's own scan."
-    echo "Usage: hee-index [--out <file>]"
-    exit 0
-    ;;
-esac
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-index -- generate hee/INDEX.md, the persisted index of every HEE object
+
+SYNOPSIS
+  hee-index [--out FILE]
+  hee-index help
+
+DESCRIPTION
+  Walks every HEE object (apiVersion: hee/v1) in the current repo, groups
+  them by kind, and writes an index carrying each object's live pass/fail
+  compliance status.
+
+  A thin wrapper around hee-lint's own scan -- it reuses that pass/fail
+  logic rather than parsing YAML a second time, so there is one
+  implementation of "is this object valid", not two.
+
+    --out   where to write the index. Default: hee/INDEX.md
+
+  The output is generated state and is checked for staleness in CI; run
+  this and commit the result whenever objects change.
+
+EXIT STATUS
+  0 written   1 unknown argument   2 not in a git repo
+USAGE
+}
+
+# Contextual help, via the shared contract -- never a positional check.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 set -eu
 
 OUT="hee/INDEX.md"

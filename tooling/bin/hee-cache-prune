@@ -1,5 +1,5 @@
 #!/bin/sh
-# section: 1
+# section: 8
 # hee-cache-prune -- prune stale entries from the real hee-* disk
 # caches (hee-filter's repo-visibility cache, hee-git-merge's PR-detail
 # cache). A TTL alone never deletes an entry nobody re-queries -- it
@@ -11,6 +11,55 @@
 # Usage: hee-cache-prune [days, default 7]
 
 set -eu
+
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-cache-prune -- prune stale entries from the hee-* disk caches
+
+SYNOPSIS
+  hee-cache-prune [DAYS]
+  hee-cache-prune help
+
+DESCRIPTION
+  Deletes cached JSON older than DAYS (default 7) from every hee-* disk
+  cache -- hee-filter's repo-visibility cache and hee-git-merge's PR-detail
+  cache. A TTL alone never deletes an entry nobody re-queries; it just sits
+  forever, which is what this exists to fix.
+
+  Meant to be cron'd via bootstrap.mk's own unprivileged-by-design
+  mechanism (`make -f tooling/bootstrap.mk install-cron`), not copied
+  somewhere and run by hand.
+
+  Pruned files are printed as they are removed.
+
+  Caches, both under $HOME/.config/hee:
+    cache/          hee-filter repo visibility
+    gh-pr-cache/    hee-git-merge PR details
+
+EXIT STATUS
+  0 pruned (including when there was nothing to prune)
+USAGE
+}
+
+# Contextual help, via the shared contract -- never a positional check.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
 
 DAYS="${1:-7}"
 

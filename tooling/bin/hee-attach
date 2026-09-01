@@ -2,21 +2,45 @@
 # section: 1
 set -euo pipefail
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare dirname finds no library/.
+SELF="$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
 usage() {
-  cat <<USAGE
-hee-attach
+  cat <<'USAGE'
+hee-attach -- attach HEE policy to a repo without committing doctrine into it
 
-Attaches HEE policy to a repo locally without committing doctrine into the repo.
+SYNOPSIS
+  hee-attach --target REPO_PATH [--hee HEE_REPO_PATH]
+  hee-attach help
 
-Usage:
-  tooling/bin/hee-attach --target <repo_path> [--hee <hee_repo_path>]
+DESCRIPTION
+  Gives a repo the active HEE policy locally, leaving no doctrine in its
+  history. Everything written is local-only and git-excluded.
 
-Effect:
-  - Creates .hee/policy/{prompts,docs} inside target repo (local-only)
-  - Syncs HEE prompts into .cursor/prompts (local-only)
-  - Adds .hee/ and .cursor/ to local exclude suggestions (prints commands)
+    --target  the repo to attach policy to (required)
+    --hee     where this HEE checkout lives; defaults to this tool's own repo
+
+  Effect:
+    - creates .hee/policy/{prompts,docs} inside the target repo
+    - syncs HEE prompts into .cursor/prompts
+    - prints the commands to add .hee/ and .cursor/ to local excludes
+
+EXIT STATUS
+  0 attached   1 no --target given, or an unknown argument
 USAGE
 }
+
+# Contextual help, via the shared contract -- never a positional check.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 
 TARGET=""
 HEE=""
@@ -25,7 +49,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) TARGET="$2"; shift 2;;
     --hee) HEE="$2"; shift 2;;
-    -h|--help) usage; exit 0;;
     *) echo "Unknown arg: $1"; usage; exit 1;;
   esac
 done

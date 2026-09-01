@@ -19,15 +19,60 @@
 # <resume-repo>/.hee/secrets/cloudflare-tcos-www.gpg (hee-cred -pass,
 # path resolved relative to the resume repo since hee-cred's storage
 # dir is CWD-relative).
-case "${1:-}" in
-  --help|-h)
-    echo "hee-site-publish -- add real files into resume/dist/ and deploy the whole tree"
-    echo "Usage: hee-site-publish --add <file> [--add <file> ...] [--dry-run]"
-    echo "Never deploys a partial directory -- Cloudflare Pages deploys are full-tree"
-    echo "atomic replaces, so this always ships the existing site plus your additions."
-    exit 0
-    ;;
-esac
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-site-publish -- add files into resume/dist/ and deploy the whole tree
+
+SYNOPSIS
+  hee-site-publish --add FILE [--add FILE ...] [--dry-run]
+  hee-site-publish help
+
+DESCRIPTION
+  Publishes to the resume Cloudflare Pages project, which serves four
+  domains from one deployed tree -- spencer.blog.tcos.us,
+  touchy.blog.tcos.us, blog.tcos.us and media.tcos.us -- personalised
+  client-side by index.html reading window.location.hostname. There is no
+  server-side routing.
+
+  Why this tool exists: `wrangler pages deploy` is a full-tree ATOMIC
+  REPLACE, not an incremental upload. Deploying a directory holding only
+  new files would delete everything else already live across all four
+  domains. This tool only ADDS files into a current copy of resume/dist/
+  and then deploys the whole tree -- it never deploys a partial directory.
+
+    --add       a file to add to the tree; repeatable
+    --dry-run   show what would deploy, deploy nothing
+
+  Requires a sealed Cloudflare API token at
+  <resume-repo>/.hee/secrets/cloudflare-tcos-www.gpg, read via `hee-cred
+  -pass`. The path is relative to the resume repo, since hee-cred's
+  storage directory is CWD-relative.
+
+EXIT STATUS
+  0 deployed (or dry-run completed)   1 usage or credential error
+USAGE
+}
+
+# Contextual help, via the shared contract -- never a positional check.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 set -eu
 
 RESUME_DIR="$HOME/git/resume"

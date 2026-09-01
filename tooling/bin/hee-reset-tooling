@@ -1,5 +1,5 @@
 #!/bin/sh
-# section: 1
+# section: 8
 # hee-reset-tooling -- real, conservative "reset to new" for stray tool
 # directories (real trigger, Spencer 2026-08-24: fleet-ops#260's stray
 # ~/tooling/bin/ cleanup, formalized into a reusable tool instead of a
@@ -27,6 +27,67 @@
 #              stray = ~/tooling/bin ~/bin, idle-mins = 10)
 
 set -eu
+
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-reset-tooling -- conservative "reset to new" for stray tool directories
+
+SYNOPSIS
+  hee-reset-tooling [--yes] [--unattended] [--idle-mins N]
+                    [--canonical DIR] [--stray DIR ...]
+  hee-reset-tooling help
+
+DESCRIPTION
+  Compares stray tool directories against the canonical one and cleans up
+  what is provably redundant. Deliberately hard to make destructive:
+
+    - Dry run by default. Nothing is removed without --yes. An operator
+      has to agree, not merely invoke the command.
+    - --unattended additionally requires the machine to be idle, checked
+      against `who -u`'s IDLE column -- not just "no tty attached". It
+      fails closed: if idleness cannot be confirmed, the host is busy.
+    - It NEVER touches ~/.ssh, ~/.gnupg, ~/.hee/secrets, ~/.config or
+      anything under ~/git, and refuses outright if a stray path resolves
+      inside one of them.
+    - A stray file is removed only when byte-identical to its tracked
+      equivalent. Anything that differs, or has no tracked equivalent, is
+      backed up first -- never silently destroyed.
+
+OPTIONS
+  --yes           actually remove; without it, nothing is deleted
+  --unattended    cron-shaped invocation; adds the idle requirement
+  --idle-mins N   minutes of idle required by --unattended. Default: 10
+  --canonical DIR the authoritative tool directory.
+                  Default: ~/git/human-execution-engine/tooling/bin
+  --stray DIR     a directory to clean; repeatable.
+                  Default: ~/tooling/bin ~/bin
+
+EXIT STATUS
+  0 completed (including a dry run)   2 unknown argument or refused path
+USAGE
+}
+
+# Contextual help, via the shared contract. Answered before any real work --
+# a tool must be able to explain itself on a machine where its dependencies
+# are missing or it is run outside a repo. That is exactly when help is read.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
 
 CANONICAL="$HOME/git/human-execution-engine/tooling/bin"
 STRAY_DIRS=""

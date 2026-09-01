@@ -2,6 +2,53 @@
 # section: 1
 # hee-hooks-install: installs optional git hooks (non-destructive, idempotent)
 # usage: tooling/bin/hee-hooks-install [--repo <path>]
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ] && . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-hooks-install -- install this repo's optional git hooks
+
+SYNOPSIS
+  hee-hooks-install [--repo PATH]
+  hee-hooks-install help
+
+DESCRIPTION
+  Symlinks tooling/githooks/pre-commit into the repo's .git/hooks/. Both
+  non-destructive and idempotent -- re-running it changes nothing.
+
+    --repo   the repo to install into. Defaults to the repo containing
+             the current directory.
+
+  A relative symlink is preferred so the hook keeps working if the
+  checkout moves; an absolute one is the fallback when that fails.
+
+EXIT STATUS
+  0 installed   2 not in a git repo, or the hook source is missing
+USAGE
+}
+
+# Contextual help, via the shared contract. Answered before any real work --
+# a tool must be able to explain itself on a machine where its dependencies
+# are missing or it is run outside a repo. That is exactly when help is read.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 REPO=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -14,7 +61,7 @@ if [ -z "${REPO}" ]; then
   REPO="$(git rev-parse --show-toplevel 2>/dev/null)"
 fi
 if [ -z "${REPO}" ]; then
-  echo "🔴 🟦 b # ERROR: not in a git repo (use --repo)"
+  hee_status CRITICAL "not in a git repo -- pass --repo PATH"
   exit 2
 fi
 
@@ -22,7 +69,7 @@ HOOK_SRC="${REPO}/tooling/githooks/pre-commit"
 HOOK_DST="${REPO}/.git/hooks/pre-commit"
 
 if [ ! -f "${HOOK_SRC}" ]; then
-  echo "🔴 🟦 b # ERROR: missing hook source: ${HOOK_SRC}"
+  hee_status CRITICAL "missing hook source: ${HOOK_SRC}"
   exit 2
 fi
 
@@ -32,5 +79,5 @@ ln -sf "../../tooling/githooks/pre-commit" "${HOOK_DST}" 2>/dev/null || {
   ln -sf "${HOOK_SRC}" "${HOOK_DST}" 2>/dev/null || true
 }
 
-echo "🟢 🟦 b # OK: installed pre-commit hook -> ${HOOK_DST}"
+hee_status OK "installed pre-commit hook -> ${HOOK_DST}"
 exit 0

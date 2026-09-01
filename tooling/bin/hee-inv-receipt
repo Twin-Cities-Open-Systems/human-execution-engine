@@ -20,6 +20,61 @@ say(){ printf "%s\n" "$*"; }
 die(){ say "ERROR: $*"; exit 2; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "missing cmd: $1"; }
 
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+usage() {
+  cat <<'USAGE'
+hee-inv-receipt -- turn a receipt image into HEE inventory objects
+
+SYNOPSIS
+  hee-inv-receipt ingest IMAGE [--tcos-repo PATH] [--vendor TOKEN]
+                               [--store TOKEN]
+  hee-inv-receipt help
+
+DESCRIPTION
+  OCRs a receipt image and writes, into the TCOS planning repo:
+
+    - one inventory.purchase object
+    - inventory.purchase_line objects, best-effort parsed
+    - the raw OCR text, stored as evidence
+
+  Line parsing is best-effort by design: a receipt is not a structured
+  document, and a wrong line is worse than a missing one. The stored OCR
+  text is the authority to re-check against.
+
+OPTIONS
+  --tcos-repo PATH  target repo. Default: $HOME/git/tcos-plan-private
+  --vendor TOKEN    vendor tag. Default: unknown
+  --store TOKEN     store tag. Default: unknown
+
+REQUIRES
+  sha256sum, rg, perl, tesseract, date, exiftool
+
+EXIT STATUS
+  0 ingested   2 missing dependency, or the target is not the expected repo
+USAGE
+}
+
+# Contextual help, via the shared contract. Answered before any real work --
+# a tool must be able to explain itself on a machine where its dependencies
+# are missing or it is run outside a repo. That is exactly when help is read.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  usage
+  exit 0
+fi
+
 need sha256sum
 need rg
 need perl
