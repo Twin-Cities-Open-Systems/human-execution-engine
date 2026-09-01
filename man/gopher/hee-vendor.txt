@@ -14,12 +14,11 @@ DESCRIPTION
               validator accepts, then opens a branch carrying the change.
 
               Vendored mode writes:
-                prompts/hee/          HEE prompts, excluding .cursor
+                prompts/hee/          HEE prompts
                 prompts/hee/docs/     HEE docs/specs
                 docs/hee/             pointers + VERSION only, imperative-free
                 docs/HEE_POLICY.md    pointer doc, imperative-free
                 scripts/hee-check.sh  consumer-side check
-                .cursor/prompts       derived directly; the consumer needs no script
 
               This CREATES AND OVERWRITES those vendored directories, then creates a
               branch (default chore/vendor-hee-policy) and pushes it. --no-push keeps

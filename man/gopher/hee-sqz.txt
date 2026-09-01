@@ -1,9 +1,33 @@
 HEE-SQZ(1)                         HEE Tools                        HEE-SQZ(1)
 
 NAME
-       hee-sqz - hee-sqz command
+       hee-sqz - squeeze a loop's OK:/FAIL: lines into one JSON line
+
+SYNOPSIS
+              <command producing OK:/FAIL: lines> | hee-sqz
+              hee-sqz help
 
 DESCRIPTION
-              {"status":"ok","ok":0,"fail":0,"ratio":"0/0"}
+              Reads stdin and counts lines by their leading marker, emitting a single
+              JSON object with the pass/fail ratio. It COUNTS, never infers: an
+              unmarked line passes through uncounted rather than being guessed at.
+
+                OK: NAME       counted as a pass
+                PASS: NAME     same
+                FAIL: NAME     counted as a failure, and NAME is listed
+                ERROR: NAME    same
+                anything else  ignored
+
+              Real convention, not a guess: every loop iteration emits exactly one
+              marked line. Written for the fleet-ops#244 branch-protection rollout --
+              15/15, JSON-parseable, no scrollback to eyeball.
+
+EXIT STATUS
+              0 always -- the ratio is the output, not the exit code
+
+EXAMPLES
+              for r in $repos; do
+                check "$r" && echo "OK: $r" || echo "FAIL: $r"
+              done | hee-sqz
 
                                                                     HEE-SQZ(1)

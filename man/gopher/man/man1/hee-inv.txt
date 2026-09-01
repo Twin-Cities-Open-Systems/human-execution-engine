@@ -1,20 +1,29 @@
 HEE-INV(1)                         HEE Tools                        HEE-INV(1)
 
 NAME
-       hee-inv  -  hee  inv  unknown  report  [--tcos-repo  ]  [--warn-days N]
-       [--crit-days N]
+       hee-inv  - ingest inventory evidence, and report on what is unaccounted
+       for
 
 SYNOPSIS
-                hee inv ingest <incoming_dir> [--tcos-repo <path>]
+              hee inv ingest INCOMING_DIR [--tcos-repo PATH]
+              hee inv unknown report [--tcos-repo PATH] [--warn-days N] [--crit-days N]
+              hee inv help
 
-                hee inv unknown report [--tcos-repo <path>] [--warn-days N] [--crit-days N]
+DESCRIPTION
+              ingest reads an incoming directory and files its contents as inventory
+              evidence. A .zip is preserved AS the evidence and its contents are
+              ingested alongside it -- the archive is not discarded once opened.
 
-              defaults:
-                --tcos-repo $HOME/git/tcos-plan-private
-                --warn-days 7
-                --crit-days 14
+              unknown report ages the items that have not been reconciled, warning
+              and then going critical as they get older.
 
-              notes:
-                - ingest supports .zip in incoming: archive is preserved as evidence and contents are ingested.
+              Defaults:
+                --tcos-repo   $HOME/git/tcos-plan-private
+                --warn-days   7
+                --crit-days   14
+
+EXIT STATUS
+              Nagios plugin convention.
+              0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 
                                                                     HEE-INV(1)

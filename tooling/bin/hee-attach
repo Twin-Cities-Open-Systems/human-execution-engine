@@ -26,8 +26,7 @@ DESCRIPTION
 
   Effect:
     - creates .hee/policy/{prompts,docs} inside the target repo
-    - syncs HEE prompts into .cursor/prompts
-    - prints the commands to add .hee/ and .cursor/ to local excludes
+    - prints the command to add .hee/ to local excludes
 
 EXIT STATUS
   0 attached   1 no --target given, or an unknown argument
@@ -62,29 +61,19 @@ HEE="${HEE:-$DEFAULT_HEE}"
 [[ -d "$TARGET/.git" ]] || { echo "ERROR: target not a git repo: $TARGET"; exit 1; }
 [[ -d "$HEE/.git" ]] || { echo "ERROR: HEE not a git repo: $HEE"; exit 1; }
 
-mkdir -p "$TARGET/.hee/policy/prompts" "$TARGET/.hee/policy/docs" "$TARGET/.cursor/prompts"
+mkdir -p "$TARGET/.hee/policy/prompts" "$TARGET/.hee/policy/docs"
 
-rsync -a --delete --exclude ".cursor/" "$HEE/prompts/" "$TARGET/.hee/policy/prompts/"
+rsync -a --delete "$HEE/prompts/" "$TARGET/.hee/policy/prompts/"
 rsync -a --delete "$HEE/docs/" "$TARGET/.hee/policy/docs/"
-
-# Sync into Cursor convenience
-rsync -a --delete \
-  --exclude "docs/" \
-  --exclude ".cursor/" \
-  "$TARGET/.hee/policy/prompts/" "$TARGET/.cursor/prompts/"
 
 cat <<TXT
 OK: attached HEE policy locally to:
   $TARGET/.hee/policy
-and synced Cursor prompts to:
-  $TARGET/.cursor/prompts
 
 Suggested ignores (choose one):
   1) Local-only (recommended for shared repos):
      echo ".hee/" >> $TARGET/.git/info/exclude
-     echo ".cursor/" >> $TARGET/.git/info/exclude
 
-  2) Repo-wide .gitignore (if you want everyone to ignore these):
+  2) Repo-wide .gitignore (if you want everyone to ignore this):
      echo ".hee/" >> $TARGET/.gitignore
-     echo ".cursor/" >> $TARGET/.gitignore
 TXT

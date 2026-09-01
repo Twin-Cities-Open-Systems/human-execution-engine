@@ -48,7 +48,6 @@ Catch org-specific rot that no external linter knows about.
 | [`hee check`](https://man.tcos.us/gopher/0/hee-check.txt) ˢ | Repo boundary, file-reference, regex, systemd and CLI-help checks |
 | [`hee lint`](https://man.tcos.us/gopher/0/hee-lint.txt) ˢ | Lint gate for HEE-object YAML (apiVersion: hee/v1) |
 | [`hee check-og`](https://man.tcos.us/gopher/0/hee-check-og.txt) ˢ | Open Graph / Twitter Card / title / canonical checks for a page |
-| `hee check-cursor-prompts` ⁿ | Ensure .cursor/prompts matches the active HEE policy source |
 | [`hee scan`](https://man.tcos.us/gopher/0/hee-scan.txt) | Named-target regex scan via ripgrep |
 | `hee filter` ⁿ | Filter a stream against named patterns |
 | [`hee srtscan`](https://man.tcos.us/gopher/0/hee-srtscan.txt) ˢ | Scan subtitle files |
@@ -124,7 +123,6 @@ Keep the tools themselves honest.
 | `hee tools-update` ⁿ | Install/refresh the external tools the manifest names |
 | [`hee reset-tooling`](https://man.tcos.us/gopher/0/hee-reset-tooling.txt) ˢ | Conservative reset-to-new for stray tool state |
 | [`hee cache-prune`](https://man.tcos.us/gopher/0/hee-cache-prune.txt) ˢ | Prune stale entries from the hee disk cache |
-| `hee sync-cursor-prompts` ⁿ | Sync canonical HEE prompts into the Cursor location |
 | [`hee procmail`](https://man.tcos.us/gopher/0/hee-procmail.txt) ˢ | Mail filtering helper |
 
 ## Status vocabulary
