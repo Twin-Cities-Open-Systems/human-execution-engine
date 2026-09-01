@@ -56,17 +56,17 @@ jobs:
         continue-on-error: true
         run: tooling/bin/hee-check refs
 
-      # RED on main today: 22 of 54 tools do not answer `help`.
-      # FLIP TO BLOCKING when PRs 514, 515 and 516 have landed -- with all
-      # three merged locally this reports 54/54 conforming and exits 0,
-      # measured 2026-09-01.
+      # GREEN: 54/54. It was written here continue-on-error with the flip
+      # condition "when 514, 515 and 516 have landed". They landed, this
+      # reports 54/54 conforming and exits 0, so it blocks. Flip conditions
+      # are meant to be acted on, not accumulated.
       - name: cli -- every tool's help obeys the contract
-        continue-on-error: true
         run: tooling/bin/hee-check cli
 
-      # `hee check style` arrives with PR 514. Add it here, BLOCKING, in that
-      # PR -- it is green on day one by construction, since the 18 findings
-      # it would have reported are fixed in the same commit.
+      # GREEN, and green by construction: the 18 findings it would have
+      # reported were fixed in the same commit that added it (PR 514).
+      - name: style -- US English in authored text
+        run: tooling/bin/hee-check style
 
   shellcheck:
     name: shellcheck (standard, shell)
