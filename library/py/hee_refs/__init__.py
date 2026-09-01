@@ -38,13 +38,27 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-__all__ = ["Broken", "scan", "DOC_EXT", "EXCLUDE_PREFIXES"]
+__all__ = ["Broken", "scan", "DOC_EXT", "EXCLUDE_PREFIXES", "EXCLUDE_SEGMENTS"]
 
 DOC_EXT = (".md", ".yaml", ".yml", ".json")
 REF_EXT = (".md", ".yaml", ".yml", ".json", ".sh", ".py", ".bash",
            ".txt", ".mk", ".1", ".html", ".css", ".js")
 
 EXCLUDE_PREFIXES = ("docs/history/", "hee/evidence/")
+
+# Directories whose contents nobody authored. A broken reference inside build
+# output is not a defect anyone can fix -- it is a copy of a defect in the
+# source, reported twice. Measured 2026-08-31: every one of resume's findings
+# appeared once in profiles/ and again in dist/profiles/, doubling the count
+# and pointing half of it at files that get overwritten on the next build.
+#
+# Matched as a path SEGMENT, not a prefix: resume nests one at
+# profiles/spencer/dist/, which a prefix check would miss.
+EXCLUDE_SEGMENTS = ("dist", "build", "node_modules", ".git", "__pycache__")
+
+
+def _in_excluded_dir(path: str) -> bool:
+    return any(seg in EXCLUDE_SEGMENTS for seg in path.split("/")[:-1])
 
 # A path-ish token inside backticks, quotes, parens or whitespace.
 #
@@ -102,6 +116,8 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
         if not f.endswith(DOC_EXT):
             continue
         if not include_history and f.startswith(EXCLUDE_PREFIXES):
+            continue
+        if _in_excluded_dir(f):
             continue
         try:
             text = open(os.path.join(root, f), errors="ignore").read()
