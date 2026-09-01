@@ -19,8 +19,22 @@ protocols. finger (RFC 1288) is dead simple too: connect to port 79,
 send "user\r\n" (or "\r\n" alone for a full listing), read plaintext
 back until the connection closes.
 
+Real trigger for -walk (2026-09-01): "how do I know what the url will be
+for all of them? need a way to find these". A gopher menu IS the index --
+every line is <type><label>\t<selector>\t<host>\t<port> -- so the full URL
+set is derivable rather than guessable. That walk was a throwaway awk
+pipeline in a session transcript; per rule 15 it belongs in the tool that
+already speaks gopher, not in a one-off nobody can find again.
+
+-walk recurses type-1 (directory) entries and prints every type-0 (text)
+entry as a full URL. Cycle-safe via a visited set, depth-capped, and it
+never follows a selector to another host -- a menu can name any host it
+likes, and following that would turn a documentation walk into an
+arbitrary-host fetch.
+
 Usage:
   hee-net -proto gopher -url gopher://host[:port]/[type]selector
+  hee-net -proto gopher -url gopher://host -walk [-depth N]
   hee-net -proto finger -query user[@host[:port]]
 """
 import argparse
@@ -58,6 +72,57 @@ def fetch_gopher(url: str) -> bytes:
     return b"".join(chunks)
 
 
+
+def walk_gopher(url: str, max_depth: int = 8):
+    """Yield every reachable type-0 selector as a full gopher URL.
+
+    Breadth-first over type-1 menus. Returns (urls, errors) so a partial
+    walk still reports what it found -- an unreachable subsection should
+    not discard the sections that did resolve.
+    """
+    parsed = urlparse(url)
+    origin_host = parsed.hostname
+    origin_port = parsed.port or 70
+
+    start = parsed.path or "/1"
+    start_sel = start[2:] if len(start) > 1 else ""
+
+    seen = set()
+    pages = []
+    errors = []
+    frontier = [(start_sel, 0)]
+
+    while frontier:
+        selector, depth = frontier.pop(0)
+        if selector in seen or depth > max_depth:
+            continue
+        seen.add(selector)
+
+        menu_url = f"gopher://{origin_host}:{origin_port}/1{selector}"
+        try:
+            raw = fetch_gopher(menu_url).decode("utf-8", "replace")
+        except Exception as exc:                      # noqa: BLE001
+            errors.append(f"{selector or '/'}: {exc}")
+            continue
+
+        for line in raw.splitlines():
+            if not line or line == "." or line[0] in "i3":
+                continue
+            parts = line[1:].split("\t")
+            if len(parts) < 2:
+                continue
+            kind, sel, host = line[0], parts[1], (parts[2] if len(parts) > 2 else origin_host)
+            # Never leave the origin host. A menu can advertise anything.
+            if host and host != origin_host:
+                continue
+            if kind == "1":
+                frontier.append((sel, depth + 1))
+            elif kind == "0":
+                pages.append(f"gopher://{origin_host}:{origin_port}/0{sel}")
+
+    return sorted(set(pages)), errors
+
+
 def fetch_finger(query: str) -> str:
     if "@" in query:
         user, hostport = query.split("@", 1)
@@ -84,11 +149,24 @@ def main():
     ap.add_argument("-proto", required=True, choices=["gopher", "finger"])
     ap.add_argument("-url")
     ap.add_argument("-query")
+    ap.add_argument("-walk", action="store_true",
+                    help="recurse gopher menus and print every page URL")
+    ap.add_argument("-depth", type=int, default=8, metavar="N")
     args = ap.parse_args()
 
     if args.proto == "gopher":
         if not args.url:
             sys.exit("hee-net: -url required for -proto gopher")
+        if args.walk:
+            pages, errors = walk_gopher(args.url, args.depth)
+            for u in pages:
+                print(u)
+            for e in errors:
+                print(f"WARNING: unreachable: {e}", file=sys.stderr)
+            # Nagios vocabulary, same as the rest of the toolchain.
+            if not pages:
+                sys.exit(3)   # UNKNOWN -- walked, found nothing
+            sys.exit(1 if errors else 0)
         data = fetch_gopher(args.url)
         # Real, honest binary-vs-text split: try UTF-8 first (menus and
         # text files decode cleanly); anything that doesn't is real
