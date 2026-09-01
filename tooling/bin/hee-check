@@ -21,6 +21,9 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
 # shellcheck source=/dev/null
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
 if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
   . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
 else
@@ -311,6 +314,42 @@ line("OK", f"all {len(reg['spec']['patterns'])} patterns agree across python + {
 PYEOF
 }
 
+usage_cli() {
+  cat <<'EOF'
+hee-check cli -- does every hee tool's own help behave
+
+SYNOPSIS
+  hee-check cli [TOOLDIR] [--json] [--quiet]
+
+DESCRIPTION
+  Runs every `hee-*` tool in TOOLDIR (default: this repo's tooling/bin) and
+  checks its help against the org's CLI contract.
+
+  Probes run FROM A TEMP DIRECTORY, never from inside a checkout. That is
+  deliberate: `hee lint help` prints fine inside a repo and fails outside
+  one, so a checker that runs in-repo cannot see the bug.
+
+  Checked, in order of what it costs when broken:
+
+    help executes something   arguments to the RIGHT of a help token must
+                              never be parsed. `hee foo help --force` must
+                              not run --force. CRITICAL.
+    errored but exited 0      silently passes CI. CRITICAL.
+    help errors or hangs      CRITICAL.
+    help is not uniform       `-h` works but `help` does not, or vice
+                              versa. WARNING.
+    silent discard            ignores args after help but never says so.
+                              WARNING -- use hee_help_note_ignored().
+    bare color                a color glyph with no status word, rule 11.
+    no SYNOPSIS / EXIT        WARNING.
+
+  Tools adopt the contract by sourcing library/bash/cli.help.shfn.bash.
+
+EXIT STATUS
+  0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN no such tool directory
+EOF
+}
+
 usage_systemd() {
   cat <<'EOF'
 hee-check systemd -- validate systemd unit files
@@ -445,26 +484,31 @@ PY
 }
 
 # Contextual help: `help` (or --help/-h) as the LAST argument.
-_last=""
-for _a in "$@"; do _last="$_a"; done
-case "$_last" in
-  help|--help|-h)
-    case "${1:-}" in
+# Help dispatch goes through the shared contract, not the old `_last`
+# idiom. `_last` only looked at the FINAL argument, so `hee-check refs help
+# --fix` was not recognised as help at all and ran the real --fix. Asking
+# for help must never be able to do anything -- see cli.help.shfn.bash.
+if hee_help_wanted "$@"; then
+  hee_help_note_ignored "$@"
+  case "$(hee_help_topic "$@")" in
       refs)     usage_refs ;;
       boundary) usage_boundary ;;
       all)      usage_boundary; echo; usage_refs ;;
       systemd)  usage_systemd ;;
+      cli)      usage_cli ;;
       regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
       *)        usage ;;
-    esac
-    exit 0
-    ;;
-esac
+  esac
+  exit 0
+fi
 
 cmd="${1:-boundary}"
 case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
   refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
+  cli)      shift 2>/dev/null || true
+            command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; exit 3; }
+            HEE_CLICHECK_ARGS="$*" python3 "$TOOL_ROOT/library/py/hee_clicheck/_cli.py" ;;
   regex)    check_regex ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
   all)      shift 2>/dev/null || true
