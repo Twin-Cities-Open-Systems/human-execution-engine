@@ -20,7 +20,7 @@
 #     `timeout` is unavailable rather than risking a hang.
 #  4. Noise decay. Preflight prints a FAIL block per problem. Dumping that
 #     every session means it stops being read within a day -- worse than
-#     nothing. So this summarises: the count and the first line only.
+#     nothing. So this summarizes: the count and the first line only.
 #
 # Emits SessionStart additionalContext, or nothing at all.
 

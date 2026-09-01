@@ -90,6 +90,34 @@ spec:
   # sed and Go.
 
   patterns:
+    - name: en-gb-spelling
+      description: "British spellings this org does not use. An EXPLICIT WORD LIST, never a generic -ise/-our rule: 'otherwise', 'raise', 'promise', 'concise', 'four', 'hour' and 'favour' are all -ise or -our and only one of them is wrong."
+      lane: portable
+      ere: '(^|[^A-Za-z])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours|[Aa]nalyse|[Aa]nalysed|[Aa]nalyses|[Aa]nalysing|[Nn]ormalise|[Nn]ormalised|[Nn]ormalises|[Rr]ecognise|[Rr]ecognised|[Rr]ecognises|[Uu]nrecognised|[Oo]rganise|[Oo]rganised|[Oo]rganisation|[Ss]ummarise|[Ss]ummarised|[Ss]ummarises|[Pp]ersonalise|[Pp]ersonalised|[Pp]rioritise|[Pp]rioritised|[Ss]tandardise|[Cc]ustomise|[Ii]nitialise|[Oo]ptimise|[Ss]erialise|[Ss]pecialise|[Ss]ynchronise|[Uu]tilise|[Cc]atalogue|[Dd]efence)([^A-Za-z]|$)'
+      capture: 2
+      notes:
+        - "US English is required org-wide (~/.claude/CLAUDE.md). The rule exists because spelling is invisible to whoever writes it -- an agent used 'colour' through a whole session and quoted infrastructure costs as £0 in a real GitHub comment before anyone noticed."
+        - "A GENERIC -ise rule is the obvious implementation and it is wrong. Measured 2026-09-01 on a real diff: a broad '[a-z]+ise' sweep flagged 'otherwise' and 'raise'; a broad '[a-z]+our' sweep flagged 'four'. An explicit list has no false positives and is the only honest shape."
+        - "'grey' is deliberately ABSENT. It is a valid CSS color keyword, so flagging it would break real stylesheets. 'centre' is absent for the same class of reason -- it appears inside proper nouns."
+        - "'licence' is absent: US English uses 'license' for both noun and verb, so the noun form is not worth flagging separately from the verb."
+        - "Boundary groups, not \\b. awk has no \\b -- in awk regex it is a BACKSPACE -- so a \\b pattern silently matches nothing there while working everywhere else. Caught by this registry's own cross-engine test on the first run of this pattern, which is what the registry is for. Same technique the version pattern uses for its lookaround replacements."
+      tests:
+        match:
+          - { input: "never colour alone", expect: "colour" }
+          - { input: "Authoritative for behaviour, but tools lie", expect: "behaviour" }
+          - { input: "was not recognised as help", expect: "recognised" }
+          - { input: "Legacy words normalise in", expect: "normalise" }
+          - { input: "the ticket carries an unrecognised stage", expect: "unrecognised" }
+          - { input: "Colour words are accepted for migration", expect: "Colour" }
+        reject:
+          - "otherwise the tool exits 0"
+          - "raise SystemExit(status)"
+          - "four candidate forms tested live"
+          - "a concise summary of the run"
+          - "promise the operator nothing"
+          - "grey is a valid CSS keyword"
+          - "color theory principles"
+          - "behavior is what the label describes"
     - name: version
       description: "A software version in a tool's --version output. At least major.minor -- a bare integer is not a version, which is what separates a real version from 'sh: 0: Illegal option --'."
       lane: portable

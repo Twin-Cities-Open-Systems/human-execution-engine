@@ -115,7 +115,7 @@ DESCRIPTION
 
 EXIT STATUS
   0 OK   advanced, or already at the final stage
-  1      no such ticket, the ticket carries an unrecognised stage, not
+  1      no such ticket, the ticket carries an unrecognized stage, not
          inside a git repo, or pyyaml is not installed
 """
 

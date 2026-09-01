@@ -17,7 +17,7 @@ is the rule 11 failure this replaces.
 
 Rule 11 compliance
 ------------------
-Every line carries an icon **and** a text label, never colour alone, and the
+Every line carries an icon **and** a text label, never color alone, and the
 icons are shape-distinct (check / triangle / cross / question) rather than
 three identical circles differing only in hue.
 
@@ -62,8 +62,8 @@ class Status(enum.Enum):
         }[self]
 
 
-# Legacy words normalise in, so callers can migrate without a flag day.
-# Colour words are accepted only for migration -- never name a hue in new
+# Legacy words normalize in, so callers can migrate without a flag day.
+# Color words are accepted only for migration -- never name a hue in new
 # code; name a severity.
 _ALIASES = {
     "OK": Status.OK, "PASS": Status.OK, "SUCCESS": Status.OK, "GREEN": Status.OK,
@@ -74,7 +74,7 @@ _ALIASES = {
 
 
 def status(level) -> Status:
-    """Normalise anything callerish into a Status. Unknown input -> UNKNOWN."""
+    """Normalize anything callerish into a Status. Unknown input -> UNKNOWN."""
     if isinstance(level, Status):
         return level
     return _ALIASES.get(str(level).strip().upper(), Status.UNKNOWN)
