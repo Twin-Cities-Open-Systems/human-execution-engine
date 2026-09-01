@@ -1,0 +1,52 @@
+.TH HEE-STATUS 7 "2026-09-01" "HEE" "Overviews and Conventions"
+.SH NAME
+hee-status \- the org's status vocabulary and exit-code convention
+.SH DESCRIPTION
+One vocabulary across every HEE tool, adopted from the Nagios plugin API
+rather than invented:
+.PP
+.TS
+l l l.
+Level	Exit	Meaning
+OK	0	the thing checked is correct
+WARNING	1	real but non-blocking
+CRITICAL	2	blocking; the check has failed
+UNKNOWN	3	the check could not run
+.TE
+.PP
+.B UNKNOWN is not a failure.
+It means the check did not produce a result \(em an unreachable host, a
+missing interpreter. Reporting that as OK or CRITICAL is the error this
+level exists to prevent.
+.SH ICON AND LABEL, NEVER COLOUR ALONE
+Every line ships an icon
+.I and
+a text label. Icons are shape\-distinct (check, triangle, cross, question)
+rather than hue\-only, so they survive colour blindness, a monochrome pipe,
+and a log file.
+.PP
+.B Machine consumers parse the label, never the icon.
+Decoupled 2026\-08\-31 so presentation can change without breaking parsers.
+.SH STYLES
+.TP
+.B icon
+Default. Icon plus label.
+.TP
+.B ascii
+Bracketed label, no emoji \(em for pipes, logs and terminals without font
+coverage.
+.TP
+.B plain
+Label and message only.
+.PP
+Selected with
+.B HEE_STATUS_STYLE
+\(em see
+.BR heerc (5).
+Preview with
+.BR "hee_status_demo" .
+.SH SEE ALSO
+.BR heerc (5),
+.BR hee_status (3),
+.BR hee-check (1),
+.BR hee-ver (1)

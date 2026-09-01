@@ -1,0 +1,48 @@
+.TH HEERC 5 "2026-09-01" "HEE" "File Formats"
+.SH NAME
+heerc \- per-operator shell environment for the HEE toolchain
+.SH SYNOPSIS
+.B ~/git/human-execution-engine/tooling/heerc
+.SH DESCRIPTION
+A POSIX shell fragment sourced by the operator's
+.BR bash (1)
+startup, deliberately minimal: it makes bare
+.B hee
+resolve, and carries per-operator display preference. It is not a general
+dotfile \(em aliases, prompt and other opinion stay in personal dotfiles.
+.PP
+Sourced from dotfiles'
+.I .bashrc
+behind an existence guard, so an operator using dotfiles without this repo
+cloned is unaffected.
+.SH WHAT IT DOES
+.TP
+.B PATH bootstrap
+Prepends
+.I ~/.local/bin
+if absent. Real trigger, 2026\-08\-26: PATH resolution depended on one
+operator's personal dotfiles happening to add that directory, and broke for
+a fresh homedir and for any other identity.
+.TP
+.B Governance reminder
+Prints a one\-line reminder to read
+.IR prompts/PROMPTING_RULES.md .
+Real footgun, 2026\-08\-28: a session ran mutating git across three repos
+before reading rule 1 (never push directly to main).
+.SH VARIABLES
+.TP
+.B HEE_STATUS_STYLE
+Status rendering for every HEE tool:
+.BR icon " (default), " ascii ", " plain .
+See
+.BR hee-status (7).
+Per\-operator preference, which is why it lives in an rc file rather than
+being hardcoded.
+.SH NOT SET HERE
+Runtime variables consumed by individual tools \(em
+.BR HEE_REPO_DIR ", " HEE_CRED_PASS ", " HEE_DERIVED_DIRS
+\(em are passed per invocation or by the calling tool, not declared here.
+This file stays PATH\-and\-preference only.
+.SH SEE ALSO
+.BR hee (1),
+.BR hee-status (7)

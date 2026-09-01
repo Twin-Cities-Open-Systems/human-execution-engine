@@ -119,6 +119,10 @@ AUTHORED_DIR="man"
 _sec_title() {
   case "$1" in
     1) echo "User Commands" ;;
+    2) echo "System Calls" ;;
+    3) echo "Library Functions" ;;
+    4) echo "Special Files" ;;
+    6) echo "Games" ;;
     5) echo "File Formats" ;;
     7) echo "Overviews and Conventions" ;;
     8) echo "System Administration" ;;
