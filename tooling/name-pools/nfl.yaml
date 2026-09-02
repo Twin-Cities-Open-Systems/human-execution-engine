@@ -1,0 +1,55 @@
+pool: nfl
+# All 32 National Football League clubs, by nickname. Added 2026-09-02
+# alongside mlb as the proof that a new series is one YAML file and no
+# code change.
+#
+# Nicknames are single tokens with no separator, for the same reason as
+# mlb: a bastion name is bast-<name>-<role>, exactly three fields.
+# `49ers` leads with digits, which is fine -- the shape allows [a-z0-9]+,
+# it is only the separator that is forbidden.
+#
+# `giants` and `cardinals` also appear in the mlb pool -- see the note
+# there before chaining the two into one series.
+names:
+  # AFC East
+  - bills
+  - dolphins
+  - patriots
+  - jets
+  # AFC North
+  - ravens
+  - bengals
+  - browns
+  - steelers
+  # AFC South
+  - texans
+  - colts
+  - jaguars
+  - titans
+  # AFC West
+  - broncos
+  - chiefs
+  - raiders
+  - chargers
+  # NFC East
+  - cowboys
+  - giants
+  - eagles
+  - commanders
+  # NFC North
+  - bears
+  - lions
+  - packers
+  - vikings
+  # NFC South
+  - falcons
+  - panthers
+  - saints
+  - buccaneers
+  # NFC West
+  - cardinals
+  - rams
+  - 49ers
+  - seahawks
+
+next: null   # standalone series -- chain it with `next:` if you want overflow

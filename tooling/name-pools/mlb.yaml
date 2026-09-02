@@ -1,0 +1,54 @@
+pool: mlb
+# All 30 Major League Baseball clubs, by nickname. Added 2026-09-02 as the
+# proof that a new series is one YAML file and no code change.
+#
+# Nicknames are single tokens with no separator -- `redsox`, not `red-sox`.
+# A bastion name is bast-<name>-<role>, exactly three fields, so a dash in
+# the pool name would produce the four-field form the operator ruled out.
+# hee-name checks the whole series before allocating and names every
+# offender at once, so a hand-written pool fails immediately rather than on
+# whichever allocation happens to reach the bad entry.
+#
+# `giants` and `cardinals` also appear in the nfl pool. That is harmless --
+# a scope's ledger holds whichever was taken first and allocation skips the
+# duplicate when walking on -- but it does mean chaining mlb and nfl into
+# one series yields 60 usable names, not 62.
+names:
+  # AL East
+  - orioles
+  - redsox
+  - yankees
+  - rays
+  - bluejays
+  # AL Central
+  - whitesox
+  - guardians
+  - tigers
+  - royals
+  - twins
+  # AL West
+  - astros
+  - angels
+  - athletics
+  - mariners
+  - rangers
+  # NL East
+  - braves
+  - marlins
+  - mets
+  - phillies
+  - nationals
+  # NL Central
+  - cubs
+  - reds
+  - brewers
+  - pirates
+  - cardinals
+  # NL West
+  - diamondbacks
+  - rockies
+  - dodgers
+  - padres
+  - giants
+
+next: null   # standalone series -- chain it with `next:` if you want overflow

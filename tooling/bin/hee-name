@@ -30,18 +30,91 @@ systems drawing from the same pool don't collide, tracked in
 `.hee/name-allocations/<scope>.yaml` -- same real, disk-based,
 git-trackable pattern as hee-ticket's `.hee/tickets/`.
 
-Once every name in a pool is taken within a scope, allocation doesn't
-fail or wrap silently -- it appends a numeric suffix (`kyle-2`, `kyle-3`,
-...), cycling back through the pool. A 20-name pool with this scheme
-comfortably outlasts any realistic churn; there's no hardcoded ceiling.
+That path anchors to THIS TOOL's repo, not the caller's cwd. It used to
+resolve `git rev-parse --show-toplevel`, which meant the ledger followed
+whoever ran the command: two callers in two directories drew from the same
+pool, wrote two different ledgers, and neither could see the collision.
+Override with `--allocations-dir` or `$HEE_NAME_ALLOCATIONS` (heerc) when
+a scope genuinely belongs somewhere else -- see #525.
+
+## Roles
+
+Some scopes require the name to declare what it is. `bastion` does: every
+name ends in `-oper` or `-agent`, with no bare form, so `--role` is
+mandatory there. The role is applied when the name is reserved rather than
+appended afterward, because the ledger is what the next allocation checks.
+
+Once every name in a pool is taken within a scope, allocation walks to
+the NEXT pool in the series, declared as `next:` in the pool file itself.
+It never appends a numeric suffix. Operator, 2026-09-02: "never 4 (ie
+bast-meg-2-oper) ... regenerate hee-names with same series and get new
+char, when/if ... move to next series." `bast-meg-2-oper` reads as a
+second Meg, which is a lie about what the thing is -- and the whole
+point of a name from a pool is that it is memorable and distinct.
+
+When the entire chain is exhausted, allocation FAILS, loudly, naming the
+series it walked. It does not invent a name. Chain a new pool with
+`next:` or release names that are no longer in use.
+
+## Instances and roles
+
+For a role-required scope the ledger is keyed on the INSTANCE, not the
+rendered name. Operator, 2026-09-02: "hee-name is tied to instance each
+oper|agent share." The pool word names the box; roles are its occupants:
+
+  homer:
+    pool: simpsons
+    occupants:
+      oper:  {allocated_at: ...}   ->  bast-homer-oper
+      agent: {allocated_at: ...}   ->  bast-homer-agent
+
+## A shared instance word means co-location, and NOTHING else
+
+Operator, 2026-09-02: "we do not want to imply that there is a correlation
+between bast-homer-agent and bast-homer-oper and there is no implied
+promotion path there."
+
+Both readings are natural and both are wrong:
+
+  - NOT one entity in two hats. `bast-homer-oper` and `bast-homer-agent`
+    are two unrelated identities that happen to be on one box for a while.
+    The shared word is an address, not a surname.
+  - NOT a promotion path. An agent does not become an oper by any route,
+    and co-locating with one is not a step toward it. The roles are
+    different KINDS, not different ranks.
+
+The confusion is easy because this system does have a real promotion --
+EPHEMERAL to DURABLE, earned by getting an A and a PTR record. That one is
+about an identity's permanence, not its role, and it never changes the
+role field. `bast-homer-agent` promoted is a durable AGENT.
+
+This is the strongest argument for cohabiting staying rare, opt-in and
+flagged: every co-located pair is a chance for someone to read a
+relationship that is not there.
+
+Cohabitation is OPT-IN. By default an allocation takes a box of its own;
+`--cohabit <instance>` deliberately joins an existing one. Operator,
+2026-09-02: "case by case. sometimes we need them to cohabitate for short
+spells." A co-located occupant is marked `cohabit: true` in the ledger and
+flagged in `-list`, so a temporary arrangement stays visibly temporary
+rather than becoming permanent by being forgotten.
+
+This is what makes co-occupancy visible rather than implied by two names
+that merely rhyme, and it is what makes release safe: dropping one
+occupant leaves the instance held, so the box cannot be handed to someone
+else while the other role still lives in it. The instance returns to the
+pool only when its last occupant leaves.
 
 Usage:
   hee-name -list-pools
   hee-name -allocate --pool south-park --scope tmux-agent [--prefix bast-]
+  hee-name -allocate --pool simpsons --scope bastion --prefix bast- --role oper
   hee-name -list --scope tmux-agent
   hee-name -release <name> --scope tmux-agent
 """
 import argparse
+import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,12 +132,21 @@ except ImportError:
     sys.exit("Requires pyyaml: pip install pyyaml")
 
 
-def repo_root() -> Path:
-    import subprocess
-    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    if out.returncode != 0:
-        sys.exit("hee-name: not inside a git repo")
-    return Path(out.stdout.strip())
+def default_allocations_root() -> Path:
+    """The canonical ledger location: THIS TOOL's own repo.
+
+    Deliberately not the cwd's repo. `git rev-parse --show-toplevel` answers
+    "where am I standing", and standing somewhere is not a decision about
+    where a fleet-wide ledger lives -- but it silently behaved like one.
+    Two callers in two directories drew from one pool, wrote two ledgers,
+    and neither saw the collision; the tool's own docstring promise of
+    unique names did not hold. Observed 2026-09-02, when a pve-storage
+    allocation landed in the thesis-engine repo purely because that was
+    the cwd. See human-execution-engine#525.
+
+    tooling/bin/hee-name -> <repo>/.hee/name-allocations
+    """
+    return Path(__file__).resolve().parent.parent.parent / ".hee" / "name-allocations"
 
 
 def pools_dir() -> Path:
@@ -72,8 +154,27 @@ def pools_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "name-pools"
 
 
+# Set by main() from --allocations-dir. Module-level so the accessors below
+# keep their existing signatures.
+_ALLOCATIONS_OVERRIDE: "Path | None" = None
+
+
 def allocations_dir() -> Path:
-    d = repo_root() / ".hee" / "name-allocations"
+    """Resolve the ledger location, most explicit source winning.
+
+    Operator, 2026-09-02: "fix this so names anchor exactly where we tell
+    them to." So there is a way to tell it, and the fallback is a fixed
+    location rather than an ambient one.
+
+      1. --allocations-dir PATH     explicit, per invocation
+      2. $HEE_NAME_ALLOCATIONS      per-oper, set in heerc
+      3. this tool's own repo       canonical default, never the cwd
+    """
+    if _ALLOCATIONS_OVERRIDE is not None:
+        d = _ALLOCATIONS_OVERRIDE
+    else:
+        env = os.environ.get("HEE_NAME_ALLOCATIONS")
+        d = Path(env).expanduser() if env else default_allocations_root()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -86,6 +187,22 @@ def list_pools() -> list[str]:
 
 
 def load_pool(name: str) -> list[str]:
+    return _load_pool_doc(name)[0]
+
+
+def _load_pool_doc(name: str) -> "tuple[list[str], str | None]":
+    """Return (names, next_pool) for a pool.
+
+    `next` chains the series. Operator, 2026-09-02: "never 4 (ie
+    bast-meg-2-oper) ... if there is conflict, regenerate hee-names with
+    same series and get new char, when/if ... move to next series." So
+    exhaustion walks to another pool rather than decorating a name that is
+    already taken -- `bast-meg-2-oper` reads as a second Meg, which is a
+    lie about what it is.
+
+    It lives in the pool FILE, not here, so adding a series still means
+    dropping in one YAML file and touching no code.
+    """
     path = pools_dir() / f"{name}.yaml"
     if not path.exists():
         available = ", ".join(list_pools()) or "(none found)"
@@ -94,7 +211,7 @@ def load_pool(name: str) -> list[str]:
     names = doc.get("names") or []
     if not names:
         sys.exit(f"hee-name: pool '{name}' has no names defined")
-    return names
+    return names, doc.get("next")
 
 
 def load_allocations(scope: str) -> dict:
@@ -109,40 +226,232 @@ def save_allocations(scope: str, records: dict) -> None:
     path.write_text(yaml.safe_dump(records, sort_keys=True))
 
 
-def cmd_allocate(pool: str, scope: str, prefix: str) -> None:
-    names = load_pool(pool)
-    records = load_allocations(scope)
-    used = set(records.keys())
+# Scopes whose names must declare a role, and the roles they accept.
+# Operator, 2026-09-02: "never just bast-homer, must always ending in
+# oper|agent name" -- and, asked whether that was ever conditional,
+# "always". A convention only a reader enforces is not a convention:
+# .hee/name-allocations/bastion.yaml held exactly one entry, the bare
+# `bast-homer`, because nothing rejected it.
+ROLE_REQUIRED_SCOPES = {
+    "bastion": ("oper", "agent"),
+}
 
-    chosen = None
-    # first pass: any bare name from the pool not yet used in this scope
-    for n in names:
-        candidate = f"{prefix}{n}"
-        if candidate not in used:
-            chosen = candidate
-            break
-    # exhausted: cycle the pool again with an incrementing numeric suffix
-    if chosen is None:
-        suffix = 2
-        while chosen is None:
-            for n in names:
-                candidate = f"{prefix}{n}-{suffix}"
-                if candidate not in used:
-                    chosen = candidate
+# The exact prefix a role-scope name must carry, and with it the field count.
+# Operator, 2026-09-02: "my hard no on 4 field bash-foo-N-bar."
+#
+# The strongest reason is downstream, and it is the operator's: "makes
+# regex more effective is huge win too." A VARIABLE field count forces
+# every consumer into an optional group, and `bast-(.+)-(oper|agent)` with
+# a greedy .+ silently swallows an interior field -- and the non-greedy fix
+# does not exist in POSIX ERE or awk at all, which is exactly where this
+# org's shell tools live. A fixed shape needs neither. The canonical
+# pattern is `bastion-name` in library/regex/patterns.yaml, proved across
+# six engines, so log parsing, monitoring checks, DNS zone validation and
+# ACLs get this guarantee without re-deriving it.
+#
+# A bastion name has EXACTLY THREE dash-separated fields --
+# bast-<name>-<role>. Enforcing the role suffix alone did not deliver that:
+# `--prefix bast-foo-` still produced `bast-foo-homer-oper`, and `--prefix ""`
+# produced the roleful-but-anonymous `marge-oper`. A pool name containing a
+# dash would do the same. So the shape is validated on the RENDERED name,
+# which is the only place all three inputs meet.
+SCOPE_PREFIX = {
+    "bastion": "bast-",
+}
+
+
+def _validate_shape(scope: str, name: str, roles: tuple) -> None:
+    prefix = SCOPE_PREFIX.get(scope)
+    if not prefix:
+        return
+    if not re.fullmatch(rf"{re.escape(prefix)}[^-]+-(?:{'|'.join(roles)})", name):
+        sys.exit(
+            f"hee-name: '{name}' is not a valid {scope} name.\n"
+            f"  Required shape: {prefix}<name>-({'|'.join(roles)}) -- exactly three fields.\n"
+            f"  A fourth field is a hard no: a name you have to disambiguate has\n"
+            f"  stopped doing the one job a pool name has."
+        )
+
+
+def _series_walk(pool: str):
+    """Yield (pool_name, name) across the whole series chain, in order.
+
+    Guards against a cycle in the `next` links -- a pool chained back to an
+    earlier one would otherwise spin forever on an exhausted series.
+    """
+    seen = []
+    cur = pool
+    while cur:
+        if cur in seen:
+            sys.exit(f"hee-name: pool series loops back to '{cur}' via {' -> '.join(seen)}")
+        seen.append(cur)
+        names, nxt = _load_pool_doc(cur)
+        for n in names:
+            yield cur, n
+        cur = nxt
+
+
+def _check_series_names(pool: str, scope: str) -> None:
+    """Reject a pool whose names cannot make a legal name for this scope.
+
+    Dropping a new pool file in is meant to Just Work, and it does -- but a
+    pool is written by hand and `red-sox` is the natural way to write it.
+    Without this the tool hands out `bast-alpha-oper` and `bast-bravo-oper`
+    happily and only fails on the THIRD allocation, when it happens to
+    reach the bad name. Late, arbitrary, and it looks like a bug in
+    allocation rather than a typo in the pool.
+
+    So the whole series is checked up front, and every offender is named at
+    once rather than one per run.
+    """
+    bad = {}
+    for pname, n in _series_walk(pool):
+        if not re.fullmatch(r"[a-z0-9]+", n):
+            bad.setdefault(pname, []).append(n)
+    if not bad:
+        return
+    lines = [f"hee-name: pool names unusable in scope '{scope}':"]
+    for pname, names in bad.items():
+        lines.append(f"  {pname}: {', '.join(names)}")
+    lines.append(f"  A {scope} name is {SCOPE_PREFIX[scope]}<name>-<role>, exactly three fields,")
+    lines.append("  so the pool name itself must carry no dash and no separator.")
+    lines.append("  Write 'redsox', not 'red-sox'; 'bluejays', not 'blue jays'.")
+    sys.exit("\n".join(lines))
+
+
+def _exhausted(pool: str, scope: str, role: "str | None") -> None:
+    chain = []
+    cur = pool
+    while cur and cur not in chain:
+        chain.append(cur)
+        cur = _load_pool_doc(cur)[1]
+    sys.exit(
+        f"hee-name: every name in the series is taken for scope '{scope}'"
+        + (f" role '{role}'" if role else "")
+        + f".\n  Series walked: {' -> '.join(chain)}\n"
+        f"  This does not invent a suffixed name. Add a pool file and chain it\n"
+        f"  with `next:` from '{chain[-1]}', or release names that are no longer in use."
+    )
+
+
+def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None", cohabit: "str | None") -> None:
+    roles = ROLE_REQUIRED_SCOPES.get(scope)
+    if roles and role is None:
+        sys.exit(
+            f"hee-name: scope '{scope}' requires --role ({'|'.join(roles)}).\n"
+            f"  A bastion name always ends in its role, so the role is part of\n"
+            f"  allocating the name, not something appended afterward -- the\n"
+            f"  ledger is what the next allocation checks for collisions."
+        )
+    if cohabit and not roles:
+        sys.exit(f"hee-name: scope '{scope}' has no instances to cohabit")
+    if role is not None:
+        if not roles:
+            sys.exit(f"hee-name: scope '{scope}' does not take a --role")
+        if role not in roles:
+            sys.exit(f"hee-name: invalid role '{role}' for scope '{scope}'. Valid: {', '.join(roles)}")
+
+    want = SCOPE_PREFIX.get(scope)
+    if want is not None and prefix != want:
+        if prefix:
+            sys.exit(f"hee-name: scope '{scope}' fixes its prefix at '{want}'; got '{prefix}'")
+        prefix = want   # omitting it is fine; there is only one right answer
+
+    if SCOPE_PREFIX.get(scope):
+        _check_series_names(pool, scope)
+
+    records = load_allocations(scope)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    if roles:
+        # Instance-keyed. Operator, 2026-09-02: "hee-name is tied to
+        # instance each oper|agent share." The pool word names the BOX; the
+        # roles are its occupants. Keying the ledger on the instance is what
+        # makes that visible instead of merely implied by two names that
+        # happen to rhyme.
+        #
+        # Cohabitation is OPT-IN, not the default. Operator, same review:
+        # "case by case. sometimes we need them to cohabitate for short
+        # spells." An earlier version co-located automatically -- ask for an
+        # agent right after an oper and it silently landed on the same box.
+        # That is the wrong default against the stated goal of separating
+        # agents into their own scope and context, and it made a deliberate,
+        # temporary arrangement indistinguishable from an accident.
+        if cohabit:
+            inst = records.get(cohabit)
+            if inst is None:
+                sys.exit(
+                    f"hee-name: no instance '{cohabit}' in scope '{scope}' to cohabit with.\n"
+                    f"  --cohabit joins an EXISTING box; it does not create one."
+                )
+            occ = inst.setdefault("occupants", {})
+            if role in occ:
+                sys.exit(f"hee-name: instance '{cohabit}' already has an occupant in role '{role}'")
+            occ[role] = {"allocated_at": now, "cohabit": True}
+            n = cohabit
+            print(
+                f"hee-name: NOTE  '{cohabit}' is now shared. That is co-location only --\n"
+                f"  the occupants are unrelated identities, and there is no promotion\n"
+                f"  path between roles.",
+                file=sys.stderr,
+            )
+        else:
+            # Default: a box of one's own -- the first instance with NO
+            # occupants at all, not merely a free role slot.
+            for pname, n in _series_walk(pool):
+                if n not in records:
+                    records[n] = {"pool": pname, "scope": scope,
+                                  "occupants": {role: {"allocated_at": now}}}
                     break
-            suffix += 1
+            else:
+                _exhausted(pool, scope, role)
+        rendered = f"{prefix}{n}-{role}"
+        _validate_shape(scope, rendered, roles)
+        save_allocations(scope, records)
+        print(rendered)
+        return
 
-    records[chosen] = {
-        "pool": pool,
-        "scope": scope,
-        "allocated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
-    save_allocations(scope, records)
-    print(chosen)
+    # Roleless scopes keep the flat name-keyed ledger they already have on
+    # disk (tmux-agent, pve-lxc). Only the exhaustion path changes.
+    for pname, n in _series_walk(pool):
+        candidate = f"{prefix}{n}"
+        if candidate not in records:
+            records[candidate] = {"pool": pname, "scope": scope, "allocated_at": now}
+            save_allocations(scope, records)
+            print(candidate)
+            return
+    _exhausted(pool, scope, None)
 
 
-def cmd_release(name: str, scope: str) -> None:
+def cmd_release(name: str, scope: str, prefix: str) -> None:
     records = load_allocations(scope)
+    roles = ROLE_REQUIRED_SCOPES.get(scope)
+
+    if roles:
+        prefix = SCOPE_PREFIX.get(scope, prefix)
+        _validate_shape(scope, name, roles)
+        # `name` is the full rendered form, e.g. bast-homer-oper. Split the
+        # terminal role off and drop that occupant. The INSTANCE survives
+        # until its last occupant leaves -- releasing one role must not hand
+        # the box to someone else while the other role is still living in it.
+        m = re.match(rf"^{re.escape(prefix)}(.+)-({'|'.join(roles)})$", name)
+        if not m:
+            sys.exit(f"hee-name: '{name}' is not a valid {scope} name (expected {prefix}<name>-({'|'.join(roles)}))")
+        inst_name, role = m.group(1), m.group(2)
+        inst = records.get(inst_name)
+        if not inst or role not in (inst.get("occupants") or {}):
+            sys.exit(f"hee-name: '{name}' is not currently allocated in scope '{scope}'")
+        del inst["occupants"][role]
+        if inst["occupants"]:
+            remaining = ", ".join(sorted(inst["occupants"]))
+            save_allocations(scope, records)
+            print(f"hee-name: released '{name}'. Instance '{inst_name}' is still held by: {remaining}")
+            return
+        del records[inst_name]
+        save_allocations(scope, records)
+        print(f"hee-name: released '{name}'. Instance '{inst_name}' is now empty and returned to the pool")
+        return
+
     if name not in records:
         sys.exit(f"hee-name: '{name}' is not currently allocated in scope '{scope}'")
     del records[name]
@@ -150,13 +459,25 @@ def cmd_release(name: str, scope: str) -> None:
     print(f"hee-name: released '{name}' from scope '{scope}'")
 
 
-def cmd_list(scope: str) -> None:
+def cmd_list(scope: str, prefix: str) -> None:
     records = load_allocations(scope)
     if not records:
         print(f"(no allocations in scope '{scope}')")
         return
-    for name, rec in sorted(records.items()):
-        print(f"{name}\t{rec['pool']}\t{rec['allocated_at']}")
+    if ROLE_REQUIRED_SCOPES.get(scope):
+        prefix = SCOPE_PREFIX.get(scope, prefix)
+        if any(len(r.get("occupants") or {}) > 1 for r in records.values()):
+            print("# shared instances below are CO-LOCATED only: unrelated")
+            print("# identities, no promotion path between roles.")
+        for inst in sorted(records):
+            occ = records[inst].get("occupants") or {}
+            print(f"{inst}  [pool={records[inst].get('pool')}]")
+            for role in sorted(occ):
+                mark = "  (cohabiting)" if occ[role].get("cohabit") else ""
+                print(f"    {prefix}{inst}-{role}   {occ[role].get('allocated_at')}{mark}")
+        return
+    for k in sorted(records):
+        print(f"{k}  {records[k].get('allocated_at')}")
 
 
 def main():
@@ -168,6 +489,12 @@ def main():
     ap.add_argument("--pool", default=None)
     ap.add_argument("--scope", default="default")
     ap.add_argument("--prefix", default="")
+    ap.add_argument("--cohabit", default=None, metavar="INSTANCE",
+                    help="deliberately share an EXISTING instance rather than taking a fresh one")
+    ap.add_argument("--role", default=None,
+                    help="role suffix; required for scopes in ROLE_REQUIRED_SCOPES")
+    ap.add_argument("--allocations-dir", default=None, metavar="PATH",
+                    help="anchor the ledger here (else $HEE_NAME_ALLOCATIONS, else this tool's repo)")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -180,6 +507,12 @@ def main():
 
     args = ap.parse_args()
 
+    global _ALLOCATIONS_OVERRIDE
+
+    if args.allocations_dir:
+
+        _ALLOCATIONS_OVERRIDE = Path(args.allocations_dir).expanduser()
+
     if args.list_pools:
         pools = list_pools()
         if not pools:
@@ -191,15 +524,15 @@ def main():
     if args.allocate:
         if not args.pool:
             sys.exit("hee-name -allocate requires --pool (see -list-pools)")
-        cmd_allocate(args.pool, args.scope, args.prefix)
+        cmd_allocate(args.pool, args.scope, args.prefix, args.role, args.cohabit)
         return
 
     if args.release:
-        cmd_release(args.release, args.scope)
+        cmd_release(args.release, args.scope, args.prefix)
         return
 
     if args.list:
-        cmd_list(args.scope)
+        cmd_list(args.scope, args.prefix)
         return
 
     print(__doc__)

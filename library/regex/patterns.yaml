@@ -194,3 +194,25 @@ spec:
           - "$HOME/git/foo"
           - "~/git/foo"
           - "/usr/share/foo"
+    - name: bastion-name
+      lane: portable
+      description: "A bastion identity name: bast-<name>-<oper|agent>, exactly three fields. The fixed field count is the whole point -- it is what makes this pattern trivial in every engine."
+      ere: '(^|[^A-Za-z0-9-])(bast-[a-z0-9]+-(oper|agent))([^A-Za-z0-9-]|$)'
+      capture: 2
+      notes:
+        - "Operator, 2026-09-02, on the three-field rule: 'makes regex more effective is huge win too.' That is the strongest argument for it and it was not the one originally recorded. A VARIABLE field count forces every consumer into an optional group -- bast-(.+)-(oper|agent) with a greedy .+ silently swallows an interior field, and the non-greedy fix does not exist in POSIX ERE or awk. A fixed shape needs neither."
+        - "The rejected form is bast-meg-2-oper. Operator: 'never 4 (ie bast-meg-2-oper)' and 'my hard no on 4 field bash-foo-N-bar'. hee-name enforces it at allocation; this pattern is how everything DOWNSTREAM -- log parsing, monitoring checks, DNS zone validation, ACLs -- gets the same guarantee without re-deriving it."
+        - "[a-z0-9]+ for the middle field, not [a-z0-9-]+, is what actually forbids a fourth field. Allowing a dash there would match bast-foo-homer-oper, the exact shape being rejected."
+        - "Boundary groups rather than \\b, for the same reason as en-gb-spelling: awk reads \\b as a backspace, so it would match nothing there while working everywhere else."
+        - "A shared middle word means CO-LOCATION only. bast-homer-oper and bast-homer-agent are unrelated identities that happen to share a box, and there is no promotion path between roles. Anything grouping by the captured middle field groups by ADDRESS, not by owner -- see contracts/fleet-identity-v1.contract.yaml, invariant colocation_implies_nothing."
+      tests:
+        match:
+          - { input: "allocated bast-homer-oper today", expect: "bast-homer-oper" }
+          - { input: "bast-comicbookguy-agent", expect: "bast-comicbookguy-agent" }
+          - { input: "ssh bast-marge-oper.lab.tcos.us", expect: "bast-marge-oper" }
+        reject:
+          - "bast-meg-2-oper"
+          - "bast-foo-homer-oper"
+          - "bast-homer"
+          - "marge-oper"
+          - "bast-homer-admin"

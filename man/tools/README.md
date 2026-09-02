@@ -12,6 +12,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-check`](hee-check.1.md)
 - [`hee-con`](hee-con.1.md)
 - [`hee-contract-review`](hee-contract-review.1.md)
+- [`hee-dns`](hee-dns.1.md)
 - [`hee-exif`](hee-exif.1.md)
 - [`hee-fields`](hee-fields.1.md)
 - [`hee-filter`](hee-filter.1.md)

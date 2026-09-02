@@ -20,3 +20,8 @@ names:
   - heidi
   - satan
   - towelie
+
+# Series order. When this pool is exhausted, allocation continues into
+# `next` rather than inventing a numeric suffix. Operator, 2026-09-02:
+# "never 4 (ie bast-meg-2-oper) ... get new char, when/if move to next series".
+next: family-guy
