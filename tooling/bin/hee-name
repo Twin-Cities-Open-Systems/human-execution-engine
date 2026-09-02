@@ -44,19 +44,46 @@ name ends in `-oper` or `-agent`, with no bare form, so `--role` is
 mandatory there. The role is applied when the name is reserved rather than
 appended afterward, because the ledger is what the next allocation checks.
 
-Once every name in a pool is taken within a scope, allocation doesn't
-fail or wrap silently -- it appends a numeric suffix (`kyle-2`, `kyle-3`,
-...), cycling back through the pool. A 20-name pool with this scheme
-comfortably outlasts any realistic churn; there's no hardcoded ceiling.
+Once every name in a pool is taken within a scope, allocation walks to
+the NEXT pool in the series, declared as `next:` in the pool file itself.
+It never appends a numeric suffix. Operator, 2026-09-02: "never 4 (ie
+bast-meg-2-oper) ... regenerate hee-names with same series and get new
+char, when/if ... move to next series." `bast-meg-2-oper` reads as a
+second Meg, which is a lie about what the thing is -- and the whole
+point of a name from a pool is that it is memorable and distinct.
+
+When the entire chain is exhausted, allocation FAILS, loudly, naming the
+series it walked. It does not invent a name. Chain a new pool with
+`next:` or release names that are no longer in use.
+
+## Instances and roles
+
+For a role-required scope the ledger is keyed on the INSTANCE, not the
+rendered name. Operator, 2026-09-02: "hee-name is tied to instance each
+oper|agent share." The pool word names the box; roles are its occupants:
+
+  homer:
+    pool: simpsons
+    occupants:
+      oper:  {allocated_at: ...}   ->  bast-homer-oper
+      agent: {allocated_at: ...}   ->  bast-homer-agent
+
+This is what makes co-occupancy visible rather than implied by two names
+that merely rhyme, and it is what makes release safe: dropping one
+occupant leaves the instance held, so the box cannot be handed to someone
+else while the other role still lives in it. The instance returns to the
+pool only when its last occupant leaves.
 
 Usage:
   hee-name -list-pools
   hee-name -allocate --pool south-park --scope tmux-agent [--prefix bast-]
+  hee-name -allocate --pool simpsons --scope bastion --prefix bast- --role oper
   hee-name -list --scope tmux-agent
   hee-name -release <name> --scope tmux-agent
 """
 import argparse
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,6 +156,22 @@ def list_pools() -> list[str]:
 
 
 def load_pool(name: str) -> list[str]:
+    return _load_pool_doc(name)[0]
+
+
+def _load_pool_doc(name: str) -> "tuple[list[str], str | None]":
+    """Return (names, next_pool) for a pool.
+
+    `next` chains the series. Operator, 2026-09-02: "never 4 (ie
+    bast-meg-2-oper) ... if there is conflict, regenerate hee-names with
+    same series and get new char, when/if ... move to next series." So
+    exhaustion walks to another pool rather than decorating a name that is
+    already taken -- `bast-meg-2-oper` reads as a second Meg, which is a
+    lie about what it is.
+
+    It lives in the pool FILE, not here, so adding a series still means
+    dropping in one YAML file and touching no code.
+    """
     path = pools_dir() / f"{name}.yaml"
     if not path.exists():
         available = ", ".join(list_pools()) or "(none found)"
@@ -137,7 +180,7 @@ def load_pool(name: str) -> list[str]:
     names = doc.get("names") or []
     if not names:
         sys.exit(f"hee-name: pool '{name}' has no names defined")
-    return names
+    return names, doc.get("next")
 
 
 def load_allocations(scope: str) -> dict:
@@ -163,6 +206,39 @@ ROLE_REQUIRED_SCOPES = {
 }
 
 
+def _series_walk(pool: str):
+    """Yield (pool_name, name) across the whole series chain, in order.
+
+    Guards against a cycle in the `next` links -- a pool chained back to an
+    earlier one would otherwise spin forever on an exhausted series.
+    """
+    seen = []
+    cur = pool
+    while cur:
+        if cur in seen:
+            sys.exit(f"hee-name: pool series loops back to '{cur}' via {' -> '.join(seen)}")
+        seen.append(cur)
+        names, nxt = _load_pool_doc(cur)
+        for n in names:
+            yield cur, n
+        cur = nxt
+
+
+def _exhausted(pool: str, scope: str, role: "str | None") -> None:
+    chain = []
+    cur = pool
+    while cur and cur not in chain:
+        chain.append(cur)
+        cur = _load_pool_doc(cur)[1]
+    sys.exit(
+        f"hee-name: every name in the series is taken for scope '{scope}'"
+        + (f" role '{role}'" if role else "")
+        + f".\n  Series walked: {' -> '.join(chain)}\n"
+        f"  This does not invent a suffixed name. Add a pool file and chain it\n"
+        f"  with `next:` from '{chain[-1]}', or release names that are no longer in use."
+    )
+
+
 def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None") -> None:
     roles = ROLE_REQUIRED_SCOPES.get(scope)
     if roles and role is None:
@@ -178,45 +254,69 @@ def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None") -> None
         if role not in roles:
             sys.exit(f"hee-name: invalid role '{role}' for scope '{scope}'. Valid: {', '.join(roles)}")
 
-    # The role is terminal, always. A numeric exhaustion suffix goes on the
-    # POOL NAME (bast-homer-2-oper), never after the role, so that reading
-    # the last segment always answers "what is this".
-    sfx = f"-{role}" if role else ""
-
-    names = load_pool(pool)
     records = load_allocations(scope)
-    used = set(records.keys())
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    chosen = None
-    # first pass: any bare name from the pool not yet used in this scope
-    for n in names:
-        candidate = f"{prefix}{n}{sfx}"
-        if candidate not in used:
-            chosen = candidate
-            break
-    # exhausted: cycle the pool again with an incrementing numeric suffix
-    if chosen is None:
-        suffix = 2
-        while chosen is None:
-            for n in names:
-                candidate = f"{prefix}{n}-{suffix}{sfx}"
-                if candidate not in used:
-                    chosen = candidate
-                    break
-            suffix += 1
+    if roles:
+        # Instance-keyed. Operator, 2026-09-02: "hee-name is tied to
+        # instance each oper|agent share." The pool word names the BOX; the
+        # roles are its occupants. Keying the ledger on the instance is what
+        # makes that visible instead of merely implied by two names that
+        # happen to rhyme.
+        for pname, n in _series_walk(pool):
+            inst = records.get(n)
+            if inst is None:
+                records[n] = {"pool": pname, "scope": scope,
+                              "occupants": {role: {"allocated_at": now}}}
+                break
+            if role not in (inst.get("occupants") or {}):
+                inst.setdefault("occupants", {})[role] = {"allocated_at": now}
+                break
+        else:
+            _exhausted(pool, scope, role)
+        save_allocations(scope, records)
+        print(f"{prefix}{n}-{role}")
+        return
 
-    records[chosen] = {
-        "pool": pool,
-        "scope": scope,
-        **({"role": role} if role else {}),
-        "allocated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
-    save_allocations(scope, records)
-    print(chosen)
+    # Roleless scopes keep the flat name-keyed ledger they already have on
+    # disk (tmux-agent, pve-lxc). Only the exhaustion path changes.
+    for pname, n in _series_walk(pool):
+        candidate = f"{prefix}{n}"
+        if candidate not in records:
+            records[candidate] = {"pool": pname, "scope": scope, "allocated_at": now}
+            save_allocations(scope, records)
+            print(candidate)
+            return
+    _exhausted(pool, scope, None)
 
 
-def cmd_release(name: str, scope: str) -> None:
+def cmd_release(name: str, scope: str, prefix: str) -> None:
     records = load_allocations(scope)
+    roles = ROLE_REQUIRED_SCOPES.get(scope)
+
+    if roles:
+        # `name` is the full rendered form, e.g. bast-homer-oper. Split the
+        # terminal role off and drop that occupant. The INSTANCE survives
+        # until its last occupant leaves -- releasing one role must not hand
+        # the box to someone else while the other role is still living in it.
+        m = re.match(rf"^{re.escape(prefix)}(.+)-({'|'.join(roles)})$", name)
+        if not m:
+            sys.exit(f"hee-name: '{name}' is not a valid {scope} name (expected {prefix}<name>-({'|'.join(roles)}))")
+        inst_name, role = m.group(1), m.group(2)
+        inst = records.get(inst_name)
+        if not inst or role not in (inst.get("occupants") or {}):
+            sys.exit(f"hee-name: '{name}' is not currently allocated in scope '{scope}'")
+        del inst["occupants"][role]
+        if inst["occupants"]:
+            remaining = ", ".join(sorted(inst["occupants"]))
+            save_allocations(scope, records)
+            print(f"hee-name: released '{name}'. Instance '{inst_name}' is still held by: {remaining}")
+            return
+        del records[inst_name]
+        save_allocations(scope, records)
+        print(f"hee-name: released '{name}'. Instance '{inst_name}' is now empty and returned to the pool")
+        return
+
     if name not in records:
         sys.exit(f"hee-name: '{name}' is not currently allocated in scope '{scope}'")
     del records[name]
@@ -224,13 +324,20 @@ def cmd_release(name: str, scope: str) -> None:
     print(f"hee-name: released '{name}' from scope '{scope}'")
 
 
-def cmd_list(scope: str) -> None:
+def cmd_list(scope: str, prefix: str) -> None:
     records = load_allocations(scope)
     if not records:
         print(f"(no allocations in scope '{scope}')")
         return
-    for name, rec in sorted(records.items()):
-        print(f"{name}\t{rec['pool']}\t{rec['allocated_at']}")
+    if ROLE_REQUIRED_SCOPES.get(scope):
+        for inst in sorted(records):
+            occ = records[inst].get("occupants") or {}
+            print(f"{inst}  [pool={records[inst].get('pool')}]")
+            for role in sorted(occ):
+                print(f"    {prefix}{inst}-{role}   {occ[role].get('allocated_at')}")
+        return
+    for k in sorted(records):
+        print(f"{k}  {records[k].get('allocated_at')}")
 
 
 def main():
@@ -279,11 +386,11 @@ def main():
         return
 
     if args.release:
-        cmd_release(args.release, args.scope)
+        cmd_release(args.release, args.scope, args.prefix)
         return
 
     if args.list:
-        cmd_list(args.scope)
+        cmd_list(args.scope, args.prefix)
         return
 
     print(__doc__)
