@@ -30,6 +30,20 @@ systems drawing from the same pool don't collide, tracked in
 `.hee/name-allocations/<scope>.yaml` -- same real, disk-based,
 git-trackable pattern as hee-ticket's `.hee/tickets/`.
 
+That path anchors to THIS TOOL's repo, not the caller's cwd. It used to
+resolve `git rev-parse --show-toplevel`, which meant the ledger followed
+whoever ran the command: two callers in two directories drew from the same
+pool, wrote two different ledgers, and neither could see the collision.
+Override with `--allocations-dir` or `$HEE_NAME_ALLOCATIONS` (heerc) when
+a scope genuinely belongs somewhere else -- see #525.
+
+## Roles
+
+Some scopes require the name to declare what it is. `bastion` does: every
+name ends in `-oper` or `-agent`, with no bare form, so `--role` is
+mandatory there. The role is applied when the name is reserved rather than
+appended afterward, because the ledger is what the next allocation checks.
+
 Once every name in a pool is taken within a scope, allocation doesn't
 fail or wrap silently -- it appends a numeric suffix (`kyle-2`, `kyle-3`,
 ...), cycling back through the pool. A 20-name pool with this scheme
@@ -42,6 +56,7 @@ Usage:
   hee-name -release <name> --scope tmux-agent
 """
 import argparse
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,12 +74,21 @@ except ImportError:
     sys.exit("Requires pyyaml: pip install pyyaml")
 
 
-def repo_root() -> Path:
-    import subprocess
-    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    if out.returncode != 0:
-        sys.exit("hee-name: not inside a git repo")
-    return Path(out.stdout.strip())
+def default_allocations_root() -> Path:
+    """The canonical ledger location: THIS TOOL's own repo.
+
+    Deliberately not the cwd's repo. `git rev-parse --show-toplevel` answers
+    "where am I standing", and standing somewhere is not a decision about
+    where a fleet-wide ledger lives -- but it silently behaved like one.
+    Two callers in two directories drew from one pool, wrote two ledgers,
+    and neither saw the collision; the tool's own docstring promise of
+    unique names did not hold. Observed 2026-09-02, when a pve-storage
+    allocation landed in the thesis-engine repo purely because that was
+    the cwd. See human-execution-engine#525.
+
+    tooling/bin/hee-name -> <repo>/.hee/name-allocations
+    """
+    return Path(__file__).resolve().parent.parent.parent / ".hee" / "name-allocations"
 
 
 def pools_dir() -> Path:
@@ -72,8 +96,27 @@ def pools_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "name-pools"
 
 
+# Set by main() from --allocations-dir. Module-level so the accessors below
+# keep their existing signatures.
+_ALLOCATIONS_OVERRIDE: "Path | None" = None
+
+
 def allocations_dir() -> Path:
-    d = repo_root() / ".hee" / "name-allocations"
+    """Resolve the ledger location, most explicit source winning.
+
+    Operator, 2026-09-02: "fix this so names anchor exactly where we tell
+    them to." So there is a way to tell it, and the fallback is a fixed
+    location rather than an ambient one.
+
+      1. --allocations-dir PATH     explicit, per invocation
+      2. $HEE_NAME_ALLOCATIONS      per-oper, set in heerc
+      3. this tool's own repo       canonical default, never the cwd
+    """
+    if _ALLOCATIONS_OVERRIDE is not None:
+        d = _ALLOCATIONS_OVERRIDE
+    else:
+        env = os.environ.get("HEE_NAME_ALLOCATIONS")
+        d = Path(env).expanduser() if env else default_allocations_root()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -109,7 +152,37 @@ def save_allocations(scope: str, records: dict) -> None:
     path.write_text(yaml.safe_dump(records, sort_keys=True))
 
 
-def cmd_allocate(pool: str, scope: str, prefix: str) -> None:
+# Scopes whose names must declare a role, and the roles they accept.
+# Operator, 2026-09-02: "never just bast-homer, must always ending in
+# oper|agent name" -- and, asked whether that was ever conditional,
+# "always". A convention only a reader enforces is not a convention:
+# .hee/name-allocations/bastion.yaml held exactly one entry, the bare
+# `bast-homer`, because nothing rejected it.
+ROLE_REQUIRED_SCOPES = {
+    "bastion": ("oper", "agent"),
+}
+
+
+def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None") -> None:
+    roles = ROLE_REQUIRED_SCOPES.get(scope)
+    if roles and role is None:
+        sys.exit(
+            f"hee-name: scope '{scope}' requires --role ({'|'.join(roles)}).\n"
+            f"  A bastion name always ends in its role, so the role is part of\n"
+            f"  allocating the name, not something appended afterward -- the\n"
+            f"  ledger is what the next allocation checks for collisions."
+        )
+    if role is not None:
+        if not roles:
+            sys.exit(f"hee-name: scope '{scope}' does not take a --role")
+        if role not in roles:
+            sys.exit(f"hee-name: invalid role '{role}' for scope '{scope}'. Valid: {', '.join(roles)}")
+
+    # The role is terminal, always. A numeric exhaustion suffix goes on the
+    # POOL NAME (bast-homer-2-oper), never after the role, so that reading
+    # the last segment always answers "what is this".
+    sfx = f"-{role}" if role else ""
+
     names = load_pool(pool)
     records = load_allocations(scope)
     used = set(records.keys())
@@ -117,7 +190,7 @@ def cmd_allocate(pool: str, scope: str, prefix: str) -> None:
     chosen = None
     # first pass: any bare name from the pool not yet used in this scope
     for n in names:
-        candidate = f"{prefix}{n}"
+        candidate = f"{prefix}{n}{sfx}"
         if candidate not in used:
             chosen = candidate
             break
@@ -126,7 +199,7 @@ def cmd_allocate(pool: str, scope: str, prefix: str) -> None:
         suffix = 2
         while chosen is None:
             for n in names:
-                candidate = f"{prefix}{n}-{suffix}"
+                candidate = f"{prefix}{n}-{suffix}{sfx}"
                 if candidate not in used:
                     chosen = candidate
                     break
@@ -135,6 +208,7 @@ def cmd_allocate(pool: str, scope: str, prefix: str) -> None:
     records[chosen] = {
         "pool": pool,
         "scope": scope,
+        **({"role": role} if role else {}),
         "allocated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     save_allocations(scope, records)
@@ -168,6 +242,10 @@ def main():
     ap.add_argument("--pool", default=None)
     ap.add_argument("--scope", default="default")
     ap.add_argument("--prefix", default="")
+    ap.add_argument("--role", default=None,
+                    help="role suffix; required for scopes in ROLE_REQUIRED_SCOPES")
+    ap.add_argument("--allocations-dir", default=None, metavar="PATH",
+                    help="anchor the ledger here (else $HEE_NAME_ALLOCATIONS, else this tool's repo)")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -180,6 +258,12 @@ def main():
 
     args = ap.parse_args()
 
+    global _ALLOCATIONS_OVERRIDE
+
+    if args.allocations_dir:
+
+        _ALLOCATIONS_OVERRIDE = Path(args.allocations_dir).expanduser()
+
     if args.list_pools:
         pools = list_pools()
         if not pools:
@@ -191,7 +275,7 @@ def main():
     if args.allocate:
         if not args.pool:
             sys.exit("hee-name -allocate requires --pool (see -list-pools)")
-        cmd_allocate(args.pool, args.scope, args.prefix)
+        cmd_allocate(args.pool, args.scope, args.prefix, args.role)
         return
 
     if args.release:
