@@ -35,6 +35,79 @@ GIT_DIR := $(HOME_DIR)/git
 HOOKS_DIR := $(HOME_DIR)/.claude/hooks
 CLAUDE_SETTINGS := $(HOME_DIR)/.claude/settings.json
 
+# `help` is the default goal, and it is DERIVED from this file rather than
+# hand-kept. Real trigger 2026-09-02: `make -f tooling/bootstrap.mk help`
+# answered "No rule to make target 'help'". Worse, a bare invocation with no
+# target silently ran print-governance-reminder, because that was simply the
+# first target in the file -- an accident of ordering, not a decision.
+#
+# Same lesson tooling/bin/hee records for its own router: "a list kept in
+# this file goes stale the moment someone adds a tool, which is how
+# man/hee.1 came to document six subcommands that no longer existed." So
+# this greps the `## ` annotations off the target lines themselves. Add a
+# target with a `## ` comment and it appears here; add one without, and the
+# check below says so rather than letting it hide.
+.DEFAULT_GOAL := help
+
+.PHONY: help check-help
+help: ## show this help (default)
+	@echo "bootstrap.mk -- HEE org/user environment bootstrap"
+	@echo ""
+	@echo "USAGE"
+	@echo "  make -f tooling/bootstrap.mk [ORG=tcos] [USER=$$(id -un)] <target>"
+	@echo ""
+	@echo "TARGETS"
+	@grep -hE '^[a-zA-Z0-9_.-]+:.*?## ' $(MAKEFILE_LIST) \
+	  | sort \
+	  | awk 'BEGIN{FS=":.*?## "}{printf "  %-26s %s\n", $$1, $$2}'
+	@echo ""
+	@echo "VARIABLES"
+	@echo "  ORG      org slug            (default: $(ORG))"
+	@echo "  USER     account to set up   (default: $(USER))"
+	@echo "  CONFIRM  reset-tooling only; must be 'yes' to actually execute"
+	@echo ""
+	@echo "PATHS (expanded for the current ORG/USER)"
+	@echo "  clone dir   $(CLONE_DIR)"
+	@echo "  bin dir     $(BIN_DIR)"
+	@echo "  git dir     $(GIT_DIR)"
+	@echo "  backup dir  $(BACKUP_DIR)"
+	@echo ""
+	@echo "EXIT STATUS"
+	@echo "  0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN"
+
+# Every .PHONY target must carry a `## ` description. Without this, adding a
+# target and forgetting the comment makes it invisible in help -- the same
+# silent-omission failure, one level up.
+#
+# The .PHONY list is read out of the FILE, not from $(.PHONY). Written that
+# way first on 2026-09-02 and it silently passed: `.PHONY` is a special
+# TARGET, not a variable, so `$(.PHONY)` expands to nothing, the loop ran
+# zero times and the check reported OK. A check that cannot fail is worse
+# than no check -- it is a green light with nothing behind it. Caught only
+# by deliberately adding an undocumented target and expecting a failure.
+#
+# It reads the TARGET DEFINITIONS, not .PHONY. Two reasons: parsing .PHONY
+# means handling backslash continuations (a first attempt over-matched and
+# swallowed the help: line into the target list), and checking definitions
+# also catches a target someone forgot to add to .PHONY -- which is its own
+# bug. Every target in this file is phony, so the two lists should agree.
+check-help: ## verify every target is documented in help
+	@mk=$(firstword $(MAKEFILE_LIST)); \
+	all=$$(grep -oE '^[a-z][a-z0-9_.-]*:' "$$mk" | tr -d ':' | sort -u); \
+	if [ -z "$$all" ]; then \
+	  echo "UNKNOWN   found no targets in $$mk" 1>&2; exit 3; \
+	fi; \
+	undocumented=""; n=0; \
+	for t in $$all; do \
+	  n=$$((n+1)); \
+	  grep -qE "^$$t:.*## " "$$mk" || undocumented="$$undocumented $$t"; \
+	done; \
+	if [ -n "$$undocumented" ]; then \
+	  echo "CRITICAL  targets missing a '## ' description:$$undocumented" 1>&2; \
+	  exit 2; \
+	fi; \
+	echo "OK        all $$n targets are documented"
+
 .PHONY: bootstrap bootstrap-all clone-repo clone-all-repos link-hee status \
         health-all-repos pull-all-repos refresh-all-repos print-governance-reminder \
         link-cache-prune install-cron reset-tooling restore-secrets install-dotfiles \
@@ -47,7 +120,7 @@ CLAUDE_SETTINGS := $(HOME_DIR)/.claude/settings.json
 # passes through. Spencer, direct: "must not be missed again... you
 # guys act like idiots otherwise." Printed, not just linked, so it
 # can't be silently scrolled past the way a bare path can.
-print-governance-reminder:
+print-governance-reminder: ## print the rules every identity must read before touching a repo
 	@echo ""
 	@echo "bootstrap.mk: ORG GOVERNANCE -- read prompts/PROMPTING_RULES.md before any git/gh mutation."
 	@echo "  Rule 1: never push directly to main -- branch, then PR."
@@ -55,10 +128,10 @@ print-governance-reminder:
 	@echo "  Full file: $(CLONE_DIR)/prompts/PROMPTING_RULES.md"
 	@echo ""
 
-bootstrap: clone-repo link-hee install-dotfiles print-governance-reminder
+bootstrap: clone-repo link-hee install-dotfiles print-governance-reminder ## clone this repo, link hee, install dotfiles -- one account, start here
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
-bootstrap-all: clone-all-repos link-hee install-dotfiles print-governance-reminder
+bootstrap-all: clone-all-repos link-hee install-dotfiles print-governance-reminder ## bootstrap, but clone EVERY org repo (queried live from gh, not a list)
 	@echo "bootstrap.mk: $(USER)@$(ORG) ready, all org repos cloned -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
 DOTFILES_DIR := $(GIT_DIR)/dotfiles
@@ -77,7 +150,7 @@ DOTFILES_DIR := $(GIT_DIR)/dotfiles
 # itself stays real and hee-independent by design (Spencer: "oper can
 # still use dotfiles without hee") -- this target is a convenience
 # wrapper around it, not a replacement.
-install-dotfiles:
+install-dotfiles: ## clone and run the dotfiles installer
 	@if [ -d "$(DOTFILES_DIR)/.git" ]; then \
 		echo "bootstrap.mk: dotfiles already cloned at $(DOTFILES_DIR)"; \
 	else \
@@ -86,7 +159,7 @@ install-dotfiles:
 	fi
 	@( cd "$(DOTFILES_DIR)" && bash install-dotfiles.sh -a )
 
-clone-repo:
+clone-repo: ## clone human-execution-engine into the clone dir shown under VARIABLES
 	@if [ -d "$(CLONE_DIR)/.git" ]; then \
 		echo "bootstrap.mk: $(REPO) already cloned at $(CLONE_DIR)"; \
 	else \
@@ -98,7 +171,7 @@ clone-repo:
 # hardcoded list, so it stays accurate as repos get added/renamed.
 # Real trigger: "let's add all the repos using our tool to my local
 # git" (spencer@kiosk had only human-execution-engine cloned).
-clone-all-repos:
+clone-all-repos: ## clone every repo in the org, discovered via gh api
 	@mkdir -p "$(GIT_DIR)"
 	@repos="$$(gh api "orgs/$(GH_ORG)/repos?per_page=100" --jq '.[].name')"; \
 	if [ -z "$$repos" ]; then \
@@ -116,11 +189,11 @@ clone-all-repos:
 		fi; \
 	done
 
-link-hee: clone-repo
+link-hee: clone-repo ## symlink hee into the bin dir -- the router, not a copy
 	@mkdir -p "$(BIN_DIR)"
 	@ln -sf "$(CLONE_DIR)/tooling/bin/hee" "$(BIN_DIR)/hee"
 
-status:
+status: ## report what is actually installed: clone, hee symlink, repo count
 	@echo "ORG=$(ORG) USER=$(USER)"
 	@echo "clone: $$([ -d '$(CLONE_DIR)/.git' ] && echo real || echo missing) ($(CLONE_DIR))"
 	@echo "hee:   $$(readlink -f '$(BIN_DIR)/hee' 2>/dev/null || echo missing)"
@@ -153,7 +226,7 @@ status:
 # the identical script, when parallel isn't present -- confirmed live
 # 2026-08-28 that it's not a given dependency on a fresh kiosk-class
 # host, so this is a real fallback path, not a hypothetical one.
-health-all-repos:
+health-all-repos: ## per-repo health across every clone -- dirty files, branches with no upstream
 	@repos="$$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"; \
 	if command -v parallel >/dev/null 2>&1; then \
 		parallel "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" health ::: $$repos; \
@@ -171,7 +244,7 @@ health-all-repos:
 # safety comes from repo-independence (each `git pull` only ever
 # touches its own repo dir), not from anything parallel itself
 # guarantees.
-pull-all-repos:
+pull-all-repos: ## git pull every repo; safe because each pull is repo-independent
 	@repos="$$(find "$(GIT_DIR)" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"; \
 	if command -v parallel >/dev/null 2>&1; then \
 		parallel "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" pull ::: $$repos; \
@@ -179,10 +252,10 @@ pull-all-repos:
 		for d in $$repos; do "$(CLONE_DIR)/tooling/bin/hee-repo-refresh" pull "$$d"; done; \
 	fi
 
-refresh-all-repos: health-all-repos pull-all-repos print-governance-reminder
+refresh-all-repos: health-all-repos pull-all-repos print-governance-reminder ## health-all-repos + pull-all-repos + the governance reminder
 	@echo "bootstrap.mk: refresh complete -- hee -> $$(readlink -f $(BIN_DIR)/hee)"
 
-link-cache-prune: clone-repo
+link-cache-prune: clone-repo ## symlink hee-cache-prune into the bin dir
 	@mkdir -p "$(BIN_DIR)"
 	@ln -sf "$(CLONE_DIR)/tooling/bin/hee-cache-prune" "$(BIN_DIR)/hee-cache-prune"
 
@@ -192,7 +265,7 @@ link-cache-prune: clone-repo
 # same category as hee/hee-cache-prune above). Symlinked, not copied,
 # same as link-hee -- an update to the script here is live for every
 # identity without a reinstall.
-link-hooks: clone-repo
+link-hooks: clone-repo ## symlink the repo's git hooks -- symlinked, never copied
 	@mkdir -p "$(HOOKS_DIR)"
 	@ln -sf "$(CLONE_DIR)/tooling/hooks/check-bare-issue-refs.py" "$(HOOKS_DIR)/check-bare-issue-refs.py"
 
@@ -205,7 +278,7 @@ link-hooks: clone-repo
 # already exists anywhere in PreToolUse before adding, so re-running is
 # a real no-op, not a growing duplicate list. Never touches any other
 # hook already configured.
-install-hooks: link-hooks
+install-hooks: link-hooks ## register the agent PreToolUse hooks, idempotently
 	@mkdir -p "$$(dirname "$(CLAUDE_SETTINGS)")"; \
 	if [ ! -f "$(CLAUDE_SETTINGS)" ]; then echo '{}' > "$(CLAUDE_SETTINGS)"; fi; \
 	cmd="python3 $(HOOKS_DIR)/check-bare-issue-refs.py"; \
@@ -224,7 +297,7 @@ install-hooks: link-hooks
 # overwrites an existing crontab wholesale), skips if these two real
 # lines are already present so re-running is a real no-op, not a
 # growing duplicate list.
-install-cron: link-hee link-cache-prune
+install-cron: link-hee link-cache-prune ## add this account's cron entries, never overwriting the crontab
 	@existing="$$(crontab -l 2>/dev/null || true)"; \
 	prune_line="0 4 * * * $(BIN_DIR)/hee-cache-prune"; \
 	health_line="0 5 * * 0 cd $(CLONE_DIR) && $(MAKE) -f tooling/bootstrap.mk health-all-repos > $(HOME_DIR)/.cache/hee-git-health-report.txt 2>&1"; \
@@ -246,7 +319,7 @@ install-cron: link-hee link-cache-prune
 # to the real canonical checkout; CONFIRM=yes actually executes.
 #   make -f tooling/bootstrap.mk reset-tooling           # dry run
 #   make -f tooling/bootstrap.mk reset-tooling CONFIRM=yes
-reset-tooling: clone-repo
+reset-tooling: clone-repo ## restore tooling to the canonical checkout (needs CONFIRM=yes to execute)
 	@if [ "$(CONFIRM)" = "yes" ]; then \
 		"$(CLONE_DIR)/tooling/bin/hee-reset-tooling" --yes --canonical "$(CLONE_DIR)/tooling/bin"; \
 	else \
@@ -277,7 +350,7 @@ reset-tooling: clone-repo
 BACKUP_DIR ?= $(HOME_DIR)-old
 RESTORE_ITEMS := .ssh .gnupg .config/gh
 
-restore-secrets:
+restore-secrets: ## restore sealed items from the backup dir shown under VARIABLES
 	@if [ ! -d "$(BACKUP_DIR)" ]; then \
 		echo "bootstrap.mk: no backup dir at $(BACKUP_DIR) -- nothing to restore" 1>&2; \
 		exit 1; \
