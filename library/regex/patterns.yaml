@@ -240,3 +240,28 @@ spec:
           - "the tool does not guess"
           - "sed -e 's|a|b|g'"
           - "accounts and repos"
+
+    - name: unicode-punctuation
+      lane: portable
+      description: "Non-ASCII PUNCTUATION in authored text -- em dash, en dash, curly quotes, section sign. The screener that runs BEFORE the narrower unmatched-single-quote check, because it catches that whole class wholesale and is a plain codepoint list rather than a parse."
+      ere: "(—|–|‘|’|“|”|§|…|‹|›|«|»)"
+      capture: 0
+      notes:
+        - "Operator, 2026-09-02: we should have unicode screeners before we hit UMSQ (unmatched single quotes). Right order: this is a fixed set of codepoints and needs no context, while a true unmatched-quote detector is a parser rather than a regex. Curly quotes are a SUBSET of this pattern, so screening here removes most of the UMSQ surface before the hard part starts."
+        - "Deliberately PUNCTUATION ONLY. Measured 2026-09-02 across authored files: 107 distinct non-ASCII codepoints, 2243 occurrences, of which 1387 are symbol or emoji and only 705 are punctuation. The symbols are intentional -- the status vocabulary in library/bash/vis.status.shfn.bash and library/py/hee_status uses them by design, and box-drawing builds real tables. A blanket non-ASCII ban would flag the org's own status icons, which is how a check gets ignored."
+        - "The em dash is the volume, not the curly quotes: 545 occurrences against 1845 uses of the double-hyphen house form. So the em dash is drift from an established convention rather than a style question -- and it appears in prompts/PROMPTING_RULES.md itself, the file every session loads."
+        - "Letters are excluded on purpose. Real names carry real diacritics and flagging them would be an English-only assumption dressed up as a lint rule."
+        - "Not in this pattern, and not a regex problem: a genuinely unmatched quote in an arbitrary position. Counting quotes per line gives false positives on every legitimate contraction inside a quoted string, and misses multi-line constructs entirely. Honest scope beats a check that has to be muted."
+      tests:
+        match:
+          - { input: "the policy — and its history", expect: "—" }
+          - { input: "pages 3–5 of the guide", expect: "–" }
+          - { input: "he said “no” to that", expect: "“" }
+          - { input: "see HEE_POLICY §14", expect: "§" }
+          - { input: "the repo’s own scripts", expect: "’" }
+        reject:
+          - "the policy -- and its history"
+          - "pages 3-5 of the guide"
+          - "must be 'yes' to actually execute"
+          - "OK: all checks passed"
+          - "plain ASCII prose with no punctuation tricks"

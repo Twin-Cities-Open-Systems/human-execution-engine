@@ -654,6 +654,40 @@ check_style() {
   _ST_SKIP="$_ST_SKIP ':!library/regex/patterns.yaml' ':!node_modules/*'"
   _ST_SKIP="$_ST_SKIP ':!tooling/bin/hee-check'"
 
+  # Unicode punctuation -- the SCREENER, and it runs before the apostrophe
+  # check on purpose. Operator, 2026-09-02: "we should have unicode
+  # screeners before we hit UMSQ (unmatched single quotes)".
+  #
+  # Right order for two reasons. Curly quotes are a subset of this set, so
+  # screening here removes most of the UMSQ surface before the hard part
+  # starts. And this is a fixed codepoint list needing no context, while a
+  # true unmatched-quote detector is a parser rather than a regex.
+  #
+  # PUNCTUATION ONLY, deliberately. Measured across authored files: 2243
+  # non-ASCII occurrences, 1387 of them symbol or emoji, 705 punctuation.
+  # The symbols are the org's own status vocabulary and its box-drawing
+  # tables. A blanket non-ASCII ban would flag those, which is how a check
+  # gets muted and then ignored.
+  #
+  # Canonical pattern: library/regex/patterns.yaml, unicode-punctuation,
+  # proved across six engines there rather than trusted here.
+  _UNIP="(—|–|‘|’|“|”|§|…|‹|›|«|»)"
+  _up="$(eval "git -C \"\$root\" grep -n -I -E \"\$_UNIP\" -- $_ST_SKIP" 2>/dev/null)"
+  _upn=0
+  [ -n "$_up" ] && _upn="$(printf '%s\n' "$_up" | wc -l)"
+  if [ "$_upn" -gt 0 ]; then
+    if [ "${HEE_STYLE_UNICODE:-warn}" = error ]; then
+      printf '%s\n' "$_up" | head -10 | while IFS= read -r l; do
+        hee_status WARNING "unicode punctuation: $l"
+      done
+      hee_status CRITICAL "non-ASCII punctuation in authored text: $_upn"
+      return 2
+    fi
+    hee_status WARNING "non-ASCII punctuation in authored text: $_upn -- advisory (em dash is most of it: 545 vs 1845 uses of the ' -- ' house form). HEE_STYLE_UNICODE=error to enforce"
+  else
+    hee_status OK "no non-ASCII punctuation in authored text"
+  fi
+
   # Apostrophes in authored text -- HEE_POLICY 1a, restored 2026-09-02.
   # Canonical pattern: library/regex/patterns.yaml, apostrophe-in-prose,
   # proved across six engines there rather than trusted here.
