@@ -68,6 +68,30 @@ oper|agent share." The pool word names the box; roles are its occupants:
       oper:  {allocated_at: ...}   ->  bast-homer-oper
       agent: {allocated_at: ...}   ->  bast-homer-agent
 
+## A shared instance word means co-location, and NOTHING else
+
+Operator, 2026-09-02: "we do not want to imply that there is a correlation
+between bast-homer-agent and bast-homer-oper and there is no implied
+promotion path there."
+
+Both readings are natural and both are wrong:
+
+  - NOT one entity in two hats. `bast-homer-oper` and `bast-homer-agent`
+    are two unrelated identities that happen to be on one box for a while.
+    The shared word is an address, not a surname.
+  - NOT a promotion path. An agent does not become an oper by any route,
+    and co-locating with one is not a step toward it. The roles are
+    different KINDS, not different ranks.
+
+The confusion is easy because this system does have a real promotion --
+EPHEMERAL to DURABLE, earned by getting an A and a PTR record. That one is
+about an identity's permanence, not its role, and it never changes the
+role field. `bast-homer-agent` promoted is a durable AGENT.
+
+This is the strongest argument for cohabiting staying rare, opt-in and
+flagged: every co-located pair is a chance for someone to read a
+relationship that is not there.
+
 Cohabitation is OPT-IN. By default an allocation takes a box of its own;
 `--cohabit <instance>` deliberately joins an existing one. Operator,
 2026-09-02: "case by case. sometimes we need them to cohabitate for short
@@ -324,6 +348,12 @@ def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None", cohabit
                 sys.exit(f"hee-name: instance '{cohabit}' already has an occupant in role '{role}'")
             occ[role] = {"allocated_at": now, "cohabit": True}
             n = cohabit
+            print(
+                f"hee-name: NOTE  '{cohabit}' is now shared. That is co-location only --\n"
+                f"  the occupants are unrelated identities, and there is no promotion\n"
+                f"  path between roles.",
+                file=sys.stderr,
+            )
         else:
             # Default: a box of one's own -- the first instance with NO
             # occupants at all, not merely a free role slot.
@@ -395,6 +425,9 @@ def cmd_list(scope: str, prefix: str) -> None:
         return
     if ROLE_REQUIRED_SCOPES.get(scope):
         prefix = SCOPE_PREFIX.get(scope, prefix)
+        if any(len(r.get("occupants") or {}) > 1 for r in records.values()):
+            print("# shared instances below are CO-LOCATED only: unrelated")
+            print("# identities, no promotion path between roles.")
         for inst in sorted(records):
             occ = records[inst].get("occupants") or {}
             print(f"{inst}  [pool={records[inst].get('pool')}]")
