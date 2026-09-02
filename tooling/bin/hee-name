@@ -291,6 +291,34 @@ def _series_walk(pool: str):
         cur = nxt
 
 
+def _check_series_names(pool: str, scope: str) -> None:
+    """Reject a pool whose names cannot make a legal name for this scope.
+
+    Dropping a new pool file in is meant to Just Work, and it does -- but a
+    pool is written by hand and `red-sox` is the natural way to write it.
+    Without this the tool hands out `bast-alpha-oper` and `bast-bravo-oper`
+    happily and only fails on the THIRD allocation, when it happens to
+    reach the bad name. Late, arbitrary, and it looks like a bug in
+    allocation rather than a typo in the pool.
+
+    So the whole series is checked up front, and every offender is named at
+    once rather than one per run.
+    """
+    bad = {}
+    for pname, n in _series_walk(pool):
+        if not re.fullmatch(r"[a-z0-9]+", n):
+            bad.setdefault(pname, []).append(n)
+    if not bad:
+        return
+    lines = [f"hee-name: pool names unusable in scope '{scope}':"]
+    for pname, names in bad.items():
+        lines.append(f"  {pname}: {', '.join(names)}")
+    lines.append(f"  A {scope} name is {SCOPE_PREFIX[scope]}<name>-<role>, exactly three fields,")
+    lines.append("  so the pool name itself must carry no dash and no separator.")
+    lines.append("  Write 'redsox', not 'red-sox'; 'bluejays', not 'blue jays'.")
+    sys.exit("\n".join(lines))
+
+
 def _exhausted(pool: str, scope: str, role: "str | None") -> None:
     chain = []
     cur = pool
@@ -328,6 +356,9 @@ def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None", cohabit
         if prefix:
             sys.exit(f"hee-name: scope '{scope}' fixes its prefix at '{want}'; got '{prefix}'")
         prefix = want   # omitting it is fine; there is only one right answer
+
+    if SCOPE_PREFIX.get(scope):
+        _check_series_names(pool, scope)
 
     records = load_allocations(scope)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
