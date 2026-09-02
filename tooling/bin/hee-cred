@@ -136,6 +136,12 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
         confirm = getpass.getpass("hee-cred: confirm: ")
         if secret != confirm:
             sys.exit("hee-cred: secrets did not match, aborting")
+        # Report the CAPTURED length. The double-prompt confirm cannot catch a
+        # truncated capture, because both reads truncate identically -- a
+        # 69-character key was stored as 1 character, then as 7, and matched
+        # itself both times. Length is the only signal the operator can check
+        # against what they meant to enter, and it leaks nothing.
+        print(f"hee-cred: captured {len(secret)} characters")
 
     secrets_dir.mkdir(parents=True, exist_ok=True)
     out_path = secrets_dir / f"{account}.gpg"
@@ -144,7 +150,30 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
     for r in recipient_list:
         recipient_args += ["-r", r]
 
-    cmd = ["gpg", "--encrypt", "--armor", *recipient_args, "-o", str(out_path)]
+    # --trust-model always, --batch, --yes: gpg must NEVER prompt here.
+    #
+    # Measured 2026-09-02. Without --trust-model, an untrusted recipient makes
+    # gpg ask "Use this key anyway?" -- and because subprocess hands it a PIPE
+    # for stdin, it opens /dev/tty DIRECTLY to ask:
+    #
+    #   $ printf SECRET | gpg --encrypt --armor -r spencer@kiosk.lab.tcos.us
+    #   gpg: 01C9F82A7582A4DC: There is no assurance this key belongs to ...
+    #   gpg: cannot open '/dev/tty'
+    #
+    # /dev/tty is the OPERATOR'S TERMINAL. On a real terminal that prompt
+    # appears mid-ceremony and the next thing typed answers it instead of
+    # going where it was meant to. Two keys in this fleet's keyring carry
+    # trust `-` today, so this is the normal case, not an edge one.
+    #
+    # Trust checking adds nothing here anyway: -recipients is explicit, so the
+    # operator has already named the key. gpg re-asking is asking a question
+    # that was answered on the command line.
+    #
+    # --detach-sign and --verify elsewhere in this toolchain deliberately do
+    # NOT get --batch: those genuinely need the terminal for a passphrase.
+    # Swept 2026-09-02; this is the only --encrypt site in the org.
+    cmd = ["gpg", "--encrypt", "--armor", "--trust-model", "always",
+           "--batch", "--yes", *recipient_args, "-o", str(out_path)]
     proc = subprocess.run(cmd, input=secret.encode(), capture_output=True)
     if proc.returncode != 0:
         sys.exit(f"hee-cred: gpg encrypt failed: {proc.stderr.decode(errors='replace')}")

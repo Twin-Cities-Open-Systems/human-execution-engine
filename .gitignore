@@ -72,6 +72,20 @@ docs/AUTOMATION_CONFIG.json
 # tickets/ are untracked-by-default like anything else not listed here.
 .hee/notes/
 
+# Local cache of vendored governance docs -- this repo IS their source, so
+# the copy under .hee/ is a build artifact of the vendor sync, not content.
+#
+# Added 2026-09-02 when the machine-local `.hee/` blanket came out of
+# .git/info/exclude. That blanket silently re-imposed exactly what the
+# 2026-08-21 fix above removed, in every clone, invisibly -- the rule was
+# not in any tracked file, so nobody reading the repo could see it.
+#
+# Comment on its own line, deliberately: git does NOT support a trailing
+# comment on a pattern, so `.hee/policy/  # cache` is a literal pattern
+# that matches nothing. Written that way first in fleet-ops the same day
+# and it silently staged 110 files.
+.hee/policy/
+
 # node
 node_modules/
 
