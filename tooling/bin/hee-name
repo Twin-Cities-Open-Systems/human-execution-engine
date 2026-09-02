@@ -239,6 +239,16 @@ ROLE_REQUIRED_SCOPES = {
 # The exact prefix a role-scope name must carry, and with it the field count.
 # Operator, 2026-09-02: "my hard no on 4 field bash-foo-N-bar."
 #
+# The strongest reason is downstream, and it is the operator's: "makes
+# regex more effective is huge win too." A VARIABLE field count forces
+# every consumer into an optional group, and `bast-(.+)-(oper|agent)` with
+# a greedy .+ silently swallows an interior field -- and the non-greedy fix
+# does not exist in POSIX ERE or awk at all, which is exactly where this
+# org's shell tools live. A fixed shape needs neither. The canonical
+# pattern is `bastion-name` in library/regex/patterns.yaml, proved across
+# six engines, so log parsing, monitoring checks, DNS zone validation and
+# ACLs get this guarantee without re-deriving it.
+#
 # A bastion name has EXACTLY THREE dash-separated fields --
 # bast-<name>-<role>. Enforcing the role suffix alone did not deliver that:
 # `--prefix bast-foo-` still produced `bast-foo-homer-oper`, and `--prefix ""`
