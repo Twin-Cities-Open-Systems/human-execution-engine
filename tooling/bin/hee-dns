@@ -32,11 +32,29 @@ SERIAL NUMBERS are YYYYMMDDnn, bumped against whatever is already deployed
 so a regeneration on the same day does not go backwards -- a stale serial
 is silently ignored by secondaries, which is the classic way a zone update
 "succeeds" and changes nothing.
+
+SYNOPSIS
+    hee-dns generate HOSTFILE --out DIR
+    hee-dns check HOSTFILE
+    hee-dns help | --help | -h
+
+EXIT STATUS
+    0   the host file parsed; zones written (generate) or reported (check)
+    1   usage error -- unknown subcommand, or generate without --out
+    2   the host file has a malformed record; nothing was written
+
+    A duplicate-PTR warning does NOT change the exit status. It is a
+    judgement call, not a parse error: two `=` records on one address is
+    legal and occasionally deliberate.
 """
-import ipaddress, os, re, sys, time
+import ipaddress, os, sys, time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "library" / "py"))
+# tooling/bin/hee-dns -> repo root -> library/py. THREE parents: two lands on
+# tooling/library/py, which does not exist, and the ImportError fallback below
+# then silently substitutes a no-op note_ignored -- so the "arguments were
+# discarded" notice never prints and the help contract is quietly violated.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 try:
     from hee_cli import help_wanted, note_ignored
 except ImportError:                                    # library not on path
@@ -85,7 +103,7 @@ def serial(existing=None):
 
 
 def forward_zone(zone, hosts, vhosts, mx, ser, ns):
-    out = [f"$TTL 300",
+    out = ["$TTL 300",
            f"@ IN SOA {ns}. hostmaster.{zone}. (",
            f"    {ser} ; serial",
            "    3600       ; refresh",
@@ -171,10 +189,9 @@ def main():
 
     print(f"OK        {len(hosts)} host records (A + PTR), {len(vhosts)} vhosts "
           f"(A only), {len(mx)} MX, serial {ser}")
-    for rev in revs:
-        print(f"OK        reverse zone {rev}: "
-              f"{sum(1 for h in hosts if h[1].startswith(rev.split('.')[2::-1][0]))} PTRs"
-              if False else f"OK        reverse zone {rev}")
+    for rev, body in revs.items():
+        ptrs = sum(1 for line in body.splitlines() if "IN PTR" in line)
+        print(f"OK        reverse zone {rev}: {ptrs} PTRs")
 
     if cmd == "check":
         return
