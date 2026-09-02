@@ -4,6 +4,10 @@ metadata:
   name: spencer-blank-generation-lyric
   inuid: bbec8a86-c725-4c04-aec3-c7e4eaa59e7a
   ts_human: 2026-08-18_1600
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-18T12:54:53-05:00"
 spec:
   purpose: >
     First example Card in a new, informal category: human-authored creative work, captured and attested inside HEE. Not a registered kind-registry category yet (see hee/contracts/hee.kind-registry.contract.v1.yaml -- Card is the closest existing active kind, used here deliberately rather than inventing a new one unregistered). Per Spencer, 2026-08-18: "make it a contract in hee signed and plainly a song I wrote with my keys, entropy and brain farts."

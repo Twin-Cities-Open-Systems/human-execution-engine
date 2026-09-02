@@ -4,6 +4,10 @@ metadata:
   name: hee-words-promote-human-seed
   inuid: 698bfb0a-9a14-8332-b12c-3a78bacdade6
   ts_human: 2026-02-11_0000
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-11T02:56:28-06:00"
 spec:
   purpose: >
     Add high-signal words + explicit rejects. YAML first; render later.

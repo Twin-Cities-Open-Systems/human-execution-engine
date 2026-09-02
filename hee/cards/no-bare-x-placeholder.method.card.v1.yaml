@@ -6,6 +6,10 @@ metadata:
   description: "Never use a bare 'X' as a generic algebra-style placeholder in prose -- real brand-confusion/legal exposure, not a style nitpick."
   labels:
     hee.object: "true"
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-26T04:44:00-05:00"
 spec:
   purpose: >
     Prevent a real trademark/brand-confusion footgun in any TCOS content

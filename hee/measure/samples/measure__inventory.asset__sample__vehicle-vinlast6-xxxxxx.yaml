@@ -9,6 +9,10 @@ metadata:
     inv.sub: vehicle
     inv.loc0: basement
     inv.loc1: parking-n-01
+  annotations:
+    inuid: null
+    inuid_null_reason: fixture
+    created_utc: "2026-02-28T17:49:42-06:00"
 spec:
   measure: inventory.asset
   context:

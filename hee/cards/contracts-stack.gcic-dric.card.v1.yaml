@@ -3,6 +3,10 @@ kind: Card
 metadata:
   name: contracts-stack-gcic-dric
   ts_human: 2026-02-10_1851
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-10T23:51:51-06:00"
 spec:
   status: wip
   purpose: formal adoption path for gcic and dric artifacts; reduce need to update top stack; plug subcontracts.

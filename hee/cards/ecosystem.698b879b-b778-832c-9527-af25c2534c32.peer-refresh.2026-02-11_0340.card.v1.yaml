@@ -3,6 +3,10 @@ kind: Card
 metadata:
   name: ecosystem-peer-refresh-2026-02-11_0340
   inuid: 698bfb0a-9a14-8332-b12c-3a78bacdade6
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-11T03:49:01-06:00"
 spec:
   purpose: checkpoint refresh for peers.
   context:

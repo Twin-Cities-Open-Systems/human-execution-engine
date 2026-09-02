@@ -7,6 +7,10 @@ metadata:
   labels:
     hee.object: "true"
     card.type: review-approval
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-27T20:17:48-05:00"
 spec:
   repo: human-execution-engine
   path: docs/governance/operations/changes/2026-08-27_collapse-three-governance-ops-files.md
