@@ -94,6 +94,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/execution-tier-compat.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/party-kind.registry.v1.yaml`
+- 🟢 [OK] `library/locale/en.yaml`
 - 🟢 [OK] `library/regex/patterns.yaml`
 
 </details>

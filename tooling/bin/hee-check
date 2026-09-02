@@ -8,7 +8,7 @@
 #   hee-check refs --fix [ROOT]   repair refs with exactly one real candidate
 #   hee-check regex               shared regex patterns agree across engines
 #   hee-check systemd [PATH]      systemd unit files are valid
-#   hee-check style [ROOT]        authored prose obeys the writing rules
+#   hee-check locale [ROOT]       text matches the declared locale
 #   hee-check cli [TOOLDIR]       every tool's help obeys the CLI contract
 #   hee-check all [ROOT]          boundary + refs + style
 #
@@ -141,7 +141,7 @@ SYNOPSIS
   hee-check [boundary] [PATH]
   hee-check refs [--fix] [PATH]
   hee-check systemd [PATH]
-  hee-check style [PATH]
+  hee-check locale [PATH]
   hee-check cli [TOOLDIR] [--json] [--quiet]
   hee-check regex
   hee-check all [PATH]
@@ -160,10 +160,10 @@ SUBCOMMANDS
   boundary   generated state is not committed (default)
   refs       every file reference resolves
   systemd    systemd unit files are valid
-  style      authored prose obeys the org's writing rules (US English)
+  locale     authored text matches the locale this repo declares
   cli        every hee tool's own help obeys the CLI contract
   regex      shared regex patterns behave identically in every engine
-  all        boundary + refs + style
+  all        boundary + refs + locale
 
   Add `help` after any subcommand for its own page:
       hee-check refs help
@@ -357,6 +357,32 @@ if missing: line("WARNING", "engine not installed, not checked: "+", ".join(miss
 if not any(n=="rg" for n,_ in ENGINES):
     line("WARNING", "rg absent -- it is the org's preferred tool AND the strictest portability canary (Rust regex: no lookaround, no backrefs)")
 
+# python's re has no POSIX bracket classes, so [[:space:]] compiles to a class
+# of the literal characters [ : s p a c e ] -- silently wrong -- or fails
+# outright. Every shell engine here wants the POSIX form, so the registry is
+# written in it and python is the one that needs translating.
+#
+# Found 2026-09-01: a pattern using [[:space:]] passed in grep, bash, awk,
+# sed, rg and perl, and reported "python cannot compile". The harness was
+# calling the one engine that cannot read its own registry's dialect.
+POSIX_CLASSES = {
+    "alpha": "a-zA-Z", "digit": "0-9", "alnum": "a-zA-Z0-9",
+    "space": " \\t\\n\\r\\f\\v", "blank": " \\t",
+    "upper": "A-Z", "lower": "a-z",
+    "punct": "!-/:-@\\[-`{-~", "xdigit": "0-9A-Fa-f",
+}
+
+def posix_to_py(pat):
+    """Rewrite POSIX bracket classes into their python equivalents.
+
+    Only the [:name:] wrapper is replaced; it always appears inside an outer
+    bracket expression, so inlining the character set is exactly right.
+    """
+    out = pat
+    for name, chars in POSIX_CLASSES.items():
+        out = out.replace("[:%s:]" % name, chars)
+    return out
+
 fails=0; checked=0
 for p in reg["spec"]["patterns"]:
     name=p["name"]; pat=p["ere"]; cap=p.get("capture",0)
@@ -365,7 +391,7 @@ for p in reg["spec"]["patterns"]:
     if not allowed:
         line("CRITICAL", f"{name}: declares unknown lane {lane!r}"); fails+=1; continue
     lane_engines=[(n,f) for n,f in ENGINES if n in allowed]
-    try: rx=re.compile(pat)
+    try: rx=re.compile(posix_to_py(pat))
     except re.error as e:
         line("CRITICAL", f"{name}: python cannot compile: {e}"); fails+=1; continue
     for t in p.get("tests",{}).get("match",[]):
@@ -428,40 +454,55 @@ EXIT STATUS
 EOF
 }
 
-usage_style() {
+usage_locale() {
   cat <<'EOF'
-hee-check style -- authored prose obeys the org's writing rules
+hee-check locale -- does authored text match the locale this repo declares
 
 SYNOPSIS
-  hee-check style [PATH]
+  hee-check locale [PATH]
 
 DESCRIPTION
-  Checks text a human wrote, in text that ships. PATH defaults to the
-  current directory.
+  Reports words that do not match the declared locale, and what that locale
+  spells them instead. PATH defaults to the current directory.
 
-  Today that is one rule: US English. The org requires American spelling
-  everywhere -- see ~/.claude/CLAUDE.md. The rule is written down because
-  spelling is invisible to whoever chooses it: an agent wrote en-GB
-  through an entire session and quoted infrastructure costs in the wrong
-  currency, in a comment on a real org repo, before anyone noticed.
+  THIS IS NOT A LIST OF MISTAKES. Neither English locale is wrong. Declare
+  en_GB and `color` is what gets flagged; the machinery is identical in
+  both directions. TCOS declares en_US because its operator is in the US
+  and its public content is US-facing -- a fact about TCOS, not English.
 
-  The word list is EXPLICIT, mirroring library/regex/patterns.yaml's
-  en-gb-spelling pattern. It is deliberately not a generic -ise/-our rule:
-  measured on a real diff, a broad sweep flags "otherwise", "raise" and
-  "four". An explicit list has no false positives.
+  Operator, 2026-09-01: "make the tool more of a locale verification tool,
+  not a 'we hate the brits' tool."
 
-  WARNING, not CRITICAL, for now. A quotation from a British source is a
-  legitimate reason for a word to be there, and this tool has no way to
-  express "this one is deliberate" until issue:504@human-execution-engine
-  lands an exemption mechanism. FLIP TO CRITICAL when it does.
+PROSE, NOT TOKENS
+  A word is reported only where it stands alone as English -- bounded by
+  whitespace, a quote or an open paren, and followed by whitespace, end of
+  line, or sentence punctuation that is itself followed by whitespace.
 
-  Not scanned: docs/history and */evidence/* (they record what was true
-  then, and rewriting them would falsify the record), man/ (generated --
-  fix the tool's help instead), library/regex/patterns.yaml and this tool
-  itself (a detector necessarily contains what it detects).
+  A sigil, operator, digit, underscore, dot or brace means it is a token:
+  $colour, --colour=always, colour: red, theme.colour.fg, colour_scheme
+  and colour${num} are all references, not prose.
+
+CONFIGURATION VOCABULARY
+  Some tools spell their own options in another locale. tmux uses colour39,
+  display-panes-colour, fg=colour232 -- API tokens, not prose, and
+  rewriting them breaks the config.
+
+  That is read from the primitives repo's external.yaml, where a tool's
+  provenance already lives, rather than hardcoded here. If the registry is
+  not found the check still runs and SAYS SO: a silently skipped exemption
+  is how a false positive comes back.
+
+DELIBERATE USE
+  hee-check:locale-ok   exempts the line it appears on
+  hee-check:style-ok    accepted as a synonym
+
+ENVIRONMENT
+  HEE_LOCALE       what this repo writes. Default en_US. Set it in heerc.
+  HEE_PRIMITIVES   path to the primitives checkout. Default
+                   $HEE_GIT_ROOT/primitives, else ~/git/primitives.
 
 EXIT STATUS
-  0 OK   1 WARNING findings   3 UNKNOWN not a git repository
+  0 OK   1 WARNING findings   3 UNKNOWN unknown locale, or python3 missing
 EOF
 }
 
@@ -611,62 +652,24 @@ if hee_help_wanted "$@"; then
       all)      usage_boundary; echo; usage_refs ;;
       systemd)  usage_systemd ;;
       cli)      usage_cli ;;
-      style)    usage_style ;;
+      locale|style) usage_locale ;;
       regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
       *)        usage ;;
   esac
   exit 0
 fi
 
-# check_style ROOT -- authored prose obeys the org's writing rules.
+# check_locale ROOT -- authored text matches the locale this repo declares.
 #
-# Same shape as check_boundary's hardcoded-home scan, deliberately: one
-# `git grep -E` over authored files with the same kind of skip list, because
-# the question is the same one -- did a human write this, and does it ship?
-check_style() {
+# Thin, deliberately. Deciding whether a word is prose or a token, mapping it
+# to the declared locale's spelling, and reading which external tools spell
+# their own config vocabulary in another locale is real parsing over two
+# registries -- rule 13 says that graduates out of sh. It lives in
+# library/py/hee_locale, where it is testable.
+check_locale() {
   root="${1:-.}"
-  git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-    hee_status UNKNOWN "not a git repository: $root"; return 3; }
-
-  # EXPLICIT WORD LIST, mirroring library/regex/patterns.yaml's
-  # en-gb-spelling. A generic -ise/-our rule is the obvious implementation
-  # and it is wrong: measured on a real diff, it flags otherwise, raise and
-  # four. Absent on purpose -- "grey" (a valid CSS keyword) and "centre"
-  # (appears inside proper nouns).
-  # Boundary groups, not \b: awk has no \b (there it means BACKSPACE), so a
-  # \b pattern matches nothing in awk while working everywhere else. Caught
-  # by hee-check regex's own cross-engine test on this pattern's first run.
-  _ENGB='(^|[^A-Za-z])([Cc]olour|[Cc]oloured|[Cc]olours|[Bb]ehaviour|[Bb]ehaviours'
-  _ENGB="$_ENGB|[Aa]nalyse|[Aa]nalysed|[Aa]nalyses|[Aa]nalysing"
-  _ENGB="$_ENGB|[Nn]ormalise|[Nn]ormalised|[Nn]ormalises"
-  _ENGB="$_ENGB|[Rr]ecognise|[Rr]ecognised|[Rr]ecognises|[Uu]nrecognised"
-  _ENGB="$_ENGB|[Oo]rganise|[Oo]rganised|[Oo]rganisation"
-  _ENGB="$_ENGB|[Ss]ummarise|[Ss]ummarised|[Ss]ummarises"
-  _ENGB="$_ENGB|[Pp]ersonalise|[Pp]ersonalised|[Pp]rioritise|[Pp]rioritised"
-  _ENGB="$_ENGB|[Ss]tandardise|[Cc]ustomise|[Ii]nitialise|[Oo]ptimise"
-  _ENGB="$_ENGB|[Ss]erialise|[Ss]pecialise|[Ss]ynchronise|[Uu]tilise"
-  _ENGB="$_ENGB|[Cc]atalogue|[Dd]efence)([^A-Za-z]|$)"
-
-  # History and evidence record what was true then. man/ is generated --
-  # fix the tool's help, never the page. patterns.yaml and this tool hold
-  # the detector's own fixtures and word list.
-  _ST_SKIP="':!docs/history' ':!*/evidence/*' ':!man/*' ':!*.log'"
-  _ST_SKIP="$_ST_SKIP ':!library/regex/patterns.yaml' ':!node_modules/*'"
-  _ST_SKIP="$_ST_SKIP ':!tooling/bin/hee-check'"
-
-  _st="$(eval git -C '"$root"' grep -n -I -E "'$_ENGB'" -- $_ST_SKIP 2>/dev/null)"
-  if [ -z "$_st" ]; then
-    hee_status OK "US English: no en-GB spellings in authored text"
-    return 0
-  fi
-  _n="$(printf '%s\n' "$_st" | wc -l)"
-  printf '%s\n' "$_st" | head -20 | while IFS= read -r l; do
-    hee_status WARNING "en-GB spelling: $l"
-  done
-  # Report the true total, never the truncated one -- a capped count that
-  # looks like a real count is the same failure as a false OK.
-  [ "$_n" -gt 20 ] && hee_status WARNING "en-GB spelling: $((_n - 20)) more not shown ($_n total)"
-  return 1
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; return 3; }
+  HEE_TOOL_ROOT="$TOOL_ROOT" python3 "$TOOL_ROOT/library/py/hee_locale/_cli.py" "$root"
 }
 
 cmd="${1:-boundary}"
@@ -676,13 +679,17 @@ case "$cmd" in
   cli)      shift 2>/dev/null || true
             command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; exit 3; }
             HEE_CLICHECK_ARGS="$*" python3 "$TOOL_ROOT/library/py/hee_clicheck/_cli.py" ;;
-  style)    shift 2>/dev/null || true; check_style "${1:-.}" ;;
+  locale)   shift 2>/dev/null || true; check_locale "${1:-.}" ;;
+  # `style` was this check's name for one day, 2026-09-01, before the
+  # operator reframed it. Kept as an alias rather than broken: the cost is
+  # one line, and a subcommand that vanishes is worse than one that redirects.
+  style)    shift 2>/dev/null || true; check_locale "${1:-.}" ;;
   regex)    check_regex ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
   all)      shift 2>/dev/null || true
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
-            check_style "${1:-.}"; c=$?
+            check_locale "${1:-.}"; c=$?
             _worst=$a
             [ "$b" -gt "$_worst" ] && _worst=$b
             [ "$c" -gt "$_worst" ] && _worst=$c

@@ -60,10 +60,29 @@ jobs:
       - name: cli -- every tool's help obeys the contract
         run: tooling/bin/hee-check cli
 
-      # GREEN, and green by construction: the 18 findings it would have
-      # reported were fixed in the same commit that added it (PR 514).
-      - name: style -- US English in authored text
-        run: tooling/bin/hee-check style
+      # GREEN. Renamed from `style` when the operator reframed it: this is
+      # locale conformance, not a list of British spellings.
+      #
+      # It runs WITHOUT the tool-locale provenance registry, deliberately.
+      # That registry lives in the primitives repo, which is PRIVATE, and a
+      # workflow's default GITHUB_TOKEN cannot read another repository --
+      # measured here, first run: actions/checkout returned
+      #
+      #     ##[error]Not Found - .../rest/repos/repos#get-a-repository
+      #
+      # Reading it would need a PAT or a deploy key, which widens what this
+      # workflow can reach. That is an operator decision and the same
+      # credential question as fleet-ops#363, not something to grant here.
+      #
+      # The cost of going without is bounded and known: this repo has no
+      # tmux config and no other file carrying a foreign config vocabulary,
+      # so the exemption changes nothing here. The check SAYS it could not
+      # load the registry rather than skipping quietly.
+      #
+      # Set HEE_PRIMITIVES locally and it uses it; ~/git/primitives is the
+      # default, so an operator running this on kiosk already gets it.
+      - name: locale -- text matches the declared locale
+        run: tooling/bin/hee-check locale
 
   shellcheck:
     name: shellcheck (standard, shell)

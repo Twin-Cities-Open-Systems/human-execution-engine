@@ -1,0 +1,89 @@
+# path: library/locale/en.yaml
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: en-locale-variants
+  description: "Word pairs that differ between English locales. Data, not policy -- which side is correct depends on the locale a repo declares, not on this file."
+  labels:
+    hee.object: "true"
+    domain: tcos
+    scope: library
+    topic: locale
+    artifact: registry
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-09-01T00:00:00Z"
+
+spec:
+  # ---------------------------------------------------------------------
+  # THIS IS A LOCALE REGISTRY, NOT A LIST OF MISTAKES.
+  #
+  # Operator, 2026-09-01: "make the tool more of a locale verification
+  # tool, not a 'we hate the brits' tool."
+  #
+  # Neither column is wrong. A repo declares its locale and the checker
+  # reports the words that do not match it -- so en_GB is a perfectly
+  # valid declaration, and under it `color` is what gets flagged.
+  #
+  # TCOS declares en_US because its operator is in the US and its public
+  # content is US-facing. That is a fact about TCOS, not about English.
+  #
+  # WHAT BELONGS HERE: a pair where both spellings mean the same thing
+  # and the choice is purely regional.
+  #
+  # WHAT DOES NOT:
+  #   grey/gray      `grey` is a valid CSS colour keyword, so flagging it
+  #                  would break real stylesheets
+  #   licence/license  US English uses `license` for both noun and verb;
+  #                  the pair is not a clean 1:1 swap
+  #   centre/center  `centre` appears inside proper nouns
+  #
+  # Capitalization is derived, not listed: each entry generates its own
+  # sentence-case form.
+  # ---------------------------------------------------------------------
+
+  locales:
+    en_US:
+      name: "English (United States)"
+    en_GB:
+      name: "English (United Kingdom)"
+
+  # en_GB form : en_US form
+  variants:
+    - [colour, color]
+    - [coloured, colored]
+    - [colours, colors]
+    - [behaviour, behavior]
+    - [behaviours, behaviors]
+    - [analyse, analyze]
+    - [analysed, analyzed]
+    - [analyses, analyzes]
+    - [analysing, analyzing]
+    - [normalise, normalize]
+    - [normalised, normalized]
+    - [normalises, normalizes]
+    - [recognise, recognize]
+    - [recognised, recognized]
+    - [recognises, recognizes]
+    - [unrecognised, unrecognized]
+    - [organise, organize]
+    - [organised, organized]
+    - [organisation, organization]
+    - [summarise, summarize]
+    - [summarised, summarized]
+    - [summarises, summarizes]
+    - [personalise, personalize]
+    - [personalised, personalized]
+    - [prioritise, prioritize]
+    - [prioritised, prioritized]
+    - [standardise, standardize]
+    - [customise, customize]
+    - [initialise, initialize]
+    - [optimise, optimize]
+    - [serialise, serialize]
+    - [specialise, specialize]
+    - [synchronise, synchronize]
+    - [utilise, utilize]
+    - [catalogue, catalog]
+    - [defence, defense]
