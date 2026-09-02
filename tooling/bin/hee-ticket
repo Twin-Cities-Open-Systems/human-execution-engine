@@ -42,6 +42,29 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# WIP toward the full cycle. Operator, 2026-09-02: "hee ticket is still
+# wip, but it will [implement the cycle]".
+#
+# The canonical shape, from docs/guides/HEE_EXPLAINED.md:
+#
+#   # idea footgun dogfood - rinse, repeat
+#   # (rinse) <-> idea -> (one way) footgun <-> dogfood -> (repeat)
+#   <-idea->footgun<->dogfood->
+#
+# What this tool has: the MIDDLE. `idea -> footgun` one way via -advance,
+# `footgun <-> dogfood` both ways via -advance and -back.
+#
+# What it does NOT have, stated so the gap is written down rather than
+# rediscovered:
+#
+#   (rinse) <-> idea   there is no rinse concept at all. The left-hand
+#                      two-way arrow has no representation here.
+#   dogfood -> (repeat)  nothing flows out. -close is terminal, so a
+#                      dogfooded ticket ends rather than feeding the next
+#                      turn of the loop.
+#
+# So the tool currently models an open segment, and the notation describes
+# a closed loop. Do not read the STAGES list below as the whole shape.
 STAGES = ["idea", "footgun", "dogfood"]
 
 # Help is contextual: `help` as the LAST argument prints help for wherever

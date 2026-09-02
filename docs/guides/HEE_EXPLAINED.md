@@ -44,6 +44,27 @@ Read the arrows:
 
 A funnel would be all one-way arrows. This has exactly one.
 
+### This is prior to the tool maturity ladder, and is what makes it work
+
+Spencer, 2026-09-02: *"that is core, even before snfn->sh->bash->py->go, it
+is what makes that flow work."*
+
+The ladder (`*.shfn.bash` -> sh/bash -> Python -> a real `hee` subcommand
+-> Go/Rust/C, rule 13) says a tool graduates only when it has **actually**
+outgrown its rung, on evidence rather than taste. The Graduation Signals
+say the same thing and list what the evidence looks like: a regex ceiling,
+quoting as the dominant bug source, real parsing needed.
+
+But naming the signals does not produce them. `footgun<->dogfood` does.
+Every one of those signals is a footgun found by dogfooding something at
+its current rung -- which is why the glossary can say each was "hit for
+real, 2026-08-31" rather than reasoned about in advance.
+
+Take the cycle away and "graduate on evidence" has no source of evidence,
+so it quietly becomes "graduate when it feels heavy enough" -- the exact
+taste-based decision the ladder exists to prevent. The ladder is downstream
+of the cycle. It is a consequence, not a peer.
+
 The three stages, spelled out:
 
 1. **Idea** -- propose it, in draft form. Not built, not binding.
