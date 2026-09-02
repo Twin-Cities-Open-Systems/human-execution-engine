@@ -22,6 +22,19 @@
 #   - if a session with that name is already running, attaches info
 #     instead of starting a second, conflicting connection
 #
+# Real trigger for TARGETS (2026-09-02): soju moved off kiosk to its own LXC
+# and this tool still pointed at irc.libera.chat directly -- so it bypassed
+# the bouncer entirely, losing the session, the backlog and the upstream
+# credentials. Spencer: "should be a hee con command, yes? ... like hee -con
+# soju -cert tcos -client tmux -etc foo". The host, port, protocol and client
+# stop being things the operator retypes and become things the fleet knows.
+#
+# Targets live in hee/registries/connect-targets.registry.v1.yaml. Choosing a
+# registry over deriving from DNS was deliberate, and its known cost is drift:
+# two lists that can disagree. `hee-con -check` is how that cost gets paid --
+# it verifies every target's host against fleet-ops/dns/lab.tcos.us.hosts, so
+# drift is caught mechanically rather than remembered.
+#
 # Real trigger for -tmux-send (2026-08-25): Spencer confirmed a real,
 # shared tmux server (this session runs on the same host, same tmux
 # server, as his own real terminal) and explicitly invited using
@@ -37,7 +50,10 @@ usage() {
 hee-con -- connect to IRC in tmux, or send into an existing tmux pane
 
 SYNOPSIS
+  hee-con TARGET [-irc CHANNEL] [-client NAME] [-cert PATH] [-session NAME] [-nick NICK]
   hee-con -irc CHANNEL [-network HOST] [-session NAME] [-nick NICK]
+  hee-con -list
+  hee-con -check
   hee-con -tmux-send 'MESSAGE' -target SESSION:WINDOW.PANE
   hee-con help
 
@@ -47,7 +63,15 @@ DESCRIPTION
   shell that started it. The -tmux-send side puts one line into a pane
   that already exists.
 
-  IRC defaults:
+  TARGET is a name from hee/registries/connect-targets.registry.v1.yaml.
+  It fills in host, port, client, nick and first auto-join channel, so
+  `hee-con soju` replaces retyping all five. -list shows what exists.
+
+  -check verifies every target's host against fleet-ops' DNS source. The
+  registry is a SECOND list and second lists drift; this makes the drift
+  fail loudly instead of quietly.
+
+  IRC defaults (when no TARGET is given):
     -network   irc.libera.chat
     -session   irc-<channel, # stripped>
     -nick      hee<pid>
@@ -56,12 +80,21 @@ DESCRIPTION
   the wrong pane is a real footgun, not a hypothetical one.
 
 EXIT STATUS
-  0 connected, or the message was sent
-  1 unknown argument, or a required argument was missing
+  0 OK        connected, message sent, or -check found no drift
+  1 WARNING   unknown argument, or a required argument was missing
+  2 CRITICAL  -check found a target whose host is not in DNS
+  3 UNKNOWN   -check could not find a DNS source to check against
 TXT
 }
 
 network="irc.libera.chat"
+target=""
+want_client=""
+certfile=""
+do_list=0
+use_tls=0
+do_check=0
+port=""
 session=""
 nick=""
 channel=""
@@ -91,15 +124,98 @@ fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    -list) do_list=1; shift ;;
+    -check) do_check=1; shift ;;
+    -client) want_client="${2:-}"; shift 2 ;;
+    -cert) certfile="${2:-}"; shift 2 ;;
     -irc) channel="${2:-}"; shift 2 ;;
     -network) network="${2:-}"; shift 2 ;;
     -session) session="${2:-}"; shift 2 ;;
     -nick) nick="${2:-}"; shift 2 ;;
     -tmux-send) tmux_message="${2:-}"; shift 2 ;;
     -target) tmux_target="${2:-}"; shift 2 ;;
-    *) echo "hee-con: unknown arg: $1" 1>&2; usage; exit 1 ;;
+    -*) echo "hee-con: unknown arg: $1" 1>&2; usage; exit 1 ;;
+    *)
+      if [ -n "$target" ]; then
+        echo "hee-con: more than one target given ('$target', '$1') -- one at a time" 1>&2
+        exit 1
+      fi
+      target="$1"; shift ;;
   esac
 done
+
+REGISTRY="$TOOL_ROOT/hee/registries/connect-targets.registry.v1.yaml"
+
+need_yq() {
+  command -v yq >/dev/null 2>&1 && return 0
+  echo "hee-con: yq not found -- required to read the target registry" 1>&2
+  echo "hee-con: without it, name the host yourself: hee-con -irc CHANNEL -network HOST" 1>&2
+  exit 1
+}
+
+reg() { yq -r "$1" "$REGISTRY" 2>/dev/null; }
+
+if [ "$do_list" = 1 ]; then
+  need_yq
+  [ -r "$REGISTRY" ] || { echo "hee-con: no registry at $REGISTRY" 1>&2; exit 1; }
+  echo "connectable targets:"
+  for t in $(reg '.spec.targets | keys | .[]'); do
+    printf '  %-10s %s:%s  %s\n' "$t" \
+      "$(reg ".spec.targets.\"$t\".host")" \
+      "$(reg ".spec.targets.\"$t\".port")" \
+      "$(reg ".spec.targets.\"$t\".description" | cut -c1-60)"
+  done
+  exit 0
+fi
+
+# The drift check. A registry is a SECOND list; this is what keeps it honest.
+if [ "$do_check" = 1 ]; then
+  need_yq
+  [ -r "$REGISTRY" ] || { echo "hee-con: no registry at $REGISTRY" 1>&2; exit 1; }
+  hosts_file=""
+  for c in "$TOOL_ROOT/../fleet-ops/dns/lab.tcos.us.hosts" "$HOME/git/fleet-ops/dns/lab.tcos.us.hosts"; do
+    [ -r "$c" ] && { hosts_file="$c"; break; }
+  done
+  rc=0
+  for t in $(reg '.spec.targets | keys | .[]'); do
+    h="$(reg ".spec.targets.\"$t\".host")"
+    short="${h%%.*}"
+    if [ -z "$hosts_file" ]; then
+      printf '  UNKNOWN  %-10s %s -- no fleet-ops dns source found to check against\n' "$t" "$h"
+      [ "$rc" -lt 3 ] && rc=3
+    elif grep -qE "^[=+]${short}\.lab\.tcos\.us:" "$hosts_file"; then
+      printf '  OK       %-10s %s\n' "$t" "$h"
+    else
+      printf '  CRITICAL %-10s %s -- not in %s\n' "$t" "$h" "$hosts_file"
+      rc=2
+    fi
+  done
+  [ "$rc" = 0 ] && echo "OK        every target host is in DNS"
+  exit "$rc"
+fi
+
+# A named target fills in what the operator would otherwise retype.
+if [ -n "$target" ]; then
+  need_yq
+  [ -r "$REGISTRY" ] || { echo "hee-con: no registry at $REGISTRY" 1>&2; exit 1; }
+  if [ "$(reg ".spec.targets | has(\"$target\")")" != "true" ]; then
+    echo "hee-con: no such target '$target'" 1>&2
+    echo "hee-con: known targets: $(reg '.spec.targets | keys | .[]' | tr '\n' ' ')" 1>&2
+    echo "hee-con: list them with details: hee-con -list" 1>&2
+    exit 1
+  fi
+  network="$(reg ".spec.targets.\"$target\".host")"
+  port="$(reg ".spec.targets.\"$target\".port")"
+  [ "$(reg ".spec.targets.\"$target\".tls")" = "true" ] && use_tls=1
+  [ -z "$want_client" ] && want_client="$(reg ".spec.targets.\"$target\".client")"
+  [ -z "$nick" ] && { n="$(reg ".spec.targets.\"$target\".username")"; [ "$n" != "null" ] && nick="$n"; }
+  if [ -z "$channel" ]; then
+    channel="$(reg ".spec.targets.\"$target\".auto_join[0]")"
+    [ "$channel" = "null" ] && channel=""
+  fi
+  ki="$(reg ".spec.targets.\"$target\".known_issue")"
+  [ "$ki" != "null" ] && [ -n "$ki" ] && printf 'hee-con: NOTE  %s\n' "$ki" 1>&2
+fi
 
 if [ -n "$tmux_message" ]; then
   if [ -z "$tmux_target" ]; then
@@ -133,18 +249,72 @@ esac
 [ -z "$session" ] && session="irc-$(printf '%s' "$channel" | tr -d '#')"
 [ -z "$nick" ] && nick="hee$$"
 
-client_cmd=""
-client_name=""
-if command -v irssi >/dev/null 2>&1; then
-  client_name="irssi"
-  client_cmd="irssi -c ${network} -n ${nick}"
-elif command -v weechat >/dev/null 2>&1; then
-  client_name="weechat"
-  client_cmd="weechat"
-else
-  echo "hee-con: no native IRC client found (irssi or weechat)" 1>&2
-  echo "hee-con: install one first, e.g.: sudo apt install irssi" 1>&2
+# -cert names a TLS CLIENT certificate, for SASL EXTERNAL. Checked before
+# the client is chosen so a missing file fails immediately rather than
+# inside a detached tmux session where nobody reads the error.
+#
+# Worth knowing what this is NOT: an OpenSSH certificate. Those are a
+# bespoke format (ssh-rsa-cert-v01@openssh.com), not X.509, so nothing in
+# the TLS path can parse one. The fleet's SSH CA does not help here.
+if [ -n "$certfile" ]; then
+  case "$certfile" in
+    /*) ;;
+    *) [ -r "$HOME/.irssi/certs/${certfile}.pem" ] && certfile="$HOME/.irssi/certs/${certfile}.pem" ;;
+  esac
+  if [ ! -r "$certfile" ]; then
+    echo "hee-con: -cert: no readable certificate at '${certfile}'" 1>&2
+    echo "hee-con: generate one with soju's own: /msg BouncerServ certfp generate" 1>&2
+    exit 1
+  fi
+fi
+
+# -client is a REQUEST, never a silent downgrade. Asking for weechat and
+# getting irssi because weechat was absent would be a lie about what is
+# running, and the operator would find out from the UI, not from the tool.
+# Validated HERE, not inside pick_client: `exit` within $(...) kills only
+# the subshell, so an unknown name would fall through and be reported as
+# "not installed" -- a wrong diagnosis for a typo.
+case "$want_client" in
+  irssi|weechat|"") ;;
+  *) echo "hee-con: unknown client '${want_client}' -- irssi or weechat" 1>&2; exit 1 ;;
+esac
+
+pick_client() {
+  case "$1" in
+    irssi)   command -v irssi   >/dev/null 2>&1 && { echo irssi;   return 0; } ;;
+    weechat) command -v weechat >/dev/null 2>&1 && { echo weechat; return 0; } ;;
+    "")      command -v irssi   >/dev/null 2>&1 && { echo irssi;   return 0; }
+             command -v weechat >/dev/null 2>&1 && { echo weechat; return 0; } ;;
+  esac
+  return 1
+}
+
+if ! client_name="$(pick_client "$want_client")"; then
+  if [ -n "$want_client" ]; then
+    echo "hee-con: -client ${want_client} requested but not installed -- not silently substituting" 1>&2
+    echo "hee-con: install it, or pick the other with -client" 1>&2
+  else
+    echo "hee-con: no native IRC client found (irssi or weechat)" 1>&2
+    echo "hee-con: install one first, e.g.: sudo apt install irssi" 1>&2
+  fi
   exit 1
+fi
+
+if [ "$client_name" = "irssi" ]; then
+  if [ "$use_tls" = 1 ]; then
+    # irssi's -c/-p connect in PLAINTEXT -- there is no CLI flag for TLS,
+    # it is a property of the /connect. Measured 2026-09-02 against soju:
+    # `irssi -c soju.lab.tcos.us -p 6697` produced, in soju's own log,
+    #   tls: first record does not look like a TLS handshake
+    # So for a TLS target irssi starts with NO server and the connection is
+    # issued afterwards as `/connect -tls`, where the flag exists.
+    client_cmd="irssi -n ${nick}"
+  else
+    client_cmd="irssi -c ${network} -n ${nick}"
+    [ -n "$port" ] && client_cmd="${client_cmd} -p ${port}"
+  fi
+else
+  client_cmd="weechat"
 fi
 
 if ! command -v tmux >/dev/null 2>&1; then
@@ -162,11 +332,19 @@ tmux new-session -d -s "$session" "$client_cmd"
 sleep 2
 
 if [ "$client_name" = "irssi" ]; then
+  if [ "$use_tls" = 1 ]; then
+    connect="/connect -tls"
+    [ -n "$certfile" ] && connect="${connect} -tls_cert ${certfile}"
+    connect="${connect} ${network} ${port:-6697}"
+    tmux send-keys -t "$session" "$connect" Enter
+    sleep 3
+  fi
   tmux send-keys -t "$session" "/join ${channel}" Enter
 else
   echo "hee-con: started weechat -- join ${channel} manually (/connect + /join)" 1>&2
 fi
 
-echo "hee-con: '${session}' started -- ${client_name} connecting to ${network} as ${nick}, joining ${channel}"
+echo "hee-con: '${session}' started -- ${client_name} connecting to ${network}${port:+:${port}} as ${nick}, joining ${channel}"
+[ -n "$certfile" ] && echo "hee-con: using client certificate ${certfile} (SASL EXTERNAL)"
 echo "hee-con: attach with: tmux attach -t ${session}"
 echo "hee-con: detach without killing it: Ctrl-b then d"
