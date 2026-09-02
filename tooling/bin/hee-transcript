@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-transcript: recover a shared ChatGPT conversation as readable text.
+
+Real trigger (2026-09-02): a whole family of authoring rules existed only
+in one chat log. Across every repo, `rg` for `term.kill` and `contractions
+banned` returned two hits, both code comments applying rules documented
+nowhere. Recovering that log turned up 34 named DIFs, and corrected two
+things this org had already written down wrong from memory of it.
+
+## Why not WebFetch, and why not playwright
+
+WebFetch returns a header and a truncation notice: the visible page is
+client-rendered, so a markdown converter sees the shell and nothing else.
+Confirmed by trying it before reaching for anything heavier.
+
+But `curl` on the same URL returns 1.9MB of server-rendered HTML with the
+ENTIRE conversation embedded as escaped JSON. So playwright, a browser and
+a render loop are all unnecessary -- the operator suggested wiring one up,
+and the honest answer is that the cheap thing already works. Reach for a
+browser when the data is genuinely absent, not when it is merely not
+displayed.
+
+## Scope, stated because it is easy to over-promise
+
+This reads /share/<id> URLs, which are PUBLIC. It cannot read /c/<id>
+conversation URLs -- those need the owner's session. The two ids are
+different: a conversation has to be explicitly shared to get a share id.
+So "plug in any uuid" works for anything shared, not for anything seen.
+
+SYNOPSIS
+  hee-transcript SHARE_URL_OR_ID [-o FILE]
+  hee-transcript -grep PATTERN SHARE_URL_OR_ID
+  hee-transcript help
+
+EXIT STATUS
+  0 OK        transcript recovered, or -grep found a match
+  1 WARNING   -grep found nothing
+  2 CRITICAL  fetch failed, or the page carried no conversation text
+  3 UNKNOWN   not a share URL -- a /c/ conversation id cannot be read
+"""
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+try:
+    from hee_cli import help_wanted, note_ignored
+except ImportError:
+    def help_wanted(a): return any(x in ("help", "--help", "-h") for x in a)
+    def note_ignored(a): pass
+
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+NOISE = ('"feature_gates"', '"secondary_exposures"')
+
+
+def share_url(arg):
+    if arg.startswith("http"):
+        if "/share/" not in arg:
+            print(f"hee-transcript: not a share URL: {arg}\n"
+                  f"  /c/<id> is a private conversation and needs the owner session.\n"
+                  f"  Share it first, then pass the /share/<id> URL.", file=sys.stderr)
+            sys.exit(3)
+        return arg
+    return f"https://chatgpt.com/share/{arg}"
+
+
+def fetch(url):
+    p = subprocess.run(["curl", "-s", "-L", "--max-time", "60", "-A", UA, url],
+                       capture_output=True)
+    if p.returncode != 0 or not p.stdout:
+        print(f"hee-transcript: fetch failed for {url}", file=sys.stderr)
+        sys.exit(2)
+    return p.stdout.decode("utf-8", errors="replace")
+
+
+def extract(html):
+    """Pull the conversation out of the escaped-JSON payload.
+
+    Long JSON string literals carry the message markdown. json.loads does the
+    unescaping -- NOT codecs unicode_escape, which mangles real UTF-8 into
+    mojibake (every curly quote became three characters on the first attempt).
+    """
+    out = []
+    for m in re.finditer(r'"((?:[^"\\]|\\.){200,})"', html):
+        try:
+            out.append(json.loads('"' + m.group(1) + '"'))
+        except ValueError:
+            continue
+    text = "\n\n".join(out)
+    for a, b in (("\\n", "\n"), ('\\"', '"'), ("\\u003c", "<"),
+                 ("\\u003e", ">"), ("\\u0026", "&")):
+        text = text.replace(a, b)
+    keep = [l for l in text.split("\n")
+            if not (len(l) > 600 and (l.lstrip().startswith(("{", "["))
+                                      or any(n in l for n in NOISE)))]
+    return "\n".join(keep)
+
+
+def main():
+    if help_wanted(sys.argv[1:]):
+        note_ignored(sys.argv[1:])
+        print(__doc__)
+        return 0
+    ap = argparse.ArgumentParser(prog="hee-transcript", add_help=True)
+    ap.add_argument("target", help="share URL, or bare share id")
+    ap.add_argument("-o", "--out", default=None, help="write here instead of stdout")
+    ap.add_argument("-grep", default=None, help="print only matching lines, with context")
+    args = ap.parse_args()
+
+    text = extract(fetch(share_url(args.target)))
+    if not text.strip():
+        print("hee-transcript: fetched, but no conversation text found -- "
+              "the page format may have changed", file=sys.stderr)
+        sys.exit(2)
+
+    if args.grep:
+        rx = re.compile(args.grep)
+        lines = text.split("\n")
+        hits = [i for i, l in enumerate(lines) if rx.search(l)]
+        if not hits:
+            print(f"hee-transcript: no match for {args.grep}")
+            return 1
+        for i in hits:
+            lo, hi = max(0, i - 2), min(len(lines), i + 3)
+            print("\n".join(lines[lo:hi]))
+            print("--")
+        return 0
+
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"hee-transcript: wrote {len(text)} chars to {args.out}")
+    else:
+        print(text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

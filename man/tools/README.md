@@ -46,6 +46,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-tools-check`](hee-tools-check.1.md)
 - [`hee-tools-update`](hee-tools-update.1.md)
 - [`hee-tools`](hee-tools.1.md)
+- [`hee-transcript`](hee-transcript.1.md)
 - [`hee-url`](hee-url.1.md)
 - [`hee-vendor`](hee-vendor.1.md)
 - [`hee-ver`](hee-ver.1.md)

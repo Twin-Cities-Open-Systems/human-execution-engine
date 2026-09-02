@@ -73,13 +73,24 @@ Two things that recovery corrects in the first draft of this section:
   Jinja2 contract, not all text everywhere. The broader scope here is the
   operator restating it on 2026-09-02 for tool help and Makefile output,
   which is a deliberate widening rather than what the rule always said.
-- It was never a standalone rule. It belongs to a **family**, and the
-  family has a name. The same conversation, under shell mandates, bans
-  what it calls **term-kill patterns** -- exits, traps, and unbalanced
-  quotes -- as one category. An unbalanced quote is not a typography
-  preference; it is the same class of defect as a stray `exit` in a
-  sourced file. That framing is better than the one this section reached
-  for independently, and it is why the rule reads as absolute.
+- It was never a standalone rule. It belongs to a **family**. The same
+  conversation, under shell mandates, reads verbatim:
+
+  > DIF: we should define "primitive" and explicitly ban "term-kill
+  > patterns" you already care about (exits/traps/unbalanced quotes etc.)
+  > in that same policy family.
+
+  **That was a DIF -- an open decision, not settled canon**, and an
+  earlier draft of this section presented it as though it had been
+  ratified. Corrected 2026-09-02 after the source was actually read
+  rather than recalled. The contractions ban above is different: it is
+  listed as one of the operator constraints the conversation was
+  summarizing, so it was real.
+
+  The framing is still the better one, and worth adopting deliberately:
+  an unbalanced quote is the same class of defect as a stray `exit` in a
+  sourced file. But adopting it is a decision to make, and #533 is where
+  it gets made.
 
 The rest of that family is not yet restored here -- issue #533 carries the
 siblings: `term-kill patterns` as a named category (exits and traps
