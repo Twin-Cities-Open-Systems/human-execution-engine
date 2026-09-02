@@ -6,7 +6,10 @@ hee-con - connect to IRC in tmux, or send into an existing tmux pane
 
 # SYNOPSIS
 
+    hee-con TARGET [-irc CHANNEL] [-client NAME] [-cert PATH] [-session NAME] [-nick NICK]
     hee-con -irc CHANNEL [-network HOST] [-session NAME] [-nick NICK]
+    hee-con -list
+    hee-con -check
     hee-con -tmux-send 'MESSAGE' -target SESSION:WINDOW.PANE
     hee-con help
 
@@ -19,7 +22,15 @@ hee-con - connect to IRC in tmux, or send into an existing tmux pane
     shell that started it. The -tmux-send side puts one line into a pane
     that already exists.
 
-    IRC defaults:
+    TARGET is a name from hee/registries/connect-targets.registry.v1.yaml.
+    It fills in host, port, client, nick and first auto-join channel, so
+    `hee-con soju` replaces retyping all five. -list shows what exists.
+
+    -check verifies every target's host against fleet-ops' DNS source. The
+    registry is a SECOND list and second lists drift; this makes the drift
+    fail loudly instead of quietly.
+
+    IRC defaults (when no TARGET is given):
       -network   irc.libera.chat
       -session   irc-<channel, # stripped>
       -nick      hee<pid>
@@ -30,5 +41,7 @@ hee-con - connect to IRC in tmux, or send into an existing tmux pane
 
 # EXIT STATUS
 
-    0 connected, or the message was sent
-    1 unknown argument, or a required argument was missing
+    0 OK        connected, message sent, or -check found no drift
+    1 WARNING   unknown argument, or a required argument was missing
+    2 CRITICAL  -check found a target whose host is not in DNS
+    3 UNKNOWN   -check could not find a DNS source to check against

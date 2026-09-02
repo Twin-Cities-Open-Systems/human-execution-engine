@@ -1,0 +1,47 @@
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: connect-targets
+  description: "Registry of fleet services you can connect INTERACTIVELY to, and how. Turns 'hee con -irc #tcos -network irc.libera.chat' into 'hee con soju' -- the host, port, protocol and client stop being something the operator retypes and start being something the fleet knows. Scoped to interactive connections a human drives; not a service inventory, not a monitoring target list."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: connect-targets
+    artifact: registry
+  annotations:
+    inuid: "0c1dd8b30dbecddde02bcf40c9d415c6af92061688d402aa558fcee2470e0dcb"
+    inuid_seed: "hee-registry://core/connect-targets/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencerbutler
+    updated-at: "2026-09-02T00:00:00Z"
+
+spec:
+  status: proposed
+
+  invariants:
+    - "host_must_exist_in_dns: every target's host must appear in fleet-ops/dns/lab.tcos.us.hosts. This registry is a SECOND list, and a second list drifts -- that was the known cost of choosing it over deriving from DNS, accepted deliberately on 2026-09-02. Paying it means the drift is checked mechanically, not remembered. 'hee con -check' fails when a target names a host DNS does not."
+    - "no_credentials_here: a target says WHERE and HOW, never WHO or with what secret. Passwords and key material stay in hee-cred; this file is git-tracked and readable by anyone with the repo."
+    - "targets_are_real: a target is added when something actually runs there, not in anticipation. Same disk_over_memory rule the rest of HEE follows."
+
+  targets:
+    soju:
+      description: "IRC bouncer. Connect to THIS, not to Libera directly -- the bouncer holds the session, the backlog and the upstream credentials. Migrated off kiosk 2026-09-02 (fleet-ops#371)."
+      host: soju.lab.tcos.us
+      port: 6697
+      proto: ircs
+      tls: true
+      tls_note: "Real Let's Encrypt *.lab.tcos.us wildcard since 2026-09-02. Verification can be ON. Before that it served a self-signed cert for CN=mint.lan -- the wrong name entirely -- so any client trusting it was doing so blindly."
+      client: irssi
+      client_fallback: weechat
+      via: bouncer
+      upstream: "Libera (irc.libera.chat), nick 'hee'"
+      auto_join: ["#hee", "#hee-scrob", "#tclug", "#tcos"]
+      username: spencer
+      auth: "password, held by the operator -- see no_credentials_here"
+      known_issue: "SASL to the upstream fails; stored sasl_plain_username is 'aaa', overwritten from 'hee' on 2026-08-31 09:38:48 when soju auto-saved a stray login. Degraded, not down. The durable fix is certfp (SASL EXTERNAL), which removes the password that can be overwritten -- see certfp_note."
+      certfp_note: "soju's 'certfp generate' makes a self-signed X.509 and authenticates upstream with SASL EXTERNAL. Libera pins the FINGERPRINT against the NickServ account, so the issuer is irrelevant and a fleet CA buys nothing here -- fingerprint pinning is not chain validation. OpenSSH certificates cannot be used at all: they are a bespoke format (ssh-rsa-cert-v01@openssh.com), not X.509, so nothing in the TLS path can parse one."
+
+  not_targets:
+    - "irc.libera.chat -- reachable, but connecting there directly bypasses the bouncer and loses the session and backlog. hee-con defaulted to it until 2026-09-02, which is the bug this registry fixes."
+    - "Anything fronted by haproxy on 10.0.0.160 over plain HTTPS. A browser is the client for those; this registry is for connections a terminal client makes."
