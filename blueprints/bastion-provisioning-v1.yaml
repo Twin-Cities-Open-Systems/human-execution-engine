@@ -77,10 +77,12 @@ spec:
 
     - step: retire
       actor: oper
-      description: "ephemeral: destroy the container, 'hee name -release <name>'. durable: NOT a routine operation -- the SSOT lives here; retiring one is a decision about what happens to everything it signed."
-      exit_condition: "for ephemerals, name released and address free"
+      description: "ephemeral: destroy the container, 'hee name -release <name>'. durable: NOT a routine operation -- the SSOT lives here, so retirement must also settle what happens to everything it signed."
+      blocked_by: "fleet-ops#366 -- the decom path has no key-material step at all. fleet-ops/bin/decom-agent.sh stops units and kills processes; it does not revoke, record, or mark anything a retired identity signed. Until #366 lands, durable retirement has no procedure and this step must not be presented as one."
+      exit_condition: "ephemeral: name released and address free. durable: BLOCKED -- do not retire a durable bastion until fleet-ops#366 defines the key-material steps."
 
   invariants:
+    - "role_suffix_at_allocation: the name is allocated WITH its '-oper' or '-agent' suffix in the allocate_name step -- never appended later. Operator, 2026-09-02: 'always'. Appending afterward means the ledger and the container disagree for a window, and the ledger is what the next allocation checks against. See .hee/name-allocations/bastion.yaml, whose only entry is the bare 'bast-homer'."
     - "default_is_disposable: unless a bastion is explicitly durable it gets no record and no anchor, so nothing can accidentally come to depend on it"
     - "promotion_is_visible: an identity becomes real in DNS, where it can be observed, rather than in a config file where it cannot"
     - "no_fabricated_history: an anchor records what actually happened. If a step could not be completed, the ceremony says so rather than writing a plausible anchor"

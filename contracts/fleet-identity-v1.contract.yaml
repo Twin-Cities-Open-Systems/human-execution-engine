@@ -42,6 +42,7 @@ spec:
       lifecycle: "permanent; never casually destroyed or recreated"
 
   invariants:
+    - "name_always_declares_role: every bastion name ends in '-oper' or '-agent', with no exceptions and no bare form. Operator, 2026-09-02: 'never just bast-homer, must always ending in oper|agent name... always.' The live ledger at .hee/name-allocations/bastion.yaml holds exactly one entry, 'bast-homer' from 2026-08-24, which predates this rule and is malformed under it -- proof that the bare form is what gets allocated when nothing rejects it. hee-name must refuse to allocate into the bastion scope without a role suffix; a convention that only a reader enforces is not an invariant."
     - "record_and_address_together: promotion assigns a STATIC address in the same step that adds the DNS record. An ephemeral on DHCP gets an address that recycles, and a PTR outliving its container makes reverse lookups lie -- which is worse than no PTR, because monitoring and logs believe it."
     - "no_anchor_without_record: an identity anchor exists only where a durable DNS record exists. This is what makes ephemeral destruction free."
     - "ssot_is_the_bastion: the durable bastion's .hee/index/_.yaml is authoritative. Public presence at tcos.us/people/<oper|agent> is DERIVED from it and never hand-maintained; derivation is a filtered projection through publish-sanitization-v1, not a dump."
@@ -67,6 +68,25 @@ spec:
     - "hee-cred seals without --trust-model always, so an untrusted recipient key makes gpg prompt DURING secret entry and the operator's keystrokes answer the prompt instead. Observed twice on 2026-09-02: a 69-character key stored as 1 character and then 7. The double-prompt confirm cannot catch it because both reads truncate identically. It must also report the captured length."
     - "hee-cred's docstring states storage is git-tracked ciphertext; fleet-ops/.gitignore excludes .hee/secrets/. Sealed material therefore lives on exactly one machine and dies with it, which is disqualifying for identity keys."
 
-  open_questions:
-    - "What attests to the root CA itself? Self-attesting is the conventional answer; recorded here as a decision to make rather than an omission."
-    - "Revocation: when a durable bastion is retired rather than lost, what happens to artifacts it signed? Archived attestation and re-derivable verification are different answers with different costs."
+  # Both entries that stood here were withdrawn on 2026-09-02. Neither was an
+  # open question; each was this contract failing to look up work that already
+  # existed. Recorded as a correction rather than silently deleted, because the
+  # failure mode -- restating a settled thing as undecided -- is the one that
+  # makes a contract actively misleading rather than merely incomplete.
+  resolved_not_open:
+    root_ca_attestation:
+      withdrawn: "2026-09-02"
+      asked: "What attests to the root CA itself?"
+      answer: "The SLIP-39 air-gapped root-of-trust ceremony, which this fleet has already designed and practiced once. It is not a question this contract gets to reopen."
+      tracked_by:
+        - "fleet-ops#102 -- Root-of-trust bootstrap: PEN/OID, root+intermediate CA, SSH CA, GPG root, built consistently from 0 (OPEN)"
+        - "fleet-ops#154 -- Epoch-0 readiness checklist (OPEN)"
+        - "fleet-ops#74 -- Linux UID/GID scheme traceable to HEE root identity (CLOSED), which fixed the governing requirement: 'you should be able to take any object and trace it back to the origin (pve: spencer@owner:~/.hee/index/_.yaml). This must be true as soon as that file is created.'"
+      standing_in_hee: "prompts/INIT.md already states this repo is a conceptual root and NOT a cryptographic one, because no identity in this fleet has a .hee/index/_.yaml yet. That file is this contract's prerequisite, not its open question."
+    signature_validity_after_retirement:
+      withdrawn: "2026-09-02"
+      asked: "When a durable bastion is retired, what happens to artifacts it signed?"
+      answer: "It is a defect in the decommissioning path, not an open design question. Per the operator: 'should already be part of the decomm process, bug if not.' It is not -- fleet-ops/bin/decom-agent.sh handles processes only, with zero key-material handling."
+      tracked_by:
+        - "fleet-ops#366 -- Decommissioning has no key-material step; retired identities' signatures are undefined"
+      note: "The archived-attestation vs re-derivable-verification tradeoff is stated in full on #366. It constrains the root-of-trust design, so it is settled alongside fleet-ops#102 rather than after it."
