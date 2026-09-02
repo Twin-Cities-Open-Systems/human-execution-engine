@@ -13,10 +13,11 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>📘 BlueprintDoctrine (8)</summary>
+<summary>📘 BlueprintDoctrine (9)</summary>
 
 - 🔴 [ERROR] `blueprints/hee-intra-repo-layout-v1.yaml`
 - 🔴 [ERROR] `blueprints/machine-rights-grant-v1.yaml`
+- 🟢 [OK] `blueprints/bastion-provisioning-v1.yaml`
 - 🟢 [OK] `blueprints/dir-layout-v1.yaml`
 - 🟢 [OK] `blueprints/gitops-coordination-v1.yaml`
 - 🟢 [OK] `blueprints/hiring-handshake-v1.yaml`
@@ -52,9 +53,10 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>📜 Contract (7)</summary>
+<summary>📜 Contract (8)</summary>
 
 - 🟢 [OK] `contracts/execution-tier-compat-v1.contract.yaml`
+- 🟢 [OK] `contracts/fleet-identity-v1.contract.yaml`
 - 🟢 [OK] `contracts/publish-sanitization-v1.contract.yaml`
 - 🟢 [OK] `contracts/tcos.mna.hee-sale-deal.contract.v1.yaml`
 - 🟢 [OK] `contracts/treasury-invariants-v1.contract.yaml`

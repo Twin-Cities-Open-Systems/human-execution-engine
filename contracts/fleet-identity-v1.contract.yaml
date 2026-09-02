@@ -1,0 +1,121 @@
+# path: contracts/fleet-identity-v1.contract.yaml
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: fleet-identity
+  description: "How a fleet identity comes into existence, how it is anchored, and what may root through it. Real trigger 2026-09-02: prompts/INIT.md has carried the caveat 'no identity in this fleet has one yet' about .hee/index/_.yaml since it was written, so the hash-chain primitive in library/py/hee_hash/soa.py has had nothing to root off. This contract fixes the rules that anchor needs to satisfy before anything is built against it."
+  labels:
+    hee.object: "true"
+    hee.contract.type: identity
+    domain: hee
+    scope: fleet-ops
+    topic: fleet-identity
+    artifact: contract
+  annotations:
+    inuid: "49961f96902f081e173dbbe0667c6ae87962102b1c06105d0182638af66b3044"
+    inuid_seed: "hee-contract://tcos-fleet/fleet-identity/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencerbutler
+    transcriber: touchy-claude
+    created_utc: "2026-09-02T17:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  intent:
+    - "An identity is a container, not a record about a container. bast-<oper> IS the operator's identity in the fleet; there is no separate directory to drift from it."
+    - "Durability is visible in DNS. A record is what makes an identity real, and an identity with no record can be destroyed without consequence."
+    - "Nothing roots through anything that can be destroyed casually."
+
+  definitions:
+    ephemeral_bastion:
+      naming: "bast-<hee-name>-<oper|agent>"
+      dns: "none -- no A record, no PTR"
+      anchor: "none -- no .hee/index/_.yaml"
+      lifecycle: "created and destroyed freely; names come from a hee-name pool under the 'bastion' scope and are released on destroy"
+    durable_bastion:
+      naming: "bast-<oper|agent>"
+      dns: "A + PTR, both generated from one '=' line in the hee-dns host file"
+      anchor: "~/.hee/index/_.yaml -- the single source of truth for that identity"
+      lifecycle: "permanent; never casually destroyed or recreated"
+
+  invariants:
+    - "colocation_implies_nothing: two bastion names sharing a pool word are CO-LOCATED and nothing more. Operator, 2026-09-02: 'we do not want to imply that there is a correlation between bast-homer-agent and bast-homer-oper and there is no implied promotion path there.' They are unrelated identities that happen to share a box for a spell; the shared word is an address, not a surname. And an agent does not become an oper -- oper and agent are different KINDS, not different ranks. This needs stating because the system has a real promotion (ephemeral to durable, earned with an A and a PTR record) which is about permanence, never role: a promoted bast-homer-agent is a durable AGENT. It is also why cohabitation is opt-in, rare and flagged rather than automatic."
+    - "name_always_declares_role: every bastion name ends in '-oper' or '-agent', with no exceptions and no bare form. Operator, 2026-09-02: 'never just bast-homer, must always ending in oper|agent name... always.' The live ledger at .hee/name-allocations/bastion.yaml holds exactly one entry, 'bast-homer' from 2026-08-24, which predates this rule and is malformed under it -- proof that the bare form is what gets allocated when nothing rejects it. hee-name must refuse to allocate into the bastion scope without a role suffix; a convention that only a reader enforces is not an invariant."
+    - "record_and_address_together: promotion assigns a STATIC address in the same step that adds the DNS record. An ephemeral on DHCP gets an address that recycles, and a PTR outliving its container makes reverse lookups lie -- which is worse than no PTR, because monitoring and logs believe it."
+    - "no_anchor_without_record: an identity anchor exists only where a durable DNS record exists. This is what makes ephemeral destruction free."
+    - "ssot_is_the_bastion: the durable bastion's .hee/index/_.yaml is authoritative. Public presence at tcos.us/people/<oper|agent> is DERIVED from it and never hand-maintained; derivation is a filtered projection through publish-sanitization-v1, not a dump."
+    - "replication_is_identity_durability: because the SSOT lives in the container, backup of durable bastions is not housekeeping -- it is whether an identity survives a disk. Durable bastions live on a replicated pool, and a restore must have been TESTED, not merely configured."
+    - "isolation_is_structural: bast-<oper> shares nothing with agent bastions -- no bind mounts, no group overlap, no reachable export. The reason is not credential hygiene; it is that the chain must not be forgeable upward."
+    - "key_material_is_recoverable: an identity key generated at init is sealed to the operator's existing recipients before the anchor is written. If sealing fails, no anchor is written -- an unrecoverable identity is worse than no identity."
+    - "local_identity_is_not_fleet_membership: 'make install' produces a local identity. Joining the fleet requires an existing member to vouch (blueprints/hiring-handshake-v1.yaml). Collapsing the two makes onboarding smoother and the trust model meaningless."
+
+  certificates:
+    internal:
+      issuer: "fleet root CA (owner@dogfood)"
+      covers: "service-to-service -- IRC/soju, SMTP/mx1, Proxmox, anything configured rather than browsed"
+      rationale: "issuance, rotation and revocation stay in the fleet"
+    edge:
+      issuer: "Let's Encrypt"
+      covers: "browser-facing *.lab.tcos.us at the haproxy edge"
+      rationale: "an internal CA requires its root in every browser; LE already works with zero trust distribution, so replacing it would be a UX downgrade for no security gain"
+      researched: "2026-09-02, at the operator's request -- 'how we get our real root CA in prominent places (when exists)'."
+      standing: "MOONSHOT GOAL, per the operator on reading the research: 'this is goal (moonshot) we reach for.' The findings below are therefore a ROADMAP, not a closed door. The split model above is the correct design for today and remains correct for a long time; it is the starting position, not a retreat from this."
+      what_reaching_for_it_changes_today:
+        - "Generate the eventual public root LAST, not first. Mozilla accepts only roots generated within the prior 5 years, effective 2026-07-01, and Chrome converges on the same rule. A root created now and applied for in 2033 is disqualified BY ITS AGE, having done nothing wrong. So today's internal root is explicitly a working root, not the one we would submit -- and that has to be written down now, because the instinct to keep the original forever is exactly what would waste it."
+        - "Run the internal CA as if it were already auditable. A CP/CPS document, recorded key ceremonies, and retained operational logs cost little today and are the evidence an audit asks for. Reconstructing years of history retroactively is the part that cannot be bought."
+        - "ACME automation from day one, which SC-081v3 makes mandatory anyway. A hand-turned CA cannot survive 47-day certificates in 2029, let alone a root program's automation requirement."
+        - "Prefer step-ca or Vault PKI over anything bespoke -- both are the kind of thing an auditor can reason about, and neither is a dead end."
+        - "A technically-constrained sub-CA under a public root is the stepping stone, not a consolation prize: it is real public trust, it needs no independent audit under BR 8.7, and holding one builds exactly the documented operational history a root application is judged on."
+      what_it_would_take:
+        - "CCADB is now the shared front door for Mozilla, Microsoft, Apple and Chrome, but Microsoft's program states outright that it 'is not accepting new CAs into the program'."
+        - "A WebTrust for CAs or ETSI EN 319 411 audit is mandatory for all four, annual and gap-free for the life of the root. No firm publishes a rate for one. The nearest public figure is $20k/year for SSL.com's MANAGED compliance PKI, which is outsourcing to their audited infrastructure rather than running an audited CA -- so it is a floor for a different, cheaper thing."
+        - "Root keys must be generated and held in FIPS 140-3 Level 3 or CC EAL4+ hardware under multi-person control, with an auditor-witnessed key ceremony."
+        - "Revocation carries a hard 24-hour SLA for key compromise and a 15-minute OCSP publication window. That is real on-call infrastructure, not a policy document."
+        - "Typical time from application to inclusion is 2-3 years. Mozilla's October 2025 queue showed 34 requests still in the first three stages."
+        - "No small or first-time organization was found admitted to any root program in 2024-2026. Every identifiable inclusion in that window is an already-established or government-linked trust service provider adding a hierarchy. Searched for specifically; recorded as a negative finding rather than an absence of looking."
+      technically_constrained_subca:
+        finding: "the one genuine middle path, and the most likely first real step toward the moonshot"
+        mechanism: "CA/Browser Forum Baseline Requirements 7.1.2.5 permits a name-constrained, serverAuth-only sub-CA under a public root. Per 8.7 it needs NO independent audit -- it falls under the parent's quarterly self-audit. Mozilla requires CCADB disclosure within 7 days regardless."
+        commercially: "real but bespoke. SSL.com's Custom-Branded Issuing CA is the clearest example; DigiCert and GlobalSign sell adjacent products. No vendor publishes a price; every path ends at contact-sales. The only figure found anywhere is a forum anecdote of '$10k+ and you sign a contract with the root CA' -- directional at best, not a quote."
+        why_hard_for_us: "the parent CA carries indefinite liability for everything issued beneath it -- the 2012 Trustwave incident, an unconstrained customer sub-CA used to mint MITM certs, is the direct origin of the whole constraint framework. Setup cost is fixed regardless of certificate volume, so it is uneconomic for both sides at our scale. No small-org holder was found. This is a reason it is a stretch, not a reason it is impossible -- being the first would itself be the achievement."
+      trust_distribution_is_worse_than_one_store:
+        note: "the rationale line above says 'every browser', which understates it. There is no single store to install into, and this is the strongest argument for the split."
+        - "Firefox does not use the OS trust store by default -- it needs security.enterprise_roots.enabled or the ImportEnterpriseRoots policy, which exists only on Windows and macOS, not Linux."
+        - "Chrome on Linux uses its own NSS store, not the OS one."
+        - "Android 7+ apps targeting API 24 or later ignore user-installed CAs entirely unless the app opts in via Network Security Config."
+        - "HSTS preloading and certificate pinning can refuse a privately-issued cert even when the root IS trusted."
+      also_true_for_the_internal_ca: "a public CA cannot issue for .internal or .local under the Baseline Requirements at all, and requesting public certs for internal names publishes those hostnames to Certificate Transparency logs -- researchers enumerated Matrix.org's internal infrastructure this way in 2019. So the internal half of the split is required on its own merits, not merely tolerated."
+      shortening_lifetimes: "CA/Browser Forum ballot SC-081v3 passed April 2025, 29-0 with Apple, Google, Mozilla and Microsoft all in favor: maximum certificate validity drops to 200 days in March 2026, 100 in March 2027, and 47 in March 2029. Whatever issues our internal certs must be ACME-grade automated. This is an argument for step-ca or Vault PKI internally, and against anything hand-turned."
+    obligation:
+      - "the fleet root must be present in the container template, so a freshly cloned bastion trusts the fleet on first boot without a manual step. Trust distribution, not issuance, is the real work."
+
+  known_blockers:
+    - "hee-name writes allocations to repo_root()/.hee/name-allocations of the CURRENT DIRECTORY's repo. Two callers in different directories receive the same name and neither sees the collision -- observed 2026-09-02, a pve-storage allocation landed in the thesis-engine repo. This must be fixed before hee-name allocates real identities."
+    - "hee-cred seals without --trust-model always, so an untrusted recipient key makes gpg prompt DURING secret entry and the operator's keystrokes answer the prompt instead. Observed twice on 2026-09-02: a 69-character key stored as 1 character and then 7. The double-prompt confirm cannot catch it because both reads truncate identically. It must also report the captured length."
+    - "hee-cred's docstring states storage is git-tracked ciphertext; fleet-ops/.gitignore excludes .hee/secrets/. Sealed material therefore lives on exactly one machine and dies with it, which is disqualifying for identity keys."
+
+  # Both entries that stood here were withdrawn on 2026-09-02. Neither was an
+  # open question; each was this contract failing to look up work that already
+  # existed. Recorded as a correction rather than silently deleted, because the
+  # failure mode -- restating a settled thing as undecided -- is the one that
+  # makes a contract actively misleading rather than merely incomplete.
+  resolved_not_open:
+    root_ca_attestation:
+      withdrawn: "2026-09-02"
+      asked: "What attests to the root CA itself?"
+      answer: "The SLIP-39 air-gapped root-of-trust ceremony, which this fleet has already designed and practiced once. It is not a question this contract gets to reopen."
+      tracked_by:
+        - "fleet-ops#102 -- Root-of-trust bootstrap: PEN/OID, root+intermediate CA, SSH CA, GPG root, built consistently from 0 (OPEN)"
+        - "fleet-ops#154 -- Epoch-0 readiness checklist (OPEN)"
+        - "fleet-ops#74 -- Linux UID/GID scheme traceable to HEE root identity (CLOSED), which fixed the governing requirement: 'you should be able to take any object and trace it back to the origin (pve: spencer@owner:~/.hee/index/_.yaml). This must be true as soon as that file is created.'"
+      standing_in_hee: "prompts/INIT.md already states this repo is a conceptual root and NOT a cryptographic one, because no identity in this fleet has a .hee/index/_.yaml yet. That file is this contract's prerequisite, not its open question."
+    signature_validity_after_retirement:
+      withdrawn: "2026-09-02"
+      asked: "When a durable bastion is retired, what happens to artifacts it signed?"
+      answer: "It is a defect in the decommissioning path, not an open design question. Per the operator: 'should already be part of the decomm process, bug if not.' It is not -- fleet-ops/bin/decom-agent.sh handles processes only, with zero key-material handling."
+      tracked_by:
+        - "fleet-ops#366 -- Decommissioning has no key-material step; retired identities' signatures are undefined"
+      note: "The archived-attestation vs re-derivable-verification tradeoff is stated in full on #366. It constrains the root-of-trust design, so it is settled alongside fleet-ops#102 rather than after it."
