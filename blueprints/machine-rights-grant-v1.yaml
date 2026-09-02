@@ -11,6 +11,9 @@ metadata:
     topic: machine-rights-grant
     artifact: blueprint
   annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-24T02:23:23-05:00"
     inuid_seed: "hee-blueprint://tcos-fleet/machine-rights-grant/v1"
     inuid_derivation: "sha256(inuid_seed)"
     author: touchy-claude

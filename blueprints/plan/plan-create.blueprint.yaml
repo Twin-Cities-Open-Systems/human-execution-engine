@@ -9,6 +9,10 @@ metadata:
   labels:
     category: plan
     type: creation
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-01-30T08:44:45-06:00"
 spec:
   # Blueprint specification for plan creation
   # This defines the structure and requirements for creating new plans

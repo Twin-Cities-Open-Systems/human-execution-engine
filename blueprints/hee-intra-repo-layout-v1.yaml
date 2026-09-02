@@ -11,6 +11,9 @@ metadata:
     topic: intra-repo-layout
     artifact: blueprint
   annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-26T03:35:27-05:00"
     updated-at: "2026-08-23T00:00:00Z"
     related: "blueprints/dir-layout-v1.yaml (repo-vs-shared-storage axis, also unratified)"
 spec:

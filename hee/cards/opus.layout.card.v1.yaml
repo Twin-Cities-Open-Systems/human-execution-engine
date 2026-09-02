@@ -3,6 +3,10 @@ kind: Card
 metadata:
   name: opus-layout
   ts_human: 2026-02-10_1851
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-10T23:51:51-06:00"
 spec:
   status: wip
   purpose: define generated output layout; jinja renders yaml to md and other forms; shellboss directs.

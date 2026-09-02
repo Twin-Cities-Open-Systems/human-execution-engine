@@ -5,6 +5,10 @@ metadata:
   description: "Promote proven tiny helpers into repo (library/sh) to reduce non-git drift; evidence-first, deterministic outputs."
   labels:
     hee.object: "true"
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-15T01:10:06-06:00"
 spec:
   why:
     - "We were making lots of changes under ~/.hee/bin (outside git). This vendors proven helpers into the repo for auditability and repeatability."

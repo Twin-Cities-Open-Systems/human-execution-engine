@@ -10,6 +10,8 @@ metadata:
     hee.audience: docs
     artifact: card
   annotations:
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-18T20:12:41-06:00"
     inuid: null
     inuid_reason: "candidate card; awaiting assignment"
     candidate_for: "hee-indexing.contract.v1 + hee-indexing.schema.v1"

@@ -6,6 +6,10 @@ metadata:
   description: "Real, demonstrated reasons TCOS prefers tmux send-keys over SendMessage for live human-agent communication, plus the resolved lightweight signature convention for it."
   labels:
     hee.object: "true"
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-25T20:45:17-05:00"
 spec:
   purpose: >
     Document why tmux send-keys is the preferred channel over

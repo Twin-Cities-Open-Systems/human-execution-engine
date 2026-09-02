@@ -8,6 +8,9 @@ metadata:
     hee.tcos/env: test
     hee.tcos/topic: ops
   annotations:
+    inuid: null
+    inuid_null_reason: fixture
+    created_utc: "2026-02-19T05:42:08-06:00"
     hee.sample: "true"
     hee.sample.note: "sample-only; extracted from local RRD, small window"
     hee.tcos/inuid: "699426d3-1200-832f-bcc3-c09d2581491c"

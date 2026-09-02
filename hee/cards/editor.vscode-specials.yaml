@@ -3,6 +3,10 @@ kind: Card
 metadata:
   name: editor.vscode-specials
   ts_human: 2026-02-11_????
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-11T01:33:01-06:00"
 spec:
   lifecycle:
     stage: design

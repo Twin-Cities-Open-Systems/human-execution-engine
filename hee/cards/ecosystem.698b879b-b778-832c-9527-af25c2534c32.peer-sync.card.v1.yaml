@@ -4,6 +4,10 @@ metadata:
   name: ecosystem-peer-sync
   inuid: 698bfb0a-9a14-8332-b12c-3a78bacdade6
   ts_human: 2026-02-11_0300
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-11T03:00:32-06:00"
 spec:
   purpose: quick checkpoint so peers can catch up fast.
   context:

@@ -6,6 +6,10 @@ metadata:
   description: "Real, loud credit to anyone/anything with a legitimate claim of standing (creator, photographer, prior author) -- not optional politeness, the same correctness discipline applied to who-did-what."
   labels:
     hee.object: "true"
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-08-25T16:57:38-05:00"
 spec:
   purpose: >
     Attribution is not a nice-to-have layered on top of accurate work --

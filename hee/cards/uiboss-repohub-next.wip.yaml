@@ -6,6 +6,9 @@ metadata:
   labels:
     hee.object: "true"
   annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-02-15T00:22:16-06:00"
     inuid.scope: "69914da3-a4f4-8331-a179-c8797888372d"
     sidebar_name: "UIBoss-RepoHub-Next Scope 69914da3-a4f4-8331-a179-c8797888372d"
 spec:

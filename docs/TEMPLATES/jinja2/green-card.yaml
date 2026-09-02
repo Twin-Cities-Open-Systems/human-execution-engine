@@ -2,5 +2,9 @@ apiVersion: hee/v1
 kind: GreenCard
 metadata:
   mood: "over-the-moon"
+  annotations:
+    inuid: null
+    inuid_null_reason: fixture
+    created_utc: "2026-02-10T16:20:45-06:00"
 spec:
   status: GREEN
