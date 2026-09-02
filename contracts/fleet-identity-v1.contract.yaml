@@ -60,6 +60,27 @@ spec:
       issuer: "Let's Encrypt"
       covers: "browser-facing *.lab.tcos.us at the haproxy edge"
       rationale: "an internal CA requires its root in every browser; LE already works with zero trust distribution, so replacing it would be a UX downgrade for no security gain"
+      researched: "2026-09-02, at the operator's request -- 'how we get our real root CA in prominent places (when exists)'. The answer is that we do not, and the split model above is not a compromise, it is the correct design. Recorded so this is not re-litigated from intuition."
+      why_public_inclusion_is_not_available:
+        - "CCADB is now the shared front door for Mozilla, Microsoft, Apple and Chrome, but Microsoft's program states outright that it 'is not accepting new CAs into the program'."
+        - "A WebTrust for CAs or ETSI EN 319 411 audit is mandatory for all four, annual and gap-free for the life of the root. No firm publishes a rate for one. The nearest public figure is $20k/year for SSL.com's MANAGED compliance PKI, which is outsourcing to their audited infrastructure rather than running an audited CA -- so it is a floor for a different, cheaper thing."
+        - "Root keys must be generated and held in FIPS 140-3 Level 3 or CC EAL4+ hardware under multi-person control, with an auditor-witnessed key ceremony."
+        - "Revocation carries a hard 24-hour SLA for key compromise and a 15-minute OCSP publication window. That is real on-call infrastructure, not a policy document."
+        - "Typical time from application to inclusion is 2-3 years. Mozilla's October 2025 queue showed 34 requests still in the first three stages."
+        - "No small or first-time organization was found admitted to any root program in 2024-2026. Every identifiable inclusion in that window is an already-established or government-linked trust service provider adding a hierarchy. Searched for specifically; recorded as a negative finding rather than an absence of looking."
+      technically_constrained_subca:
+        finding: "the one genuine middle path, and it does not close either"
+        mechanism: "CA/Browser Forum Baseline Requirements 7.1.2.5 permits a name-constrained, serverAuth-only sub-CA under a public root. Per 8.7 it needs NO independent audit -- it falls under the parent's quarterly self-audit. Mozilla requires CCADB disclosure within 7 days regardless."
+        commercially: "real but bespoke. SSL.com's Custom-Branded Issuing CA is the clearest example; DigiCert and GlobalSign sell adjacent products. No vendor publishes a price; every path ends at contact-sales. The only figure found anywhere is a forum anecdote of '$10k+ and you sign a contract with the root CA' -- directional at best, not a quote."
+        why_not_us: "the parent CA carries indefinite liability for everything issued beneath it -- the 2012 Trustwave incident, an unconstrained customer sub-CA used to mint MITM certs, is the direct origin of the whole constraint framework. Setup cost is fixed regardless of certificate volume, so it is uneconomic for both sides at our scale. No small-org holder was found."
+      trust_distribution_is_worse_than_one_store:
+        note: "the rationale line above says 'every browser', which understates it. There is no single store to install into, and this is the strongest argument for the split."
+        - "Firefox does not use the OS trust store by default -- it needs security.enterprise_roots.enabled or the ImportEnterpriseRoots policy, which exists only on Windows and macOS, not Linux."
+        - "Chrome on Linux uses its own NSS store, not the OS one."
+        - "Android 7+ apps targeting API 24 or later ignore user-installed CAs entirely unless the app opts in via Network Security Config."
+        - "HSTS preloading and certificate pinning can refuse a privately-issued cert even when the root IS trusted."
+      also_true_for_the_internal_ca: "a public CA cannot issue for .internal or .local under the Baseline Requirements at all, and requesting public certs for internal names publishes those hostnames to Certificate Transparency logs -- researchers enumerated Matrix.org's internal infrastructure this way in 2019. So the internal half of the split is required on its own merits, not merely tolerated."
+      shortening_lifetimes: "CA/Browser Forum ballot SC-081v3 passed April 2025, 29-0 with Apple, Google, Mozilla and Microsoft all in favor: maximum certificate validity drops to 200 days in March 2026, 100 in March 2027, and 47 in March 2029. Whatever issues our internal certs must be ACME-grade automated. This is an argument for step-ca or Vault PKI internally, and against anything hand-turned."
     obligation:
       - "the fleet root must be present in the container template, so a freshly cloned bastion trusts the fleet on first boot without a manual step. Trust distribution, not issuance, is the real work."
 
