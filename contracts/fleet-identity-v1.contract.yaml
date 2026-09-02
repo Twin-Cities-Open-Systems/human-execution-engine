@@ -60,8 +60,15 @@ spec:
       issuer: "Let's Encrypt"
       covers: "browser-facing *.lab.tcos.us at the haproxy edge"
       rationale: "an internal CA requires its root in every browser; LE already works with zero trust distribution, so replacing it would be a UX downgrade for no security gain"
-      researched: "2026-09-02, at the operator's request -- 'how we get our real root CA in prominent places (when exists)'. The answer is that we do not, and the split model above is not a compromise, it is the correct design. Recorded so this is not re-litigated from intuition."
-      why_public_inclusion_is_not_available:
+      researched: "2026-09-02, at the operator's request -- 'how we get our real root CA in prominent places (when exists)'."
+      standing: "MOONSHOT GOAL, per the operator on reading the research: 'this is goal (moonshot) we reach for.' The findings below are therefore a ROADMAP, not a closed door. The split model above is the correct design for today and remains correct for a long time; it is the starting position, not a retreat from this."
+      what_reaching_for_it_changes_today:
+        - "Generate the eventual public root LAST, not first. Mozilla accepts only roots generated within the prior 5 years, effective 2026-07-01, and Chrome converges on the same rule. A root created now and applied for in 2033 is disqualified BY ITS AGE, having done nothing wrong. So today's internal root is explicitly a working root, not the one we would submit -- and that has to be written down now, because the instinct to keep the original forever is exactly what would waste it."
+        - "Run the internal CA as if it were already auditable. A CP/CPS document, recorded key ceremonies, and retained operational logs cost little today and are the evidence an audit asks for. Reconstructing years of history retroactively is the part that cannot be bought."
+        - "ACME automation from day one, which SC-081v3 makes mandatory anyway. A hand-turned CA cannot survive 47-day certificates in 2029, let alone a root program's automation requirement."
+        - "Prefer step-ca or Vault PKI over anything bespoke -- both are the kind of thing an auditor can reason about, and neither is a dead end."
+        - "A technically-constrained sub-CA under a public root is the stepping stone, not a consolation prize: it is real public trust, it needs no independent audit under BR 8.7, and holding one builds exactly the documented operational history a root application is judged on."
+      what_it_would_take:
         - "CCADB is now the shared front door for Mozilla, Microsoft, Apple and Chrome, but Microsoft's program states outright that it 'is not accepting new CAs into the program'."
         - "A WebTrust for CAs or ETSI EN 319 411 audit is mandatory for all four, annual and gap-free for the life of the root. No firm publishes a rate for one. The nearest public figure is $20k/year for SSL.com's MANAGED compliance PKI, which is outsourcing to their audited infrastructure rather than running an audited CA -- so it is a floor for a different, cheaper thing."
         - "Root keys must be generated and held in FIPS 140-3 Level 3 or CC EAL4+ hardware under multi-person control, with an auditor-witnessed key ceremony."
@@ -69,10 +76,10 @@ spec:
         - "Typical time from application to inclusion is 2-3 years. Mozilla's October 2025 queue showed 34 requests still in the first three stages."
         - "No small or first-time organization was found admitted to any root program in 2024-2026. Every identifiable inclusion in that window is an already-established or government-linked trust service provider adding a hierarchy. Searched for specifically; recorded as a negative finding rather than an absence of looking."
       technically_constrained_subca:
-        finding: "the one genuine middle path, and it does not close either"
+        finding: "the one genuine middle path, and the most likely first real step toward the moonshot"
         mechanism: "CA/Browser Forum Baseline Requirements 7.1.2.5 permits a name-constrained, serverAuth-only sub-CA under a public root. Per 8.7 it needs NO independent audit -- it falls under the parent's quarterly self-audit. Mozilla requires CCADB disclosure within 7 days regardless."
         commercially: "real but bespoke. SSL.com's Custom-Branded Issuing CA is the clearest example; DigiCert and GlobalSign sell adjacent products. No vendor publishes a price; every path ends at contact-sales. The only figure found anywhere is a forum anecdote of '$10k+ and you sign a contract with the root CA' -- directional at best, not a quote."
-        why_not_us: "the parent CA carries indefinite liability for everything issued beneath it -- the 2012 Trustwave incident, an unconstrained customer sub-CA used to mint MITM certs, is the direct origin of the whole constraint framework. Setup cost is fixed regardless of certificate volume, so it is uneconomic for both sides at our scale. No small-org holder was found."
+        why_hard_for_us: "the parent CA carries indefinite liability for everything issued beneath it -- the 2012 Trustwave incident, an unconstrained customer sub-CA used to mint MITM certs, is the direct origin of the whole constraint framework. Setup cost is fixed regardless of certificate volume, so it is uneconomic for both sides at our scale. No small-org holder was found. This is a reason it is a stretch, not a reason it is impossible -- being the first would itself be the achievement."
       trust_distribution_is_worse_than_one_store:
         note: "the rationale line above says 'every browser', which understates it. There is no single store to install into, and this is the strongest argument for the split."
         - "Firefox does not use the OS trust store by default -- it needs security.enterprise_roots.enabled or the ImportEnterpriseRoots policy, which exists only on Windows and macOS, not Linux."
