@@ -61,6 +61,40 @@ an apostrophe in `bootstrap.mk` help output: *"we used to (jan 2026) have
 rule about not using contracts with single quotes. just say accounts or
 account. I would rather sound dumb than have unmatched quotes bite my ass."*
 
+**The original wording, recovered from the design conversation** the
+operator surfaced the same day, under a heading of YAML style rules:
+
+> English contractions banned (applies to YAML and Markdown authoring
+> rules, governed by Jinja2 contract).
+
+Two things that recovery corrects in the first draft of this section:
+
+- The original scope was **YAML and Markdown authoring**, governed by a
+  Jinja2 contract, not all text everywhere. The broader scope here is the
+  operator restating it on 2026-09-02 for tool help and Makefile output,
+  which is a deliberate widening rather than what the rule always said.
+- It was never a standalone rule. It belongs to a **family**, and the
+  family has a name. The same conversation, under shell mandates, bans
+  what it calls **term-kill patterns** -- exits, traps, and unbalanced
+  quotes -- as one category. An unbalanced quote is not a typography
+  preference; it is the same class of defect as a stray `exit` in a
+  sourced file. That framing is better than the one this section reached
+  for independently, and it is why the rule reads as absolute.
+
+The rest of that family is not yet restored here -- issue #533 carries the
+siblings: `term-kill patterns` as a named category (exits and traps
+alongside unbalanced quotes), argv-form command storage, the YAML `::`
+quoting rule, and the shell naming conventions.
+
+Worth recording how nearly this was lost. Across every repo, `rg` for
+`term.kill` and `contractions banned` returns exactly two hits, both code
+comments applying a rule documented nowhere: the `hee-gen-manpages` note
+above, and `tools/oper/git/dad.sh` collecting output into a variable to
+"avoid term-killer behavior". A policy that survives only as folklore in
+two comments is not policy. The share URL for the source conversation is
+not machine-readable either -- ChatGPT share pages render client-side, so
+fetching one returns a header and nothing else.
+
 **Rationale, two independent failures:**
 
 1. **It terminates single-quoted shell strings.** An `awk` or `sed` program
