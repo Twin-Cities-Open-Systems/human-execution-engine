@@ -68,6 +68,13 @@ oper|agent share." The pool word names the box; roles are its occupants:
       oper:  {allocated_at: ...}   ->  bast-homer-oper
       agent: {allocated_at: ...}   ->  bast-homer-agent
 
+Cohabitation is OPT-IN. By default an allocation takes a box of its own;
+`--cohabit <instance>` deliberately joins an existing one. Operator,
+2026-09-02: "case by case. sometimes we need them to cohabitate for short
+spells." A co-located occupant is marked `cohabit: true` in the ledger and
+flagged in `-list`, so a temporary arrangement stays visibly temporary
+rather than becoming permanent by being forgotten.
+
 This is what makes co-occupancy visible rather than implied by two names
 that merely rhyme, and it is what makes release safe: dropping one
 occupant leaves the instance held, so the box cannot be handed to someone
@@ -205,6 +212,32 @@ ROLE_REQUIRED_SCOPES = {
     "bastion": ("oper", "agent"),
 }
 
+# The exact prefix a role-scope name must carry, and with it the field count.
+# Operator, 2026-09-02: "my hard no on 4 field bash-foo-N-bar."
+#
+# A bastion name has EXACTLY THREE dash-separated fields --
+# bast-<name>-<role>. Enforcing the role suffix alone did not deliver that:
+# `--prefix bast-foo-` still produced `bast-foo-homer-oper`, and `--prefix ""`
+# produced the roleful-but-anonymous `marge-oper`. A pool name containing a
+# dash would do the same. So the shape is validated on the RENDERED name,
+# which is the only place all three inputs meet.
+SCOPE_PREFIX = {
+    "bastion": "bast-",
+}
+
+
+def _validate_shape(scope: str, name: str, roles: tuple) -> None:
+    prefix = SCOPE_PREFIX.get(scope)
+    if not prefix:
+        return
+    if not re.fullmatch(rf"{re.escape(prefix)}[^-]+-(?:{'|'.join(roles)})", name):
+        sys.exit(
+            f"hee-name: '{name}' is not a valid {scope} name.\n"
+            f"  Required shape: {prefix}<name>-({'|'.join(roles)}) -- exactly three fields.\n"
+            f"  A fourth field is a hard no: a name you have to disambiguate has\n"
+            f"  stopped doing the one job a pool name has."
+        )
+
 
 def _series_walk(pool: str):
     """Yield (pool_name, name) across the whole series chain, in order.
@@ -239,7 +272,7 @@ def _exhausted(pool: str, scope: str, role: "str | None") -> None:
     )
 
 
-def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None") -> None:
+def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None", cohabit: "str | None") -> None:
     roles = ROLE_REQUIRED_SCOPES.get(scope)
     if roles and role is None:
         sys.exit(
@@ -248,11 +281,19 @@ def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None") -> None
             f"  allocating the name, not something appended afterward -- the\n"
             f"  ledger is what the next allocation checks for collisions."
         )
+    if cohabit and not roles:
+        sys.exit(f"hee-name: scope '{scope}' has no instances to cohabit")
     if role is not None:
         if not roles:
             sys.exit(f"hee-name: scope '{scope}' does not take a --role")
         if role not in roles:
             sys.exit(f"hee-name: invalid role '{role}' for scope '{scope}'. Valid: {', '.join(roles)}")
+
+    want = SCOPE_PREFIX.get(scope)
+    if want is not None and prefix != want:
+        if prefix:
+            sys.exit(f"hee-name: scope '{scope}' fixes its prefix at '{want}'; got '{prefix}'")
+        prefix = want   # omitting it is fine; there is only one right answer
 
     records = load_allocations(scope)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -263,19 +304,40 @@ def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None") -> None
         # roles are its occupants. Keying the ledger on the instance is what
         # makes that visible instead of merely implied by two names that
         # happen to rhyme.
-        for pname, n in _series_walk(pool):
-            inst = records.get(n)
+        #
+        # Cohabitation is OPT-IN, not the default. Operator, same review:
+        # "case by case. sometimes we need them to cohabitate for short
+        # spells." An earlier version co-located automatically -- ask for an
+        # agent right after an oper and it silently landed on the same box.
+        # That is the wrong default against the stated goal of separating
+        # agents into their own scope and context, and it made a deliberate,
+        # temporary arrangement indistinguishable from an accident.
+        if cohabit:
+            inst = records.get(cohabit)
             if inst is None:
-                records[n] = {"pool": pname, "scope": scope,
-                              "occupants": {role: {"allocated_at": now}}}
-                break
-            if role not in (inst.get("occupants") or {}):
-                inst.setdefault("occupants", {})[role] = {"allocated_at": now}
-                break
+                sys.exit(
+                    f"hee-name: no instance '{cohabit}' in scope '{scope}' to cohabit with.\n"
+                    f"  --cohabit joins an EXISTING box; it does not create one."
+                )
+            occ = inst.setdefault("occupants", {})
+            if role in occ:
+                sys.exit(f"hee-name: instance '{cohabit}' already has an occupant in role '{role}'")
+            occ[role] = {"allocated_at": now, "cohabit": True}
+            n = cohabit
         else:
-            _exhausted(pool, scope, role)
+            # Default: a box of one's own -- the first instance with NO
+            # occupants at all, not merely a free role slot.
+            for pname, n in _series_walk(pool):
+                if n not in records:
+                    records[n] = {"pool": pname, "scope": scope,
+                                  "occupants": {role: {"allocated_at": now}}}
+                    break
+            else:
+                _exhausted(pool, scope, role)
+        rendered = f"{prefix}{n}-{role}"
+        _validate_shape(scope, rendered, roles)
         save_allocations(scope, records)
-        print(f"{prefix}{n}-{role}")
+        print(rendered)
         return
 
     # Roleless scopes keep the flat name-keyed ledger they already have on
@@ -295,6 +357,8 @@ def cmd_release(name: str, scope: str, prefix: str) -> None:
     roles = ROLE_REQUIRED_SCOPES.get(scope)
 
     if roles:
+        prefix = SCOPE_PREFIX.get(scope, prefix)
+        _validate_shape(scope, name, roles)
         # `name` is the full rendered form, e.g. bast-homer-oper. Split the
         # terminal role off and drop that occupant. The INSTANCE survives
         # until its last occupant leaves -- releasing one role must not hand
@@ -330,11 +394,13 @@ def cmd_list(scope: str, prefix: str) -> None:
         print(f"(no allocations in scope '{scope}')")
         return
     if ROLE_REQUIRED_SCOPES.get(scope):
+        prefix = SCOPE_PREFIX.get(scope, prefix)
         for inst in sorted(records):
             occ = records[inst].get("occupants") or {}
             print(f"{inst}  [pool={records[inst].get('pool')}]")
             for role in sorted(occ):
-                print(f"    {prefix}{inst}-{role}   {occ[role].get('allocated_at')}")
+                mark = "  (cohabiting)" if occ[role].get("cohabit") else ""
+                print(f"    {prefix}{inst}-{role}   {occ[role].get('allocated_at')}{mark}")
         return
     for k in sorted(records):
         print(f"{k}  {records[k].get('allocated_at')}")
@@ -349,6 +415,8 @@ def main():
     ap.add_argument("--pool", default=None)
     ap.add_argument("--scope", default="default")
     ap.add_argument("--prefix", default="")
+    ap.add_argument("--cohabit", default=None, metavar="INSTANCE",
+                    help="deliberately share an EXISTING instance rather than taking a fresh one")
     ap.add_argument("--role", default=None,
                     help="role suffix; required for scopes in ROLE_REQUIRED_SCOPES")
     ap.add_argument("--allocations-dir", default=None, metavar="PATH",
@@ -382,7 +450,7 @@ def main():
     if args.allocate:
         if not args.pool:
             sys.exit("hee-name -allocate requires --pool (see -list-pools)")
-        cmd_allocate(args.pool, args.scope, args.prefix, args.role)
+        cmd_allocate(args.pool, args.scope, args.prefix, args.role, args.cohabit)
         return
 
     if args.release:

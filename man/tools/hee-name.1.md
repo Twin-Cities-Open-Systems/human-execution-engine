@@ -10,8 +10,8 @@ hee-name - hee-name command
 
 # DESCRIPTION
 
-                    [--pool POOL] [--scope SCOPE] [--prefix PREFIX] [--role ROLE]
-                    [--allocations-dir PATH]
+                    [--pool POOL] [--scope SCOPE] [--prefix PREFIX]
+                    [--cohabit INSTANCE] [--role ROLE] [--allocations-dir PATH]
 
     options:
       -h, --help            show this help message and exit
@@ -22,6 +22,8 @@ hee-name - hee-name command
       --pool POOL
       --scope SCOPE
       --prefix PREFIX
+      --cohabit INSTANCE    deliberately share an EXISTING instance rather than
+                            taking a fresh one
       --role ROLE           role suffix; required for scopes in
                             ROLE_REQUIRED_SCOPES
       --allocations-dir PATH
