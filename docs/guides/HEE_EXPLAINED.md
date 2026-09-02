@@ -17,16 +17,45 @@ quantizing Proudhon/Marx/Bakunin/Kropotkin into `hee-ratios(tm)`), and
 most people don't get that on first contact. Precise language is correct
 for governance. It's bad for a first fifteen minutes.
 
-## The core shape: idea -> footgun -> dogfood
+## The core shape
 
-Every real thing in HEE goes through the same three-legged stool before
-it's trusted. Take any leg away and it falls over.
+```sh
+# idea footgun dogfood - rinse, repeat
+# (rinse) <-> idea -> (one way) footgun <-> dogfood -> (repeat)
+<-idea->footgun<->dogfood->
+```
+
+**That notation is the definition.** Written out as a flat list it loses
+the part that matters, so it is reproduced here exactly as Spencer states
+it, and every other description in this repo should defer to it.
+
+Read the arrows:
+
+- `(rinse) <-> idea` -- the outer left arrow is two-way. Rinse and idea
+  feed each other.
+- `idea -> footgun` -- **ONE WAY.** Once an idea is under examination you
+  do not walk it back to being an idea; you carry it forward or you drop
+  it. This is the only one-way arrow in the shape, which is exactly why it
+  is annotated.
+- `footgun <-> dogfood` -- these CYCLE. Dogfooding surfaces a footgun;
+  fixing it sends you back to dogfood; repeat until dogfooding stops
+  producing footguns.
+- `dogfood -> (repeat)` -- it flows out the far side and comes round again.
+
+A funnel would be all one-way arrows. This has exactly one.
+
+The three stages, spelled out:
 
 1. **Idea** -- propose it, in draft form. Not built, not binding.
 2. **Footgun** -- name what could actually go wrong with it, honestly,
    before anyone commits to it.
 3. **Dogfood** -- prove it works with real usage, real data, real output.
    Only *then* does it get promoted/ratified into something people rely on.
+
+Take any leg away and it falls over. But a numbered list reads as a
+one-way pipeline, and it is not one -- the arrows above are why. An earlier
+pass through this material flattened `footgun<->dogfood` into `footgun ->
+dogfood` and lost exactly that.
 
 This is the same as the real `propose -> prove -> ratify` sequence already
 established in `fleet-ops#16` -- this is just the version you can say out

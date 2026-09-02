@@ -28,7 +28,8 @@ long did each stage take" is a real, derivable count -- not asserted.
 Usage:
   hee-ticket -new "description text"
   hee-ticket -list
-  hee-ticket -advance ID     # idea -> footgun -> dogfood, one step at a time
+  hee-ticket -advance ID     # one stage forward
+  hee-ticket -back ID        # one stage back -- footgun<->dogfood cycles
   hee-ticket -close SPEC     # mark one or more tickets closed
                              #   SPEC: comma list (1,2,3), ranges (1-3,7),
                              #   or mixed (1-3,7,9) -- digits/commas/hyphens
@@ -309,6 +310,59 @@ def cmd_new(description: str):
     print(f"  {path.relative_to(repo_root())}")
 
 
+def cmd_back(tid: str):
+    """Move a ticket one stage BACKWARD.
+
+    The pipeline is a loop, not a funnel. Spencer states it as:
+
+        # idea footgun dogfood - rinse, repeat
+        <-idea->footgun<->dogfood->
+
+    `footgun<->dogfood` is bidirectional: dogfooding surfaces a footgun,
+    and fixing that footgun sends the ticket BACK to dogfood to be proved
+    again. Until 2026-09-02 this tool only ever went forward (`idx + 1`,
+    stopping at the last stage), so it implemented a funnel while the
+    doctrine described a cycle. A ticket that found a real footgun during
+    dogfooding had nowhere to go and the stage_history recorded a
+    straight line that never happened.
+
+    ONLY `dogfood -> footgun` is legal. The annotated notation is explicit
+    that `idea -> footgun` is the one one-way arrow in the whole shape:
+
+        # (rinse) <-> idea -> (one way) footgun <-> dogfood -> (repeat)
+
+    So a ticket at `footgun` cannot go back to `idea`. Once an idea is
+    under examination you carry it forward or you drop it -- you do not
+    walk it back to being an idea. A first pass at this function allowed
+    it, because it was written from the unannotated notation and treated
+    every arrow as symmetric.
+    """
+    tid = tid.zfill(4)
+    path = tickets_dir() / f"{tid}.yaml"
+    if not path.exists():
+        sys.exit(f"hee-ticket: no ticket {tid}")
+    with open(path) as f:
+        rec = yaml.safe_load(f)
+    cur = rec.get("stage", STAGES[0])
+    if cur not in STAGES:
+        sys.exit(f"hee-ticket: unknown stage '{cur}' on ticket {tid} -- can not go back")
+    idx = STAGES.index(cur)
+    if idx == 0:
+        print(f"hee-ticket {tid}: already at first stage ({cur}), nothing to go back to")
+        return
+    if STAGES[idx - 1] == "idea":
+        print(f"hee-ticket {tid}: {cur} -> idea is not a legal transition.\n"
+              f"  idea -> footgun is ONE WAY: carry it forward, or -close it.",
+              file=sys.stderr)
+        sys.exit(1)
+    new_stage = STAGES[idx - 1]
+    rec["stage"] = new_stage
+    rec.setdefault("stage_history", []).append({"stage": new_stage, "at": now_iso()})
+    with open(path, "w") as f:
+        yaml.safe_dump(rec, f, sort_keys=False)
+    print(f"hee-ticket {tid}: {cur} -> {new_stage}")
+
+
 def cmd_advance(tid: str):
     tid = tid.zfill(4)
     path = tickets_dir() / f"{tid}.yaml"
@@ -318,7 +372,7 @@ def cmd_advance(tid: str):
         rec = yaml.safe_load(f)
     cur = rec.get("stage", STAGES[0])
     if cur not in STAGES:
-        sys.exit(f"hee-ticket: unknown stage '{cur}' on ticket {tid} -- can't advance")
+        sys.exit(f"hee-ticket: unknown stage '{cur}' on ticket {tid} -- can not advance")
     idx = STAGES.index(cur)
     if idx == len(STAGES) - 1:
         print(f"hee-ticket {tid}: already at final stage ({cur}), nothing to advance to")
@@ -394,6 +448,7 @@ def main():
     ap.add_argument("-new", dest="new_desc", metavar="DESCRIPTION")
     ap.add_argument("-list", action="store_true")
     ap.add_argument("-advance", dest="advance_id", metavar="ID")
+    ap.add_argument("-back", dest="back_id", metavar="ID")
     ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
     args = ap.parse_args()
 
@@ -403,6 +458,8 @@ def main():
         cmd_list()
     elif args.advance_id:
         cmd_advance(args.advance_id)
+    elif args.back_id:
+        cmd_back(args.back_id)
     elif args.close_ids:
         cmd_close(args.close_ids)
     else:
