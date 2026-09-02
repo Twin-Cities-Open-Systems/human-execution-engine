@@ -47,6 +47,71 @@ man page                    # May invoke pager
 command                     # May invoke pager
 ```
 
+### 1a. Apostrophe-Free Authored Text Policy
+
+**CRITICAL HEE VIOLATION**: authored text MUST NOT contain an apostrophe.
+
+Numbered `1a` rather than `2` deliberately: section numbers here are cited
+by number across the org (`GIT_GH_WORKFLOW.md` cites §2, state capsules cite
+§5, §10, §11, §13), so renumbering to insert would break real references.
+
+**Restored 2026-09-02.** This was canon in the early HEE/TCOS days, same era
+as the Pager Prevention Policy above, and it was lost. Operator, on finding
+an apostrophe in `bootstrap.mk` help output: *"we used to (jan 2026) have
+rule about not using contracts with single quotes. just say accounts or
+account. I would rather sound dumb than have unmatched quotes bite my ass."*
+
+**Rationale, two independent failures:**
+
+1. **It terminates single-quoted shell strings.** An `awk` or `sed` program
+   passed as `'...'` ends at the first apostrophe inside it. The one
+   surviving trace of the original rule is a comment in
+   `tooling/bin/hee-gen-manpages`: *"No apostrophes in this comment: the awk
+   program is inside a single-quoted shell string."* One comment was all
+   that remained of a policy.
+
+2. **It breaks syntax highlighters and formatters.** A highlighter reads a
+   lone `'` as opening a string, so every line after it is mis-colored --
+   in terminals, in editors, and in rendered GitHub code blocks. Observed
+   live 2026-09-02 in a pasted `make help` block, where the coloring broke
+   at `account's` and never recovered. Operator: *"breaks formatters (eyes
+   and quality of life are important)."*
+
+The second reason is the broader one. The first only bites shell; the
+second bites everywhere text is displayed.
+
+**Enforcement:**
+
+- Spell contractions out. `can not` or `cannot`, never `can't`. `do not`,
+  `it is`, `does not`, `will not`.
+- Rephrase possessives rather than contracting them. `cron entries for this
+  account`, not `this account's cron entries`. `the git hooks from this
+  repo`, not `the repo's git hooks`.
+- Applies to every operator-facing surface: tool help text, Makefile `##`
+  descriptions, status and error messages, comments inside quoted program
+  text, and committed prose.
+- A **matched pair** used as real quoting is fine and is not what this
+  bans: `must be 'yes' to execute` is correct, because both quotes are
+  present and highlighters pair them.
+
+**Sounding blunt is the accepted cost.** The operator said so directly, and
+that trade is the policy, not a regrettable side effect.
+
+**Examples:**
+
+```text
+# CORRECT
+add cron entries for this account, never overwriting the crontab
+symlink the git hooks from this repo
+the tool does not guess; it fails and says what is missing
+must be 'yes' to actually execute
+
+# INCORRECT
+add this account's cron entries        # unmatched -- breaks highlighting
+symlink the repo's git hooks           # unmatched
+the tool doesn't guess                 # contraction
+```
+
 ### 2. Branch Management Policy
 
 **Requirement**: ALL changes MUST use feature branches

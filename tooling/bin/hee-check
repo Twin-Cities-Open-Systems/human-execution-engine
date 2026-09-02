@@ -654,6 +654,47 @@ check_style() {
   _ST_SKIP="$_ST_SKIP ':!library/regex/patterns.yaml' ':!node_modules/*'"
   _ST_SKIP="$_ST_SKIP ':!tooling/bin/hee-check'"
 
+  # Apostrophes in authored text -- HEE_POLICY 1a, restored 2026-09-02.
+  # Canonical pattern: library/regex/patterns.yaml, apostrophe-in-prose,
+  # proved across six engines there rather than trusted here.
+  #
+  # letter-quote-LETTER is the whole trick: a matched pair used as real
+  # quoting never matches, because its opening quote has no letter before it
+  # and its closing quote has no letter after.
+  #
+  # NOTE THE EVAL FORM. The en-GB scan above embeds its pattern INSIDE the
+  # eval string as '"'$_ENGB'"'. That cannot work here, because this pattern
+  # CONTAINS an apostrophe -- it would terminate the very single-quoted
+  # string it sits in. The rule bites its own checker. So the variable
+  # reference is passed through to the inner shell and expanded there, where
+  # nothing re-quotes it.
+  #
+  # ADVISORY, NOT BLOCKING, deliberately. Measured at introduction: 1491 hits
+  # across 200+ files, a backlog nobody clears in one change. A gate that
+  # fails every build teaches people to ignore gates.
+  #
+  # This is NOT a check that cannot fail. It reports a real count every run;
+  # only its EXIT contribution is suppressed. FLIP CONDITION, written down so
+  # it stays a plan and not a permanent excuse: when the count reaches 0,
+  # delete the branch below and let it fail the way en-GB does.
+  # HEE_STYLE_APOSTROPHE=error in heerc opts in early.
+  _APOS="([A-Za-z])'([A-Za-z])"
+  _ap="$(eval "git -C \"\$root\" grep -n -I -E \"\$_APOS\" -- $_ST_SKIP" 2>/dev/null)"
+  _apn=0
+  [ -n "$_ap" ] && _apn="$(printf '%s\n' "$_ap" | wc -l)"
+  if [ "$_apn" -gt 0 ]; then
+    if [ "${HEE_STYLE_APOSTROPHE:-warn}" = error ]; then
+      printf '%s\n' "$_ap" | head -10 | while IFS= read -r l; do
+        hee_status WARNING "apostrophe: $l"
+      done
+      hee_status CRITICAL "apostrophes in authored text: $_apn (HEE_POLICY 1a)"
+      return 2
+    fi
+    hee_status WARNING "apostrophes in authored text: $_apn -- advisory, baseline 1491 (HEE_POLICY 1a; HEE_STYLE_APOSTROPHE=error to enforce)"
+  else
+    hee_status OK "no apostrophes in authored text (HEE_POLICY 1a)"
+  fi
+
   _st="$(eval git -C '"$root"' grep -n -I -E "'$_ENGB'" -- $_ST_SKIP 2>/dev/null)"
   if [ -z "$_st" ]; then
     hee_status OK "US English: no en-GB spellings in authored text"

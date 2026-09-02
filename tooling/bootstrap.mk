@@ -265,7 +265,7 @@ link-cache-prune: clone-repo ## symlink hee-cache-prune into the bin dir
 # same category as hee/hee-cache-prune above). Symlinked, not copied,
 # same as link-hee -- an update to the script here is live for every
 # identity without a reinstall.
-link-hooks: clone-repo ## symlink the repo's git hooks -- symlinked, never copied
+link-hooks: clone-repo ## symlink the git hooks from this repo -- symlinked, never copied
 	@mkdir -p "$(HOOKS_DIR)"
 	@ln -sf "$(CLONE_DIR)/tooling/hooks/check-bare-issue-refs.py" "$(HOOKS_DIR)/check-bare-issue-refs.py"
 
@@ -297,7 +297,7 @@ install-hooks: link-hooks ## register the agent PreToolUse hooks, idempotently
 # overwrites an existing crontab wholesale), skips if these two real
 # lines are already present so re-running is a real no-op, not a
 # growing duplicate list.
-install-cron: link-hee link-cache-prune ## add this account's cron entries, never overwriting the crontab
+install-cron: link-hee link-cache-prune ## add cron entries for this account, never overwriting the crontab
 	@existing="$$(crontab -l 2>/dev/null || true)"; \
 	prune_line="0 4 * * * $(BIN_DIR)/hee-cache-prune"; \
 	health_line="0 5 * * 0 cd $(CLONE_DIR) && $(MAKE) -f tooling/bootstrap.mk health-all-repos > $(HOME_DIR)/.cache/hee-git-health-report.txt 2>&1"; \

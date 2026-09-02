@@ -216,3 +216,27 @@ spec:
           - "bast-homer"
           - "marge-oper"
           - "bast-homer-admin"
+
+    - name: apostrophe-in-prose
+      lane: portable
+      description: "A contraction or possessive apostrophe in authored text. Enforces HEE_POLICY 1a. Deliberately does NOT flag a matched pair used as real quoting."
+      ere: "([A-Za-z])'([A-Za-z])"
+      capture: 0
+      notes:
+        - "Restored 2026-09-02. This was canon in early HEE/TCOS, same era as the Pager Prevention Policy, and it was lost. The only surviving trace was one comment in tooling/bin/hee-gen-manpages reading: No apostrophes in this comment, the awk program is inside a single-quoted shell string."
+        - "Two independent failures, and the second is the broader one. (1) An apostrophe TERMINATES a single-quoted shell string, so it silently truncates any awk or sed program passed that way. (2) A lone apostrophe makes syntax highlighters read everything after it as a string, mis-coloring terminals, editors and rendered GitHub blocks alike. Observed live in a pasted make help block where the coloring broke at the possessive and never recovered. Operator: breaks formatters, eyes and quality of life are important."
+        - "letter-quote-LETTER is the whole trick, and it is what separates a violation from correct quoting. In a matched pair the opening quote has no letter before it and the closing quote has no letter after, so a real quoted value never matches. In a possessive the two letters sit on either side, so it does. No lookaround needed, which is why this works in POSIX ERE and awk."
+        - "A trailing plural possessive is not matched, since nothing follows the quote. Rare enough that widening the pattern would cost more in false positives on real quoted text than it is worth."
+        - "Known and accepted false positives: an Irish surname, and rock-n-roll written with quotes. The org has neither in authored text. Same explicit-over-clever stance as en-gb-spelling, whose notes record that a generic -ise rule flags otherwise and raise."
+      tests:
+        match:
+          - { input: "add this account's cron entries", expect: "t's" }
+          - { input: "symlink the repo's git hooks", expect: "o's" }
+          - { input: "the tool doesn't guess", expect: "n't" }
+          - { input: "it isn't set", expect: "n't" }
+        reject:
+          - "must be 'yes' to actually execute"
+          - "add cron entries for this account"
+          - "the tool does not guess"
+          - "sed -e 's|a|b|g'"
+          - "accounts and repos"

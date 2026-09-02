@@ -239,6 +239,19 @@ loaded, read this file directly rather than assume it did.
     -- never copied or installed, so `git pull` is the update mechanism and
     there is no second copy to drift.
 
+18. **No apostrophes in authored text.** Spell contractions out
+    (`can not`, `does not`, `it is`) and rephrase possessives (`cron
+    entries for this account`, not `this account's`). Two independent
+    reasons: an apostrophe **terminates a single-quoted shell string**, so
+    it silently breaks any `awk`/`sed` program passed as `'...'`; and a
+    lone `'` makes syntax highlighters treat everything after it as a
+    string, mis-coloring terminals, editors and rendered GitHub blocks
+    alike. A **matched pair** used as real quoting is fine -- `must be
+    'yes'` is correct. Restored 2026-09-02 after being lost since early
+    2026; full reasoning and the incident in `HEE_POLICY.md` §1a. Sounding
+    blunt is the accepted cost, stated by the operator directly.
+
+
 ## Authority Invariants
 
 - Authority is scoped to this repository and this workflow context.
