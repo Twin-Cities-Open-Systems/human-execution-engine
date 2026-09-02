@@ -21,7 +21,7 @@ Manifest format (pve/services/<name>.yaml):
   cores: 1
   memory_mb: 256
   disk_gb: 4
-  storage: local-lvm
+  storage: ssd1
   bridge: vmbr0
   unprivileged: true
 
@@ -60,7 +60,8 @@ def existing_hostnames(host, node):
 
 
 def ensure_template(host, template_storage, template):
-    # Real, live-found gap: lvmthin storages (local-lvm/vmdata) only
+    # Real, live-found gap: some storages (the lvmthin local-lvm/vmdata this
+    # fleet used before the 2026-09-02 ZFS migration, and zfspool alike) only
     # support content type images/rootdir, not vztmpl -- templates must
     # live on a dir-type storage (real "local" on this node). Separate
     # from where the LXC's actual rootfs disk lands.
@@ -79,6 +80,25 @@ def ensure_template(host, template_storage, template):
 
 
 def main():
+    def require(key):
+        """Fail loudly rather than invent a storage name.
+
+        This used to default to 'local-lvm'. That storage stopped existing
+        when this fleet migrated to ZFS on 2026-09-02, and a wrong default is
+        worse than none: pvesh would either fail with a message about a
+        storage the manifest never mentioned, or -- if a storage by that name
+        did exist -- silently put the container somewhere nobody chose.
+
+        Every manifest in fleet-ops/pve/services/ sets this explicitly, so
+        requiring it costs nothing and removes a way to be quietly wrong.
+        """
+        v = spec.get(key)
+        if v in (None, ""):
+            sys.exit(f"hee-pve-deploy: manifest is missing required key '{key}'.\n"
+                     f"  Storage is not guessed -- name it, e.g. `storage: ssd1`.\n"
+                     f"  List what exists: ssh root@{args.host} pvesm status")
+        return v
+
     ap = argparse.ArgumentParser(prog="hee-pve-deploy")
     ap.add_argument("manifest")
     ap.add_argument("--node", default="pve")
@@ -116,7 +136,7 @@ def main():
         "-ostemplate", f"{template_storage}:vztmpl/{spec['template']}",
         "-cores", str(spec.get("cores", 1)),
         "-memory", str(spec.get("memory_mb", 256)),
-        "-rootfs", f"{spec.get('storage', 'local-lvm')}:{spec.get('disk_gb', 4)}",
+        "-rootfs", f"{require('storage')}:{spec.get('disk_gb', 4)}",
         "-net0", f"name=eth0,bridge={spec.get('bridge', 'vmbr0')},ip=dhcp",
         "-unprivileged", "1" if spec.get("unprivileged", True) else "0",
         "-start", "1",
