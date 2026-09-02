@@ -1,0 +1,97 @@
+# path: blueprints/bastion-provisioning-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: bastion-provisioning-v1
+  description: "Reusable ceremony for bringing a bastion into existence, promoting an ephemeral one to a durable identity, and retiring either. Governs the two-tier scheme agreed 2026-09-02: bast-<hee-name>-<oper|agent> is disposable, bast-<oper|agent> is permanent, and the DNS record is what separates them."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: bastion-provisioning
+    artifact: blueprint
+  annotations:
+    inuid: "c93d46dc1681384bd3e2919ef5c9b4de7c0100f21cef97705a1b80afff17d75d"
+    inuid_seed: "hee-blueprint://tcos-fleet/bastion-provisioning/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencerbutler
+    transcriber: touchy-claude
+    updated-at: "2026-09-02T17:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  governed_by:
+    - contracts/fleet-identity-v1.contract.yaml
+    - contracts/publish-sanitization-v1.contract.yaml
+
+  actors:
+    oper: "the human whose identity a durable bastion carries"
+    identity: "the agent or oper running the ceremony"
+    factory: "container-factory -- holds the provisioning TOOLING; the golden templates themselves are pve/ZFS objects, not files in a container"
+
+  params:
+    kind:
+      description: "ephemeral | durable"
+      supplied_by: oper
+      default: ephemeral
+      default_rationale: "the cheap, reversible case should be the default; promotion is a deliberate act"
+    pool:
+      description: "hee-name pool for an ephemeral's name"
+      supplied_by: oper
+      default: null
+      default_rationale: "no default -- the pool is a naming choice, and inventing one silently would scatter identities across pools"
+
+  ceremony:
+    - step: allocate_name
+      actor: identity
+      description: "ephemeral: 'hee name -allocate --pool <pool> --scope bastion' yields bast-<name>-<oper|agent>. durable: the name IS the oper or agent name, no allocation."
+      exit_condition: "a name exists and, for ephemerals, is recorded in the bastion scope"
+      blocked_by: "hee-name currently writes allocations into the CURRENT DIRECTORY's repo, so two callers can receive the same name without either seeing a collision. Until that is pinned to a canonical location, ephemeral names are not safely unique."
+
+    - step: instantiate
+      actor: factory
+      description: "clone the golden template. On ZFS this is copy-on-write and costs kilobytes until the container diverges, which is what makes ephemerals genuinely disposable rather than nominally so."
+      exit_condition: "container running, fleet root CA present in its trust store"
+
+    - step: promote
+      actor: oper
+      description: "durable only. Assign a STATIC address and add one '=' line to the hee-dns host file, producing forward and reverse together. Then create ~/.hee/index/_.yaml."
+      exit_condition: "A and PTR both resolve, and the anchor exists"
+      invariant: "address and record are assigned in the SAME step -- see fleet-identity-v1's record_and_address_together. A PTR outliving a recycled DHCP address makes reverse lookups lie."
+
+    - step: seal_key_material
+      actor: oper
+      description: "generate the identity key locally, seal it with hee-cred to the oper's existing recipients, and only then write the anchor."
+      exit_condition: "sealed ciphertext exists and is replicated"
+      invariant: "if sealing fails, no anchor is written. An unrecoverable identity is worse than no identity."
+      blocked_by: "hee-cred can silently truncate a secret when a recipient key is untrusted, and its sealed output is currently gitignored so it is not replicated. Both must be fixed before this step is trustworthy for identity keys."
+
+    - step: verify
+      actor: identity
+      description: "'./configure --verify-identity' re-checks an existing anchor against the chain. Same entry point as --init-identity, differing by flag."
+      exit_condition: "chain verifies, or the failure names which link broke"
+      rationale: "one door for bootstrap and verification -- two doors means one of them rots"
+
+    - step: retire
+      actor: oper
+      description: "ephemeral: destroy the container, 'hee name -release <name>'. durable: NOT a routine operation -- the SSOT lives here; retiring one is a decision about what happens to everything it signed."
+      exit_condition: "for ephemerals, name released and address free"
+
+  invariants:
+    - "default_is_disposable: unless a bastion is explicitly durable it gets no record and no anchor, so nothing can accidentally come to depend on it"
+    - "promotion_is_visible: an identity becomes real in DNS, where it can be observed, rather than in a config file where it cannot"
+    - "no_fabricated_history: an anchor records what actually happened. If a step could not be completed, the ceremony says so rather than writing a plausible anchor"
+
+  integration:
+    bootstrap:
+      - "This ceremony is what 'bootstrap-all' and the dotfiles install path should call for an oper bastion, rather than each carrying its own copy of the steps."
+      - "The operator-facing surface is the familiar one: git clone, ./configure, make, make install -- with configure flags selecting init or verify. A hand-written configure script suffices; autoconf would add build dependencies a fresh Alpine bastion does not have."
+      - "make install yields a LOCAL identity only. Fleet membership requires hiring-handshake-v1."
+
+  prerequisites_not_yet_built:
+    - "The three hee-name / hee-cred blockers in fleet-identity-v1's known_blockers. All three sit on this ceremony's critical path."
+    - "The fleet root CA itself. Recorded in the contract; not created by this blueprint."
+    - "This blueprint has not been run end to end -- status: proposed, the same position hiring-handshake-v1 and shift-init-v1 were in before their first real use."

@@ -1,0 +1,72 @@
+# path: contracts/fleet-identity-v1.contract.yaml
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: fleet-identity
+  description: "How a fleet identity comes into existence, how it is anchored, and what may root through it. Real trigger 2026-09-02: prompts/INIT.md has carried the caveat 'no identity in this fleet has one yet' about .hee/index/_.yaml since it was written, so the hash-chain primitive in library/py/hee_hash/soa.py has had nothing to root off. This contract fixes the rules that anchor needs to satisfy before anything is built against it."
+  labels:
+    hee.object: "true"
+    hee.contract.type: identity
+    domain: hee
+    scope: fleet-ops
+    topic: fleet-identity
+    artifact: contract
+  annotations:
+    inuid: "49961f96902f081e173dbbe0667c6ae87962102b1c06105d0182638af66b3044"
+    inuid_seed: "hee-contract://tcos-fleet/fleet-identity/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencerbutler
+    transcriber: touchy-claude
+    created_utc: "2026-09-02T17:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  intent:
+    - "An identity is a container, not a record about a container. bast-<oper> IS the operator's identity in the fleet; there is no separate directory to drift from it."
+    - "Durability is visible in DNS. A record is what makes an identity real, and an identity with no record can be destroyed without consequence."
+    - "Nothing roots through anything that can be destroyed casually."
+
+  definitions:
+    ephemeral_bastion:
+      naming: "bast-<hee-name>-<oper|agent>"
+      dns: "none -- no A record, no PTR"
+      anchor: "none -- no .hee/index/_.yaml"
+      lifecycle: "created and destroyed freely; names come from a hee-name pool under the 'bastion' scope and are released on destroy"
+    durable_bastion:
+      naming: "bast-<oper|agent>"
+      dns: "A + PTR, both generated from one '=' line in the hee-dns host file"
+      anchor: "~/.hee/index/_.yaml -- the single source of truth for that identity"
+      lifecycle: "permanent; never casually destroyed or recreated"
+
+  invariants:
+    - "record_and_address_together: promotion assigns a STATIC address in the same step that adds the DNS record. An ephemeral on DHCP gets an address that recycles, and a PTR outliving its container makes reverse lookups lie -- which is worse than no PTR, because monitoring and logs believe it."
+    - "no_anchor_without_record: an identity anchor exists only where a durable DNS record exists. This is what makes ephemeral destruction free."
+    - "ssot_is_the_bastion: the durable bastion's .hee/index/_.yaml is authoritative. Public presence at tcos.us/people/<oper|agent> is DERIVED from it and never hand-maintained; derivation is a filtered projection through publish-sanitization-v1, not a dump."
+    - "replication_is_identity_durability: because the SSOT lives in the container, backup of durable bastions is not housekeeping -- it is whether an identity survives a disk. Durable bastions live on a replicated pool, and a restore must have been TESTED, not merely configured."
+    - "isolation_is_structural: bast-<oper> shares nothing with agent bastions -- no bind mounts, no group overlap, no reachable export. The reason is not credential hygiene; it is that the chain must not be forgeable upward."
+    - "key_material_is_recoverable: an identity key generated at init is sealed to the operator's existing recipients before the anchor is written. If sealing fails, no anchor is written -- an unrecoverable identity is worse than no identity."
+    - "local_identity_is_not_fleet_membership: 'make install' produces a local identity. Joining the fleet requires an existing member to vouch (blueprints/hiring-handshake-v1.yaml). Collapsing the two makes onboarding smoother and the trust model meaningless."
+
+  certificates:
+    internal:
+      issuer: "fleet root CA (owner@dogfood)"
+      covers: "service-to-service -- IRC/soju, SMTP/mx1, Proxmox, anything configured rather than browsed"
+      rationale: "issuance, rotation and revocation stay in the fleet"
+    edge:
+      issuer: "Let's Encrypt"
+      covers: "browser-facing *.lab.tcos.us at the haproxy edge"
+      rationale: "an internal CA requires its root in every browser; LE already works with zero trust distribution, so replacing it would be a UX downgrade for no security gain"
+    obligation:
+      - "the fleet root must be present in the container template, so a freshly cloned bastion trusts the fleet on first boot without a manual step. Trust distribution, not issuance, is the real work."
+
+  known_blockers:
+    - "hee-name writes allocations to repo_root()/.hee/name-allocations of the CURRENT DIRECTORY's repo. Two callers in different directories receive the same name and neither sees the collision -- observed 2026-09-02, a pve-storage allocation landed in the thesis-engine repo. This must be fixed before hee-name allocates real identities."
+    - "hee-cred seals without --trust-model always, so an untrusted recipient key makes gpg prompt DURING secret entry and the operator's keystrokes answer the prompt instead. Observed twice on 2026-09-02: a 69-character key stored as 1 character and then 7. The double-prompt confirm cannot catch it because both reads truncate identically. It must also report the captured length."
+    - "hee-cred's docstring states storage is git-tracked ciphertext; fleet-ops/.gitignore excludes .hee/secrets/. Sealed material therefore lives on exactly one machine and dies with it, which is disqualifying for identity keys."
+
+  open_questions:
+    - "What attests to the root CA itself? Self-attesting is the conventional answer; recorded here as a decision to make rather than an omission."
+    - "Revocation: when a durable bastion is retired rather than lost, what happens to artifacts it signed? Archived attestation and re-derivable verification are different answers with different costs."
