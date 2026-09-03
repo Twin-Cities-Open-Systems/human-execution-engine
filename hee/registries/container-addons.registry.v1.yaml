@@ -1,0 +1,57 @@
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: container-addons
+  description: "Named add-on sets a container can be given after it is cloned from the golden template. The template stays deliberately tiny -- 12.8MB, ca-certificates and tzdata -- because anything speculative in it is paid for by every clone forever. This registry is where 'more stack, on request' becomes reviewable instead of ad hoc apk lines in someone's shell history."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fleet-ops
+    topic: container-addons
+    artifact: registry
+  annotations:
+    inuid: "040b250b9e3077dc929d3ccd49a45fe63640217caba0235c55021d929c4f4f69"
+    inuid_seed: "hee-registry://core/container-addons/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: spencerbutler
+    transcriber: touchy-claude
+    updated-at: "2026-09-03T00:00:00Z"
+
+spec:
+  status: proposed
+
+  invariants:
+    - "evidence_before_entry: a set goes in here because something really needed it, not because it might. Every set below names the container that proved it. A speculative set is a tax on every clone that takes it."
+    - "the_template_stays_bare: an add-on is never promoted into the golden template just because two things use it. The template is cloned copy-on-write at 0 bytes; packages baked in there are the one cost a clone cannot avoid."
+    - "sets_are_additive_only: an add-on installs. It never removes, never edits config, never starts a service. Anything that changes how a host behaves belongs in that host's own manifest where it is reviewable, not hidden behind a set name."
+
+  addons:
+    agent-tooling:
+      description: "What an agent needs to run hee tooling inside a container."
+      packages: [git, python3, openssh-client, gnupg]
+      proved_by: >
+        container-factory (lxc 104), 2026-09-03. It was bare Alpine with no
+        git, python3, ssh or gpg, so it could not run a single hee tool.
+        These four are exactly what was installed to make it able to work --
+        76.5 MiB, 89 packages with dependencies.
+      note: >
+        ca-certificates is NOT here. It is in the golden template, because
+        without it nothing can verify TLS to anything and every clone would
+        need it.
+
+    bastion-base:
+      description: "An identity bastion that other hosts reach."
+      packages: [openssh-server, openssh-keygen]
+      proved_by: >
+        blueprints/bastion-provisioning-v1.yaml's instantiate step. Not yet
+        run end to end -- recorded as the set that step will need, and
+        marked so rather than implied.
+      note: >
+        Host keys are deliberately absent from the golden template and MUST
+        be generated per clone. A template that carried them would hand
+        every bastion the same identity, which is the opposite of what a
+        bastion is for.
+      blocked_by: >
+        The fleet root CA does not exist yet (fleet-ops#102). Until it does,
+        a clone taking this set trusts nothing in the fleet, so this set is
+        incomplete rather than ready.

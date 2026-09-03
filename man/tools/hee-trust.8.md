@@ -1,0 +1,63 @@
+% HEE-TRUST(8) | HEE Tools
+
+# NAME
+
+hee-trust - the fleet's trust anchors: who signs, and who believes whom.
+
+# SYNOPSIS
+
+    hee-trust anchor [--home PATH] [--repo PATH] [--write] [--force]
+    hee-trust anchor verify [--home PATH]
+    hee-trust ca show [--host HOST] [--vmid N]
+    hee-trust [SUBCOMMAND] help
+
+
+# DESCRIPTION
+
+
+    Named for the noun rather than the category. `hee sec` was considered and
+    rejected: security covers nearly everything, so a tool called that accretes
+    whatever has no other home. `trust` names one question -- do I believe this
+    thing, and on whose word.
+
+    Deliberately NOT the place for hee-cred. A credential is a secret you HOLD;
+    a trust anchor is something you BELIEVE. They share GPG and recipient
+    handling, but shared implementation belongs in library/, not a merged
+    command. hee-cred also has 31 callers across five repos, and moving a
+    working, well-scoped tool to satisfy a taxonomy is not an improvement.
+
+
+# SUBCOMMANDS
+
+    anchor    the SOA capsule at ~/.hee/index/_.yaml
+    ca        the fleet X.509 CA
+
+
+# EXIT STATUS
+
+    Nagios plugin convention.
+    0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
+
+
+# SEE ALSO
+
+      hee-cred (a secret you HOLD, deliberately separate), hee-ssh-trust-ca,
+      hee-ver, docs/specs/HEE_SOA_CAPSULE.md
+
+    WHY `anchor` EXISTS
+
+    library/py/hee_hash/soa.py could only ever VERIFY. There was no generator
+    anywhere in the org -- docs/specs/HEE_SOA_CAPSULE.md describes the creation
+    process as six manual steps, "dogfooded live 2026-08-24", and that is
+    literally how both existing capsules were made.
+
+    The consequence, measured 2026-09-03: kiosk's claude and spencer accounts
+    have capsules; owner-dogfood, container-factory and the golden template
+    have none. contracts/fleet-identity-v1.contract.yaml makes
+    owner@dogfood:~/.hee/index/_.yaml the ROOT of the identity chain, and the
+    fleet CA generated into that same container is described as attesting
+    through it. It could not, because nothing could write one.
+
+    A hash you have to produce by hand is a hash nobody produces.
+
+    Add `help` after any subcommand for its own page.
