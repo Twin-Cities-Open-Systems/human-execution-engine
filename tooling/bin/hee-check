@@ -659,6 +659,71 @@ if hee_help_wanted "$@"; then
   exit 0
 fi
 
+# check_signatures ROOT -- every detached signature verifies against the
+# file it signs.
+#
+# Real trigger 2026-09-02. hee/skills/ratify-contract-v1.skill.yaml records
+# a bug caught twice across four PRs (signing content, then editing it) and
+# names its own gap: "no automated CI check runs this skill's verification
+# step -- it's still a manually-invoked discipline, not enforced". Operator:
+# "ensure we are not just having a theatre party, we design is solid, let's
+# not leave a hole in implementation".
+#
+# On its first run this found FOUR BAD signatures out of six. The bug had
+# fired four more times AFTER the skill was written to prevent it, silently,
+# because a stale signature still parses as valid armor.
+#
+# BAD SIGNATURE and NO PUBLIC KEY are reported differently, deliberately.
+# The first means content changed after signing: CRITICAL. The second means
+# this machine cannot check: UNKNOWN. Reporting an unverifiable signature as
+# broken would train people to ignore the check, which is how a real BAD one
+# gets missed.
+check_signatures() {
+  root="${1:-.}"
+  git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    hee_status UNKNOWN "not a git repository: $root"; return 3; }
+  command -v gpg >/dev/null 2>&1 || {
+    hee_status UNKNOWN "gpg unavailable -- cannot verify signatures"; return 3; }
+
+  _sig_ok=0; _sig_bad=0; _sig_unk=0; _sig_orphan=0
+  # Tracked files only -- an untracked .asc is somebody's scratch work.
+  for _a in $(git -C "$root" ls-files '*.asc' 2>/dev/null); do
+    # Two real conventions here: <file>.asc and <file>.<signer>.asc.
+    _base="${_a%.asc}"
+    [ -f "$root/$_base" ] || _base="${_base%.*}"
+    if [ ! -f "$root/$_base" ]; then
+      hee_status WARNING "orphan signature, signs nothing: $_a"
+      _sig_orphan=$((_sig_orphan + 1)); continue
+    fi
+    _out="$(gpg --verify "$root/$_a" "$root/$_base" 2>&1)"
+    case "$_out" in
+      *"Good signature"*) _sig_ok=$((_sig_ok + 1)) ;;
+      *"BAD signature"*)
+        hee_status CRITICAL "BAD signature, content changed after signing: $_a"
+        _sig_bad=$((_sig_bad + 1)) ;;
+      *"No public key"*|*"Can't check signature"*)
+        hee_status UNKNOWN "cannot verify here, no public key: $_a"
+        _sig_unk=$((_sig_unk + 1)) ;;
+      *)
+        hee_status UNKNOWN "unrecognized gpg result: $_a"
+        _sig_unk=$((_sig_unk + 1)) ;;
+    esac
+  done
+
+  _sig_total=$((_sig_ok + _sig_bad + _sig_unk + _sig_orphan))
+  [ "$_sig_total" -eq 0 ] && { hee_status OK "no signatures to verify"; return 0; }
+  if [ "$_sig_bad" -gt 0 ]; then
+    hee_status CRITICAL "signatures: $_sig_ok good, $_sig_bad BAD, $_sig_unk unverifiable, $_sig_orphan orphan"
+    return 2
+  fi
+  if [ "$_sig_unk" -gt 0 ] || [ "$_sig_orphan" -gt 0 ]; then
+    hee_status WARNING "signatures: $_sig_ok good, $_sig_unk unverifiable, $_sig_orphan orphan"
+    return 1
+  fi
+  hee_status OK "all $_sig_ok signatures verify against the files they sign"
+  return 0
+}
+
 # check_locale ROOT -- authored text matches the locale this repo declares.
 #
 # Thin, deliberately. Deciding whether a word is prose or a token, mapping it
@@ -685,14 +750,17 @@ case "$cmd" in
   # one line, and a subcommand that vanishes is worse than one that redirects.
   style)    shift 2>/dev/null || true; check_locale "${1:-.}" ;;
   regex)    check_regex ;;
+  signatures|sig) shift 2>/dev/null || true; check_signatures "${1:-.}" ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
   all)      shift 2>/dev/null || true
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
             check_locale "${1:-.}"; c=$?
+            check_signatures "${1:-.}"; d=$?
             _worst=$a
             [ "$b" -gt "$_worst" ] && _worst=$b
             [ "$c" -gt "$_worst" ] && _worst=$c
+            [ "$d" -gt "$_worst" ] && _worst=$d
             exit "$_worst" ;;
   *)
     # Back-compat: hee-check took a bare ROOT before it had subcommands.
