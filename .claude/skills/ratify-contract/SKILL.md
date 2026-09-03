@@ -50,7 +50,7 @@ Script: `tools/hee/ratify-contract.sh`
    gpg --verify <contract.yaml>.asc <contract.yaml>
    ```
 
-5. Commit the contract and its .asc TOGETHER, in one commit, with an ordinary git commit. Branch protection on main is the real control and binds every operator and machine equally -- see PROMPTING_RULES rule 1. The scripts/hee_git_ops.sh wrapper this step once named was retired 2026-08-31 (#456).
+5. Commit the contract and its .asc TOGETHER, in one commit, with an ordinary git commit. Branch protection on main is the real control and binds every operator and machine equally -- see PROMPTING_RULES rule 1. The scripts/hee_git_ops.sh wrapper this step once named was retired 2026-08-31 (#456). <!-- hee-check:refs-ok  the retirement is the point -->
 
    ```sh
    git add <contract.yaml> <contract.yaml>.asc && git commit

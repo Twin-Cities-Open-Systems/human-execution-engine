@@ -66,7 +66,7 @@ spec:
         run: "sha256sum <contract.yaml>"
       - do: "Verify the signature itself, and confirm it says Good signature."
         run: "gpg --verify <contract.yaml>.asc <contract.yaml>"
-      - do: "Commit the contract and its .asc TOGETHER, in one commit, with an ordinary git commit. Branch protection on main is the real control and binds every operator and machine equally -- see PROMPTING_RULES rule 1. The scripts/hee_git_ops.sh wrapper this step once named was retired 2026-08-31 (#456)."
+      - do: "Commit the contract and its .asc TOGETHER, in one commit, with an ordinary git commit. Branch protection on main is the real control and binds every operator and machine equally -- see PROMPTING_RULES rule 1. The scripts/hee_git_ops.sh wrapper this step once named was retired 2026-08-31 (#456). <!-- hee-check:refs-ok  the retirement is the point -->"
         run: "git add <contract.yaml> <contract.yaml>.asc && git commit"
       - do: "Never edit the contract again after signing. Any further edit invalidates the signature. If a change is truly needed the contract must be un-ratified and re-signed from step 1 -- there is no way to patch a signed file without breaking its signature."
 
