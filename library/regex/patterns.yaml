@@ -213,7 +213,7 @@ spec:
           - "/usr/share/foo"
     - name: bastion-name
       lane: portable
-      description: "A bastion identity name: bast-<name>-<oper|agent>, exactly three fields. The fixed field count is the whole point -- it is what makes this pattern trivial in every engine."
+      description: "An EPHEMERAL bastion identity name: bast-<name>-<oper|agent>, exactly three fields. See bastion-name-durable for the two-field permanent form; each is rigid on its own, which is what keeps both trivial in every engine."
       ere: '(^|[^A-Za-z0-9-])(bast-[a-z0-9]+-(oper|agent))([^A-Za-z0-9-]|$)'
       capture: 2
       notes:
@@ -230,6 +230,29 @@ spec:
         reject:
           - "bast-meg-2-oper"
           - "bast-foo-homer-oper"
-          - "bast-homer"
+          - "bast-homer"        # bare pool word, no role -- not a bastion name in either form
           - "marge-oper"
           - "bast-homer-admin"
+          - "bast-oper"         # the DURABLE form, deliberately NOT matched here -- see bastion-name-durable
+
+    - name: bastion-name-durable
+      lane: portable
+      description: "A DURABLE bastion identity name: bast-<oper|agent>, exactly two fields. This is the permanent, authoritative identity -- the one that carries A and PTR records. Its ephemeral counterpart is bastion-name."
+      ere: '(^|[^A-Za-z0-9-])(bast-(oper|agent))([^A-Za-z0-9-]|$)'
+      capture: 2
+      notes:
+        - "Operator, 2026-09-03: 'bast-oper is more authoritative and has a and ptr records.' contracts/fleet-identity-v1.contract.yaml defines the two tiers -- durable is bast-<oper|agent>, ephemeral is bast-<hee-name>-<oper|agent> -- and both satisfy the name_always_declares_role invariant, because both END in the role."
+        - "TWO patterns, not one with an optional middle field. The operator's hard no was on a VARIABLE field count: 'my hard no on 4 field bash-foo-N-bar', and the reason recorded on bastion-name is that an optional group forces bast-(.+)?-(oper|agent) on every consumer, whose greedy .+ silently swallows an interior field with no non-greedy fix in POSIX ERE or awk. Splitting into two rigid patterns keeps that guarantee: this one contains no wildcard at all, which is as rigid as a pattern gets."
+        - "There is exactly one bast-oper and one bast-agent. The durable name has no pool word because it is not allocated from a pool -- it is a singleton, and its uniqueness is the point rather than a scheduling problem."
+        - "Boundary groups rather than \\b, for the same reason as bastion-name: awk reads \\b as a backspace."
+      tests:
+        match:
+          - { input: "ssh bast-oper.lab.tcos.us", expect: "bast-oper" }
+          - { input: "the bast-agent holds it", expect: "bast-agent" }
+          - { input: "bast-oper", expect: "bast-oper" }
+        reject:
+          - "bast-homer-oper"   # the ephemeral form, matched by bastion-name instead
+          - "bast-admin"
+          - "bast-"
+          - "bastoper"
+          - "bast-oper-2"

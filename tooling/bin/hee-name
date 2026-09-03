@@ -44,6 +44,39 @@ name ends in `-oper` or `-agent`, with no bare form, so `--role` is
 mandatory there. The role is applied when the name is reserved rather than
 appended afterward, because the ledger is what the next allocation checks.
 
+## Two tiers: durable and ephemeral
+
+contracts/fleet-identity-v1.contract.yaml defines both, and the tool now
+allocates both:
+
+    durable     bast-<oper|agent>              two fields, a SINGLETON
+    ephemeral   bast-<hee-name>-<oper|agent>   three fields, from a pool
+
+    hee-name -allocate --scope bastion --role oper --durable
+      -> bast-oper
+
+Both END in the role, which is what name_always_declares_role requires.
+Operator, 2026-09-03: "bast-oper is more authoritative and has a and ptr
+records." The durable name takes no --pool, because there is exactly one
+per role -- its uniqueness is the design, not a scheduling problem -- and
+allocating it twice is refused.
+
+The hard no was on a FOURTH field (`bast-meg-2-oper`), never on two. Each
+tier is its own rigid shape rather than one shape with an optional middle
+field: an optional group forces every downstream consumer into a greedy
+`.+` that silently swallows an interior field, and POSIX ERE and awk have
+no non-greedy fix. `bastion-name` and `bastion-name-durable` in
+library/regex/patterns.yaml are the two patterns, each proved across six
+engines.
+
+--durable refuses --cohabit: isolation_is_structural says a durable
+bastion shares nothing, and the reason is not credential hygiene -- the
+chain must not be forgeable upward.
+
+Releasing a durable name is refused outright while fleet-ops#366 is open.
+Retirement there has no key-material step, so freeing the name would imply
+a retirement that nothing performed.
+
 Once every name in a pool is taken within a scope, allocation walks to
 the NEXT pool in the series, declared as `next:` in the pool file itself.
 It never appends a numeric suffix. Operator, 2026-09-02: "never 4 (ie
@@ -236,6 +269,13 @@ ROLE_REQUIRED_SCOPES = {
     "bastion": ("oper", "agent"),
 }
 
+# The durable singletons live under one reserved ledger key. A pool word is
+# [a-z0-9]+ per library/regex/patterns.yaml, so a leading underscore cannot
+# collide with one. There is exactly one bast-oper and one bast-agent; that
+# uniqueness is the design, not a scheduling constraint, which is why they
+# are not drawn from a pool at all.
+DURABLE_KEY = "_durable"
+
 # The exact prefix a role-scope name must carry, and with it the field count.
 # Operator, 2026-09-02: "my hard no on 4 field bash-foo-N-bar."
 #
@@ -260,17 +300,43 @@ SCOPE_PREFIX = {
 }
 
 
+# Two tiers, two rigid shapes -- never one shape with an optional field.
+# contracts/fleet-identity-v1.contract.yaml:
+#
+#   ephemeral   bast-<hee-name>-<oper|agent>   three fields, from a pool
+#   durable     bast-<oper|agent>              two fields, a singleton
+#
+# Both END in the role, which is what name_always_declares_role actually
+# requires. Operator, 2026-09-03: "bast-oper is more authoritative and has
+# a and ptr records."
+#
+# The hard no was on a FOURTH field (bast-meg-2-oper), not on two. Keeping
+# these as separate fullmatch alternatives rather than making the pool word
+# optional is the same reasoning library/regex/patterns.yaml records: an
+# optional group forces every downstream consumer into a greedy .+ that
+# silently swallows an interior field, with no non-greedy fix in POSIX ERE
+# or awk.
+def _is_durable(scope: str, name: str, roles: tuple) -> bool:
+    prefix = SCOPE_PREFIX.get(scope)
+    if not prefix:
+        return False
+    return bool(re.fullmatch(rf"{re.escape(prefix)}(?:{'|'.join(roles)})", name))
+
+
 def _validate_shape(scope: str, name: str, roles: tuple) -> None:
     prefix = SCOPE_PREFIX.get(scope)
     if not prefix:
         return
-    if not re.fullmatch(rf"{re.escape(prefix)}[^-]+-(?:{'|'.join(roles)})", name):
-        sys.exit(
-            f"hee-name: '{name}' is not a valid {scope} name.\n"
-            f"  Required shape: {prefix}<name>-({'|'.join(roles)}) -- exactly three fields.\n"
-            f"  A fourth field is a hard no: a name you have to disambiguate has\n"
-            f"  stopped doing the one job a pool name has."
-        )
+    ephemeral = re.fullmatch(rf"{re.escape(prefix)}[^-]+-(?:{'|'.join(roles)})", name)
+    if ephemeral or _is_durable(scope, name, roles):
+        return
+    sys.exit(
+        f"hee-name: '{name}' is not a valid {scope} name.\n"
+        f"  Durable:   {prefix}({'|'.join(roles)}) -- two fields, the permanent identity.\n"
+        f"  Ephemeral: {prefix}<name>-({'|'.join(roles)}) -- three fields, from a pool.\n"
+        f"  A fourth field is a hard no: a name you have to disambiguate has\n"
+        f"  stopped doing the one job a pool name has."
+    )
 
 
 def _series_walk(pool: str):
@@ -334,8 +400,55 @@ def _exhausted(pool: str, scope: str, role: "str | None") -> None:
     )
 
 
-def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None", cohabit: "str | None") -> None:
+def cmd_allocate(pool: str, scope: str, prefix: str, role: "str | None",
+                 cohabit: "str | None", durable: bool = False) -> None:
     roles = ROLE_REQUIRED_SCOPES.get(scope)
+
+    if durable:
+        if not roles:
+            sys.exit(f"hee-name: scope '{scope}' has no durable tier")
+        if role is None:
+            sys.exit(f"hee-name: --durable needs --role ({'|'.join(roles)})")
+        if role not in roles:
+            sys.exit(f"hee-name: invalid role '{role}' for scope '{scope}'. Valid: {', '.join(roles)}")
+        if cohabit:
+            sys.exit(
+                "hee-name: --durable cannot cohabit.\n"
+                "  isolation_is_structural (contracts/fleet-identity-v1.contract.yaml):\n"
+                "  a durable bastion shares nothing -- no bind mounts, no group overlap,\n"
+                "  no reachable export. Not credential hygiene; the chain must not be\n"
+                "  forgeable upward."
+            )
+        want = SCOPE_PREFIX.get(scope)
+        if want is not None and prefix and prefix != want:
+            sys.exit(f"hee-name: scope '{scope}' fixes its prefix at '{want}'; got '{prefix}'")
+        prefix = want or prefix
+
+        records = load_allocations(scope)
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        dur = records.setdefault(DURABLE_KEY, {})
+        if role in dur:
+            sys.exit(
+                f"hee-name: durable '{prefix}{role}' already exists "
+                f"(allocated {dur[role].get('allocated_at', 'unknown')}).\n"
+                f"  There is exactly one per role and it is permanent. Per\n"
+                f"  contracts/fleet-identity-v1.contract.yaml it is never casually\n"
+                f"  destroyed or recreated -- the SSOT for that identity lives in it."
+            )
+        dur[role] = {"scope": scope, "durable": True, "allocated_at": now}
+        rendered = f"{prefix}{role}"
+        _validate_shape(scope, rendered, roles)
+        save_allocations(scope, records)
+        print(rendered)
+        print(
+            f"hee-name: NOTE  '{rendered}' is DURABLE. It is not real until it has an\n"
+            f"  A and a PTR record, assigned with a STATIC address in the SAME step\n"
+            f"  (record_and_address_together). No anchor may be written before that\n"
+            f"  record exists (no_anchor_without_record).",
+            file=sys.stderr,
+        )
+        return
+
     if roles and role is None:
         sys.exit(
             f"hee-name: scope '{scope}' requires --role ({'|'.join(roles)}).\n"
@@ -430,6 +543,18 @@ def cmd_release(name: str, scope: str, prefix: str) -> None:
     if roles:
         prefix = SCOPE_PREFIX.get(scope, prefix)
         _validate_shape(scope, name, roles)
+        # A durable bastion is the SSOT for its identity, so releasing the
+        # name is retirement, and retirement has no defined procedure yet:
+        # fleet-ops/bin/decom-agent.sh stops processes and handles no key
+        # material at all. Refusing is the honest behavior -- freeing the
+        # name would imply a retirement happened that nothing performed.
+        if _is_durable(scope, name, roles):
+            sys.exit(
+                f"hee-name: refusing to release durable '{name}'.\n"
+                f"  Retiring a durable bastion is BLOCKED on fleet-ops#366 -- the decom\n"
+                f"  path has no key-material step, so what it signed would be undefined.\n"
+                f"  Releasing the name here would free an identity nothing retired."
+            )
         # `name` is the full rendered form, e.g. bast-homer-oper. Split the
         # terminal role off and drop that occupant. The INSTANCE survives
         # until its last occupant leaves -- releasing one role must not hand
@@ -466,12 +591,23 @@ def cmd_list(scope: str, prefix: str) -> None:
         return
     if ROLE_REQUIRED_SCOPES.get(scope):
         prefix = SCOPE_PREFIX.get(scope, prefix)
-        if any(len(r.get("occupants") or {}) > 1 for r in records.values()):
+        # Durables first and labelled -- they are the authoritative tier, and
+        # rendering the reserved ledger key as if it were a pool instance
+        # (`_durable [pool=None]`) said the opposite.
+        dur = records.get(DURABLE_KEY) or {}
+        if dur:
+            print("# DURABLE -- permanent, one per role, carries A + PTR")
+            for role in sorted(dur):
+                print(f"    {prefix}{role}   {dur[role].get('allocated_at')}")
+        insts = {k: v for k, v in records.items() if k != DURABLE_KEY}
+        if insts and dur:
+            print("# EPHEMERAL -- pool-allocated, no record, free to destroy")
+        if any(len(r.get("occupants") or {}) > 1 for r in insts.values()):
             print("# shared instances below are CO-LOCATED only: unrelated")
             print("# identities, no promotion path between roles.")
-        for inst in sorted(records):
-            occ = records[inst].get("occupants") or {}
-            print(f"{inst}  [pool={records[inst].get('pool')}]")
+        for inst in sorted(insts):
+            occ = insts[inst].get("occupants") or {}
+            print(f"{inst}  [pool={insts[inst].get('pool')}]")
             for role in sorted(occ):
                 mark = "  (cohabiting)" if occ[role].get("cohabit") else ""
                 print(f"    {prefix}{inst}-{role}   {occ[role].get('allocated_at')}{mark}")
@@ -489,6 +625,8 @@ def main():
     ap.add_argument("--pool", default=None)
     ap.add_argument("--scope", default="default")
     ap.add_argument("--prefix", default="")
+    ap.add_argument("--durable", action="store_true",
+                    help="allocate the permanent singleton bast-<role>, not a pool name")
     ap.add_argument("--cohabit", default=None, metavar="INSTANCE",
                     help="deliberately share an EXISTING instance rather than taking a fresh one")
     ap.add_argument("--role", default=None,
@@ -522,9 +660,18 @@ def main():
         return
 
     if args.allocate:
-        if not args.pool:
+        # A durable name is a singleton, not drawn from a pool -- requiring
+        # --pool for it would mean naming a pool whose word is then discarded.
+        if args.durable and args.pool:
+            sys.exit(
+                "hee-name: --durable takes no --pool.\n"
+                "  The durable name is bast-<role> -- there is no pool word in it,\n"
+                "  because there is exactly one per role."
+            )
+        if not args.pool and not args.durable:
             sys.exit("hee-name -allocate requires --pool (see -list-pools)")
-        cmd_allocate(args.pool, args.scope, args.prefix, args.role, args.cohabit)
+        cmd_allocate(args.pool, args.scope, args.prefix, args.role, args.cohabit,
+                     durable=args.durable)
         return
 
     if args.release:

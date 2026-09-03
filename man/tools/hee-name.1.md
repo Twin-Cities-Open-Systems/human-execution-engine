@@ -10,7 +10,7 @@ hee-name - hee-name command
 
 # DESCRIPTION
 
-                    [--pool POOL] [--scope SCOPE] [--prefix PREFIX]
+                    [--pool POOL] [--scope SCOPE] [--prefix PREFIX] [--durable]
                     [--cohabit INSTANCE] [--role ROLE] [--allocations-dir PATH]
 
     options:
@@ -22,6 +22,8 @@ hee-name - hee-name command
       --pool POOL
       --scope SCOPE
       --prefix PREFIX
+      --durable             allocate the permanent singleton bast-<role>, not a
+                            pool name
       --cohabit INSTANCE    deliberately share an EXISTING instance rather than
                             taking a fresh one
       --role ROLE           role suffix; required for scopes in
