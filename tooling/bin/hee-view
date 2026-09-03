@@ -28,6 +28,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # library/py lives in this tool's own repo -- derive it from this script's
@@ -120,6 +121,9 @@ def load_sitemap(source):
     return sites, None
 
 
+LAB_DOMAIN = "lab.tcos.us"
+
+
 # Which network a site lives on decides WHO CAN CHECK IT, which is a real
 # property of the site and not a preference.
 #
@@ -134,11 +138,24 @@ def load_sitemap(source):
 #
 # An entry with no explicit `network:` is inferred from its hostname, so the
 # sitemap did not have to be fully annotated before this could work.
+#
+# The inference is on the parsed HOSTNAME, not a substring of the whole URL.
+# Measured 2026-09-02: the old substring test looked for ".lab.tcos.us",
+# which the apex `https://lab.tcos.us/` does not contain -- there is no dot
+# before "lab" -- so the one lab host that is not a subdomain was inferred
+# "public". A GitHub runner cannot resolve it (8.8.8.8 and 1.1.1.1 both
+# return nothing), the site check failed, and Real Site Health went red
+# every 30 minutes. Exactly the failure fleet-ops#350 was closed for,
+# reintroduced through the apex.
+#
+# A substring test also matches a host it should not, e.g. a query string
+# carrying ".lab.tcos.us" on an unrelated public URL.
 def site_network(entry):
     declared = (entry.get("network") or "").strip().lower()
     if declared in ("lab", "public"):
         return declared
-    return "lab" if ".lab.tcos.us" in entry.get("url", "") else "public"
+    host = (urllib.parse.urlparse(entry.get("url", "")).hostname or "").lower()
+    return "lab" if host == LAB_DOMAIN or host.endswith("." + LAB_DOMAIN) else "public"
 
 
 def filter_sites(sites, network):
