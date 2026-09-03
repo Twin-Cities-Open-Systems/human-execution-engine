@@ -29,6 +29,7 @@ Usage:
   hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
 """
 import argparse
+import shlex
 import subprocess
 import sys
 
@@ -149,6 +150,68 @@ def main():
     print(f"hee-pve-deploy: creating '{hostname}' as vmid {vmid}...")
     pvesh(args.host, create_args, capture=False)
     print(f"hee-pve-deploy: '{hostname}' created and starting (vmid {vmid}).")
+
+    apply_addons(args.host, vmid, spec.get("addons", []), args.dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Add-ons.
+#
+# The golden template is deliberately bare -- 12.8MB, ca-certificates and
+# tzdata -- because a linked clone costs 0 bytes until it diverges, so
+# anything baked into the template is the one cost a clone cannot avoid.
+# Everything else is named here instead, per manifest.
+#
+# Sets are resolved from hee/registries/container-addons.registry.v1.yaml
+# rather than written inline. A manifest saying `addons: [agent-tooling]`
+# is reviewable; a manifest carrying its own apk list is the same ad hoc
+# shell history the registry exists to replace, just committed.
+# ---------------------------------------------------------------------------
+
+def load_addon_registry():
+    reg = (_Path(__file__).resolve().parent.parent.parent
+           / "hee" / "registries" / "container-addons.registry.v1.yaml")
+    if not reg.is_file():
+        sys.exit(f"hee-pve-deploy: addon registry not found at {reg}")
+    return yaml.safe_load(reg.read_text())["spec"]["addons"]
+
+
+def apply_addons(host, vmid, wanted, dry_run):
+    if not wanted:
+        return
+    registry = load_addon_registry()
+    unknown = [a for a in wanted if a not in registry]
+    if unknown:
+        sys.exit(
+            f"hee-pve-deploy: unknown add-on set(s): {', '.join(unknown)}\n"
+            f"  Known: {', '.join(sorted(registry))}\n"
+            f"  Add a set to the registry with the container that proved it\n"
+            f"  needed -- evidence_before_entry -- rather than inlining\n"
+            f"  packages here."
+        )
+    for name in wanted:
+        entry = registry[name]
+        if entry.get("blocked_by"):
+            print(f"hee-pve-deploy: WARNING add-on '{name}' is incomplete -- "
+                  f"{' '.join(entry['blocked_by'].split())}")
+        pkgs = entry.get("packages", [])
+        if not pkgs:
+            continue
+        # Alpine. A set for another base would need its own installer; this
+        # says so rather than silently running apk on a Debian container.
+        cmd = ["pct", "exec", str(vmid), "--",
+               "sh", "-c", "apk add --no-cache " + " ".join(pkgs)]
+        if dry_run:
+            print(f"hee-pve-deploy: DRY RUN, would run: {' '.join(cmd)}")
+            continue
+        print(f"hee-pve-deploy: applying add-on '{name}': {' '.join(pkgs)}")
+        r = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", f"root@{host}",
+             " ".join(shlex.quote(c) for c in cmd)],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(f"hee-pve-deploy: add-on '{name}' failed:\n{r.stderr}")
+        print(f"hee-pve-deploy: add-on '{name}' applied.")
 
 
 if __name__ == "__main__":
