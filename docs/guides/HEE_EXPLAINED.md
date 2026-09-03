@@ -71,7 +71,30 @@ The three stages, spelled out:
 2. **Footgun** -- name what could actually go wrong with it, honestly,
    before anyone commits to it.
 3. **Dogfood** -- prove it works with real usage, real data, real output.
-   Only *then* does it get promoted/ratified into something people rely on.
+   Only *then* does it get promoted/ratified.
+
+What it is promoted INTO has a name: a **Duople**. Spencer, 2026-09-02,
+correcting the vaguer "something people rely on" that stood here:
+*"a duople (see thesis v duople)"*.
+
+That connects this shape to doctrine the repo already has, in `README.md`
+and `docs/DOCUMENTATION_POLICY.md`:
+
+- A **Thesis** is a claim to be stress-tested -- a raw idea, a proposal, a
+  first draft, or *a pasted external chat*. Not wrong to have around, and
+  not trustworthy on its own say-so.
+- A **Duople** is that claim reduced to its binary-predicate, HEE-native
+  form: verifiable, evaluable, evidence-backed.
+
+So the two vocabularies describe the same movement from different angles.
+Thesis and Duople name the two STATES; idea, footgun and dogfood name the
+WORK that moves a thing between them. A thesis that never went through
+`footgun<->dogfood` has not earned duople status, and the documentation
+policy is blunt about which way the mistake runs: writing a Thesis is not a
+demotion, but presenting one AS a Duople is the actual error.
+
+Spencer's own blog states the four-part form directly:
+`idea -> footguns -> dogfood -> duople`.
 
 Take any leg away and it falls over. But a numbered list reads as a
 one-way pipeline, and it is not one -- the arrows above are why. An earlier
