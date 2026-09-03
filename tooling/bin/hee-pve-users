@@ -40,6 +40,8 @@ Usage:
   hee-pve-users MANIFEST.yaml [--host IP] [--dry-run]
 """
 import argparse
+import json
+import shlex
 import subprocess
 import sys
 
@@ -57,9 +59,54 @@ except ImportError:
 
 
 def pveum(host, args, capture=True):
-    cmd = ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pveum", *args]
+    """Run pveum on `host` over ssh.
+
+    Every argument is shell-quoted. ssh does NOT receive an argv the way
+    subprocess does -- it concatenates what it is given into one string and
+    the REMOTE shell re-splits it on whitespace. So an unquoted argument
+    containing a space arrives as several arguments.
+
+    Measured 2026-09-03: `pveum group add hee-opers -comment "Human
+    operators. Holds the power cord."` came back `400 too many arguments`.
+    The same latent bug applied to every comment already in this repo,
+    including spencer.yaml's "Spencer admin (Proxmox-only)".
+    """
+    remote = " ".join(shlex.quote(a) for a in ["pveum", *args])
+    cmd = ["ssh", "-o", "BatchMode=yes", f"root@{host}", remote]
     proc = subprocess.run(cmd, capture_output=capture, text=True)
     return proc
+
+
+def _json(host, args):
+    proc = pveum(host, [*args, "--output-format", "json"])
+    if proc.returncode != 0:
+        return []
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        return []
+
+
+def role_exists(host, roleid):
+    return any(r.get("roleid") == roleid for r in _json(host, ["role", "list"]))
+
+
+def group_exists(host, groupid):
+    return any(g.get("groupid") == groupid for g in _json(host, ["group", "list"]))
+
+
+def token_privsep(host, userid, token_id):
+    """Current privsep of an existing token, or None if it does not exist.
+
+    privsep 0 means the token inherits everything the USER has. Two such
+    tokens were found live on 2026-09-03, both effectively Administrator.
+    The tool could not see or fix that, because it skipped any token that
+    already existed.
+    """
+    for t in _json(host, ["user", "token", "list", userid]):
+        if t.get("tokenid") == token_id:
+            return str(t.get("privsep", "1"))
+    return None
 
 
 def user_exists(host, userid):
@@ -90,6 +137,58 @@ def main():
     args = ap.parse_args()
 
     spec = yaml.safe_load(open(args.manifest))
+
+    def run(cmd, what):
+        if args.dry_run:
+            print(f"hee-pve-users: DRY RUN, would run: pveum {' '.join(cmd)}")
+            return True
+        r = pveum(args.host, cmd)
+        if r.returncode != 0:
+            sys.exit(f"hee-pve-users: {what} failed:\n{r.stderr}")
+        print(f"hee-pve-users: {what}")
+        return True
+
+    # Roles first: a group or user ACL below may name one that does not
+    # exist yet, and pveum fails the grant rather than creating it.
+    for role in spec.get("roles", []):
+        rid, privs = role["id"], role["privs"]
+        verb = "modify" if role_exists(args.host, rid) else "add"
+        cmd = ["role", verb, rid, "-privs", privs]
+        run(cmd, f"role {rid} {verb}ed" if verb == "add" else f"role {rid} modified")
+
+    # Groups next, then membership. Attaching an ACL to a group rather than
+    # to each principal is the same instinct as never using 0777 for shared
+    # access: if no group fits, the answer is to create one.
+    for grp in spec.get("groups", []):
+        gid = grp["id"]
+        if not group_exists(args.host, gid):
+            cmd = ["group", "add", gid]
+            if grp.get("comment"):
+                cmd += ["-comment", grp["comment"]]
+            run(cmd, f"group {gid} created")
+        else:
+            print(f"hee-pve-users: group {gid} already exists -- skipping.")
+        # Membership is declared on the USER manifest, not here. A member
+        # listed against a group that does not exist yet fails, and the
+        # user is created by its own manifest which runs later -- so the
+        # group file would have to know the application order to be
+        # correct. `members:` is rejected rather than silently ignored.
+        if grp.get("members"):
+            sys.exit(
+                f"hee-pve-users: group '{gid}' lists members.\n"
+                f"  Declare membership on the user manifest as `groups: [{gid}]`.\n"
+                f"  A group file cannot add a user that its own run order has\n"
+                f"  not created yet."
+            )
+
+    # Group-scoped ACLs, independent of any single user in this manifest.
+    for grant in spec.get("group_acl", []):
+        run(["acl", "modify", grant["path"], "--roles", grant["role"],
+             "-groups", grant["group"]],
+            f"ACL {grant['path']} -> {grant['role']} (group {grant['group']})")
+
+    if "userid" not in spec:
+        return 0
     userid = spec["userid"]
 
     if not user_exists(args.host, userid):
@@ -106,11 +205,35 @@ def main():
     else:
         print(f"hee-pve-users: user {userid} already exists -- skipping.")
 
+    # `member_of:`, not `groups:`. The roles/groups manifest uses `groups:`
+    # for DEFINITIONS ({id, comment}); a user file uses this for MEMBERSHIP
+    # (plain names). One key meaning two shapes crashed the definition loop
+    # on a bare string the first time both files were run.
+    for gid in spec.get("member_of", []):
+        run(["user", "modify", userid, "-groups", gid],
+            f"{userid} added to group {gid}")
+    if spec.get("groups") and "userid" in spec:
+        sys.exit(
+            f"hee-pve-users: user manifest for {userid} uses `groups:`.\n"
+            f"  That key defines groups. For membership use `member_of:`."
+        )
+
     for tok in spec.get("tokens", []):
         tid = tok["id"]
-        if token_exists(args.host, userid, tid):
-            print(f"hee-pve-users: token {userid}!{tid} already exists -- skipping "
-                  f"(real secret can't be recovered if lost, only recreated fresh).")
+        want_privsep = "1" if tok.get("privsep", True) else "0"
+        have_privsep = token_privsep(args.host, userid, tid)
+        if have_privsep is not None:
+            print(f"hee-pve-users: token {userid}!{tid} already exists -- not recreating "
+                  f"(the real secret cannot be recovered, only replaced).")
+            if have_privsep != want_privsep:
+                # This is the whole reason existing tokens are no longer
+                # skipped outright. privsep 0 means the token carries every
+                # privilege the user has, so a scoped-looking token can be
+                # Administrator and nothing in the manifest would show it.
+                print(f"hee-pve-users: privsep drift on {userid}!{tid}: "
+                      f"live={have_privsep} manifest={want_privsep}")
+                run(["user", "token", "modify", userid, tid, "-privsep", want_privsep],
+                    f"privsep set to {want_privsep} on {userid}!{tid}")
             continue
         cmd = ["user", "token", "add", userid, tid, "--privsep", "1" if tok.get("privsep", True) else "0"]
         if tok.get("comment"):
@@ -118,6 +241,28 @@ def main():
         if args.dry_run:
             print(f"hee-pve-users: DRY RUN, would run: pveum {' '.join(cmd)}")
             continue
+        # Same guard as hee-cred -seal, for the same reason. Creating a
+        # token prints its secret exactly once, and this tool used to send
+        # that to stdout unconditionally -- so running it from a script,
+        # a CI job or an agent's shell wrote a live credential into a log
+        # or a chat transcript. That has already happened once in this org
+        # and cost two rotations.
+        #
+        # An agent can provision the STRUCTURE (roles, groups, users,
+        # ACLs) all day. It must not be the thing holding a secret.
+        if not sys.stdout.isatty():
+            sys.exit(
+                f"hee-pve-users: refusing to create token {userid}!{tid} "
+                f"without a terminal.\n"
+                f"  The secret is shown exactly once and would be written to\n"
+                f"  whatever is capturing this output -- a log, a CI record, or\n"
+                f"  an agent transcript.\n"
+                f"  Run this manifest from a real terminal, then seal with:\n"
+                f"    hee cred -seal <account> -dir <repo>/.hee/secrets \\\n"
+                f"             -recipients <your-key>\n"
+                f"  Everything else in this manifest applies fine without a tty;\n"
+                f"  re-run there and only the token step will remain."
+            )
         print(f"hee-pve-users: creating token {userid}!{tid}...")
         proc = pveum(args.host, cmd)
         if proc.returncode != 0:
@@ -129,12 +274,16 @@ def main():
     # the token, not the bare user, so a leaked/rotated token doesn't
     # imply user-level access). A manifest with no tokens grants to
     # the user directly instead.
-    principal_flag, principal = ("-token", f"{userid}!{spec['tokens'][0]['id']}") \
-        if spec.get("tokens") else ("-user", userid)
+    principal_flag, principal = ("-tokens", f"{userid}!{spec['tokens'][0]['id']}") \
+        if spec.get("tokens") else ("-users", userid)
 
     for grant in spec.get("acl", []):
         path, role = grant["path"], grant["role"]
-        cmd = ["acl", "modify", path, principal_flag, principal, "-role", role]
+        # pveum documents --roles/-users/-groups/-tokens, all plural. The
+        # singular forms this used before are not in `pveum help acl modify`.
+        flag, who = (grant["group"] and "-groups", grant.get("group")) \
+            if grant.get("group") else (principal_flag, principal)
+        cmd = ["acl", "modify", path, "--roles", role, flag, who]
         if args.dry_run:
             print(f"hee-pve-users: DRY RUN, would run: pveum {' '.join(cmd)}")
             continue
