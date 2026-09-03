@@ -25,10 +25,33 @@ MANIFEST
 .env
 .env.local
 .env.*.local
-secrets/
 *.key
 *.pem
 *private*
+
+# Sealed credentials: CIPHERTEXT IS TRACKED, everything else is not.
+#
+# This mirrors the fix already made in fleet-ops. hee-cred's own docstring
+# says storage is "git-tracked, ciphertext only", and hee-pve-health reads
+# a sealed token from <repo>/.hee/secrets/. A bare `secrets/` rule made
+# both false HERE, in the repo that ships those tools: the directory could
+# never be committed, so sealed material lived on exactly one machine and
+# died with it. That is recorded as a known_blocker in
+# contracts/fleet-identity-v1.contract.yaml and is disqualifying for
+# identity key material.
+#
+# Measured 2026-09-03: `hee view --nerd` reported "pve: unreachable" for a
+# second operator on the same LAN. It was not unreachable -- the sealed
+# token path had never worked for anyone, and the only thing that did work
+# was an untracked per-user ~/.config/fleet-ops/pve-api.env.
+#
+# Exclude the CONTENTS, not the directory -- git cannot re-include a file
+# whose parent directory is excluded, so `secrets/` would make the
+# negation below inert.
+secrets/*
+!secrets/*.gpg
+.hee/secrets/*
+!.hee/secrets/*.gpg
 
 # Development
 #.vscode/ # Pretty is a function
