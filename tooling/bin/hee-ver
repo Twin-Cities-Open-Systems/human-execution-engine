@@ -130,13 +130,17 @@ DESCRIPTION
 
   rc_tag is one readable label for this running instance:
 
-      kiosk-claude-main:0.0-0f41d560     inside tmux
-      kiosk-claude-0f41d560              no tmux, no tmux segment
+      kiosk-claude-0f41d560              no tmux
+      kiosk-claude-0f41d560_main:0.0     inside tmux
 
-  short host, user, the addressable tmux target, and the first 8 of the
-  session id. The session-id segment is what separates two agents on one
-  host; the rest is where to look. It is a LABEL -- per the SOA anchor's
-  short_token_never_authoritative invariant, never the authority.
+  The base is always short-host, user, and the first 8 of the session id,
+  so every tag for one instance shares a prefix and a plain sort groups
+  them. The tmux location is appended after "_", never inserted, so it
+  cannot shift the session id into a different column.
+
+  The session-id segment is what separates two agents on one host; the
+  appended part is only where to look. It is a LABEL -- per the SOA
+  anchor's short_token_never_authoritative invariant, never the authority.
 
   tmux fields are resolved with -t "$TMUX_PANE", so they describe THIS
   process's pane rather than whichever pane the operator is looking at.

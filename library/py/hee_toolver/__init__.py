@@ -580,12 +580,27 @@ def session() -> dict:
     # fleet already has rather than starting another scheme, and per the
     # SOA anchor's own "short_token_never_authoritative" invariant it is a
     # label, never the authority.
-    rc = [out["host"].split(".", 1)[0] or out["host"], out["user"]]
-    if out.get("tmux_target", "unknown") != "unknown":
-        rc.append(out["tmux_target"])
-    if out["session_id"] != "unknown":
-        rc.append(out["session_id"][:8])
-    out["rc_tag"] = "-".join(rc)
+    # The base is ALWAYS host-user-sessionid, and the tmux location is
+    # APPENDED after "_" rather than inserted in the middle. Operator,
+    # 2026-09-02: "always use the full like so, it is easier to sort".
+    #
+    #     kiosk-claude-0f41d560              no tmux
+    #     kiosk-claude-0f41d560_main:0.0     in tmux
+    #
+    # That is the point of the shape: every tag for a given host, user and
+    # instance shares one prefix, so a sort groups them and the tmux
+    # location never shifts the session id to a different column. An
+    # earlier draft interleaved them (host-user-TARGET-sessionid), which
+    # sorted the two forms apart.
+    base = "-".join(
+        p for p in (
+            out["host"].split(".", 1)[0] or out["host"],
+            out["user"],
+            out["session_id"][:8] if out["session_id"] != "unknown" else "",
+        ) if p
+    )
+    target = out.get("tmux_target", "unknown")
+    out["rc_tag"] = f"{base}_{target}" if target != "unknown" else base
 
     r = _run(["gh", "auth", "status"])
     if r is not None:
