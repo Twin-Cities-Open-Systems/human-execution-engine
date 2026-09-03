@@ -7,9 +7,10 @@ SYNOPSIS
               hee-check [boundary] [PATH]
               hee-check refs [--fix] [PATH]
               hee-check systemd [PATH]
-              hee-check style [PATH]
+              hee-check locale [PATH]
               hee-check cli [TOOLDIR] [--json] [--quiet]
               hee-check regex
+              hee-check signatures [PATH] [--re-sign --key GPG-KEY-ID]
               hee-check all [PATH]
               hee-check [SUBCOMMAND] help
 
@@ -26,10 +27,12 @@ SUBCOMMANDS
               boundary   generated state is not committed (default)
               refs       every file reference resolves
               systemd    systemd unit files are valid
-              style      authored prose obeys the org's writing rules (US English)
+              locale     authored text matches the locale this repo declares
               cli        every hee tool's own help obeys the CLI contract
               regex      shared regex patterns behave identically in every engine
-              all        boundary + refs + style
+              signatures every detached .asc verifies against the file it signs,
+                         and can re-sign the ones that drifted
+              all        boundary + refs + locale + signatures
 
               Add `help` after any subcommand for its own page:
                   hee-check refs help
@@ -48,6 +51,10 @@ EXAMPLES
               hee-check refs ~/git          every repo under ~/git
               hee-check refs --fix          repair unambiguous references
               hee-check all ~/git/fleet-ops both checks on one repo
+              hee-check signatures          verify every detached signature
+              hee-check signatures --re-sign --key inspector@tcos.us
+                                            re-sign only the drifted signatures that
+                                            this key already made
 
 SEE ALSO
               hee-lint, hee-index, hee-print

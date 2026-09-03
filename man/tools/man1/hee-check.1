@@ -29,6 +29,7 @@ hee-check systemd [PATH]
 hee-check locale [PATH]
 hee-check cli [TOOLDIR] [--json] [--quiet]
 hee-check regex
+hee-check signatures [PATH] [--re-sign --key GPG-KEY-ID]
 hee-check all [PATH]
 hee-check [SUBCOMMAND] help
 \f[R]
@@ -56,7 +57,9 @@ systemd    systemd unit files are valid
 locale     authored text matches the locale this repo declares
 cli        every hee tool\[aq]s own help obeys the CLI contract
 regex      shared regex patterns behave identically in every engine
-all        boundary + refs + locale
+signatures every detached .asc verifies against the file it signs,
+           and can re-sign the ones that drifted
+all        boundary + refs + locale + signatures
 
 Add \[ga]help\[ga] after any subcommand for its own page:
     hee-check refs help
@@ -87,6 +90,10 @@ hee-check refs                every reference in the current repo
 hee-check refs \[ti]/git          every repo under \[ti]/git
 hee-check refs --fix          repair unambiguous references
 hee-check all \[ti]/git/fleet-ops both checks on one repo
+hee-check signatures          verify every detached signature
+hee-check signatures --re-sign --key inspector\[at]tcos.us
+                              re-sign only the drifted signatures that
+                              this key already made
 \f[R]
 .fi
 .SH SEE ALSO
