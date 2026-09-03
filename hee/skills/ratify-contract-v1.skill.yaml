@@ -16,20 +16,59 @@ metadata:
     updated-at: "2026-08-14T00:00:00Z"
 
 spec:
+  # Agent-facing framing. Added 2026-09-02 when hee-gen-skills was built and
+  # its first output was WORSE than the SKILL.md it replaced -- the object
+  # held the same information in declarative form and none of the imperative
+  # "why this exists, do not reorder" prose an agent actually needs.
+  #
+  # Generation was lossy BY CONSTRUCTION, not by a bad implementation. So the
+  # fix belongs here rather than as a special case in the generator: the
+  # object becomes the true source of truth, which is the whole point of
+  # generating downstream from it.
+  agent_brief:
+    one_liner: "GPG-ratify a HEE Contract (status:proposed -> status:ratified) with correct sign-then-commit ordering. Use whenever a Contract object needs real ratification, not a GitHub approve-click."
+    title: "Ratify a HEE Contract"
+    why: >-
+      The bug this exists to prevent: signing a contract, then editing it
+      afterward -- even a trivial field -- invalidates the signature. It no
+      longer matches the committed bytes, and the failure is SILENT, because
+      a stale signature still parses as valid armor. This bit real PRs twice
+      (#189/#190, then again in #191/#192) before the ordering became a
+      Skill. As of 2026-09-02, `hee check signatures` enforces it; four
+      already-broken signatures were found on that check's first run.
+    imperative: "Follow this exact order. Do not reorder."
+
   trigger: "A Contract object exists with status: proposed and needs real, verifiable ratification -- not a GitHub approve-click (self-approval can't be enforced when proposer and approver share an account, discovered directly this session), an actual OPER GPG signature."
 
   prerequisites:
     - "The signer (OPER) has a GPG secret key, and its public key is importable by whoever will verify (this repo's account, at minimum)"
     - "The contract passes tools/schema/validate-hee-object.py --strict as status:proposed before starting"
 
+  # Restructured 2026-09-02. The steps were prose sentences that MENTIONED
+  # commands; the hand-written SKILL.md had them as runnable fenced blocks.
+  # An agent can copy the second and only paraphrase the first, so the object
+  # was the lossy half, not the generator. Operator: "automation always wins"
+  # -- so the source got fixed rather than the generated file kept by hand.
+  #
+  # Each step carries `do` (what and why) and optional `run` (the literal
+  # command). Nothing here is a placeholder-free claim: <angle-bracket> tokens
+  # are real parameters the operator substitutes, which is different from a
+  # copy-paste block pretending to be ready.
   procedure:
-    script: "tools/hee/ratify-contract.sh"
+    script: tools/hee/ratify-contract.sh
+    ordering: "Follow this exact order. Do not reorder. Every step after signing assumes the bytes have not moved."
     steps:
-      - "Run the script against the proposed contract -- it flips status to ratified and inserts a generic (not-yet-signature-specific) ratification_evidence field FIRST, before anything is signed"
-      - "OPER signs the now-final file: gpg --detach-sign --armor <contract.yaml>"
-      - "Verify before committing anything: sha256sum the signed file against what's about to be committed (must match exactly), then gpg --verify the .asc against that exact file"
-      - "Only then commit both the contract and its .asc together"
-      - "Do not edit the contract again after signing -- any further edit invalidates the signature, which is the entire bug this skill exists to prevent"
+      - do: "Stage the final content FIRST, unsigned. This flips status to ratified and inserts the ratification evidence field, so the file content becomes final before anything is signed."
+        run: "tools/hee/ratify-contract.sh --key <gpg-key-id> --signer <name> <contract.yaml> [<contract2.yaml> ...]"
+      - do: "Only now, sign the final file."
+        run: "gpg --detach-sign --armor <contract.yaml>"
+      - do: "Verify the hash matches what is about to be committed -- it must be byte-identical to what was signed."
+        run: "sha256sum <contract.yaml>"
+      - do: "Verify the signature itself, and confirm it says Good signature."
+        run: "gpg --verify <contract.yaml>.asc <contract.yaml>"
+      - do: "Commit the contract and its .asc TOGETHER, in one commit, with an ordinary git commit. Branch protection on main is the real control and binds every operator and machine equally -- see PROMPTING_RULES rule 1. The scripts/hee_git_ops.sh wrapper this step once named was retired 2026-08-31 (#456)."
+        run: "git add <contract.yaml> <contract.yaml>.asc && git commit"
+      - do: "Never edit the contract again after signing. Any further edit invalidates the signature. If a change is truly needed the contract must be un-ratified and re-signed from step 1 -- there is no way to patch a signed file without breaking its signature."
 
   verification: "gpg --verify <contract>.asc <contract> returns 'Good signature' when run against the exact committed file on main -- not a local copy, not an assumption. Re-check after every commit that touches the file, since the failure mode is silent (a stale signature still parses as valid armor, it just won't verify against changed content)."
 
