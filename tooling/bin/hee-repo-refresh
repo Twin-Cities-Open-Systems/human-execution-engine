@@ -194,7 +194,24 @@ case "$SCOPE_ARG" in
         # this way. Operator, 2026-08-31, on `inbound`: "inbound is special,
         # no git just inbound ... make exception here" -- so the exception is
         # the CONDITION, not the name.
-        if [ -z "$(git -C "$DIR" ls-remote --heads origin 2>/dev/null)" ]; then
+        # An empty answer and a FAILED question are different facts. This
+        # used to be `ls-remote ... 2>/dev/null` tested for emptiness, so
+        # any failure -- no credential helper, DNS, a rate limit, a proxy --
+        # printed "remote is empty (no branches)". That is PROMPTING_RULES
+        # rule 2 exactly: discarding stderr and reading the silence as a
+        # real negative result.
+        #
+        # Measured 2026-09-03: a second operator saw "remote is empty" for
+        # 18 of 19 repos, including public ones with many branches. Nothing
+        # was empty; ls-remote had failed and the tool said otherwise.
+        ls_err=$(git -C "$DIR" ls-remote --heads origin 2>&1 >/dev/null)
+        ls_rc=$?
+        ls_out=$(git -C "$DIR" ls-remote --heads origin 2>/dev/null)
+        if [ "$ls_rc" -ne 0 ]; then
+          echo "⚪ $R: cannot reach remote -- $(printf '%s\n' "$ls_err" | grep -v '^remote:' | tail -1)"
+          exit 0
+        fi
+        if [ -z "$ls_out" ]; then
           echo "⚪ $R: remote is empty (no branches) -- nothing to pull"
           exit 0
         fi

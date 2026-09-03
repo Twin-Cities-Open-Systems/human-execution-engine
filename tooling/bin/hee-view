@@ -55,11 +55,30 @@ def sh(cmd):
 
 
 def pve_health(pve_host):
+    """Return (data, reason). reason is None on success.
+
+    It used to return None for every failure, and the caller printed
+    "pve: unreachable" for all of them, discarding stderr. Measured
+    2026-09-03: a second operator on the same LAN saw "pve: unreachable"
+    while every haproxy backend and DNS answered fine. pve was reachable;
+    something else failed, and the tool had thrown away the one line that
+    would have said what.
+
+    hee-pve-health tries SSH to root@<host> first and a sealed API token
+    second, so a failure here is usually credentials, not the network --
+    reporting it as unreachable sends the reader to the wrong problem.
+    A confidently wrong status is worse than an honest unknown.
+    """
     tool = __file__.rsplit("/", 1)[0] + "/hee-pve-health"
     code, out, err = sh([sys.executable, tool, "status", "--host", pve_host, "--json"])
     if code != 0:
-        return None
-    return json.loads(out)
+        reason = (err or out or "").strip().splitlines()
+        return None, (reason[-1] if reason else
+                      f"hee-pve-health exited {code} with no output")
+    try:
+        return json.loads(out), None
+    except ValueError as e:
+        return None, f"hee-pve-health returned unparseable JSON: {e}"
 
 
 def print_nerd_stats(health):
@@ -287,9 +306,14 @@ def main():
 
     print("=== tcos lab -- hee view ===")
 
-    health = pve_health(args.pve_host)
+    health, pve_why = pve_health(args.pve_host)
     if health is None:
-        print("🔴 pve: unreachable")
+        # Unknown, not critical. This tool could not check; that is a
+        # different fact from the node being down, and the Nagios
+        # vocabulary this org uses has a state for exactly that.
+        print(f"⚪ pve: cannot check -- {pve_why}")
+        print("   hee-pve-health tries ssh root@<host> first, then a sealed API token.")
+        print(f"   Check with: ssh -o BatchMode=yes root@{args.pve_host} 'pvesh get /nodes'")
     else:
         n = health["node"]
         print(f"🟢 pve node: cpu {n['cpu_pct']}%  mem {n['mem_used_mb']}/{n['mem_total_mb']}MB")
