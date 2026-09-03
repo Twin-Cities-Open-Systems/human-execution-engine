@@ -12,6 +12,7 @@ hee-check - repo boundary and integrity checks
     hee-check locale [PATH]
     hee-check cli [TOOLDIR] [--json] [--quiet]
     hee-check regex
+    hee-check signatures [PATH] [--re-sign --key GPG-KEY-ID]
     hee-check all [PATH]
     hee-check [SUBCOMMAND] help
 
@@ -36,7 +37,9 @@ hee-check - repo boundary and integrity checks
     locale     authored text matches the locale this repo declares
     cli        every hee tool's own help obeys the CLI contract
     regex      shared regex patterns behave identically in every engine
-    all        boundary + refs + locale
+    signatures every detached .asc verifies against the file it signs,
+               and can re-sign the ones that drifted
+    all        boundary + refs + locale + signatures
 
     Add `help` after any subcommand for its own page:
         hee-check refs help
@@ -61,6 +64,10 @@ hee-check - repo boundary and integrity checks
     hee-check refs ~/git          every repo under ~/git
     hee-check refs --fix          repair unambiguous references
     hee-check all ~/git/fleet-ops both checks on one repo
+    hee-check signatures          verify every detached signature
+    hee-check signatures --re-sign --key inspector@tcos.us
+                                  re-sign only the drifted signatures that
+                                  this key already made
 
 
 # SEE ALSO
