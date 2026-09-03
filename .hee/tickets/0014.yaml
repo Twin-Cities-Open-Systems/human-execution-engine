@@ -1,0 +1,11 @@
+id: '0014'
+created_at: '2026-09-03T00:00:17Z'
+description: '533: decide _ form vs argv for command storage -- the source says _,
+  the reply suggested argv'
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-09-03T00:00:17Z'
+- stage: footgun
+  at: '2026-09-03T00:00:25Z'

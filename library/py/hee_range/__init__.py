@@ -84,10 +84,25 @@ def resolve_spec(spec, items, get_id, get_haystack):
     if is_id_range_spec(spec):
         # Returned in SPEC order, not ITEMS order -- an explicit id list is an
         # ordered set, and the caller wrote that order deliberately.
-        wanted = [w.lstrip("0") or "0" for w in parse_id_range_ordered(spec)]
+        # str() before lstrip. An id read from YAML is not necessarily a
+        # string: `id: 0008` and `id: 8` both parse as the INT 8, and only
+        # a quoted `id: '0008'` stays text. Two real tickets in this repo
+        # were written unquoted, so every caller crashed with
+        #   AttributeError: 'int' object has no attribute 'lstrip'
+        # -- which meant hee-ticket -close was broken repo-wide for anyone
+        # whose ticket set contained one. Found 2026-09-02 by dogfooding
+        # hee-ticket rather than by reading it.
+        #
+        # Normalizing here rather than at each call site: this helper is
+        # the one place that knows ids are compared as text, so it is the
+        # one place that should insist on it.
+        def _norm(v):
+            return str(v).lstrip("0") or "0"
+
+        wanted = [_norm(w) for w in parse_id_range_ordered(spec)]
         rank = {w: i for i, w in enumerate(wanted)}
-        matched = [it for it in items if (get_id(it).lstrip("0") or "0") in rank]
-        return sorted(matched, key=lambda it: rank[get_id(it).lstrip("0") or "0"])
+        matched = [it for it in items if _norm(get_id(it)) in rank]
+        return sorted(matched, key=lambda it: rank[_norm(get_id(it))])
 
     pattern = re.compile(spec, re.IGNORECASE)
     return [it for it in items if pattern.search(get_haystack(it) or "")]

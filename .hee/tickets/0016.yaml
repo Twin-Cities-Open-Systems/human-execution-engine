@@ -1,0 +1,11 @@
+id: '0016'
+created_at: '2026-09-03T00:00:17Z'
+description: hee check cli passes a tool whose help omits a real action -- found dogfooding
+  hee-ticket -back
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-09-03T00:00:17Z'
+- stage: footgun
+  at: '2026-09-03T00:00:25Z'

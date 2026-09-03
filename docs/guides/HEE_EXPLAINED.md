@@ -1,4 +1,4 @@
-# HEE, Explained Like You're 5 (Or New)
+# HEE, Explained Like You Are 5 (Or New)
 
 ## What this document is, and isn't
 

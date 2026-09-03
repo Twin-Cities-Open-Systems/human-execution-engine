@@ -1,0 +1,11 @@
+id: '0017'
+created_at: '2026-09-03T00:01:30Z'
+description: hee-ticket -close crashed repo-wide on unquoted YAML ids parsed as int
+  -- fixed in hee_range
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-09-03T00:01:30Z'
+- stage: footgun
+  at: '2026-09-03T00:01:30Z'

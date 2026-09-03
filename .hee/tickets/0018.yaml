@@ -1,0 +1,10 @@
+id: 0018
+created_at: '2026-09-03T00:01:30Z'
+description: hee-ticket -new should quote the id it writes, so this cannot recur
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-09-03T00:01:30Z'
+- stage: footgun
+  at: '2026-09-03T00:01:30Z'

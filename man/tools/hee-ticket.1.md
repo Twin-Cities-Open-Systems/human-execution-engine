@@ -9,6 +9,7 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     hee-ticket -new "DESCRIPTION"
     hee-ticket -list
     hee-ticket -advance ID
+    hee-ticket -back ID
     hee-ticket -close SPEC
     hee-ticket [-ACTION] help
 
@@ -65,6 +66,8 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     -new       open a ticket at stage idea
     -list      print every ticket in this repo
     -advance   move one ticket one stage forward
+    -back      move one ticket one stage back -- footgun<->dogfood cycles,
+               and dogfood->footgun is the only legal backward step
     -close     close tickets by id, range, or description regex
 
     Exactly one action runs per invocation. If several are passed they are
