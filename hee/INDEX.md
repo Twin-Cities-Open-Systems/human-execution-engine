@@ -88,7 +88,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🗂️ Registry (5)</summary>
+<summary>🗂️ Registry (6)</summary>
 
 - 🟢 [OK] `hee/registries/connect-targets.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
