@@ -128,6 +128,22 @@ DESCRIPTION
   Also reports whether this terminal can carry OSC 8 hyperlinks, which
   decides whether tool output may use short clickable links.
 
+  rc_tag is one readable label for this running instance:
+
+      kiosk-claude-main:0.0-0f41d560     inside tmux
+      kiosk-claude-0f41d560              no tmux, no tmux segment
+
+  short host, user, the addressable tmux target, and the first 8 of the
+  session id. The session-id segment is what separates two agents on one
+  host; the rest is where to look. It is a LABEL -- per the SOA anchor's
+  short_token_never_authoritative invariant, never the authority.
+
+  tmux fields are resolved with -t "$TMUX_PANE", so they describe THIS
+  process's pane rather than whichever pane the operator is looking at.
+  $TMUX_SESSION is deliberately not consulted: on a host that sets it in
+  tmux's global environment it is one shared value for every session and
+  cannot track a session name.
+
 OPTIONS
   --signature   emit the markdown signature footer for a GitHub comment
 
