@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-gen-skills: generate agent-readable SKILL.md from Skill objects.
+
+Real trigger (2026-09-02, Spencer): "do we have any skill objects yet? we
+should by now. want to use them to convert into skills file that agents can
+read (downstream by design)."
+
+The downstream already existed, built once by hand:
+
+    hee/skills/ratify-contract-v1.skill.yaml     the Skill object
+    .claude/skills/ratify-contract/SKILL.md      the agent-readable form
+
+That SKILL.md even names the relationship -- "source of truth is
+hee/skills/ratify-contract-v1.skill.yaml. This packages that same procedure
+so it is discoverable without already knowing the doctrine file exists."
+
+What was missing is the generator. A hand-kept restatement drifts the moment
+either side changes, and this org has hit that exact failure three times in
+one day: bootstrap.mk help, hee-ticket ACTIONS, and the glossary. One Skill
+exists today, so writing this now costs little; at ten it would be a
+migration.
+
+## Same principle as hee-gen-manpages, different source
+
+Pure extraction, deterministic from the object, never hand-authored at the
+destination. Re-run any time a Skill changes.
+
+## Why a sibling rather than an extension
+
+hee-gen-manpages is the closest existing tool and the right conceptual
+home, but its name says manpages. Teaching it to emit SKILL.md would make
+that name inaccurate, which is the same "field that claims something it
+does not do" defect this org has been filing against other tools all day.
+This lands in the established `gen-*` namespace instead of inventing a new
+concept. Flagged for review rather than decided silently.
+
+SYNOPSIS
+  hee-gen-skills [--write] [--out DIR]
+  hee-gen-skills help
+
+DESCRIPTION
+  Reads every kind: Skill object under hee/skills/ and renders one
+  SKILL.md per skill into .claude/skills/<name>/.
+
+  Dry run by default. --write is required to touch the filesystem, matching
+  hee-gen-manpages, so an accidental invocation cannot rewrite agent
+  instructions.
+
+EXIT STATUS
+  0 OK        generated, or dry run completed with no differences
+  1 WARNING   dry run found differences that --write would apply
+  2 CRITICAL  a Skill object is malformed or unreadable
+  3 UNKNOWN   pyyaml missing, or no hee/skills directory
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+try:
+    from hee_cli import help_wanted, note_ignored
+except ImportError:
+    def help_wanted(a): return any(x in ("help", "--help", "-h") for x in a)
+    def note_ignored(a): pass
+
+try:
+    import yaml
+except ImportError:
+    print("hee-gen-skills: requires pyyaml", file=sys.stderr)
+    sys.exit(3)
+
+REPO = Path(__file__).resolve().parent.parent.parent
+
+
+def as_lines(v, indent=""):
+    """Render a spec value as markdown, whatever shape it came in as.
+
+    Skill spec fields are deliberately loose -- procedure is a dict with a
+    script and steps, prerequisites is a list, verification is a string.
+    Rendering by SHAPE rather than by field name means a new field appears
+    in the output without editing this tool.
+    """
+    out = []
+    if isinstance(v, str):
+        out.append(f"{indent}{v}")
+    elif isinstance(v, list):
+        for item in v:
+            if isinstance(item, str):
+                out.append(f"{indent}- {item}")
+            else:
+                out.extend(as_lines(item, indent + "  "))
+    elif isinstance(v, dict):
+        for k, sub in v.items():
+            label = k.replace("_", " ")
+            if isinstance(sub, str):
+                out.append(f"{indent}- **{label}**: {sub}")
+            else:
+                out.append(f"{indent}- **{label}**:")
+                out.extend(as_lines(sub, indent + "  "))
+    else:
+        out.append(f"{indent}{v}")
+    return out
+
+
+def render_procedure(proc, brief):
+    """Render numbered steps with their commands as fenced blocks.
+
+    Generic shape-rendering flattens this into a bullet list and loses the
+    thing that matters: an agent can COPY a fenced command and can only
+    paraphrase a sentence that mentions one. Procedure earns a special case
+    because it is the only field whose content is meant to be executed.
+    """
+    out = []
+    ordering = proc.get("ordering") or brief.get("imperative")
+    if ordering:
+        out.append(f"**{ordering.strip()}**")
+        out.append("")
+    if proc.get("script"):
+        out.append(f"Script: `{proc['script']}`")
+        out.append("")
+    for n, step in enumerate(proc.get("steps") or [], 1):
+        if isinstance(step, str):
+            out.append(f"{n}. {step}")
+            continue
+        out.append(f"{n}. {step.get('do','').strip()}")
+        if step.get("run"):
+            out.append("")
+            out.append("   ```sh")
+            out.append(f"   {step['run']}")
+            out.append("   ```")
+        out.append("")
+    return out
+
+
+HEADINGS = {
+    "trigger": "When to use this",
+    "prerequisites": "Before you start",
+    "procedure": "Procedure",
+    "verification": "How to verify it worked",
+    "evidence": "Evidence this is real",
+    "known_gaps": "Known gaps",
+}
+
+
+def render(doc, src):
+    md = doc.get("metadata", {})
+    spec = doc.get("spec", {})
+    # The agent-facing name drops the version suffix: a skill is invoked by
+    # what it does, not by which revision of the object described it.
+    name = md.get("name", "").removesuffix("-v1")
+
+    # agent_brief exists because the first version of this generator produced
+    # a WORSE file than the hand-written SKILL.md it replaced. The object held
+    # the same information declaratively and none of the imperative framing an
+    # agent needs. Generation was lossy by construction, so the fix went into
+    # the object rather than becoming a special case here.
+    brief = spec.get("agent_brief") or {}
+    desc = (brief.get("one_liner")
+            or (md.get("description") or "")).replace("\n", " ").strip()
+    title = brief.get("title") or name.replace("-", " ").title()
+
+    out = ["---", f"name: {name}", f"description: {desc}", "---", ""]
+    out.append(f"# {title}")
+    out.append("")
+    if brief.get("why"):
+        out.append(f"**Why this exists:** {brief['why'].strip()}")
+        out.append("")
+    out.append(f"GENERATED from `{src}` by `hee-gen-skills`. Do not edit this file;")
+    out.append("edit the Skill object and regenerate. A hand-edit here is lost on the")
+    out.append("next run and, worse, silently disagrees with the object until then.")
+    out.append("")
+
+    for key, heading in HEADINGS.items():
+        if key not in spec:
+            continue
+        if key == "procedure":
+            out.append(f"## {heading}")
+            out.append("")
+            out.extend(render_procedure(spec[key], brief))
+            out.append("")
+            continue
+        out.append(f"## {heading}")
+        out.append("")
+        out.extend(as_lines(spec[key]))
+        out.append("")
+
+    # Anything the object carries that this tool has no heading for is still
+    # emitted. Dropping unknown fields silently is how a generator quietly
+    # loses content the source considered worth recording.
+    extra = [k for k in spec if k not in HEADINGS and k != "agent_brief"]
+    if extra:
+        out.append("## Other fields from the Skill object")
+        out.append("")
+        for k in extra:
+            out.append(f"### {k.replace('_', ' ')}")
+            out.append("")
+            out.extend(as_lines(spec[k]))
+            out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def main():
+    argv = sys.argv[1:]
+    if help_wanted(argv):
+        note_ignored(argv)
+        print(__doc__)
+        return 0
+    write = "--write" in argv
+    outdir = REPO / ".claude" / "skills"
+    if "--out" in argv:
+        outdir = Path(argv[argv.index("--out") + 1])
+
+    skills_dir = REPO / "hee" / "skills"
+    if not skills_dir.is_dir():
+        print(f"hee-gen-skills: no {skills_dir}", file=sys.stderr)
+        return 3
+
+    srcs = sorted(skills_dir.glob("*.yaml"))
+    if not srcs:
+        print("hee-gen-skills: no Skill objects found")
+        return 0
+
+    changed = 0
+    for src in srcs:
+        try:
+            doc = yaml.safe_load(src.read_text())
+        except Exception as e:
+            print(f"hee-gen-skills: cannot parse {src}: {e}", file=sys.stderr)
+            return 2
+        if doc.get("kind") != "Skill":
+            print(f"hee-gen-skills: {src.name} is kind={doc.get('kind')}, not Skill -- skipped")
+            continue
+        rel = src.relative_to(REPO)
+        body = render(doc, rel)
+        name = doc.get("metadata", {}).get("name", "").removesuffix("-v1")
+        dest = outdir / name / "SKILL.md"
+        current = dest.read_text() if dest.exists() else None
+        if current == body:
+            print(f"hee-gen-skills: unchanged  {dest.relative_to(REPO)}")
+            continue
+        changed += 1
+        if write:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(body)
+            verb = "wrote" if current is None else "updated"
+            print(f"hee-gen-skills: {verb}     {dest.relative_to(REPO)}")
+        else:
+            verb = "would create" if current is None else "would update"
+            print(f"hee-gen-skills: {verb} {dest.relative_to(REPO)}")
+
+    if changed and not write:
+        print(f"hee-gen-skills: {changed} file(s) differ. Re-run with --write to apply.")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

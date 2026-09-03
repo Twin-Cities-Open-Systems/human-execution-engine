@@ -17,6 +17,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-fields`](hee-fields.1.md)
 - [`hee-filter`](hee-filter.1.md)
 - [`hee-gen-manpages`](hee-gen-manpages.1.md)
+- [`hee-gen-skills`](hee-gen-skills.1.md)
 - [`hee-git-merge`](hee-git-merge.1.md)
 - [`hee-hg`](hee-hg.1.md)
 - [`hee-hooks-install`](hee-hooks-install.1.md)

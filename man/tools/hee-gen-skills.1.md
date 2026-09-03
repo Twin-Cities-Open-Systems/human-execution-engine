@@ -1,0 +1,63 @@
+% HEE-GEN-SKILLS(1) | HEE Tools
+
+# NAME
+
+hee-gen-skills - hee-gen-skills command
+
+# SYNOPSIS
+
+    hee-gen-skills [--write] [--out DIR]
+    hee-gen-skills help
+
+
+# DESCRIPTION
+
+    hee-gen-skills: generate agent-readable SKILL.md from Skill objects.
+
+    Real trigger (2026-09-02, Spencer): "do we have any skill objects yet? we
+    should by now. want to use them to convert into skills file that agents can
+    read (downstream by design)."
+
+    The downstream already existed, built once by hand:
+
+        hee/skills/ratify-contract-v1.skill.yaml     the Skill object
+        .claude/skills/ratify-contract/SKILL.md      the agent-readable form
+
+    That SKILL.md even names the relationship -- "source of truth is
+    hee/skills/ratify-contract-v1.skill.yaml. This packages that same procedure
+    so it is discoverable without already knowing the doctrine file exists."
+
+    What was missing is the generator. A hand-kept restatement drifts the moment
+    either side changes, and this org has hit that exact failure three times in
+    one day: bootstrap.mk help, hee-ticket ACTIONS, and the glossary. One Skill
+    exists today, so writing this now costs little; at ten it would be a
+    migration.
+
+    ## Same principle as hee-gen-manpages, different source
+
+    Pure extraction, deterministic from the object, never hand-authored at the
+    destination. Re-run any time a Skill changes.
+
+    ## Why a sibling rather than an extension
+
+    hee-gen-manpages is the closest existing tool and the right conceptual
+    home, but its name says manpages. Teaching it to emit SKILL.md would make
+    that name inaccurate, which is the same "field that claims something it
+    does not do" defect this org has been filing against other tools all day.
+    This lands in the established `gen-*` namespace instead of inventing a new
+    concept. Flagged for review rather than decided silently.
+
+      Reads every kind: Skill object under hee/skills/ and renders one
+      SKILL.md per skill into .claude/skills/<name>/.
+
+      Dry run by default. --write is required to touch the filesystem, matching
+      hee-gen-manpages, so an accidental invocation cannot rewrite agent
+      instructions.
+
+
+# EXIT STATUS
+
+    0 OK        generated, or dry run completed with no differences
+    1 WARNING   dry run found differences that --write would apply
+    2 CRITICAL  a Skill object is malformed or unreadable
+    3 UNKNOWN   pyyaml missing, or no hee/skills directory
