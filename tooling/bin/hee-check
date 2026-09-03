@@ -144,6 +144,7 @@ SYNOPSIS
   hee-check locale [PATH]
   hee-check cli [TOOLDIR] [--json] [--quiet]
   hee-check regex
+  hee-check signatures [PATH] [--re-sign --key GPG-KEY-ID]
   hee-check all [PATH]
   hee-check [SUBCOMMAND] help
 
@@ -163,7 +164,9 @@ SUBCOMMANDS
   locale     authored text matches the locale this repo declares
   cli        every hee tool's own help obeys the CLI contract
   regex      shared regex patterns behave identically in every engine
-  all        boundary + refs + locale
+  signatures every detached .asc verifies against the file it signs,
+             and can re-sign the ones that drifted
+  all        boundary + refs + locale + signatures
 
   Add `help` after any subcommand for its own page:
       hee-check refs help
@@ -182,6 +185,10 @@ EXAMPLES
   hee-check refs ~/git          every repo under ~/git
   hee-check refs --fix          repair unambiguous references
   hee-check all ~/git/fleet-ops both checks on one repo
+  hee-check signatures          verify every detached signature
+  hee-check signatures --re-sign --key inspector@tcos.us
+                                re-sign only the drifted signatures that
+                                this key already made
 
 SEE ALSO
   hee-lint, hee-index, hee-print
@@ -678,14 +685,60 @@ fi
 # this machine cannot check: UNKNOWN. Reporting an unverifiable signature as
 # broken would train people to ignore the check, which is how a real BAD one
 # gets missed.
+#
+# --re-sign --key KEYID repairs what this same loop just found. Deliberately
+# one function: a separate re-signing tool would need its own idea of which
+# signatures are BAD, and the two would drift. The finder is the fixer.
+#
+# Three real constraints, each of them a safety property rather than a
+# nicety:
+#
+#   1. Only a signature that is ALREADY BAD is touched. A good signature is
+#      never re-made, so running this cannot quietly re-attest content that
+#      nobody looked at.
+#   2. Only a signature that KEYID itself made is re-signed. The signing key
+#      is read back out of gpg's own verify output, not guessed from the
+#      filename. Run it with your key and you fix your own signatures and
+#      nobody else's -- the operator fixes the three that are his, the agent
+#      fixes the one that is its own.
+#   3. A file with no existing signature is never signed. Creating a first
+#      signature is ratification, a different act with its own ceremony
+#      (hee/skills/ratify-contract-v1.skill.yaml). This only ever replaces.
+#
+# Why it exists: `hee check signatures` could find drifted signatures and
+# nothing on the hee surface could repair them. hee-contract-review
+# --action sign only handles status:proposed contracts, and
+# tools/sign-card.sh only fills a pending attestor slot -- neither re-signs
+# content that changed after it was already signed. That gap is what sent
+# an agent back to hand-assembled `gpg --detach-sign` command blocks, which
+# is exactly what rule 15 exists to stop.
 check_signatures() {
   root="${1:-.}"
+  _resign="${2:-0}"
+  _resign_key="${3:-}"
+
   git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     hee_status UNKNOWN "not a git repository: $root"; return 3; }
   command -v gpg >/dev/null 2>&1 || {
     hee_status UNKNOWN "gpg unavailable -- cannot verify signatures"; return 3; }
 
+  if [ "$_resign" -eq 1 ]; then
+    [ -n "$_resign_key" ] || {
+      hee_status UNKNOWN "--re-sign needs --key GPG-KEY-ID"; return 3; }
+    gpg --list-secret-keys "$_resign_key" >/dev/null 2>&1 || {
+      hee_status UNKNOWN "no secret key for '$_resign_key' in the keyring on $(hostname) -- run this where that key actually lives"
+      return 3; }
+    # Normalize to a fingerprint so it can be compared against what gpg
+    # reports for each existing signature. An email or short id is accepted
+    # on the command line; only the fingerprint is compared.
+    _resign_fpr="$(gpg --with-colons --list-secret-keys "$_resign_key" 2>/dev/null \
+                   | awk -F: '/^fpr/{print $10; exit}')"
+    [ -n "$_resign_fpr" ] || {
+      hee_status UNKNOWN "could not resolve a fingerprint for '$_resign_key'"; return 3; }
+  fi
+
   _sig_ok=0; _sig_bad=0; _sig_unk=0; _sig_orphan=0
+  _sig_fixed=0; _sig_notmine=0
   # Tracked files only -- an untracked .asc is somebody's scratch work.
   for _a in $(git -C "$root" ls-files '*.asc' 2>/dev/null); do
     # Two real conventions here: <file>.asc and <file>.<signer>.asc.
@@ -699,8 +752,31 @@ check_signatures() {
     case "$_out" in
       *"Good signature"*) _sig_ok=$((_sig_ok + 1)) ;;
       *"BAD signature"*)
-        hee_status CRITICAL "BAD signature, content changed after signing: $_a"
-        _sig_bad=$((_sig_bad + 1)) ;;
+        # Whose key made this signature? Read it back from gpg's own
+        # output rather than inferring it from the .<signer>.asc filename,
+        # which is a naming convention and not evidence.
+        _made_by="$(printf '%s\n' "$_out" \
+                    | sed -n 's/.*using [A-Za-z0-9]\{1,\} key \([0-9A-Fa-f]\{16,\}\).*/\1/p' \
+                    | head -1)"
+        if [ "$_resign" -eq 1 ] && [ -n "$_made_by" ] && [ "$_made_by" = "$_resign_fpr" ]; then
+          if gpg --yes --local-user "$_resign_fpr" --detach-sign --armor \
+                 --output "$root/$_a" "$root/$_base" 2>/dev/null \
+             && gpg --verify "$root/$_a" "$root/$_base" 2>&1 | grep -q "Good signature"; then
+            hee_status OK "re-signed, now verifies: $_a"
+            _sig_fixed=$((_sig_fixed + 1))
+            _sig_ok=$((_sig_ok + 1))
+          else
+            hee_status CRITICAL "re-sign FAILED, signature left BAD: $_a"
+            _sig_bad=$((_sig_bad + 1))
+          fi
+        elif [ "$_resign" -eq 1 ]; then
+          hee_status CRITICAL "BAD signature, made by another key ($_made_by) -- that holder must re-sign: $_a"
+          _sig_bad=$((_sig_bad + 1))
+          _sig_notmine=$((_sig_notmine + 1))
+        else
+          hee_status CRITICAL "BAD signature, content changed after signing: $_a"
+          _sig_bad=$((_sig_bad + 1))
+        fi ;;
       *"No public key"*|*"Can't check signature"*)
         hee_status UNKNOWN "cannot verify here, no public key: $_a"
         _sig_unk=$((_sig_unk + 1)) ;;
@@ -709,6 +785,10 @@ check_signatures() {
         _sig_unk=$((_sig_unk + 1)) ;;
     esac
   done
+
+  if [ "$_resign" -eq 1 ]; then
+    hee_status OK "re-sign: $_sig_fixed repaired with $_resign_key, $_sig_notmine left for another key holder"
+  fi
 
   _sig_total=$((_sig_ok + _sig_bad + _sig_unk + _sig_orphan))
   [ "$_sig_total" -eq 0 ] && { hee_status OK "no signatures to verify"; return 0; }
@@ -750,13 +830,25 @@ case "$cmd" in
   # one line, and a subcommand that vanishes is worse than one that redirects.
   style)    shift 2>/dev/null || true; check_locale "${1:-.}" ;;
   regex)    check_regex ;;
-  signatures|sig) shift 2>/dev/null || true; check_signatures "${1:-.}" ;;
+  signatures|sig)
+    shift 2>/dev/null || true
+    _s_root="."; _s_resign=0; _s_key=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --re-sign) _s_resign=1; shift ;;
+        --key) _s_key="${2:-}"; shift 2 ;;
+        --key=*) _s_key="${1#--key=}"; shift ;;
+        -*) hee_status UNKNOWN "hee-check signatures: unknown option: $1"; exit 3 ;;
+        *) _s_root="$1"; shift ;;
+      esac
+    done
+    check_signatures "$_s_root" "$_s_resign" "$_s_key" ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
   all)      shift 2>/dev/null || true
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
             check_locale "${1:-.}"; c=$?
-            check_signatures "${1:-.}"; d=$?
+            check_signatures "${1:-.}" 0 ""; d=$?
             _worst=$a
             [ "$b" -gt "$_worst" ] && _worst=$b
             [ "$c" -gt "$_worst" ] && _worst=$c
