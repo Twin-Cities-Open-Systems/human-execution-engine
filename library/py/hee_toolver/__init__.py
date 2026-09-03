@@ -527,18 +527,80 @@ def session() -> dict:
     if tmux:
         socket_path = tmux.split(",", 1)[0]
         out["tmux_socket"] = socket_path
-        out["tmux_pane"] = os.environ.get("TMUX_PANE", "unknown")
-        r = _run(["tmux", "display", "-p", "#{session_name}"])
-        sess = r.stdout.strip() if r and r.returncode == 0 else "unknown"
-        out["tmux_session"] = sess
-        out["tmux_uri"] = f"{socket_path}:{sess}:{out['tmux_pane']}"
+        pane = os.environ.get("TMUX_PANE", "")
+        out["tmux_pane"] = pane or "unknown"
+
+        # -t "$TMUX_PANE" is load-bearing, not defensive. Without it tmux
+        # answers for the ACTIVE pane of the attached client, which is a
+        # different pane than the one this process runs in whenever the
+        # operator is looking somewhere else. Measured on kiosk 2026-09-02:
+        # this process was %1 (main:0.0) while the active pane was %2
+        # (main:0.1), and the bare query returned the active pane's session.
+        # Paired with tmux_pane read from the environment, that produced a
+        # tmux_uri assembled from two different panes -- correct only by
+        # luck when both sat in the same session, and naming a
+        # session/pane pair that does not exist when they did not.
+        target = ["-t", pane] if pane else []
+        fmt = "#{session_name}\t#{window_index}\t#{pane_index}\t#{client_termfeatures}"
+        r = _run(["tmux", "display", "-p", *target, fmt])
+        if r and r.returncode == 0:
+            f = (r.stdout.rstrip("\n").split("\t") + ["", "", "", ""])[:4]
+            sess, win, idx, feats = f
+        else:
+            sess, win, idx, feats = "unknown", "", "", ""
+
+        out["tmux_session"] = sess or "unknown"
+        out["tmux_uri"] = f"{socket_path}:{out['tmux_session']}:{out['tmux_pane']}"
+        # The addressable form -- what `tmux select-pane -t` accepts.
+        # %N is a server-lifetime handle and does not survive a restart.
+        out["tmux_target"] = (
+            f"{sess}:{win}.{idx}" if sess and win != "" and idx != "" else "unknown"
+        )
         # Hyperlink support decides whether tool output can use OSC 8 at all.
-        r = _run(["tmux", "display", "-p", "#{client_termfeatures}"])
-        feats = r.stdout.strip() if r and r.returncode == 0 else ""
         out["tmux_termfeatures"] = feats
         out["osc8_hyperlinks"] = "yes" if "hyperlinks" in feats else "no"
     else:
         out["tmux_uri"] = "none"
+
+    # rc_tag -- one readable label for THIS running instance.
+    #
+    # Operator, 2026-09-02: "if there is no tmux, then there is no tmux
+    # string" -- the tmux segment is omitted entirely rather than filled
+    # with a placeholder.
+    #
+    # Deliberately NOT built from $TMUX_SESSION. That variable lives in
+    # tmux's GLOBAL environment here, one shared value inherited by every
+    # pane in every session, so it structurally cannot track a session
+    # name: measured, it read "kiosk" for a pane that was in "main".
+    #
+    # The session-id segment is what actually disambiguates two concurrent
+    # agents on one host, which is the incident
+    # contracts/agent-instance-signature-v1.contract.yaml exists for. Per
+    # that contract's extension-path, this composes the identifiers the
+    # fleet already has rather than starting another scheme, and per the
+    # SOA anchor's own "short_token_never_authoritative" invariant it is a
+    # label, never the authority.
+    # The base is ALWAYS host-user-sessionid, and the tmux location is
+    # APPENDED after "_" rather than inserted in the middle. Operator,
+    # 2026-09-02: "always use the full like so, it is easier to sort".
+    #
+    #     kiosk-claude-0f41d560              no tmux
+    #     kiosk-claude-0f41d560_main:0.0     in tmux
+    #
+    # That is the point of the shape: every tag for a given host, user and
+    # instance shares one prefix, so a sort groups them and the tmux
+    # location never shifts the session id to a different column. An
+    # earlier draft interleaved them (host-user-TARGET-sessionid), which
+    # sorted the two forms apart.
+    base = "-".join(
+        p for p in (
+            out["host"].split(".", 1)[0] or out["host"],
+            out["user"],
+            out["session_id"][:8] if out["session_id"] != "unknown" else "",
+        ) if p
+    )
+    target = out.get("tmux_target", "unknown")
+    out["rc_tag"] = f"{base}_{target}" if target != "unknown" else base
 
     r = _run(["gh", "auth", "status"])
     if r is not None:
