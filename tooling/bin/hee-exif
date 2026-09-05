@@ -718,10 +718,14 @@ def main():
         return 0
 
     args = ap.parse_args()
-    {
+    # Subcommands return a Nagios code; it was being discarded, so verify
+    # (and brand/provenance on a failed write) always exited 0 -- caught
+    # 2026-09-05 proving embed-sig detects a tampered byte.
+    rc = {
         "read": cmd_read, "sign": cmd_sign, "brand": cmd_brand, "provenance": cmd_provenance, "embed-sig": cmd_embed_sig, "verify": cmd_verify, "gpg-sign": cmd_gpg_sign,
         "regen-pubkey": cmd_regen_pubkey, "embed-exif": cmd_embed_exif,
     }[args.cmd](args)
+    sys.exit(rc or 0)
 
 
 if __name__ == "__main__":
