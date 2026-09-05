@@ -239,6 +239,19 @@ loaded, read this file directly rather than assume it did.
     -- never copied or installed, so `git pull` is the update mechanism and
     there is no second copy to drift.
 
+18. **The changelog is generated, after merges, never typed.** Every
+    squash merge already carries `type(scope): description (#N)` (rule
+    8); `hee gen-changelog` renders that into `CHANGELOG.md`'s
+    `[Unreleased]` block in Keep a Changelog form with a real link per
+    PR. Dry run by default; `--write` in a chore PR after a batch of
+    merges, the same cadence as the gopher man tree (rule 17);
+    `--release VER` cuts a dated section. A PR does not edit
+    `CHANGELOG.md` by hand: it cannot know its own squash subject, and a
+    hand-written line drifts from the commit it describes. Real trigger,
+    2026-09-05: `human-execution-engine`'s changelog had stopped at
+    v0.1.0 in January while 417 commits landed; Spencer: "keep a nice
+    change log with the updates."
+
 ## Authority Invariants
 
 - Authority is scoped to this repository and this workflow context.

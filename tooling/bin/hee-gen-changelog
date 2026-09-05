@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-gen-changelog -- render CHANGELOG.md's [Unreleased] section from
+the repo's own conventional-commit history.
+
+SYNOPSIS
+  hee-gen-changelog [PATH]                 dry run: print what [Unreleased] would become
+  hee-gen-changelog [PATH] --write         write it into CHANGELOG.md (created if absent)
+  hee-gen-changelog [PATH] --release VER   turn [Unreleased] into "## [VER] - today", then --write
+  hee-gen-changelog [PATH] --since REF|DATE   history window (default: the newest dated header)
+  hee-gen-changelog help
+
+DESCRIPTION
+  Every merge to main is a Conventional Commit with its PR number
+  (rule 8: `type(scope): description (#N)`). That is already a changelog;
+  this renders it in Keep a Changelog form so nobody types it twice or
+  forgets it. Operator, 2026-09-05: "keep a nice change log with the
+  updates."
+
+  Grouping: feat -> Added; fix -> Fixed; docs -> Documentation;
+  perf -> Performance; a `!` or BREAKING CHANGE -> Breaking; chore,
+  refactor, ci, build, test, style, lint, ops -> Changed; anything else
+  -> Other. Each line: date, bold scope, the description verbatim, and a
+  real link to the PR. The window starts at the newest `## [x] - DATE`
+  header in CHANGELOG.md (or --since); merges are skipped.
+
+  DRY RUN IS THE DEFAULT -- the same rule as hee-gen-manpages, for the
+  same reason (issue 464). --write replaces only the [Unreleased] block;
+  released sections are never touched. --release VER renames the block
+  to a dated version header and starts a new empty [Unreleased].
+
+  Because a PR cannot know its own squash subject in advance, the file
+  is regenerated AFTER merges, as a chore PR -- the same cadence as the
+  gopher man tree. `hee-gen-changelog` with no flags is the check: empty
+  output means the file is current.
+
+EXIT STATUS
+  0 OK (dry run rendered, or written)   2 CRITICAL (not a git repo, no window)   3 UNKNOWN
+"""
+import re
+import signal
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+
+HEADER = """# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+"""
+GROUPS = [("Breaking", "### Breaking"), ("feat", "### Added"), ("fix", "### Fixed"), ("perf", "### Performance"),
+          ("docs", "### Documentation"), ("changed", "### Changed"), ("other", "### Other")]
+CHANGED_TYPES = {"chore", "refactor", "ci", "build", "test", "style", "lint", "ops"}
+SUBJECT_RE = re.compile(r"^(?P<type>[a-z]+)(\((?P<scope>[^)]*)\))?(?P<bang>!)?:\s*(?P<desc>.*?)(\s*\(#(?P<pr>\d+)\))?\s*$")
+HEADER_RE = re.compile(r"^## \[(?P<ver>[^\]]+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?", re.M)
+
+
+def sh(args, cwd):
+    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"hee-gen-changelog: {' '.join(args)}: {r.stderr.strip()}")
+    return r.stdout
+
+
+def repo_slug(cwd):
+    url = sh(["git", "remote", "get-url", "origin"], cwd).strip()
+    m = re.search(r"github\.com[:/]([^/]+/[^/.]+)", url)
+    return m.group(1) if m else None
+
+
+def window_start(text, since):
+    if since:
+        return since
+    for m in HEADER_RE.finditer(text or ""):
+        if m.group("ver").lower() != "unreleased" and m.group("date"):
+            return m.group("date")
+    return None
+
+
+def collect(cwd, since):
+    fmt = "%H%x1f%ad%x1f%s%x1f%b%x1e"
+    since_arg = ["--since", since] if re.match(r"^\d{4}-\d{2}-\d{2}$", since) else [f"{since}..HEAD"]
+    out = sh(["git", "log", "main", "--no-merges", "--date=short", f"--format={fmt}"] + since_arg, cwd)
+    entries = []
+    for rec in filter(None, out.split("\x1e")):
+        parts = rec.strip("\n").split("\x1f")
+        if len(parts) < 3:
+            continue
+        sha, day, subject = parts[0], parts[1], parts[2]
+        body = parts[3] if len(parts) > 3 else ""
+        m = SUBJECT_RE.match(subject)
+        if m:
+            t = m.group("type"); scope = m.group("scope") or ""; desc = m.group("desc"); pr = m.group("pr")
+            breaking = bool(m.group("bang")) or "BREAKING CHANGE" in body
+        else:
+            # not conventional, but the PR number is still real and linkable
+            pm = re.search(r"\s*\(#(\d+)\)\s*$", subject)
+            t, scope, desc, pr, breaking = "other", "", (subject[:pm.start()] if pm else subject), (pm.group(1) if pm else None), False
+        group = "Breaking" if breaking else t if t in ("feat", "fix", "perf", "docs") else "changed" if t in CHANGED_TYPES else "other"
+        entries.append((group, day, scope, desc, pr, sha[:7]))
+    return entries
+
+
+def render(entries, slug):
+    lines = ["## [Unreleased]", ""]
+    for key, title in GROUPS:
+        rows = [e for e in entries if e[0] == key]
+        if not rows:
+            continue
+        lines += [title, ""]
+        for _, day, scope, desc, pr, sha in rows:
+            ref = f"[#{pr}](https://github.com/{slug}/pull/{pr})" if pr and slug else f"`{sha}`"
+            lines.append(f"- {day} " + (f"**{scope}**: " if scope else "") + f"{desc} ({ref})")
+        lines.append("")
+    if len(lines) == 2:
+        lines.append("_Nothing since the last release._\n")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def splice(text, block, release=None):
+    """Replace the [Unreleased] block (or insert one after the header)."""
+    if release:
+        block = block.replace("## [Unreleased]", f"## [{release}] - {date.today().isoformat()}", 1)
+        block = "## [Unreleased]\n\n_Nothing since the last release._\n\n" + block
+    m = re.search(r"^## \[Unreleased\].*?(?=^## \[|\Z)", text, re.M | re.S)
+    if m:
+        return text[:m.start()] + block + ("\n" if not block.endswith("\n\n") else "") + text[m.end():]
+    first = HEADER_RE.search(text)
+    if first:
+        return text[:first.start()] + block + "\n" + text[first.start():]
+    return text.rstrip("\n") + "\n\n" + block
+
+
+def main(argv):
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)   # `| head` is a normal way to read a dry run
+    if help_wanted(argv):
+        note_ignored(argv)
+        print(__doc__); return 0
+    write = "--write" in argv; release = None; since = None; path = "."
+    args = [a for a in argv if a != "--write"]
+    while args:
+        a = args.pop(0)
+        if a == "--release": release = args.pop(0); write = True
+        elif a == "--since": since = args.pop(0)
+        elif a.startswith("-"): print(f"hee-gen-changelog: unknown option {a}", file=sys.stderr); return 3
+        else: path = a
+    cwd = str(Path(path).resolve())
+    if subprocess.run(["git", "-C", cwd, "rev-parse", "--git-dir"], capture_output=True).returncode != 0:
+        print(f"❌ CRITICAL {cwd} is not a git repository"); return 2
+    cl = Path(cwd) / "CHANGELOG.md"
+    text = cl.read_text() if cl.is_file() else ""
+    start = window_start(text, since)
+    if not start:
+        print("❌ CRITICAL no dated release header in CHANGELOG.md and no --since -- say where the window starts"); return 2
+    entries = collect(cwd, start)
+    block = render(entries, repo_slug(cwd))
+    if not write:
+        print(f"DRY RUN -- nothing will be written. window: since {start}, {len(entries)} commit(s) on main\nwould write to: {cl}\n")
+        print(block); return 0
+    new = splice(text if text else HEADER + "\n", block, release)
+    cl.write_text(new)
+    print(f"✅ OK wrote {cl}: {len(entries)} commit(s) since {start}" + (f", released as {release}" if release else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
