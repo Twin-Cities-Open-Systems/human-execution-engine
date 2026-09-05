@@ -34,8 +34,8 @@ Usage:
       The org's default branding, from one YAML card (tcos-audit's
       policy/branding.card.v1.yaml; path via --branding or $HEE_BRANDING,
       set in heerc). Always written: Credit + Publisher = the org's long
-      name ("made by ... will always be our long name" -- operator,
-      2026-09-05), the PEN as an identifier (urn:oid:1.3.6.1.4.1.<pen>),
+      name (the publisher line "will always be our long name" --
+      operator, 2026-09-05), the PEN as an identifier (urn:oid:1.3.6.1.4.1.<pen>),
       and the license (UsageTerms, WebStatement, Marked). Defaulted
       unless given: Artist = the org's long name, Copyright = the org's
       notice with this year. --artist/--copyright name someone else when
@@ -290,16 +290,16 @@ def cmd_brand(args):
     require_exiftool()
     spec = load_branding(args.branding or os.environ.get("HEE_BRANDING"))
     name_full = spec["name"]["full"]
-    made_by = spec.get("credit", {}).get("made_by", name_full)
+    publisher = spec.get("credit", {}).get("publisher", name_full)
     year = str(datetime.date.today().year)
     artist = args.artist or name_full
     copyright_ = args.copyright or spec["copyright"]["notice"].replace("{year}", year)
     lic = spec.get("license", {})
     urn = spec.get("identifier", {}).get("urn")
-    # Always-on org fields. Credit/Publisher say who made it, even when
+    # Always-on org fields. Credit/Publisher name the publisher, even when
     # Artist/Copyright below name someone else because the work is theirs.
     always = [
-        ("IPTC:Credit", made_by), ("XMP-photoshop:Credit", made_by), ("XMP-dc:Publisher", made_by),
+        ("IPTC:Credit", publisher), ("XMP-photoshop:Credit", publisher), ("XMP-dc:Publisher", publisher),
         ("XMP-xmpRights:Marked", "True"),
     ]
     if lic.get("url"):
