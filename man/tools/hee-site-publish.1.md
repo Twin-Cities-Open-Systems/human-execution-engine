@@ -7,6 +7,7 @@ hee-site-publish - add files into resume/dist/ and deploy the whole tree
 # SYNOPSIS
 
     hee-site-publish --add FILE [--add FILE ...] [--dry-run]
+    hee-site-publish --post FILE.md [--oper SLUG] [--no-pr] [--dry-run]
     hee-site-publish help
 
 
@@ -26,6 +27,16 @@ hee-site-publish - add files into resume/dist/ and deploy the whole tree
     and then deploys the whole tree -- it never deploys a partial directory.
 
       --add       a file to add to the tree; repeatable
+      --post      publish one blog post: copy FILE.md into the resume repo at
+                  profiles/<oper>/blog/, rebuild the site (./convert.sh renders
+                  every post to a Gold page through .github's render-review.py
+                  and fails on a non-Gold page), deploy the whole tree, then
+                  open a PR carrying the post so git catches up. Live first,
+                  reviewed second -- the deploy is from the working tree, the
+                  PR is the record. Repeat --post for several posts.
+      --oper      which person's blog; default: your login ($USER) if it is a
+                  roster slug, else required
+      --no-pr     skip the PR (leaves the post uncommitted on a branch)
       --dry-run   show what would deploy, deploy nothing
 
     Requires a sealed Cloudflare API token at
