@@ -29,6 +29,36 @@ Artist/Copyright when explicitly given AND not already present.
 
 Usage:
   hee-exif read <file> [--json]
+  hee-exif brand <file>... [--branding FILE] [--artist NAME] [--copyright TEXT]
+                        [--force] [--dry-run]
+      The org's default branding, from one YAML card (tcos-audit's
+      policy/branding.card.v1.yaml; path via --branding or $HEE_BRANDING,
+      set in heerc). Always written: Credit + Publisher = the org's long
+      name (the publisher line "will always be our long name" --
+      operator, 2026-09-05), the PEN as an identifier (urn:oid:1.3.6.1.4.1.<pen>),
+      and the license (UsageTerms, WebStatement, Marked). Defaulted
+      unless given: Artist = the org's long name, Copyright = the org's
+      notice with this year. --artist/--copyright name someone else when
+      the work is THEIR IP and we are only sharing it (operator, same
+      day) -- precedent: spencer.media.tcos.us/tux-tattoo, where Artist
+      and Copyright are the tattoo artist's. Existing real Artist /
+      Copyright values are left alone unless --force, same rule as sign.
+  hee-exif embed-sig <file>... [--key GPG-KEY-ID] [--dry-run]
+      Put a GPG signature IN the file. Signs the file's metadata-stripped
+      form (`exiftool -all=`, deterministic per container -- measured on
+      JPEG, PNG, GIF) and writes the armored signature, the signer's
+      fingerprint, the signed sha256 and the recipe into the TCOS XMP
+      namespace (XMP-hee:*, library/exiftool/hee-xmp.config). Stays valid
+      through every later metadata write, because none of that is in the
+      signed form. Operator, 2026-09-05: "can we put the gpg sig in the
+      exif?" -- yes, this way: a detached .asc stays on our page, this
+      one travels with the file wherever it is reposted.
+  hee-exif verify <file>...
+      Check an embedded signature: strip the same way, gpg --verify the
+      embedded armor against it, compare the digest. Also checks a
+      detached <file>.asc beside it (gpg-sign's, over the served bytes)
+      when present. Nagios exit codes: 0 OK, 2 CRITICAL (any bad or
+      missing), 3 UNKNOWN (no exiftool/gpg).
   hee-exif provenance <file>... --tool NAME [--commit SHA] [--job PATH]
                         [--source PATH] [--kv k=v]... [--force] [--dry-run]
       How a GENERATED image came to be -- the deterministic-flow
@@ -46,6 +76,11 @@ Usage:
       no agent in the loop, so `sign`'s session fields are `unknown` by
       construction; what such an output can truthfully carry is which
       tool, which commit, which job and which source made it.
+      Paths are recorded RELATIVE, never absolute (operator, 2026-09-05:
+      "do not want full local paths"): a path inside a git checkout is
+      recorded as <repo-dir-name>/<path-from-repo-root>; anything else is
+      recorded relative to the stamped file's own directory. The sha256
+      is always of the real file.
   hee-exif sign <file> [--artist NAME] [--copyright TEXT]
                         [--force] [--dry-run]
       --force overwrites an already-set Artist/Copyright; without it,
@@ -231,25 +266,214 @@ def rc_tag():
     return f"{socket.gethostname().split('.')[0]}-{getpass.getuser()}-nosession"
 
 
+def relative_label(path, anchor_file):
+    """A path for the record: never absolute. Inside a git checkout ->
+    '<repo dir name>/<path from repo root>'; otherwise relative to the
+    stamped file's directory, falling back to the basename."""
+    p = Path(path).resolve()
+    r = run(["git", "-C", str(p.parent if p.is_file() else p), "rev-parse", "--show-toplevel"])
+    if r.returncode == 0 and r.stdout.strip():
+        top = Path(r.stdout.strip())
+        try:
+            return f"{top.name}/{p.relative_to(top)}"
+        except ValueError:
+            pass
+    try:
+        import os
+        rel = os.path.relpath(p, Path(anchor_file).resolve().parent)
+    except ValueError:
+        return p.name
+    # "../../../../mnt/..." is not a relative label, it is an absolute path
+    # in disguise (measured 2026-09-05 when outputs were redirected to a
+    # scratch dir while the source stayed on the share). Beside or below
+    # the stamped file: keep the path. Anywhere else: just the name.
+    return p.name if rel.startswith("..") else rel
+
+
+def load_branding(path):
+    try:
+        import yaml
+    except ImportError:
+        sys.exit("hee-exif brand: needs pyyaml (python3-yaml)")
+    if not path:
+        sys.exit("hee-exif brand: no branding file -- pass --branding FILE or set HEE_BRANDING (heerc) "
+                 "to tcos-audit/policy/branding.card.v1.yaml")
+    if not Path(path).is_file():
+        sys.exit(f"hee-exif brand: branding file not found: {path}")
+    d = yaml.safe_load(Path(path).read_text())
+    if d.get("kind") != "Card" or d.get("apiVersion") != "hee/v1":
+        sys.exit(f"hee-exif brand: {path} is not an apiVersion hee/v1 kind Card")
+    return d["spec"]
+
+
+def cmd_brand(args):
+    import datetime, os
+    require_exiftool()
+    spec = load_branding(args.branding or os.environ.get("HEE_BRANDING"))
+    name_full = spec["name"]["full"]
+    publisher = spec.get("credit", {}).get("publisher", name_full)
+    year = str(datetime.date.today().year)
+    artist = args.artist or name_full
+    copyright_ = args.copyright or spec["copyright"]["notice"].replace("{year}", year)
+    lic = spec.get("license", {})
+    urn = spec.get("identifier", {}).get("urn")
+    # Always-on org fields. Credit/Publisher name the publisher, even when
+    # Artist/Copyright below name someone else because the work is theirs.
+    always = [
+        ("IPTC:Credit", publisher), ("XMP-photoshop:Credit", publisher), ("XMP-dc:Publisher", publisher),
+        ("XMP-xmpRights:Marked", "True"),
+    ]
+    if lic.get("url"):
+        always.append(("XMP-xmpRights:WebStatement", lic["url"]))
+    if lic.get("name"):
+        always.append(("XMP-xmpRights:UsageTerms", f"{lic['name']} ({lic.get('spdx', '')}) -- {lic.get('url', '')}".strip()))
+    if urn:
+        always += [("XMP-xmp:Identifier", urn), ("XMP-dc:Identifier", urn)]
+    # JPEG-only groups get filtered per container, same reason as provenance.
+    MIRROR = {"Artist": ["IPTC:By-line", "XMP:Creator", "XMP:ImageCreatorName"],
+              "Copyright": ["IPTC:CopyrightNotice", "XMP:Rights"]}
+    rc = 0
+    for file in args.files:
+        jpeg = Path(file).suffix.lower() in (".jpg", ".jpeg")
+        exif_args = ["exiftool", "-overwrite_original"]
+        report = []
+        for tag, value in always:
+            if not jpeg and tag.startswith("IPTC:"):
+                continue
+            exif_args.append(f"-{tag}={value}"); report.append(f"{tag}: {value}")
+        for tag, value in (("Artist", artist), ("Copyright", copyright_)):
+            current = existing_tag(file, tag) if jpeg else existing_tag(file, MIRROR[tag][1])
+            if current and not args.force:
+                report.append(f"{tag}: SKIPPED (already set to {current!r}; use --force)")
+                continue
+            if jpeg:
+                exif_args.append(f"-{tag}={value}")
+            report.append(f"{tag}: {value}")
+            for mirror in MIRROR[tag]:
+                if not jpeg and mirror.startswith("IPTC:"):
+                    continue
+                exif_args.append(f"-{mirror}={value}")
+        if args.dry_run:
+            print(f"hee-exif brand --dry-run, would write to {file}:")
+            for line in report:
+                print(f"  {line}")
+            continue
+        r = run(exif_args + [file])
+        if r.returncode != 0:
+            print(f"hee-exif brand: FAILED on {file}: {r.stderr.strip()}", file=sys.stderr); rc = 2; continue
+        print(f"hee-exif brand: {file}")
+        for line in report:
+            print(f"  {line}")
+    return rc
+
+
+XMP_CONFIG = Path(__file__).resolve().parent.parent.parent / "library" / "exiftool" / "hee-xmp.config"
+SIGNED_FORM = "exiftool -all="
+
+
+def stripped_form(file, tmpdir):
+    """The bytes that get signed: the file with every metadata block removed,
+    written by exiftool -- the same command at sign and verify time."""
+    out = Path(tmpdir) / ("stripped" + Path(file).suffix)
+    r = run(["exiftool", "-all=", "-o", str(out), str(file)])
+    if r.returncode != 0 or not out.is_file():
+        sys.exit(f"hee-exif: could not produce the stripped form of {file}: {r.stderr.strip()}")
+    return out
+
+
+def gpg_fingerprint(key):
+    r = run(["gpg", "--list-secret-keys", "--with-colons"] + ([key] if key else []))
+    for line in r.stdout.splitlines():
+        if line.startswith("fpr:"):
+            return line.split(":")[9]
+    return None
+
+
+def cmd_embed_sig(args):
+    import tempfile
+    require_exiftool()
+    if run(["which", "gpg"]).returncode != 0:
+        sys.exit("hee-exif embed-sig: gpg not found")
+    fpr = gpg_fingerprint(args.key)
+    if not fpr:
+        sys.exit(f"hee-exif embed-sig: no secret key{' for ' + args.key if args.key else ''}")
+    rc = 0
+    for file in args.files:
+        with tempfile.TemporaryDirectory() as td:
+            form = stripped_form(file, td)
+            digest = sha256_of(form)
+            cmd = ["gpg", "--batch", "--yes", "--detach-sign", "--armor", "--output", "-"] + (["--local-user", args.key] if args.key else []) + [str(form)]
+            if args.dry_run:
+                print(f"hee-exif embed-sig --dry-run: {file}\n  signed form sha256 {digest} by {fpr}\n  would run: {' '.join(cmd)}")
+                continue
+            r = run(cmd)
+            if r.returncode != 0:
+                print(f"hee-exif embed-sig: gpg FAILED on {file}: {r.stderr.strip()}", file=sys.stderr); rc = 2; continue
+            armored = r.stdout
+            w = run(["exiftool", "-config", str(XMP_CONFIG), "-overwrite_original",
+                     f"-XMP-hee:LabSignature={armored}", f"-XMP-hee:LabSigner={fpr}",
+                     f"-XMP-hee:SignedDigest={digest}", f"-XMP-hee:SignedForm={SIGNED_FORM}", str(file)])
+            if w.returncode != 0:
+                print(f"hee-exif embed-sig: exiftool FAILED on {file}: {w.stderr.strip()}", file=sys.stderr); rc = 2; continue
+            print(f"hee-exif embed-sig: {file}\n  XMP-hee:LabSigner: {fpr}\n  XMP-hee:SignedDigest: {digest}\n  XMP-hee:SignedForm: {SIGNED_FORM}")
+    return rc
+
+
+def cmd_verify(args):
+    import tempfile
+    require_exiftool()
+    if run(["which", "gpg"]).returncode != 0:
+        print("⚠️ UNKNOWN hee-exif verify: gpg not found"); return 3
+    worst = 0
+    for file in args.files:
+        r = run(["exiftool", "-config", str(XMP_CONFIG), "-b", "-XMP-hee:LabSignature", str(file)])
+        armored = r.stdout
+        digest_claim = run(["exiftool", "-config", str(XMP_CONFIG), "-s3", "-XMP-hee:SignedDigest", str(file)]).stdout.strip()
+        if "BEGIN PGP SIGNATURE" not in armored:
+            print(f"❌ CRITICAL {file}: no embedded signature (XMP-hee:LabSignature)"); worst = max(worst, 2)
+        else:
+            with tempfile.TemporaryDirectory() as td:
+                form = stripped_form(file, td)
+                digest = sha256_of(form)
+                sig = Path(td) / "embedded.asc"; sig.write_text(armored if armored.endswith("\n") else armored + "\n")
+                v = run(["gpg", "--batch", "--verify", str(sig), str(form)])
+                good = v.returncode == 0
+                who = next((l for l in v.stderr.splitlines() if "Good signature" in l or "BAD signature" in l), v.stderr.strip().splitlines()[-1] if v.stderr.strip() else "")
+                if good and digest == digest_claim:
+                    print(f"✅ OK       {file}: embedded signature verifies over the stripped form -- {who.strip()}")
+                else:
+                    print(f"❌ CRITICAL {file}: embedded signature {'verifies but digest claim differs' if good else 'does NOT verify'} -- {who.strip()}"); worst = max(worst, 2)
+        asc = Path(str(file) + ".asc")
+        if asc.is_file():
+            v = run(["gpg", "--batch", "--verify", str(asc), str(file)])
+            if v.returncode == 0:
+                print(f"✅ OK       {file}: detached {asc.name} verifies over the served bytes")
+            else:
+                print(f"❌ CRITICAL {file}: detached {asc.name} does NOT verify (file changed after signing?)"); worst = max(worst, 2)
+    return worst
+
+
 def cmd_provenance(args):
     require_exiftool()
     kv = []
     kv.append(("tool", args.tool))
     if args.commit:
         kv.append(("commit", args.commit))
+    anchor_file = args.files[0]
     if args.job:
-        kv.append(("job", args.job))
+        kv.append(("job", relative_label(args.job, anchor_file)))
         if Path(args.job).is_file():
             kv.append(("job_sha256", sha256_of(args.job)))
     src_desc = None
     if args.source:
-        kv.append(("source", args.source))
+        src_label = relative_label(args.source, anchor_file)
+        kv.append(("source", src_label))
         if Path(args.source).is_file():
             h = sha256_of(args.source)
             kv.append(("source_sha256", h))
-            src_desc = f"{args.source} sha256:{h}"
+            src_desc = f"{src_label} sha256:{h}"
         else:
-            src_desc = args.source
+            src_desc = src_label
     for item in args.kv or []:
         if "=" not in item:
             sys.exit(f"hee-exif provenance: --kv wants k=v, got {item!r}")
@@ -412,15 +636,16 @@ def cmd_embed_exif(args):
     data = json.loads(proc.stdout, strict=False)
 
     out = {}
+    exts = tuple("." + e.strip().lower().lstrip(".") for e in (args.ext or "jpg,jpeg").split(","))
     for d in data:
         name = d.get("FileName", "")
-        if not name.lower().endswith((".jpg", ".jpeg")):
+        if not name.lower().endswith(exts):
             continue
         photo_id = name.rsplit(".", 1)[0]
         out[photo_id] = {k: v for k, v in d.items() if k not in exclude and not _is_blank(v)}
 
     if not out:
-        sys.exit(f"hee-exif embed-exif: no .jpg/.jpeg files found in {args.photo_dir}, refusing to embed nothing")
+        sys.exit(f"hee-exif embed-exif: no {'/'.join(exts)} files found in {args.photo_dir}, refusing to embed nothing")
 
     embed = json.dumps(out, separators=(",", ":"), ensure_ascii=False)
     _replace_js_var(args.target_html, args.var_name, embed, "embed-exif")
@@ -443,6 +668,22 @@ def main():
                          f"The real org legal name, if it ever legitimately applies, is: {TCOS_LEGAL_NAME!r}")
     s.add_argument("--force", action="store_true", help="overwrite an already-set Artist/Copyright")
     s.add_argument("--dry-run", action="store_true")
+
+    br = sub.add_parser("brand", help="write the org's default branding: credit/publisher, PEN identifier, license; Artist/Copyright defaulted unless given")
+    br.add_argument("files", nargs="+")
+    br.add_argument("--branding", default=None, help="branding card YAML (default: $HEE_BRANDING)")
+    br.add_argument("--artist", default=None, help="whose work this is, when not ours")
+    br.add_argument("--copyright", default=None, help="their notice, when the IP is someone else's")
+    br.add_argument("--force", action="store_true", help="overwrite an existing real Artist/Copyright")
+    br.add_argument("--dry-run", action="store_true")
+
+    es = sub.add_parser("embed-sig", help="put a GPG signature IN the file: sign its metadata-stripped form, store the armor in XMP-hee")
+    es.add_argument("files", nargs="+")
+    es.add_argument("--key", default=None, help="gpg --local-user selector; default signing key if omitted")
+    es.add_argument("--dry-run", action="store_true")
+
+    vf = sub.add_parser("verify", help="verify the embedded signature (and a detached .asc if present); Nagios exit codes")
+    vf.add_argument("files", nargs="+")
 
     pv = sub.add_parser("provenance", help="write how a GENERATED image was made: tool@commit, job, source (+sha256s), signed with the org rc_tag")
     pv.add_argument("files", nargs="+")
@@ -469,6 +710,7 @@ def main():
     ee.add_argument("var_name")
     ee.add_argument("photo_dir")
     ee.add_argument("--exclude", default=None, help="comma-separated extra field names to exclude, added to the default local-artifact exclusion list")
+    ee.add_argument("--ext", default=None, help="comma-separated extensions to embed (default: jpg,jpeg); e.g. jpg,png,gif for a media item that is not all photos")
 
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
@@ -481,10 +723,14 @@ def main():
         return 0
 
     args = ap.parse_args()
-    {
-        "read": cmd_read, "sign": cmd_sign, "provenance": cmd_provenance, "gpg-sign": cmd_gpg_sign,
+    # Subcommands return a Nagios code; it was being discarded, so verify
+    # (and brand/provenance on a failed write) always exited 0 -- caught
+    # 2026-09-05 proving embed-sig detects a tampered byte.
+    rc = {
+        "read": cmd_read, "sign": cmd_sign, "brand": cmd_brand, "provenance": cmd_provenance, "embed-sig": cmd_embed_sig, "verify": cmd_verify, "gpg-sign": cmd_gpg_sign,
         "regen-pubkey": cmd_regen_pubkey, "embed-exif": cmd_embed_exif,
     }[args.cmd](args)
+    sys.exit(rc or 0)
 
 
 if __name__ == "__main__":
