@@ -88,9 +88,10 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🗂️ Registry (6)</summary>
+<summary>🗂️ Registry (7)</summary>
 
 - 🟢 [OK] `hee/registries/connect-targets.registry.v1.yaml`
+- 🟢 [OK] `hee/registries/container-addons.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/execution-tier-compat.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/party-kind.registry.v1.yaml`
