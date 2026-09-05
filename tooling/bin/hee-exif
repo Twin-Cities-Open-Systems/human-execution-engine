@@ -29,6 +29,23 @@ Artist/Copyright when explicitly given AND not already present.
 
 Usage:
   hee-exif read <file> [--json]
+  hee-exif provenance <file>... --tool NAME [--commit SHA] [--job PATH]
+                        [--source PATH] [--kv k=v]... [--force] [--dry-run]
+      How a GENERATED image came to be -- the deterministic-flow
+      counterpart of `sign`. Writes XMP-xmp:CreatorTool (tool@commit),
+      XMP-dc:Source (the input file + its sha256) and XMP-dc:Description
+      ("provenance: tool=..; commit=..; job=..; job_sha256=..;
+      source_sha256=..; k=v..; signed=<rc_tag>"), mirrored to
+      EXIF:ImageDescription / IPTC:Caption-Abstract on JPEG. The
+      signature is the org's rc_tag form (host-user-<hash>_<tmux>), read
+      from hee-ver session, never invented. An existing Description that
+      is not a provenance block is left alone unless --force. Works on
+      JPEG, PNG and GIF (XMP travels in all three; measured 2026-09-05).
+      Real trigger: fleet-ops#381 review, "how can we introduce ... our
+      exif tools to this" -- meme-factory renders from a job file with
+      no agent in the loop, so `sign`'s session fields are `unknown` by
+      construction; what such an output can truthfully carry is which
+      tool, which commit, which job and which source made it.
   hee-exif sign <file> [--artist NAME] [--copyright TEXT]
                         [--force] [--dry-run]
       --force overwrites an already-set Artist/Copyright; without it,
@@ -189,6 +206,97 @@ def cmd_sign(args):
     print(f"hee-exif: wrote signature to {args.file}")
 
 
+def sha256_of(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def rc_tag():
+    """The org's instance signature in rc_tag form, from hee-ver session --
+    the same source every other signer uses. Falls back to host-user when
+    hee-ver is unavailable, and says so rather than inventing a hash."""
+    ver = Path(__file__).resolve().parent / "hee-ver"
+    try:
+        out = json.loads(run([str(ver), "session", "--json"]).stdout)
+        tag = out.get("session", out).get("rc_tag")
+        if tag:
+            return tag
+    except Exception:
+        pass
+    import getpass, socket
+    return f"{socket.gethostname().split('.')[0]}-{getpass.getuser()}-nosession"
+
+
+def cmd_provenance(args):
+    require_exiftool()
+    kv = []
+    kv.append(("tool", args.tool))
+    if args.commit:
+        kv.append(("commit", args.commit))
+    if args.job:
+        kv.append(("job", args.job))
+        if Path(args.job).is_file():
+            kv.append(("job_sha256", sha256_of(args.job)))
+    src_desc = None
+    if args.source:
+        kv.append(("source", args.source))
+        if Path(args.source).is_file():
+            h = sha256_of(args.source)
+            kv.append(("source_sha256", h))
+            src_desc = f"{args.source} sha256:{h}"
+        else:
+            src_desc = args.source
+    for item in args.kv or []:
+        if "=" not in item:
+            sys.exit(f"hee-exif provenance: --kv wants k=v, got {item!r}")
+        k, v = item.split("=", 1)
+        kv.append((k, v))
+    kv.append(("signed", rc_tag()))
+    desc = "provenance: " + "; ".join(f"{k}={v}" for k, v in kv)
+    creator = args.tool + (f"@{args.commit}" if args.commit else "")
+
+    rc = 0
+    for file in args.files:
+        report = []
+        exif_args = ["exiftool", "-overwrite_original", f"-XMP-xmp:CreatorTool={creator}"]
+        report.append(f"XMP-xmp:CreatorTool: {creator}")
+        if src_desc:
+            exif_args.append(f"-XMP-dc:Source={src_desc}")
+            report.append(f"XMP-dc:Source: {src_desc}")
+        current = existing_tag(file, "XMP-dc:Description")
+        if current and not current.startswith("provenance:") and not args.force:
+            report.append(f"XMP-dc:Description: SKIPPED (already set to {current!r}, not a provenance block; use --force)")
+        else:
+            exif_args.append(f"-XMP-dc:Description={desc}")
+            report.append(f"XMP-dc:Description: {desc}")
+            # Same mirroring rule as Artist/Copyright in `sign`: platforms
+            # read different standards for the same fact. EXIF and IPTC
+            # only exist in JPEG; writing them to PNG/GIF makes exiftool
+            # refuse the whole command, so gate on the container.
+            if Path(file).suffix.lower() in (".jpg", ".jpeg"):
+                for mirror in ("EXIF:ImageDescription", "IPTC:Caption-Abstract"):
+                    exif_args.append(f"-{mirror}={desc}")
+                    report.append(f"{mirror}: (mirrored)")
+        if args.dry_run:
+            print(f"hee-exif provenance --dry-run, would write to {file}:")
+            for line in report:
+                print(f"  {line}")
+            continue
+        r = run(exif_args + [file])
+        if r.returncode != 0:
+            print(f"hee-exif provenance: FAILED on {file}: {r.stderr.strip()}", file=sys.stderr)
+            rc = 2
+            continue
+        print(f"hee-exif provenance: {file}")
+        for line in report:
+            print(f"  {line}")
+    return rc
+
+
 def gpg_sign_one(file, key, dry_run):
     """Real detached GPG signature (file.jpg.asc), same convention
     already used elsewhere in this repo (hee/cards/*.asc) -- not a
@@ -336,6 +444,16 @@ def main():
     s.add_argument("--force", action="store_true", help="overwrite an already-set Artist/Copyright")
     s.add_argument("--dry-run", action="store_true")
 
+    pv = sub.add_parser("provenance", help="write how a GENERATED image was made: tool@commit, job, source (+sha256s), signed with the org rc_tag")
+    pv.add_argument("files", nargs="+")
+    pv.add_argument("--tool", required=True, help="generator name, e.g. meme-factory/faceoff")
+    pv.add_argument("--commit", default=None, help="git commit of the generator")
+    pv.add_argument("--job", default=None, help="job/recipe file that drove the render (sha256 recorded if it exists)")
+    pv.add_argument("--source", default=None, help="input image (sha256 recorded if it exists)")
+    pv.add_argument("--kv", action="append", default=None, metavar="K=V", help="extra provenance field, repeatable")
+    pv.add_argument("--force", action="store_true", help="overwrite a non-provenance XMP-dc:Description")
+    pv.add_argument("--dry-run", action="store_true")
+
     g = sub.add_parser("gpg-sign", help="real detached GPG signature (file.asc) -- supports bulk, pass multiple files")
     g.add_argument("files", nargs="+")
     g.add_argument("--key", default=None, help="gpg --local-user selector (fingerprint or user-id); default gpg signing key if omitted")
@@ -364,7 +482,7 @@ def main():
 
     args = ap.parse_args()
     {
-        "read": cmd_read, "sign": cmd_sign, "gpg-sign": cmd_gpg_sign,
+        "read": cmd_read, "sign": cmd_sign, "provenance": cmd_provenance, "gpg-sign": cmd_gpg_sign,
         "regen-pubkey": cmd_regen_pubkey, "embed-exif": cmd_embed_exif,
     }[args.cmd](args)
 
