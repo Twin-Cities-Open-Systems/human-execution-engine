@@ -280,9 +280,14 @@ def relative_label(path, anchor_file):
             pass
     try:
         import os
-        return os.path.relpath(p, Path(anchor_file).resolve().parent)
+        rel = os.path.relpath(p, Path(anchor_file).resolve().parent)
     except ValueError:
         return p.name
+    # "../../../../mnt/..." is not a relative label, it is an absolute path
+    # in disguise (measured 2026-09-05 when outputs were redirected to a
+    # scratch dir while the source stayed on the share). Beside or below
+    # the stamped file: keep the path. Anywhere else: just the name.
+    return p.name if rel.startswith("..") else rel
 
 
 def load_branding(path):
