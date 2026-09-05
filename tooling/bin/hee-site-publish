@@ -38,6 +38,7 @@ hee-site-publish -- add files into resume/dist/ and deploy the whole tree
 
 SYNOPSIS
   hee-site-publish --add FILE [--add FILE ...] [--dry-run]
+  hee-site-publish --post FILE.md [--oper SLUG] [--no-pr] [--dry-run]
   hee-site-publish help
 
 DESCRIPTION
@@ -54,6 +55,16 @@ DESCRIPTION
   and then deploys the whole tree -- it never deploys a partial directory.
 
     --add       a file to add to the tree; repeatable
+    --post      publish one blog post: copy FILE.md into the resume repo at
+                profiles/<oper>/blog/, rebuild the site (./convert.sh renders
+                every post to a Gold page through .github's render-review.py
+                and fails on a non-Gold page), deploy the whole tree, then
+                open a PR carrying the post so git catches up. Live first,
+                reviewed second -- the deploy is from the working tree, the
+                PR is the record. Repeat --post for several posts.
+    --oper      which person's blog; default: your login ($USER) if it is a
+                roster slug, else required
+    --no-pr     skip the PR (leaves the post uncommitted on a branch)
     --dry-run   show what would deploy, deploy nothing
 
   Requires a sealed Cloudflare API token at
@@ -78,17 +89,55 @@ set -eu
 RESUME_DIR="$HOME/git/resume"
 DRY_RUN=0
 FILES=""
+POSTS=""
+OPER=""
+MAKE_PR=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --add) shift; FILES="$FILES $1" ;;
+    --post) shift; POSTS="$POSTS $1" ;;
+    --oper) shift; OPER="$1" ;;
+    --no-pr) MAKE_PR=0 ;;
     --dry-run) DRY_RUN=1 ;;
     *) echo "hee-site-publish: unknown arg: $1" >&2; exit 1 ;;
   esac
   shift
 done
 
-[ -n "$FILES" ] || { echo "hee-site-publish: need at least one --add <file>" >&2; exit 1; }
+[ -n "$FILES$POSTS" ] || { echo "hee-site-publish: need at least one --add <file> or --post <file.md>" >&2; exit 1; }
+
+# ---- --post: the drop-an-md-and-publish path (Spencer, 2026-09-05: "I'd
+# like a place I can just drop an md file and a script will publish").
+# The place IS profiles/<oper>/blog/ in the resume repo -- the source
+# every build already reads -- this just does the copy, build, deploy
+# and PR in one command so nothing else has to be remembered.
+if [ -n "$POSTS" ]; then
+  [ -d "$RESUME_DIR/.git" ] || { echo "hee-site-publish: no resume checkout at $RESUME_DIR" >&2; exit 1; }
+  if [ -z "$OPER" ]; then
+    if [ -d "$RESUME_DIR/profiles/${USER:-}" ]; then OPER="$USER"; else
+      echo "hee-site-publish: --oper SLUG required (no profile for '${USER:-}' under $RESUME_DIR/profiles/)" >&2; exit 1; fi
+  fi
+  BLOG_DIR="$RESUME_DIR/profiles/$OPER/blog"
+  [ -d "$BLOG_DIR" ] || { echo "hee-site-publish: $BLOG_DIR does not exist -- no such person, or no blog yet" >&2; exit 1; }
+  for f in $POSTS; do
+    [ -f "$f" ] || { echo "hee-site-publish: not a real file: $f" >&2; exit 1; }
+    case "$f" in *.md) ;; *) echo "hee-site-publish: --post wants a .md file, got: $f" >&2; exit 1 ;; esac
+    head -1 "$f" | grep -q '^#' || echo "hee-site-publish: WARNING $f does not start with a '# Title' line -- the manifest title will be empty" >&2
+    echo "post: $f -> $BLOG_DIR/$(basename "$f")"
+    [ "$DRY_RUN" -eq 1 ] || cp "$f" "$BLOG_DIR/$(basename "$f")"
+  done
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "dry-run: would run ./convert.sh in $RESUME_DIR, deploy, and open a PR on a branch named blog/$OPER-<date>"
+  else
+    # Build. convert.sh renders every post through .github's
+    # render-review.py and runs Gold compliance on each page -- a failing
+    # build here means the site is NOT deployed, which is the point.
+    (cd "$RESUME_DIR" && ./convert.sh >/dev/null) || { echo "hee-site-publish: build failed -- nothing deployed" >&2; exit 2; }
+    echo "built: $RESUME_DIR/dist ($(ls "$RESUME_DIR"/dist/profiles/"$OPER"/blog/*.html 2>/dev/null | wc -l) rendered post(s) for $OPER)"
+  fi
+fi
+
 
 for f in $FILES; do
   [ -f "$f" ] || { echo "hee-site-publish: not a real file: $f" >&2; exit 1; }
@@ -123,3 +172,31 @@ cd "$HOME/git/tcos-www"
 "$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
   cd '$RESUME_DIR' && CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" npx wrangler pages deploy dist --project-name resume --branch main
 "
+
+# ---- --post: git catches up. Never a direct commit to main (rule 1) --
+# a branch and a PR, opened by the same command so it cannot be
+# forgotten. The deploy above already happened from the working tree.
+if [ -n "$POSTS" ] && [ "$MAKE_PR" -eq 1 ]; then
+  BR="blog/$OPER-$(date -u +%Y%m%d-%H%M%S)"
+  (
+    cd "$RESUME_DIR"
+    git switch -q -c "$BR"
+    for f in $POSTS; do git add "profiles/$OPER/blog/$(basename "$f")"; done
+    git add dist/blog_manifest.json 2>/dev/null || true
+    TITLES=""
+    for f in $POSTS; do TITLES="$TITLES
+- $(sed -n '1s/^#*[[:space:]]*//p' "$f")"; done
+    git commit -q -m "blog($OPER): publish $(echo $POSTS | wc -w) post(s)
+
+Published live by hee-site-publish --post before this PR existed; this
+PR is the record.
+$TITLES"
+    git push -q -u origin "$BR"
+    gh pr create --base main --head "$BR" --assignee @me \
+      --title "blog($OPER): $(for f in $POSTS; do sed -n '1s/^#*[[:space:]]*//p' "$f"; done | head -1)" \
+      --body "Published live by \`hee-site-publish --post\` at $(date -Is); this PR is the git record.
+$TITLES" | tail -1
+    git switch -q main
+  )
+fi
+
