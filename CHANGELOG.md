@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 2026-09-05 **gen-changelog**: CHANGELOG.md rendered from the merge history, never typed; rule 18 ([#560](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/560))
+- 2026-09-05 **hee-exif**: verify --pixels OURS -- prove a platform repost is our image, pixel by pixel ([#558](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/558))
+- 2026-09-05 **hee-site-publish**: --post -- drop a .md, and one command publishes it ([#554](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/554))
 - 2026-09-05 **hee-print**: render images -- chafa still by default, --animate to play ([#555](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/555))
 - 2026-09-05 **hee-exif**: brand -- org default branding from one card; provenance paths relative ([#556](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/556))
 - 2026-09-05 **hee-exif**: provenance -- how a generated image was made, signed with the rc_tag ([#553](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/553))
@@ -156,6 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- 2026-09-05 **man**: rebuild the published gopher tree -- hee-exif and hee-print changed ([#559](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/559))
 - 2026-09-03 **man**: rebuild the gopher tree for hee-name's durable tier ([#547](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/547))
 - 2026-09-03 **man**: regenerate both trees -- hee-check, and pre-existing gopher drift ([#543](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/543))
 - 2026-09-01 **hee-check**: document cli and regex -- the enforcer omitted itself ([#503](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/503))

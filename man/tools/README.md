@@ -16,6 +16,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-exif`](hee-exif.1.md)
 - [`hee-fields`](hee-fields.1.md)
 - [`hee-filter`](hee-filter.1.md)
+- [`hee-gen-changelog`](hee-gen-changelog.1.md)
 - [`hee-gen-manpages`](hee-gen-manpages.1.md)
 - [`hee-gen-skills`](hee-gen-skills.1.md)
 - [`hee-git-merge`](hee-git-merge.1.md)

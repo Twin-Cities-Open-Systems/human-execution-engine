@@ -21,7 +21,8 @@ DESCRIPTION
                   embed-sig           put a GPG signature IN the file: sign its metadata-
                                       stripped form, store the armor in XMP-hee
                   verify              verify the embedded signature (and a detached .asc if
-                                      present); Nagios exit codes
+                                      present); --pixels OURS compares decoded pixels;
+                                      Nagios exit codes
                   provenance          write how a GENERATED image was made: tool@commit,
                                       job, source (+sha256s), signed with the org rc_tag
                   gpg-sign            real detached GPG signature (file.asc) -- supports
