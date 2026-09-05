@@ -43,6 +43,22 @@ Usage:
       day) -- precedent: spencer.media.tcos.us/tux-tattoo, where Artist
       and Copyright are the tattoo artist's. Existing real Artist /
       Copyright values are left alone unless --force, same rule as sign.
+  hee-exif embed-sig <file>... [--key GPG-KEY-ID] [--dry-run]
+      Put a GPG signature IN the file. Signs the file's metadata-stripped
+      form (`exiftool -all=`, deterministic per container -- measured on
+      JPEG, PNG, GIF) and writes the armored signature, the signer's
+      fingerprint, the signed sha256 and the recipe into the TCOS XMP
+      namespace (XMP-hee:*, library/exiftool/hee-xmp.config). Stays valid
+      through every later metadata write, because none of that is in the
+      signed form. Operator, 2026-09-05: "can we put the gpg sig in the
+      exif?" -- yes, this way: a detached .asc stays on our page, this
+      one travels with the file wherever it is reposted.
+  hee-exif verify <file>...
+      Check an embedded signature: strip the same way, gpg --verify the
+      embedded armor against it, compare the digest. Also checks a
+      detached <file>.asc beside it (gpg-sign's, over the served bytes)
+      when present. Nagios exit codes: 0 OK, 2 CRITICAL (any bad or
+      missing), 3 UNKNOWN (no exiftool/gpg).
   hee-exif provenance <file>... --tool NAME [--commit SHA] [--job PATH]
                         [--source PATH] [--kv k=v]... [--force] [--dry-run]
       How a GENERATED image came to be -- the deterministic-flow
@@ -346,6 +362,92 @@ def cmd_brand(args):
     return rc
 
 
+XMP_CONFIG = Path(__file__).resolve().parent.parent.parent / "library" / "exiftool" / "hee-xmp.config"
+SIGNED_FORM = "exiftool -all="
+
+
+def stripped_form(file, tmpdir):
+    """The bytes that get signed: the file with every metadata block removed,
+    written by exiftool -- the same command at sign and verify time."""
+    out = Path(tmpdir) / ("stripped" + Path(file).suffix)
+    r = run(["exiftool", "-all=", "-o", str(out), str(file)])
+    if r.returncode != 0 or not out.is_file():
+        sys.exit(f"hee-exif: could not produce the stripped form of {file}: {r.stderr.strip()}")
+    return out
+
+
+def gpg_fingerprint(key):
+    r = run(["gpg", "--list-secret-keys", "--with-colons"] + ([key] if key else []))
+    for line in r.stdout.splitlines():
+        if line.startswith("fpr:"):
+            return line.split(":")[9]
+    return None
+
+
+def cmd_embed_sig(args):
+    import tempfile
+    require_exiftool()
+    if run(["which", "gpg"]).returncode != 0:
+        sys.exit("hee-exif embed-sig: gpg not found")
+    fpr = gpg_fingerprint(args.key)
+    if not fpr:
+        sys.exit(f"hee-exif embed-sig: no secret key{' for ' + args.key if args.key else ''}")
+    rc = 0
+    for file in args.files:
+        with tempfile.TemporaryDirectory() as td:
+            form = stripped_form(file, td)
+            digest = sha256_of(form)
+            cmd = ["gpg", "--batch", "--yes", "--detach-sign", "--armor", "--output", "-"] + (["--local-user", args.key] if args.key else []) + [str(form)]
+            if args.dry_run:
+                print(f"hee-exif embed-sig --dry-run: {file}\n  signed form sha256 {digest} by {fpr}\n  would run: {' '.join(cmd)}")
+                continue
+            r = run(cmd)
+            if r.returncode != 0:
+                print(f"hee-exif embed-sig: gpg FAILED on {file}: {r.stderr.strip()}", file=sys.stderr); rc = 2; continue
+            armored = r.stdout
+            w = run(["exiftool", "-config", str(XMP_CONFIG), "-overwrite_original",
+                     f"-XMP-hee:LabSignature={armored}", f"-XMP-hee:LabSigner={fpr}",
+                     f"-XMP-hee:SignedDigest={digest}", f"-XMP-hee:SignedForm={SIGNED_FORM}", str(file)])
+            if w.returncode != 0:
+                print(f"hee-exif embed-sig: exiftool FAILED on {file}: {w.stderr.strip()}", file=sys.stderr); rc = 2; continue
+            print(f"hee-exif embed-sig: {file}\n  XMP-hee:LabSigner: {fpr}\n  XMP-hee:SignedDigest: {digest}\n  XMP-hee:SignedForm: {SIGNED_FORM}")
+    return rc
+
+
+def cmd_verify(args):
+    import tempfile
+    require_exiftool()
+    if run(["which", "gpg"]).returncode != 0:
+        print("⚠️ UNKNOWN hee-exif verify: gpg not found"); return 3
+    worst = 0
+    for file in args.files:
+        r = run(["exiftool", "-config", str(XMP_CONFIG), "-b", "-XMP-hee:LabSignature", str(file)])
+        armored = r.stdout
+        digest_claim = run(["exiftool", "-config", str(XMP_CONFIG), "-s3", "-XMP-hee:SignedDigest", str(file)]).stdout.strip()
+        if "BEGIN PGP SIGNATURE" not in armored:
+            print(f"❌ CRITICAL {file}: no embedded signature (XMP-hee:LabSignature)"); worst = max(worst, 2)
+        else:
+            with tempfile.TemporaryDirectory() as td:
+                form = stripped_form(file, td)
+                digest = sha256_of(form)
+                sig = Path(td) / "embedded.asc"; sig.write_text(armored if armored.endswith("\n") else armored + "\n")
+                v = run(["gpg", "--batch", "--verify", str(sig), str(form)])
+                good = v.returncode == 0
+                who = next((l for l in v.stderr.splitlines() if "Good signature" in l or "BAD signature" in l), v.stderr.strip().splitlines()[-1] if v.stderr.strip() else "")
+                if good and digest == digest_claim:
+                    print(f"✅ OK       {file}: embedded signature verifies over the stripped form -- {who.strip()}")
+                else:
+                    print(f"❌ CRITICAL {file}: embedded signature {'verifies but digest claim differs' if good else 'does NOT verify'} -- {who.strip()}"); worst = max(worst, 2)
+        asc = Path(str(file) + ".asc")
+        if asc.is_file():
+            v = run(["gpg", "--batch", "--verify", str(asc), str(file)])
+            if v.returncode == 0:
+                print(f"✅ OK       {file}: detached {asc.name} verifies over the served bytes")
+            else:
+                print(f"❌ CRITICAL {file}: detached {asc.name} does NOT verify (file changed after signing?)"); worst = max(worst, 2)
+    return worst
+
+
 def cmd_provenance(args):
     require_exiftool()
     kv = []
@@ -570,6 +672,14 @@ def main():
     br.add_argument("--force", action="store_true", help="overwrite an existing real Artist/Copyright")
     br.add_argument("--dry-run", action="store_true")
 
+    es = sub.add_parser("embed-sig", help="put a GPG signature IN the file: sign its metadata-stripped form, store the armor in XMP-hee")
+    es.add_argument("files", nargs="+")
+    es.add_argument("--key", default=None, help="gpg --local-user selector; default signing key if omitted")
+    es.add_argument("--dry-run", action="store_true")
+
+    vf = sub.add_parser("verify", help="verify the embedded signature (and a detached .asc if present); Nagios exit codes")
+    vf.add_argument("files", nargs="+")
+
     pv = sub.add_parser("provenance", help="write how a GENERATED image was made: tool@commit, job, source (+sha256s), signed with the org rc_tag")
     pv.add_argument("files", nargs="+")
     pv.add_argument("--tool", required=True, help="generator name, e.g. meme-factory/faceoff")
@@ -609,7 +719,7 @@ def main():
 
     args = ap.parse_args()
     {
-        "read": cmd_read, "sign": cmd_sign, "brand": cmd_brand, "provenance": cmd_provenance, "gpg-sign": cmd_gpg_sign,
+        "read": cmd_read, "sign": cmd_sign, "brand": cmd_brand, "provenance": cmd_provenance, "embed-sig": cmd_embed_sig, "verify": cmd_verify, "gpg-sign": cmd_gpg_sign,
         "regen-pubkey": cmd_regen_pubkey, "embed-exif": cmd_embed_exif,
     }[args.cmd](args)
 
