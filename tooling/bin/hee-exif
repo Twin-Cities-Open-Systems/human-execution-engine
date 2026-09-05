@@ -29,7 +29,17 @@ Artist/Copyright when explicitly given AND not already present.
 
 Usage:
   hee-exif read <file-or-url> [--json]
-  hee-exif verify <file-or-url>...
+  hee-exif verify <file-or-url>... [--pixels OURS]
+      --pixels OURS compares each file's decoded pixels, frame by frame,
+      against OURS (a file or URL we hold, ideally signed): identical
+      pixels, frame count and timing -> OK; same size and frames with a
+      mean per-channel difference under 2/255 -> WARNING "re-encoded"
+      (a lossy platform copy); anything else -> CRITICAL, naming the first
+      differing frame. This is a claim RELATIVE TO OUR COPY, not a
+      signature in theirs -- the honest statement for a platform repost.
+      Measured 2026-09-05 on a Discord repost of the MN2600 GIF: Discord
+      strips every XMP block and rewrites the container, so no signature
+      survives, but the pixels do (human-execution-engine#557).
       Both accept a URL wherever a file is expected: anything curl can
       fetch -- https, http, gopher, ftp, file. The body is fetched to a
       temp file (the URL's own filename extension kept, so exiftool sees
@@ -454,6 +464,47 @@ def cmd_embed_sig(args):
     return rc
 
 
+def pixel_compare(theirs, ours):
+    """Frame-by-frame pixel comparison, pure Pillow (no numpy on the host
+    python). Returns (status, message) with status 0/1/2. Any decode
+    failure -- truncated data surfaces only when a frame is converted --
+    is a CRITICAL report, never an exception."""
+    try:
+        return _pixel_compare(theirs, ours)
+    except Exception as e:
+        return 2, f"cannot decode: {e}"
+
+
+def _pixel_compare(theirs, ours):
+    from PIL import Image, ImageChops, ImageSequence, ImageStat
+    a, b = Image.open(theirs), Image.open(ours)
+    na, nb = getattr(a, "n_frames", 1), getattr(b, "n_frames", 1)
+    if a.size != b.size:
+        return 2, f"size differs: theirs {a.size[0]}x{a.size[1]}, ours {b.size[0]}x{b.size[1]}"
+    if na != nb:
+        return 2, f"frame count differs: theirs {na}, ours {nb}"
+    worst_mean, first_diff, timing_diff = 0.0, None, None
+    for i, (fa, fb) in enumerate(zip(ImageSequence.Iterator(a), ImageSequence.Iterator(b))):
+        da, db = fa.info.get("duration"), fb.info.get("duration")
+        if da != db and timing_diff is None:
+            timing_diff = (i, da, db)
+        diff = ImageChops.difference(fa.convert("RGB"), fb.convert("RGB"))
+        if diff.getbbox() is None:
+            continue
+        mean = sum(ImageStat.Stat(diff).mean) / 3.0
+        worst_mean = max(worst_mean, mean)
+        if first_diff is None:
+            first_diff = (i, mean)
+    if first_diff is None and timing_diff is None:
+        return 0, f"pixels identical to ours, {na} frame(s), timing identical"
+    if first_diff is None:
+        i, da, db = timing_diff
+        return 1, f"pixels identical, but frame {i} timing differs (theirs {da} ms, ours {db} ms)"
+    if worst_mean < 2.0:
+        return 1, f"re-encoded: same size and {na} frame(s), pixels differ by a mean of {worst_mean:.2f}/255 at worst (first at frame {first_diff[0]})"
+    return 2, f"pixels differ: mean {worst_mean:.1f}/255 at worst, first at frame {first_diff[0]}"
+
+
 def cmd_verify(args):
     import tempfile
     require_exiftool()
@@ -461,9 +512,16 @@ def cmd_verify(args):
         print("⚠️ UNKNOWN hee-exif verify: gpg not found"); return 3
     worst = 0
     _fetch_dir = tempfile.mkdtemp()
+    ours = fetch_if_url(args.pixels, _fetch_dir) if args.pixels else None
     for file in args.files:
         label = file
         file = fetch_if_url(file, _fetch_dir)
+        if ours:
+            st, msg = pixel_compare(file, ours)
+            print(f"{['✅ OK      ', '⚠️ WARNING ', '❌ CRITICAL'][st]} {label}: {msg}")
+            worst = max(worst, st)
+            if args.pixels_only:
+                continue
         r = run(["exiftool", "-config", str(XMP_CONFIG), "-b", "-XMP-hee:LabSignature", str(file)])
         armored = r.stdout
         digest_claim = run(["exiftool", "-config", str(XMP_CONFIG), "-s3", "-XMP-hee:SignedDigest", str(file)]).stdout.strip()
@@ -720,8 +778,10 @@ def main():
     es.add_argument("--key", default=None, help="gpg --local-user selector; default signing key if omitted")
     es.add_argument("--dry-run", action="store_true")
 
-    vf = sub.add_parser("verify", help="verify the embedded signature (and a detached .asc if present); Nagios exit codes")
+    vf = sub.add_parser("verify", help="verify the embedded signature (and a detached .asc if present); --pixels OURS compares decoded pixels; Nagios exit codes")
     vf.add_argument("files", nargs="+")
+    vf.add_argument("--pixels", default=None, metavar="OURS", help="compare each file's decoded pixels, frame by frame, to this file or URL")
+    vf.add_argument("--pixels-only", action="store_true", help="with --pixels: skip the signature checks (a platform copy has none)")
 
     pv = sub.add_parser("provenance", help="write how a GENERATED image was made: tool@commit, job, source (+sha256s), signed with the org rc_tag")
     pv.add_argument("files", nargs="+")
