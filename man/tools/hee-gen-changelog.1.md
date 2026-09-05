@@ -2,7 +2,7 @@
 
 # NAME
 
-hee-gen-changelog - render CHANGELOG.md's [Unreleased] section from
+hee-gen-changelog - render CHANGELOG.md from the repo's own merge history
 
 # SYNOPSIS
 
@@ -15,7 +15,8 @@ hee-gen-changelog - render CHANGELOG.md's [Unreleased] section from
 
 # DESCRIPTION
 
-    the repo's own conventional-commit history.
+
+    The [Unreleased] block, from conventional-commit subjects; nothing typed.
 
       Every merge to main is a Conventional Commit with its PR number
       (rule 8: `type(scope): description (#N)`). That is already a changelog;

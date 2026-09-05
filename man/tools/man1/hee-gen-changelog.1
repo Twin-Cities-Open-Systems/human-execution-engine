@@ -18,7 +18,8 @@
 .hy
 .SH NAME
 .PP
-hee-gen-changelog - render CHANGELOG.md\[aq]s [Unreleased] section from
+hee-gen-changelog - render CHANGELOG.md from the repo\[aq]s own merge
+history
 .SH SYNOPSIS
 .IP
 .nf
@@ -34,7 +35,7 @@ hee-gen-changelog help
 .IP
 .nf
 \f[C]
-the repo\[aq]s own conventional-commit history.
+The [Unreleased] block, from conventional-commit subjects; nothing typed.
 
   Every merge to main is a Conventional Commit with its PR number
   (rule 8: \[ga]type(scope): description (#N)\[ga]). That is already a changelog;
