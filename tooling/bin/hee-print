@@ -24,7 +24,7 @@ usage() {
 hee-print -- render files nicely for terminal surfaces
 
 SYNOPSIS
-  hee-print [--no-header] [--] FILE...
+  hee-print [--no-header] [--animate] [--] FILE...
   hee-print [--no-header] --stdin [--hint md|yaml|json|text]
   hee-print help
 
@@ -35,9 +35,19 @@ DESCRIPTION
     .md/.markdown -> glow -p
     .yml/.yaml    -> yq -P
     .json         -> jq .
+    .png/.jpg/.jpeg/.gif/.webp
+                  -> chafa (a still; --animate plays a GIF for 10 s), else
+                     `file` plus a WARNING naming the missing renderer --
+                     never a raw byte dump to the terminal
     other         -> bat/batcat -p --paging=never, else cat
 
+  Images render as symbols by default, which works inside tmux over ssh
+  on any terminal. A terminal with a real graphics protocol can do better:
+  set HEE_PRINT_IMAGE_FORMAT to kitty, sixels or iterm (in heerc or the
+  environment). Inside tmux that also needs `allow-passthrough on`.
+
   --no-header  suppress the per-file header printed when given several files
+  --animate    let an animated image play (10 s) instead of showing a still
   --stdin      read the document from stdin instead of a path
   --hint       tell --stdin which renderer to use; ignored otherwise
 
@@ -54,6 +64,7 @@ if hee_help_wanted "$@"; then
   exit 0
 fi
 
+ANIMATE=0
 have() { command -v "$1" >/dev/null 2>&1; }
 
 pick_bat() {
@@ -74,6 +85,19 @@ render_json() {
   if have jq; then jq . < "$1"; else cat "$1"; fi
 }
 
+render_image() {
+  if have chafa; then
+    if [ "${ANIMATE:-0}" -eq 1 ]; then
+      chafa --format="${HEE_PRINT_IMAGE_FORMAT:-symbols}" --animate=on --duration=10 "$1"
+    else
+      chafa --format="${HEE_PRINT_IMAGE_FORMAT:-symbols}" --animate=off "$1"
+    fi
+  else
+    echo "⚠️ WARNING hee-print: no image renderer -- install chafa. Not dumping bytes." >&2
+    file "$1"
+  fi
+}
+
 render_other() {
   B="$(pick_bat)"
   if [ -n "$B" ]; then
@@ -89,6 +113,7 @@ render_by_ext() {
     *.md|*.markdown) render_md "$f" ;;
     *.yml|*.yaml)    render_yaml "$f" ;;
     *.json)          render_json "$f" ;;
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.PNG|*.JPG|*.JPEG|*.GIF|*.WEBP) render_image "$f" ;;
     *)               render_other "$f" ;;
   esac
 }
@@ -101,6 +126,7 @@ hint=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-header) no_header=1; shift ;;
+    --animate) ANIMATE=1; shift ;;
     --stdin) stdin_mode=1; shift ;;
     --hint) hint="${2:-}"; shift 2 ;;
     --) shift; break ;;

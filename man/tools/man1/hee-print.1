@@ -23,7 +23,7 @@ hee-print - render files nicely for terminal surfaces
 .IP
 .nf
 \f[C]
-hee-print [--no-header] [--] FILE...
+hee-print [--no-header] [--animate] [--] FILE...
 hee-print [--no-header] --stdin [--hint md|yaml|json|text]
 hee-print help
 \f[R]
@@ -38,9 +38,19 @@ nicer tool is not installed. Never prompts, never writes.
   .md/.markdown -> glow -p
   .yml/.yaml    -> yq -P
   .json         -> jq .
+  .png/.jpg/.jpeg/.gif/.webp
+                -> chafa (a still; --animate plays a GIF for 10 s), else
+                   \[ga]file\[ga] plus a WARNING naming the missing renderer --
+                   never a raw byte dump to the terminal
   other         -> bat/batcat -p --paging=never, else cat
 
+Images render as symbols by default, which works inside tmux over ssh
+on any terminal. A terminal with a real graphics protocol can do better:
+set HEE_PRINT_IMAGE_FORMAT to kitty, sixels or iterm (in heerc or the
+environment). Inside tmux that also needs \[ga]allow-passthrough on\[ga].
+
 --no-header  suppress the per-file header printed when given several files
+--animate    let an animated image play (10 s) instead of showing a still
 --stdin      read the document from stdin instead of a path
 --hint       tell --stdin which renderer to use; ignored otherwise
 \f[R]
