@@ -28,7 +28,16 @@ etc). Never touches those; only ever ADDS to UserComment and sets
 Artist/Copyright when explicitly given AND not already present.
 
 Usage:
-  hee-exif read <file> [--json]
+  hee-exif read <file-or-url> [--json]
+  hee-exif verify <file-or-url>...
+      Both accept a URL wherever a file is expected: anything curl can
+      fetch -- https, http, gopher, ftp, file. The body is fetched to a
+      temp file (the URL's own filename extension kept, so exiftool sees
+      the same container) and read from there; nothing is written back.
+      Operator, 2026-09-05: "make hee exif read urls too (any type of url
+      where an image might be, including gopher)" -- the real use is a
+      copy of our image that someone reposted: verify says whether the
+      embedded signature survived the trip.
   hee-exif brand <file>... [--branding FILE] [--artist NAME] [--copyright TEXT]
                         [--force] [--dry-run]
       The org's default branding, from one YAML card (tcos-audit's
@@ -147,7 +156,33 @@ def require_exiftool():
         sys.exit("hee-exif: exiftool not found -- install libimage-exiftool-perl")
 
 
+URL_SCHEMES = ("http://", "https://", "gopher://", "ftp://", "file://")
+
+
+def fetch_if_url(path, tmpdir):
+    """A URL becomes a local temp file (curl, so gopher/ftp/file work too);
+    a path is returned as-is. The URL's own filename extension is kept so
+    exiftool sees the same container it would on disk."""
+    if not str(path).startswith(URL_SCHEMES):
+        return path
+    from urllib.parse import urlparse
+    name = Path(urlparse(path).path).name or "download"
+    out = Path(tmpdir) / name
+    r = run(["curl", "-sSL", "--fail", "--max-time", "60", "-o", str(out), path])
+    if r.returncode != 0 or not out.is_file():
+        sys.exit(f"hee-exif: fetch failed for {path}: {r.stderr.strip()}")
+    print(f"hee-exif: fetched {path} -> {out.stat().st_size} bytes", file=sys.stderr)
+    return str(out)
+
+
 def cmd_read(args):
+    import tempfile
+    with tempfile.TemporaryDirectory() as _td:
+        args.file = fetch_if_url(args.file, _td)
+        return _cmd_read(args)
+
+
+def _cmd_read(args):
     require_exiftool()
     fmt = ["-j"] if args.json else ["-a", "-G1"]
     proc = run(["exiftool", *fmt, args.file])
@@ -425,12 +460,15 @@ def cmd_verify(args):
     if run(["which", "gpg"]).returncode != 0:
         print("⚠️ UNKNOWN hee-exif verify: gpg not found"); return 3
     worst = 0
+    _fetch_dir = tempfile.mkdtemp()
     for file in args.files:
+        label = file
+        file = fetch_if_url(file, _fetch_dir)
         r = run(["exiftool", "-config", str(XMP_CONFIG), "-b", "-XMP-hee:LabSignature", str(file)])
         armored = r.stdout
         digest_claim = run(["exiftool", "-config", str(XMP_CONFIG), "-s3", "-XMP-hee:SignedDigest", str(file)]).stdout.strip()
         if "BEGIN PGP SIGNATURE" not in armored:
-            print(f"❌ CRITICAL {file}: no embedded signature (XMP-hee:LabSignature)"); worst = max(worst, 2)
+            print(f"❌ CRITICAL {label}: no embedded signature (XMP-hee:LabSignature)"); worst = max(worst, 2)
         else:
             with tempfile.TemporaryDirectory() as td:
                 form = stripped_form(file, td)
@@ -440,16 +478,16 @@ def cmd_verify(args):
                 good = v.returncode == 0
                 who = next((l for l in v.stderr.splitlines() if "Good signature" in l or "BAD signature" in l), v.stderr.strip().splitlines()[-1] if v.stderr.strip() else "")
                 if good and digest == digest_claim:
-                    print(f"✅ OK       {file}: embedded signature verifies over the stripped form -- {who.strip()}")
+                    print(f"✅ OK       {label}: embedded signature verifies over the stripped form -- {who.strip()}")
                 else:
-                    print(f"❌ CRITICAL {file}: embedded signature {'verifies but digest claim differs' if good else 'does NOT verify'} -- {who.strip()}"); worst = max(worst, 2)
+                    print(f"❌ CRITICAL {label}: embedded signature {'verifies but digest claim differs' if good else 'does NOT verify'} -- {who.strip()}"); worst = max(worst, 2)
         asc = Path(str(file) + ".asc")
         if asc.is_file():
             v = run(["gpg", "--batch", "--verify", str(asc), str(file)])
             if v.returncode == 0:
-                print(f"✅ OK       {file}: detached {asc.name} verifies over the served bytes")
+                print(f"✅ OK       {label}: detached {asc.name} verifies over the served bytes")
             else:
-                print(f"❌ CRITICAL {file}: detached {asc.name} does NOT verify (file changed after signing?)"); worst = max(worst, 2)
+                print(f"❌ CRITICAL {label}: detached {asc.name} does NOT verify (file changed after signing?)"); worst = max(worst, 2)
     return worst
 
 
