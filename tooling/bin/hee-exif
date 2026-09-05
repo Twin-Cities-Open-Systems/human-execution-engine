@@ -529,15 +529,16 @@ def cmd_embed_exif(args):
     data = json.loads(proc.stdout, strict=False)
 
     out = {}
+    exts = tuple("." + e.strip().lower().lstrip(".") for e in (args.ext or "jpg,jpeg").split(","))
     for d in data:
         name = d.get("FileName", "")
-        if not name.lower().endswith((".jpg", ".jpeg")):
+        if not name.lower().endswith(exts):
             continue
         photo_id = name.rsplit(".", 1)[0]
         out[photo_id] = {k: v for k, v in d.items() if k not in exclude and not _is_blank(v)}
 
     if not out:
-        sys.exit(f"hee-exif embed-exif: no .jpg/.jpeg files found in {args.photo_dir}, refusing to embed nothing")
+        sys.exit(f"hee-exif embed-exif: no {'/'.join(exts)} files found in {args.photo_dir}, refusing to embed nothing")
 
     embed = json.dumps(out, separators=(",", ":"), ensure_ascii=False)
     _replace_js_var(args.target_html, args.var_name, embed, "embed-exif")
@@ -594,6 +595,7 @@ def main():
     ee.add_argument("var_name")
     ee.add_argument("photo_dir")
     ee.add_argument("--exclude", default=None, help="comma-separated extra field names to exclude, added to the default local-artifact exclusion list")
+    ee.add_argument("--ext", default=None, help="comma-separated extensions to embed (default: jpg,jpeg); e.g. jpg,png,gif for a media item that is not all photos")
 
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
