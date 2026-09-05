@@ -6,15 +6,27 @@ hee-exif - hee-exif command
 
 # SYNOPSIS
 
-    hee-exif [-h] {read,sign,gpg-sign,regen-pubkey,embed-exif} ...
+    hee-exif [-h]
 
 # DESCRIPTION
 
+                    {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif}
+                    ...
+
     positional arguments:
-      {read,sign,gpg-sign,regen-pubkey,embed-exif}
+      {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif}
         read                dump all real EXIF/metadata for a file
         sign                write the real agent-instance-signature block +
                             optional Artist/Copyright
+        brand               write the org's default branding: credit/publisher,
+                            PEN identifier, license; Artist/Copyright defaulted
+                            unless given
+        embed-sig           put a GPG signature IN the file: sign its metadata-
+                            stripped form, store the armor in XMP-hee
+        verify              verify the embedded signature (and a detached .asc if
+                            present); Nagios exit codes
+        provenance          write how a GENERATED image was made: tool@commit,
+                            job, source (+sha256s), signed with the org rc_tag
         gpg-sign            real detached GPG signature (file.asc) -- supports
                             bulk, pass multiple files
         regen-pubkey        front-load a GPG public key from
