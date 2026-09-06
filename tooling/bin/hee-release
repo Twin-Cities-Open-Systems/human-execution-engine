@@ -179,8 +179,13 @@ def cmd_cut(root, card, version=None):
     if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
         say("CRITICAL", f"not a version: {version} (vX.Y.Z)"); return CRITICAL
     branch = f"release/{version}"
+    if git("branch", "--list", branch):
+        say("CRITICAL", f"branch {branch} already exists here -- a cut in progress? delete it or finish it"); return CRITICAL
     sh("git", "switch", "-q", "-c", branch)
-    r = subprocess.run([HEE, "gen-changelog", str(root), "--release", version[1:]], cwd=root)
+    # the changelog window: since the last release tag, or, for the first
+    # release, since the root commit (gen-changelog needs a start)
+    since = last or git("rev-list", "--max-parents=0", "HEAD").splitlines()[-1]
+    r = subprocess.run([HEE, "gen-changelog", str(root), "--release", version[1:], "--since", since], cwd=root)
     if r.returncode != 0:
         say("CRITICAL", "hee gen-changelog --release failed"); return CRITICAL
     sh("git", "add", "CHANGELOG.md")
