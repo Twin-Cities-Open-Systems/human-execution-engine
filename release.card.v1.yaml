@@ -1,0 +1,18 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: human-execution-engine-release
+  labels: { domain: release, scope: human-execution-engine, artifact: card }
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-09-06T00:00:00Z"
+spec:
+  # hee release lab | cut | promote. The released surface of this repo is
+  # its man pages on man.tcos.us (gopher and the HTTP gateway); the tools
+  # themselves ship by `hee repo-refresh pull` of the tagged main. No
+  # credential: publish goes over ssh as the current user (fleet-ops#392).
+  surfaces:
+    - name: man-pages
+      lab: "hee gen-manpages --write && hee gen-manpages --gopher --write"
+      promote: "hee gen-manpages --gopher --write --publish && hee git tag prod/man-pages/$RELEASE_VERSION -m \"prod promotion: man.tcos.us gopher tree, $RELEASE_VERSION\" HEAD --yes --push"
