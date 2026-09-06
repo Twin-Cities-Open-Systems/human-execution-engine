@@ -305,7 +305,6 @@ case "$SCOPE_ARG" in
                 fi
               done
               echo "       then: git -C $DIR pull --ff-only"
-              echo "            git -C $DIR clean -fd <dir>"
               ;;
           esac
         fi
