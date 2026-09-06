@@ -251,7 +251,7 @@ def print_sites_nerd(results):
 def inbound_status():
     import shutil
     if not shutil.which("gh"):
-        return None, "gh not on this host"
+        return "no-gh"
     # Real trigger (2026-08-26): tcos.us/api/contact + /api/apply write
     # real applicant/investor/press submissions straight into the private
     # Twin-Cities-Open-Systems/inbound repo as issues -- confirmed live,
@@ -274,6 +274,10 @@ def inbound_status():
 
 
 def print_inbound(issues):
+    if issues == "no-gh":
+        # UNKNOWN, not CRITICAL: a --via host has no gh; nothing was checked.
+        print("⚪ inbound: cannot check from this host (no gh)")
+        return
     if issues is None:
         print("🔴 inbound: unreachable (gh issue list failed)")
         return
