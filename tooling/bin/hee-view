@@ -264,6 +264,29 @@ def gopher_menu_links(url, body):
     return out
 
 
+_RESOLVE_CACHE = {}
+
+
+def resolves_absolutely(url):
+    """Does the hostname exist as written -- not after the resolver's search
+    list appended a domain? Measured 2026-09-06 on kiosk: touchy.media.tcos.us
+    had no DNS anywhere, yet the checker reported an SSL error, because
+    systemd-resolved tried touchy.media.tcos.us.crooked.tcos.us, a wildcard
+    on the operator's home domain answered, and Traefik's default cert came
+    back. A trailing dot makes the name absolute and skips the search list."""
+    import socket
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if host in _RESOLVE_CACHE:
+        return _RESOLVE_CACHE[host]
+    try:
+        socket.getaddrinfo(host + ".", None)
+        ok = True
+    except socket.gaierror:
+        ok = False
+    _RESOLVE_CACHE[host] = ok
+    return ok
+
+
 def _fetch(url, method):
     req = urllib.request.Request(url, method=method, headers={"User-Agent": "hee-view/1.0"})
     with urllib.request.urlopen(req, timeout=5) as r:
@@ -293,6 +316,11 @@ def sites_check(sites):
                 code, error = None, str(e)[:80]
             elapsed_ms = round((time.monotonic() - start) * 1000)
             results.append({"url": url, "code": code, "elapsed_ms": elapsed_ms, "note": entry.get("note", ""), "error": error})
+            continue
+        if url.startswith("http") and not resolves_absolutely(url):
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            results.append({"url": url, "code": None, "elapsed_ms": elapsed_ms, "note": entry.get("note", ""),
+                            "error": "does not resolve (no DNS record; the resolver's search list is not consulted)"})
             continue
         for method in ("HEAD", "GET"):
             try:
@@ -358,6 +386,8 @@ def crawl_sites(sites, depth=2, listed=None):
             except Exception as ex:
                 seen[key] = (None, url); broken.append((src, url, str(ex)[:60], url))
             continue
+        if url.startswith("http") and not resolves_absolutely(url):
+            seen[key] = (None, url); broken.append((src, url, "does not resolve (no DNS record)", url)); continue
         try:
             code, final, body = get(url)
         except urllib.error.HTTPError as ex:
