@@ -13,7 +13,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>📘 BlueprintDoctrine (9)</summary>
+<summary>📘 BlueprintDoctrine (10)</summary>
 
 - 🟢 [OK] `blueprints/bastion-provisioning-v1.yaml`
 - 🟢 [OK] `blueprints/dir-layout-v1.yaml`
@@ -22,12 +22,13 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `blueprints/hiring-handshake-v1.yaml`
 - 🟢 [OK] `blueprints/kinship-membership-governance-v1.yaml`
 - 🟢 [OK] `blueprints/machine-rights-grant-v1.yaml`
+- 🟢 [OK] `blueprints/offboarding-v1.yaml`
 - 🟢 [OK] `blueprints/org-foundation-design-v1.yaml`
 - 🟢 [OK] `blueprints/shift-init-v1.yaml`
 
 </details>
 <details>
-<summary>🃏 Card (21)</summary>
+<summary>🃏 Card (22)</summary>
 
 - 🟢 [OK] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
 - 🟢 [OK] `hee/cards/attribution-standing.method.card.v1.yaml`
@@ -50,6 +51,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `hee/cards/shellboss.argv-contracts.card.v1.yaml`
 - 🟢 [OK] `hee/cards/spencer-blank-generation-lyric.card.v1.yaml`
 - 🟢 [OK] `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`
+- 🟢 [OK] `release.card.v1.yaml`
 
 </details>
 <details>
