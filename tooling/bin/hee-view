@@ -286,14 +286,30 @@ def crawl_sites(sites, depth=2, listed=None):
         for h in lp.hrefs:
             if h.startswith(("#", "mailto:", "javascript:", "tel:")):
                 continue
-            nxt = urllib.parse.urljoin(final, h).split("#")[0]
+            nxt = urllib.parse.urljoin(final, h).split("#")[0].split("?")[0]
             if urllib.parse.urlsplit(nxt).netloc != host:
                 continue  # stay on this host; cross-host redirects are followed by get()
             if nxt.rstrip("/") not in seen:
                 queue.append((nxt, d + 1, final))
     pages = sorted(seen)
-    unlisted = sorted(u for u, (c, f) in seen.items() if c and 200 <= c < 300 and u not in listed
-                      and not u.rsplit("/", 1)[-1].endswith((".css", ".js", ".png", ".jpg", ".gif", ".ico", ".json", ".xml", ".txt", ".webp", ".svg", ".asc", ".jpeg")))
+
+    def covered(u):
+        """Listed outright, or a page under a listed directory (an item page
+        under a listed gallery, a gopher path under the listed gateway root).
+        A host root covers nothing below it, or the check would be empty.
+        Operator, 2026-09-06: 24 'unlisted' on public were query-string
+        variants of one page and pages under listed directories."""
+        u = u.split("?", 1)[0].rstrip("/")
+        if u in listed:
+            return True
+        for l in listed:
+            if l.endswith("/") and urllib.parse.urlsplit(l).path not in ("", "/") and u.startswith(l):
+                return True
+            if urllib.parse.urlsplit(l).path not in ("", "/") and u.startswith(l + "/"):
+                return True
+        return False
+    unlisted = sorted({u.split("?", 1)[0] for u, (c, f) in seen.items() if c and 200 <= c < 300 and not covered(u)
+                       and not u.split("?", 1)[0].rsplit("/", 1)[-1].endswith((".css", ".js", ".png", ".jpg", ".gif", ".ico", ".json", ".xml", ".txt", ".webp", ".svg", ".asc", ".jpeg"))})
     return pages, broken, unlisted
 
 
