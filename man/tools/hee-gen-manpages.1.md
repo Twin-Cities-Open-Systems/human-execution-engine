@@ -37,6 +37,13 @@ hee-gen-manpages - generate man pages from each tool's own --help
     --gopher [DIR] render the published gopher tree. DIR defaults to
                    man/gopher. Rebuilt from scratch, so with --write this
                    REMOVES the existing tree first.
+    --publish [HOST]
+                   with --gopher --write: push the tree to HOST (an ssh alias,
+                   default man-tcos-us) into /var/gopher-man, the root
+                   gophernicus serves, as the current user (the gopher group
+                   owns it -- no root). Backs up the previous tree on the host,
+                   verifies over port 70, and records who published (sig_tag).
+                   Without --write it says what it would push and stops.
 
 
 # EXIT STATUS

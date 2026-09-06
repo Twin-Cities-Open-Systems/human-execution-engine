@@ -82,6 +82,13 @@ OPTIONS
   --gopher [DIR] render the published gopher tree. DIR defaults to
                  man/gopher. Rebuilt from scratch, so with --write this
                  REMOVES the existing tree first.
+  --publish [HOST]
+                 with --gopher --write: push the tree to HOST (an ssh alias,
+                 default man-tcos-us) into /var/gopher-man, the root
+                 gophernicus serves, as the current user (the gopher group
+                 owns it -- no root). Backs up the previous tree on the host,
+                 verifies over port 70, and records who published (sig_tag).
+                 Without --write it says what it would push and stops.
 
 EXIT STATUS
   0 OK   1 nothing generated, or an unknown argument
@@ -97,10 +104,20 @@ fi
 
 WRITE=0
 DO_GOPHER=0
+DO_PUBLISH=0
+PUBLISH_HOST="man-tcos-us"
+PUBLISH_DIR="/var/gopher-man"
 GOPHER_OUT="man/gopher"
 while [ $# -gt 0 ]; do
   case "$1" in
     --write) WRITE=1; shift ;;
+    --publish)
+      DO_PUBLISH=1; shift
+      case "${1:-}" in
+        ""|-*) ;;
+        *) PUBLISH_HOST="$1"; shift ;;
+      esac
+      ;;
     --gopher)
       DO_GOPHER=1; shift
       case "${1:-}" in
@@ -338,11 +355,42 @@ gen_gopher() {
   echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s), plus flat copies -> $(pwd)/$_out"
 }
 
+# Publish the generated tree to the host that serves it. The served root is
+# /var/gopher-man (gophernicus, socket-activated); /var/gopher on that box is
+# an unserved leftover -- measured 2026-09-06 after a hand publish went there
+# first (fleet-ops#392). No root: the gopher group owns the tree.
+publish_gopher() {
+  _src="$1"; _host="$2"; _dir="$3"
+  [ -f "$_src/gophermap" ] && [ -d "$_src/man" ] || { hee_status CRITICAL "gen-manpages: $_src is not a generated gopher tree (no gophermap/man)"; return 2; }
+  _n="$(find "$_src" -type f | wc -l)"
+  _sig="$("$BIN_DIR/hee-ver" session --tag 2>/dev/null || echo unknown)"
+  if [ "$WRITE" -ne 1 ]; then
+    echo "publish (dry run): would push $_n file(s) from $_src to $_host:$_dir as $_sig -- add --write"
+    return 0
+  fi
+  _stamp="$(date -u +%Y%m%dT%H%MZ)"
+  if ! tar -C "$_src" -cf - . | ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$_host" \
+      "set -e; d='$_dir'; [ -w \"\$d\" ] || { echo \"not writable: \$d (join the gopher group)\" >&2; exit 2; }; \
+       cp -a \"\$d\" \"\$d.bak-$_stamp\" && rm -rf \"\$d\"/* && tar -C \"\$d\" -xf - && \
+       printf 'published by %s at %s\n' '$_sig' '$_stamp' > \"\$d/.published\""; then
+    hee_status CRITICAL "gen-manpages: publish to $_host failed"; return 2
+  fi
+  # Verify what the daemon serves, not what the disk holds.
+  _h="$(ssh -o BatchMode=yes "$_host" 'hostname -f' 2>/dev/null || echo "$_host")"
+  _menu="$(printf '\r\n' | timeout 8 nc "$_h" 70 2>/dev/null | head -1)"
+  _page="$(printf '/man/man1/hee.txt\r\n' | timeout 8 nc "$_h" 70 2>/dev/null | head -1)"
+  case "$_menu" in i*) ;; *) hee_status CRITICAL "gen-manpages: $_h:70 did not answer with the root menu after publish"; return 2 ;; esac
+  [ -n "$_page" ] || { hee_status CRITICAL "gen-manpages: $_h:70 does not serve /man/man1/hee.txt after publish"; return 2; }
+  hee_status OK "gen-manpages: published $_n file(s) to $_host:$_dir (backup $_dir.bak-$_stamp), serving on $_h:70, by $_sig"
+}
+
 if [ "$DO_GOPHER" -eq 1 ]; then
   if [ "$WRITE" -eq 1 ]; then
-    gen_gopher "$GOPHER_OUT"
-    exit $?
+    gen_gopher "$GOPHER_OUT" || exit $?
+    [ "$DO_PUBLISH" -eq 1 ] && { publish_gopher "$GOPHER_OUT" "$PUBLISH_HOST" "$PUBLISH_DIR"; exit $?; }
+    exit 0
   fi
+  [ "$DO_PUBLISH" -eq 1 ] && publish_gopher "$GOPHER_OUT" "$PUBLISH_HOST" "$PUBLISH_DIR"
   # Dry run. gen_gopher's first act is `rm -rf` on its output directory, so
   # it is never pointed at the real tree without --write.
   gen_gopher "$STAGE/gopher" >/dev/null 2>&1
