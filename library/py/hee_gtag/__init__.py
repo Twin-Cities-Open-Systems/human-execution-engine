@@ -24,7 +24,11 @@ concern, consumed by tools, no CLI of its own.
 import os
 import re
 
-PROD_GUARD_JS = "/\\.tcos\\.us$/.test(location.hostname) && !/\\.lab\\.tcos\\.us$/.test(location.hostname)"
+# (^|\\.) on both: the apex "tcos.us" has no leading dot, so /\\.tcos\\.us$/
+# never matched it and the home site never reported (measured 2026-09-06,
+# GA empty after the tag shipped); and "lab.tcos.us" itself must be excluded,
+# not only *.lab.tcos.us.
+PROD_GUARD_JS = "/(^|\\.)tcos\\.us$/.test(location.hostname) && !/(^|\\.)lab\\.tcos\\.us$/.test(location.hostname)"
 _ID_RE = re.compile(r"^G-[A-Z0-9]{6,12}$")
 # Where the org's branding card lives on an operator machine (every repo is
 # checked out under ~/git, the org's own convention). Used when
