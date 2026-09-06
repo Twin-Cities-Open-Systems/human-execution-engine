@@ -165,6 +165,7 @@ SUBCOMMANDS
   cli        every hee tool's own help obeys the CLI contract
   regex      shared regex patterns behave identically in every engine
   roster     roster.json's claims match real accounts and org membership
+  gitignore  secret paths excluded, no negation re-including one, no duplicates
   signatures every detached .asc verifies against the file it signs,
              and can re-sign the ones that drifted
   all        boundary + refs + locale + signatures
@@ -917,6 +918,157 @@ for t in d.get("tiers",[]):
   return 0
 }
 
+
+# check_gitignore ROOT [--fix] -- the repo excludes the secret paths every
+# TCOS repo excludes, carries no negation that re-includes one, and has no
+# duplicate cruft.
+#
+# Real trigger 2026-09-06: a sealed pve credential was committed to this
+# PUBLIC repo inside a documentation typo PR. Nothing stopped it, because
+# .gitignore carried `!.hee/secrets/*.gpg`, copied from fleet-ops where it is
+# correct -- that repo is private and really tracks 7 sealed files. Here it
+# had protected zero files. The force-push did not undo it either: the
+# orphaned commit and the blob are still served by SHA.
+#
+# Visibility decides severity, and an unknown visibility is treated as public.
+# Guessing "probably private" is how this check would learn to be ignored.
+check_gitignore() {
+  root="${1:-.}"
+  _fix="${2:-0}"
+  # The org's base lives in its .github repo, which is where org-wide GitHub
+  # administration belongs. GitHub does NOT inherit .gitignore from .github
+  # the way it inherits community health files, so this is synced by this
+  # tool rather than by the platform -- worth knowing before anyone expects
+  # it to happen on its own.
+  #
+  # Resolution order keeps the tool generic (issue:603@human-execution-engine):
+  # an explicit env var, then a sibling .github checkout, then the copy
+  # bundled here so it still works with no org checkout at all.
+  _base=""
+  _workspace="$(cd "$root/.." 2>/dev/null && pwd)"
+  for _cand in "${HEE_GITIGNORE_BASE:-}" "$_workspace/.github/gitignore/base.gitignore" "$TOOL_ROOT/library/gitignore/secrets.baseline"; do
+    [ -n "$_cand" ] && [ -r "$_cand" ] && { _base="$_cand"; break; }
+  done
+  _dang="$TOOL_ROOT/library/gitignore/negation-danger.txt"
+  [ -r "$_base" ] || { hee_status UNKNOWN "no baseline at $_base"; return 3; }
+  git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    hee_status UNKNOWN "not a git repository: $root"; return 3; }
+
+  _gi="$root/.gitignore"
+  _name="$(basename "$(cd "$root" && pwd)")"
+
+  # visibility: gh when it can answer, else public
+  _vis="public"
+  if command -v gh >/dev/null 2>&1; then
+    _slug="$(git -C "$root" remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+    if [ -n "$_slug" ]; then
+      _v="$(gh repo view "$_slug" --json visibility --jq .visibility 2>/dev/null)"
+      [ -n "$_v" ] && _vis="$(printf '%s' "$_v" | tr '[:upper:]' '[:lower:]')"
+    fi
+  fi
+
+  _crit=0; _warn=0
+  if [ ! -f "$_gi" ]; then
+    [ "$_fix" -eq 1 ] && : > "$_gi"
+    [ "$_fix" -eq 1 ] || { printf '  🟡 %-24s %-8s no .gitignore at all\n' "$_name" "$_vis"; return 1; }
+  fi
+
+  # 1. dangerous negations -- CRITICAL in a public repo, noted in a private one
+  _bad=""
+  while IFS= read -r _line; do
+    case "$_line" in
+      "!"*) ;;
+      *) continue ;;
+    esac
+    while IFS= read -r _pat; do
+      case "$_pat" in ""|\#*) continue ;; esac
+      case "$_line" in
+        *"$_pat"*) _bad="$_bad$_line
+" ; break ;;
+      esac
+    done < "$_dang"
+  done < "$_gi"
+
+  if [ -n "$_bad" ]; then
+    printf '%s' "$_bad" | while IFS= read -r _b; do
+      [ -n "$_b" ] || continue
+      if [ "$_vis" = "public" ]; then
+        printf '  🔴 %-24s %-8s negation re-includes a secret path: %s\n' "$_name" "$_vis" "$_b"
+      else
+        printf '  🟡 %-24s %-8s negation re-includes a secret path (private, may be deliberate): %s\n' "$_name" "$_vis" "$_b"
+      fi
+    done
+    [ "$_vis" = "public" ] && _crit=1 || _warn=1
+    if [ "$_fix" -eq 1 ] && [ "$_vis" = "public" ]; then
+      _tmp="$_gi.hee.$$"
+      while IFS= read -r _line; do
+        _hit=0
+        case "$_line" in "!"*)
+          while IFS= read -r _pat; do
+            case "$_pat" in ""|\#*) continue ;; esac
+            case "$_line" in *"$_pat"*) _hit=1; break ;; esac
+          done < "$_dang" ;;
+        esac
+        if [ "$_hit" -eq 1 ]; then
+          echo "# removed by hee check gitignore --fix: a negation re-including a"
+          echo "# secret path in a public repo. See pr:609@human-execution-engine."
+          echo "# was: $_line"
+        else
+          printf '%s\n' "$_line"
+        fi
+      done < "$_gi" > "$_tmp" && mv "$_tmp" "$_gi"
+    fi
+  fi
+
+  # 2. missing baseline entries
+  _missing=""
+  while IFS= read -r _pat; do
+    case "$_pat" in ""|\#*) continue ;; esac
+    grep -qxF "$_pat" "$_gi" 2>/dev/null || _missing="$_missing$_pat
+"
+  done < "$_base"
+  if [ -n "$_missing" ]; then
+    _n="$(printf '%s' "$_missing" | grep -c .)"
+    printf '  🟡 %-24s %-8s %s baseline secret path(s) not excluded\n' "$_name" "$_vis" "$_n"
+    _warn=1
+    if [ "$_fix" -eq 1 ]; then
+      # A managed block between markers, so a second run replaces rather than
+      # appends and an updated base propagates. Everything outside the markers
+      # is the repo's own and is never touched.
+      _tmp="$_gi.hee.$$"
+      awk 'BEGIN{skip=0} /^# >>> hee gitignore base >>>$/{skip=1;next} /^# <<< hee gitignore base <<<$/{skip=0;next} !skip{print}' "$_gi" > "$_tmp"
+      {
+        echo ""
+        echo "# >>> hee gitignore base >>>"
+        echo "# Managed by: hee check gitignore --fix. Edit the base, not this block."
+        echo "# Base: $_base"
+        echo "# Never negate one of these back in: in a public repo it publishes"
+        echo "# the file permanently -- see pr:609@human-execution-engine."
+        grep -vE '^\s*#' "$_base" | grep -vE '^\s*$'
+        echo "# <<< hee gitignore base <<<"
+      } >> "$_tmp"
+      mv "$_tmp" "$_gi"
+    fi
+  fi
+
+  # 3. cruft: exact duplicate patterns
+  _dups="$(grep -vE '^\s*(#|$)' "$_gi" 2>/dev/null | sort | uniq -d)"
+  if [ -n "$_dups" ]; then
+    _dn="$(printf '%s' "$_dups" | grep -c .)"
+    printf '  🟡 %-24s %-8s %s duplicate pattern(s)\n' "$_name" "$_vis" "$_dn"
+    _warn=1
+    if [ "$_fix" -eq 1 ]; then
+      _tmp="$_gi.hee.$$"
+      awk '/^[[:space:]]*(#|$)/ { print; next } !seen[$0]++ { print }' "$_gi" > "$_tmp" && mv "$_tmp" "$_gi"
+    fi
+  fi
+
+  if [ "$_crit" -eq 1 ]; then return 2; fi
+  if [ "$_warn" -eq 1 ]; then return 1; fi
+  printf '  🟢 %-24s %-8s baseline covered, no unsafe negation, no duplicates\n' "$_name" "$_vis"
+  return 0
+}
+
 case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
   refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
@@ -929,6 +1081,13 @@ case "$cmd" in
   # one line, and a subcommand that vanishes is worse than one that redirects.
   style)    shift 2>/dev/null || true; check_locale "${1:-.}" ;;
   regex)    check_regex ;;
+  gitignore)
+            shift 2>/dev/null || true
+            _gfix=0; _groot="."
+            while [ $# -gt 0 ]; do
+              case "$1" in --fix) _gfix=1; shift ;; *) _groot="$1"; shift ;; esac
+            done
+            check_gitignore "$_groot" "$_gfix" ;;
   roster)   shift 2>/dev/null || true; check_roster "${1:-.}" ;;
   signatures|sig)
     shift 2>/dev/null || true

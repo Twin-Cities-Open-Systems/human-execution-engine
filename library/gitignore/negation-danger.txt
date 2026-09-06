@@ -1,0 +1,16 @@
+# A .gitignore negation matching any of these re-includes a secret-shaped path.
+# In a PRIVATE repo that can be deliberate: fleet-ops really does track 7 sealed
+# .gpg files. In a PUBLIC repo it is a loaded gun -- measured 2026-09-06, the
+# `!.hee/secrets/*.gpg` line in human-execution-engine had protected zero
+# tracked files and its only effect was letting `git add` stage a sealed
+# credential silently, inside a documentation typo PR.
+gpg
+secret
+credential
+token
+pem
+p12
+pfx
+netrc
+id_rsa
+id_ed25519
