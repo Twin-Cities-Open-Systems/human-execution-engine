@@ -84,9 +84,9 @@ Usage:
       counterpart of `sign`. Writes XMP-xmp:CreatorTool (tool@commit),
       XMP-dc:Source (the input file + its sha256) and XMP-dc:Description
       ("provenance: tool=..; commit=..; job=..; job_sha256=..;
-      source_sha256=..; k=v..; signed=<rc_tag>"), mirrored to
+      source_sha256=..; k=v..; signed=<sig_tag>"), mirrored to
       EXIF:ImageDescription / IPTC:Caption-Abstract on JPEG. The
-      signature is the org's rc_tag form (host-user-<hash>_<tmux>), read
+      signature is the org's sig_tag form (host-user-<hash>_<tmux>), read
       from hee-ver session, never invented. An existing Description that
       is not a provenance block is left alone unless --force. Works on
       JPEG, PNG and GIF (XMP travels in all three; measured 2026-09-05).
@@ -295,14 +295,14 @@ def sha256_of(path):
     return h.hexdigest()
 
 
-def rc_tag():
-    """The org's instance signature in rc_tag form, from hee-ver session --
+def sig_tag():
+    """The org's instance signature in sig_tag form, from hee-ver session --
     the same source every other signer uses. Falls back to host-user when
     hee-ver is unavailable, and says so rather than inventing a hash."""
     ver = Path(__file__).resolve().parent / "hee-ver"
     try:
         out = json.loads(run([str(ver), "session", "--json"]).stdout)
-        tag = out.get("session", out).get("rc_tag")
+        tag = out.get("session", out).get("sig_tag")
         if tag:
             return tag
     except Exception:
@@ -575,7 +575,7 @@ def cmd_provenance(args):
             sys.exit(f"hee-exif provenance: --kv wants k=v, got {item!r}")
         k, v = item.split("=", 1)
         kv.append((k, v))
-    kv.append(("signed", rc_tag()))
+    kv.append(("signed", sig_tag()))
     desc = "provenance: " + "; ".join(f"{k}={v}" for k, v in kv)
     creator = args.tool + (f"@{args.commit}" if args.commit else "")
 

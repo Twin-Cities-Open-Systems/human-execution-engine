@@ -128,7 +128,9 @@ DESCRIPTION
   Also reports whether this terminal can carry OSC 8 hyperlinks, which
   decides whether tool output may use short clickable links.
 
-  rc_tag is one readable label for this running instance:
+  sig_tag (signature tag) is the label this instance signs its outputs
+  with -- one readable name for this running instance. rc_tag is a
+  deprecated alias with the same value, kept for one release:
 
       kiosk-claude-0f41d560              no tmux
       kiosk-claude-0f41d560_main:0.0     inside tmux
@@ -218,7 +220,7 @@ SYNOPSIS
   hee-ver tool <name>... [--source auto|self|package|path] [--json]
   hee-ver platform [--json]
   hee-ver hardware [--json]
-  hee-ver session  [--json] [--signature]
+  hee-ver session  [--json] [--signature] [--tag]
   hee-ver all      [--json]
   hee-ver verify   [PATH]
   hee-ver [SUBCOMMAND] help
