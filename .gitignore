@@ -48,10 +48,21 @@ MANIFEST
 # Exclude the CONTENTS, not the directory -- git cannot re-include a file
 # whose parent directory is excluded, so `secrets/` would make the
 # negation below inert.
+#
+# The negations that used to sit here (`!secrets/*.gpg`, `!.hee/secrets/*.gpg`)
+# were copied from fleet-ops, where they are correct: that repo is PRIVATE and
+# really does track 7 sealed files. This repo is PUBLIC and tracks zero. The
+# exception therefore had no users here and only one effect -- it let `git add`
+# stage a sealed credential without complaint, which is exactly what happened
+# in pr:609@human-execution-engine, inside a documentation typo PR.
+#
+# Sealed is not safe once the ciphertext is public and permanent: it moves the
+# problem from "nobody can reach it" to "nobody can break the cipher for as
+# long as this repo exists", and undoing it costs a history rewrite plus a
+# rotation anyway. So: no exception here. Sealed secrets live in a private
+# repo, or outside git.
 secrets/*
-!secrets/*.gpg
 .hee/secrets/*
-!.hee/secrets/*.gpg
 
 # Development
 #.vscode/ # Pretty is a function
