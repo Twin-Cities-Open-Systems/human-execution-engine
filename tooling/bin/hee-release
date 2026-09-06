@@ -436,9 +436,10 @@ def cmd_cut(root, card, version=None, yes=False):
         print("  built into the release commit:" if built else "  no build outputs changed")
         for line in built.splitlines():
             print("   " + line)
-        sh("git", "reset", "-q")
-        if outputs:
-            sh("git", "checkout", "-q", "--", *outputs)
+        # the tree was clean when we started (checked above), so restoring it
+        # is exactly a hard reset; a pathspec-by-pathspec checkout left staged
+        # build outputs behind once (2026-09-06)
+        sh("git", "reset", "-q", "--hard")
         say("OK", "dry run -- nothing committed, tree restored; add -yes to cut"); return OK
     sh("git", "switch", "-q", "-c", branch)
     since = last or git("rev-list", "--max-parents=0", "HEAD").splitlines()[-1]
