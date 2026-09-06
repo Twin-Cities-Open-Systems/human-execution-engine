@@ -198,6 +198,12 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
             continue
         if _in_excluded_dir(f):
             continue
+        if os.path.basename(f) == "CHANGELOG.md":
+            # generated history (hee gen-changelog, rule 18): commit subjects
+            # name files that have since moved or gone, and that is the point
+            # of a changelog. Measured 2026-09-06: the first release PR went
+            # red on "shell/tc-theme.js" quoted from a commit that deleted it.
+            continue
         try:
             text = open(os.path.join(root, f), errors="ignore").read()
         except OSError:
