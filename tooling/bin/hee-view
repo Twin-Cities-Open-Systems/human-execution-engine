@@ -194,7 +194,7 @@ def lint_sitemap(sites):
     2026-09-06: a note carried unmatched single quotes for a week and
     nothing caught it -- YAML takes an unbalanced apostrophe in a plain
     scalar. Rules: url/repo/note present; note is one short sentence
-    (<= NOTE_MAX chars), quotes balanced; url unique. WARNING each."""
+    (<= NOTE_MAX chars); url unique. WARNING each."""
     warnings, seen = [], set()
     for e in sites:
         u = e.get("url", "?")
@@ -204,8 +204,11 @@ def lint_sitemap(sites):
         note = str(e.get("note", ""))
         if len(note) > NOTE_MAX:
             warnings.append(f"{u}: note is {len(note)} chars (max {NOTE_MAX}) -- history belongs in git, not the status line")
-        if note.count("'") % 2 == 1 or note.count('"') % 2 == 1:
-            warnings.append(f"{u}: note has unbalanced quotes")
+        # Apostrophes in prose are fine once the note is a double-quoted YAML
+        # string (operator: "can just wrap in doubles"); only an unbalanced
+        # double quote is a real problem, and YAML would have refused it.
+        if note.count('"') % 2 == 1:
+            warnings.append(f"{u}: note has an unbalanced double quote")
         if u in seen:
             warnings.append(f"{u}: listed twice")
         seen.add(u)
