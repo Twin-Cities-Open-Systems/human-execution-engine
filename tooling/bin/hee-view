@@ -273,6 +273,12 @@ def crawl_sites(sites, depth=2, listed=None):
         seen[key] = (code, final)
         if not (200 <= code < 300):
             broken.append((src, url, code, final)); continue
+        # A 200 that serves git conflict markers is broken too. Incident
+        # tcos-www#59 (2026-09-06): tcos.us served <<<<<<< / >>>>>>> lines on
+        # every page for 16 minutes while every status check stayed green.
+        if body and any(l.startswith(("<<<<<<< ", ">>>>>>> ")) or l == "=======" for l in body.splitlines()):
+            seen[key] = (599, final)
+            broken.append((src, url, "200 but the body contains git conflict markers", final)); continue
         if d >= depth or not body:
             continue
         host = urllib.parse.urlsplit(final).netloc
