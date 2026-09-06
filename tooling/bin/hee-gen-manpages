@@ -392,12 +392,14 @@ if [ "$DO_GOPHER" -eq 1 ]; then
     [ "$DO_PUBLISH" -eq 1 ] && { publish_gopher "$GOPHER_OUT" "$PUBLISH_HOST" "$PUBLISH_DIR"; exit $?; }
     exit 0
   fi
-  [ "$DO_PUBLISH" -eq 1 ] && publish_gopher "$GOPHER_OUT" "$PUBLISH_HOST" "$PUBLISH_DIR"
   # Dry run. gen_gopher's first act is `rm -rf` on its output directory, so
   # it is never pointed at the real tree without --write.
   gen_gopher "$STAGE/gopher" >/dev/null 2>&1
   exec 1>&3
   report_plan "$STAGE/gopher" "$GOPHER_OUT" "gopher tree ($GOPHER_OUT)"
+  # stdout is back on the terminal only from here, so the publish plan is
+  # printed after the report, where it can be seen.
+  [ "$DO_PUBLISH" -eq 1 ] && publish_gopher "$STAGE/gopher" "$PUBLISH_HOST" "$PUBLISH_DIR"
   exit 0
 fi
 authored_kept=""
