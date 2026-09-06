@@ -1,0 +1,47 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: shared-branch-race
+  description: "How an oper and an agent avoid fixing the same branch at the same time. Written after both force-pushed the same fix to the same branch within a minute of each other, on a branch being cleaned of a published credential -- where the losing push, had it come from a stale checkout, would have re-published the secret."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: governance
+    topic: shared-branch-race
+    artifact: card
+  annotations:
+    inuid: "d922b010ba4ce8aca5385631e0fd8add0e4ac23ee8b6ba541bf59d0d89648b4a"
+    inuid_seed: "hee-card://core/shared-branch-race/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-09-06T00:00:00Z"
+
+spec:
+  what_happened:
+    date: "2026-09-06"
+    summary: "pr:609@human-execution-engine carried a sealed credential. The agent offered to fix it, then said the operator should do it locally to avoid a force-push under his feet. The operator replied 'will you fix plez'. The agent began. The operator had already begun."
+    result: "Two force-pushes to the same branch inside a minute -- the operator's 86a3672, the agent's ea1bf5a. The agent's landed last. Both commits were docs-only, so nothing was lost and the branch ended correct."
+    the_near_miss: "That outcome was luck, not design. The two pushes were racing on a branch whose whole purpose was removing a published credential. Had the losing push come from a checkout that still had the file staged, the last write would have put the secret back -- and the PR would have looked fixed to whoever glanced at it first."
+
+  rule:
+    - id: one-hand
+      says: "One hand on a shared branch. Whoever is going to act says so, and the other stands down explicitly before touching it. 'Will you fix it' is a request, not a hand-off -- the hand-off is the other party confirming they have stopped."
+      note: "The agent's share of this: it had already named the risk of force-pushing under the operator, then did it anyway on a bare 'yes' without asking whether he had started."
+    - id: fetch-immediately-before
+      says: "Never force-push a branch you did not just fetch. Fetch, inspect, push, in one motion. A fetch from five minutes ago is not knowledge of the current head."
+    - id: verify-the-property-not-the-push
+      says: "After any force-push to a shared branch, check that the remote head is the sha you pushed AND that the thing you were fixing is actually fixed. A push reporting success only proves bytes moved."
+      example: "git ls-tree -r --name-only origin/<branch> | grep -c secrets  ->  0"
+    - id: races-are-found-by-looking
+      says: "A lost race is silent. Nothing errors, nothing warns; the remote simply holds someone else's work. It is found by comparing the remote head against what you pushed, and never by trusting that your push was the last one."
+
+  detection:
+    signal: "gh pr view N --json headRefOid returns a sha you did not push."
+    real_instance: "The agent saw headRefOid 86a3672 immediately after pushing ea1bf5a and read it as an API lag. It was the operator's push. Re-fetching resolved it -- the check is cheap and the assumption was wrong."
+
+  applies_beyond_this:
+    - "Any branch two parties can write: an oper and an agent, two agents, or one agent in two sessions."
+    - "Sharpest where the fix is a security property. A merge conflict is loud; a lost force-push is silent, and on a credential-removal branch the silent failure re-publishes the secret."
+
+  see_also:
+    - "issue:410@fleet-ops -- the incident this came out of"
+    - "pr:609@human-execution-engine -- the branch that was raced"
