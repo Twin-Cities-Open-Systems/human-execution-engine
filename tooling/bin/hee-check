@@ -297,6 +297,20 @@ check_boundary() {
     fi
   done
   [ "$rc" -eq 0 ] && hee_status OK "no derived state committed in $root ($DERIVED_DIRS)"
+
+  # Git conflict markers in a tracked text file. Incident tcos-www#59
+  # (2026-09-06): a rebase committed <<<<<<< / ======= / >>>>>>> lines
+  # into every generated page, CI was green, and tcos.us served them for
+  # 16 minutes. Nothing that ships is allowed to carry these.
+  _markers=$(git -C "$root" ls-files -z 2>/dev/null | xargs -0 -r grep -I -l -n -E '^(<<<<<<< |=======$|>>>>>>> )' -- 2>/dev/null | head -20)
+  if [ -n "$_markers" ]; then
+    for f in $_markers; do
+      hee_status CRITICAL "git conflict markers in tracked file: $f ($(git -C "$root" grep -c -E '^(<<<<<<< |=======$|>>>>>>> )' -- "$f" 2>/dev/null | cut -d: -f2) line(s))"
+    done
+    rc=2
+  else
+    hee_status OK "no git conflict markers in tracked files"
+  fi
   return "$rc"
 }
 
