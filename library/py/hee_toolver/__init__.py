@@ -563,7 +563,7 @@ def session() -> dict:
     else:
         out["tmux_uri"] = "none"
 
-    # rc_tag -- one readable label for THIS running instance.
+    # sig_tag -- one readable label for THIS running instance.
     #
     # Operator, 2026-09-02: "if there is no tmux, then there is no tmux
     # string" -- the tmux segment is omitted entirely rather than filled
@@ -642,7 +642,14 @@ def session() -> dict:
         ) if p
     )
     target = out.get("tmux_target", "unknown")
-    out["rc_tag"] = f"{base}_{target}" if target != "unknown" else base
+    # sig_tag -- the SIGNATURE tag: the label this instance signs its
+    # outputs with (exif provenance, deploy messages, prod tags). Named
+    # for what it is; "rc" was never expanded anywhere and reads as an
+    # rc file, which it is not. Operator, 2026-09-06: "what does rc stand
+    # for? let's define or rename." rc_tag stays one changelog cycle as
+    # an alias with the same value, then goes.
+    out["sig_tag"] = f"{base}_{target}" if target != "unknown" else base
+    out["rc_tag"] = out["sig_tag"]  # deprecated alias, removed after one release
 
     r = _run(["gh", "auth", "status"])
     if r is not None:
