@@ -1,16 +1,19 @@
-.TH HEE 1 "2026-02-15" "HEE" "User Commands"
+.TH HEE 1 "2026-09-06" "HEE" "User Commands"
 .SH NAME
 hee \- Human Execution Engine command dispatcher
 .SH SYNOPSIS
 .B hee
-[\fBhelp\fR]
+[\fBhelp\fR | \fBlist\fR]
 .br
 .B hee
 \fIsubcommand\fR [\fIargs...\fR]
 .SH DESCRIPTION
 .B hee
-dispatches to installed HEE tools. Runtime truth is the installed toolchain under
-\fB~/.hee/bin\fR (or a repo-local prefix during test-drive).
+is a thin dispatcher. It is the checkout, not an installed toolchain:
+\fB~/.local/bin/hee\fR is a symlink to
+\fB~/git/human-execution-engine/tooling/bin/hee\fR, and every subcommand is an
+executable next to it. Pulling the repo is the update mechanism; there is no
+second copy to drift.
 .SH SUBCOMMANDS
 Built-in:
 .TP
@@ -45,16 +48,31 @@ runs
 .IR tooling/bin/hee\-check .
 Run
 .B hee list
-for the current set; it is derived from what is installed, not from a list
+for the current set; it is derived from what is present, not from a list
 kept here.
 .SH FILES
 .TP
-.B ~/.hee/bin
-Installed truth for the toolchain.
+.B ~/.local/bin/hee
+The dispatcher on PATH; a symlink into the checkout below.
 .TP
-.B ~/.local/share/bash-completion/completions/hee
-Bash completion file (if installed/loaded).
+.B ~/git/human-execution-engine/
+The checkout. \fItooling/bin/\fR holds every subcommand; \fItooling/heerc\fR is
+sourced by \fI~/.bashrc\fR and sets PATH and per-oper preferences.
+.TP
+.B ~/.hee/index/_.yaml
+This oper's SOA anchor (hee-soa.v1): host, user, machine id, stool hash. Read
+by \fBhee ver session\fR for a human shell's signature tag.
+.TP
+.B ~/.hee/current/
+Per-oper working state (the SOA legs and hashes the anchor refers to).
+.TP
+.B ~/.hee/bin/
+Only present once \fBhee tools-update\fR has installed a pinned external tool
+there. Not the dispatcher, not the subcommands.
+.SH COMPLETION
+None is installed by anything yet. A generated bash completion file is tracked
+as human-execution-engine#564.
 .SH ORGANIZATION
-Twin Cities Open Systems \- Operations LLC
+Twin Cities Open Systems \- Operations, LLC
 .br
 IANA Private Enterprise Number: 1.3.6.1.4.1.66550

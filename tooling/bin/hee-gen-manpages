@@ -95,6 +95,24 @@ if hee_help_wanted "$@"; then
   exit 0
 fi
 
+# An authored page that names a path that is not on this machine is a
+# claim nobody checked. Operator, 2026-09-06, reading man.tcos.us/.../hee.txt:
+# "lies" -- it described a ~/.hee/bin toolchain and a completion file that
+# existed for no one. Every ~/... or /... under .SH FILES of an authored
+# page is tested here; a missing one is a WARNING naming page and path.
+check_files_claims() {
+  _warn=0
+  for _pg in man/man[1-9]/*.[1-9]; do
+    [ -f "$_pg" ] || continue
+    awk '/^\.SH FILES/{f=1;next} /^\.SH/{f=0} f && /^\.B /{sub(/^\.B +/,""); gsub(/\\f[BIR]/,""); print}' "$_pg" | while IFS= read -r _path; do
+      case "$_path" in "~"/*|/*) ;; *) continue ;; esac
+      _abs="${_path/#\~/$HOME}"; _abs="${_abs%/}"
+      [ -e "$_abs" ] || { echo "⚠️ WARNING gen-manpages: $_pg claims $_path under FILES; not on this machine"; }
+    done
+  done
+}
+check_files_claims
+
 WRITE=0
 DO_GOPHER=0
 GOPHER_OUT="man/gopher"
