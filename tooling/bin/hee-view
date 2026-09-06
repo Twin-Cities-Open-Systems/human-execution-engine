@@ -268,7 +268,7 @@ def crawl_sites(sites, depth=2, listed=None):
     pages = every URL reached; broken = (from_page, url, code_or_error,
     final_url); unlisted = reachable page URLs absent from the site map."""
     import html.parser
-    listed = {e["url"].rstrip("/") for e in (listed or sites)}
+    listed = {e["url"].rstrip("/") for e in (listed or sites)} | {e["url"] for e in (listed or sites) if e["url"].endswith("/")}
 
     class Links(html.parser.HTMLParser):
         def __init__(self):
@@ -329,8 +329,17 @@ def crawl_sites(sites, depth=2, listed=None):
         Operator, 2026-09-06: 24 'unlisted' on public were query-string
         variants of one page and pages under listed directories."""
         u = u.split("?", 1)[0].rstrip("/")
-        if u in listed:
+        if u.endswith(".html"):
+            u = u[:-5]  # /careers.html is the same page as /careers
+        if u in listed or u + ".html" in listed:
             return True
+        # A lab mirror page is covered when its prod twin is listed: the
+        # site map lists tcos.us/careers once, not again for lab.tcos.us.
+        sp = urllib.parse.urlsplit(u)
+        if sp.netloc == "lab.tcos.us" or sp.netloc.endswith(".lab.tcos.us"):
+            twin = u.replace("://lab.tcos.us", "://tcos.us", 1).replace(".lab.tcos.us", ".tcos.us", 1)
+            if twin in listed or twin + "/" in listed or twin + ".html" in listed:
+                return True
         for l in listed:
             if l.endswith("/") and urllib.parse.urlsplit(l).path not in ("", "/") and u.startswith(l):
                 return True
@@ -479,7 +488,7 @@ def main():
     ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
                      help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
     ap.add_argument("--via", metavar="[USER@]HOST",
-                    help="run the --sites checks FROM that host over ssh (this file is "
+                    help="an ssh target or alias, never a URL: run the --sites checks FROM that host (this file is "
                          "sent with `python3 -`; the host needs only python3). The point "
                          "is a vantage that is not the operator's own IP: the DigitalOcean "
                          "droplet (man.tcos.us) sees tcos.us the way the public does -- "
@@ -509,6 +518,10 @@ def main():
     args = ap.parse_args()
 
     if args.via:
+        if "://" in args.via or "/" in args.via:
+            print(f"⚪ UNKNOWN hee-view: --via takes an ssh target ([user@]host or an ssh alias), not a URL: {args.via!r}. "
+                  "For the droplet: --via man-tcos-us", file=sys.stderr)
+            return 3
         if not args.sites:
             print("⚪ UNKNOWN hee-view: --via only makes sense with --sites", file=sys.stderr)
             return 3
