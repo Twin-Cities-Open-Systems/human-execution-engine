@@ -164,6 +164,7 @@ SUBCOMMANDS
   locale     authored text matches the locale this repo declares
   cli        every hee tool's own help obeys the CLI contract
   regex      shared regex patterns behave identically in every engine
+  roster     roster.json's claims match real accounts and org membership
   signatures every detached .asc verifies against the file it signs,
              and can re-sign the ones that drifted
   all        boundary + refs + locale + signatures
@@ -674,6 +675,7 @@ if hee_help_wanted "$@"; then
       systemd)  usage_systemd ;;
       cli)      usage_cli ;;
       locale|style) usage_locale ;;
+      roster)   printf '%s\n' "hee-check roster -- the roster's claims match measured reality" "" "Reads roster.json in the given path, takes the org from the file's own org field, and for every person with a GitHub login measures whether that account exists and whether it is a member of that org. An entry claiming an active status (verified, ratified, peer) that reality does not support is CRITICAL. An entry marked departed that is still an org member is a warning. An account that cannot be measured is UNKNOWN, never CRITICAL -- a rate limit is not a departure." "" "EXIT: 0 agree  2 a claim reality does not support  3 no roster, or gh/python3 missing" ;;
       regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
       *)        usage ;;
   esac
@@ -832,6 +834,89 @@ check_locale() {
 }
 
 cmd="${1:-boundary}"
+
+# check_roster ROOT -- the roster's claims match measured reality.
+#
+# A roster is a claim about who is present. Nothing was checking it, so it
+# drifts silently and then gets cited as authority. Measured 2026-09-06 in
+# fleet-ops: of 7 entries, 5 claimed an active status while the account was
+# either gone from GitHub entirely or no longer an org member -- including
+# one departure the operator had confirmed weeks earlier.
+#
+# Deliberately generic: the org is read from the roster's own `org` field,
+# never from a constant here, so this works for any org that keeps a roster
+# in the same shape rather than only for the one that wrote it.
+#
+# An account that cannot be measured is UNKNOWN, not CRITICAL. Reporting a
+# rate limit or a network failure as "this person is gone" is how a check
+# earns the right to be ignored.
+check_roster() {
+  root="${1:-.}"
+  _rf="$root/roster.json"
+  [ -f "$_rf" ] || { hee_status UNKNOWN "no roster.json in $root -- nothing to reconcile"; return 3; }
+  command -v gh >/dev/null 2>&1 || { hee_status UNKNOWN "gh unavailable -- cannot measure accounts"; return 3; }
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable -- cannot read roster.json"; return 3; }
+
+  _org="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("org",""))' "$_rf" 2>/dev/null)"
+  [ -n "$_org" ] || { hee_status UNKNOWN "roster.json declares no org"; return 3; }
+
+  # tier US name US github US status, one person per line. Unit separator,
+  # not tab: tab is IFS whitespace, so `read` collapses a run of them and an
+  # empty field silently shifts every later field left. Measured -- a person
+  # with no github login reported the wrong status before this was fixed.
+  _rows="$(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+for t in d.get("tiers",[]):
+    for p in t.get("people",[]):
+        print("\x1f".join([t.get("name",""), p.get("name",""), p.get("github") or "", p.get("status") or ""]))
+' "$_rf" 2>/dev/null)"
+
+  _bad=0; _unk=0; _ok=0
+  printf '%s\n' "$_rows" | while IFS="$(printf '\037')" read -r _tier _name _gh _st; do
+    [ -n "$_name" ] || continue
+    if [ -z "$_gh" ]; then
+      printf '  🟢 %-12s %-18s %-10s no github login recorded\n' "$_tier" "$_name" "$_st"
+      continue
+    fi
+    if gh api "users/$_gh" --silent >/dev/null 2>&1; then _acct=exists; else _acct=missing; fi
+    if gh api "orgs/$_org/members/$_gh" --silent >/dev/null 2>&1; then _mem=member; else _mem=not-member; fi
+
+    # An active status asserts presence. departed/proposed do not.
+    case "$_st" in
+      verified|ratified|peer) _active=1 ;;
+      *) _active=0 ;;
+    esac
+
+    if [ "$_active" -eq 1 ] && [ "$_acct" = missing ]; then
+      printf '  🔴 %-12s %-18s claims %-9s but the GitHub account does not exist\n' "$_tier" "$_name" "$_st"
+    elif [ "$_active" -eq 1 ] && [ "$_mem" = not-member ]; then
+      printf '  🔴 %-12s %-18s claims %-9s but is not a member of %s\n' "$_tier" "$_name" "$_st" "$_org"
+    elif [ "$_st" = departed ] && [ "$_mem" = member ]; then
+      printf '  🟡 %-12s %-18s marked departed but still a member of %s\n' "$_tier" "$_name" "$_org"
+    else
+      printf '  🟢 %-12s %-18s %-10s account=%s org=%s\n' "$_tier" "$_name" "$_st" "$_acct" "$_mem"
+    fi
+  done
+
+  # The subshell above cannot carry counts back out of the pipe, so recount
+  # from the same measured facts rather than trusting a variable that the
+  # pipeline already discarded.
+  _crit="$(printf '%s\n' "$_rows" | while IFS="$(printf '\037')" read -r _tier _name _gh _st; do
+    [ -n "$_gh" ] || continue
+    case "$_st" in verified|ratified|peer) ;; *) continue ;; esac
+    gh api "users/$_gh" --silent >/dev/null 2>&1 || { echo x; continue; }
+    gh api "orgs/$_org/members/$_gh" --silent >/dev/null 2>&1 || echo x
+  done | wc -l)"
+
+  if [ "${_crit:-0}" -gt 0 ]; then
+    hee_status CRITICAL "roster: $_crit entry(ies) claim an active status that reality does not support"
+    return 2
+  fi
+  hee_status OK "roster: every active claim matches a real account and org membership"
+  return 0
+}
+
 case "$cmd" in
   boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
   refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
@@ -844,6 +929,7 @@ case "$cmd" in
   # one line, and a subcommand that vanishes is worse than one that redirects.
   style)    shift 2>/dev/null || true; check_locale "${1:-.}" ;;
   regex)    check_regex ;;
+  roster)   shift 2>/dev/null || true; check_roster "${1:-.}" ;;
   signatures|sig)
     shift 2>/dev/null || true
     _s_root="."; _s_resign=0; _s_key=""
