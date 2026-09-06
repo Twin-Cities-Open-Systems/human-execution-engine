@@ -9,7 +9,7 @@
 # library/py/hee_ogtags (shared, not copy-pasted here) -- this script
 # is just the CLI: fetch-or-read, then print what that library finds.
 #
-# Usage: hee-check-og <url-or-local-path> [--raw]
+# Usage: hee-check-og <url-or-local-path>... [--raw] [--require TAGS] [--summary]
 #   (default)  pretty key: value summary, deduplicated, easy to eyeball
 #   --raw      exact matched tags, in document order, like the original
 #              curl | grep -oE one-liner this replaces
@@ -26,19 +26,35 @@ from hee_cli import help_wanted, note_ignored  # noqa: E402
 USAGE = """hee-check-og -- report the Open Graph tags a page actually serves
 
 SYNOPSIS
-  hee-check-og URL_OR_PATH [--raw]
+  hee-check-og URL_OR_PATH... [--raw] [--require TAG[,TAG...]] [--summary]
   hee-check-og help
 
 DESCRIPTION
-  Fetches a URL, or reads a local file, and reports the Open Graph and
-  Twitter card tags found in it. What a crawler would see, not what the
-  template intended.
+  Fetches each URL, or reads each local file, and reports the Open Graph
+  and Twitter card tags found in it. What a crawler would see, not what
+  the template intended. With more than one target every report starts
+  with a "== TARGET ==" line, so a sweep keeps the names (a `find | parallel
+  hee check-og` sweep of 58 pages lost every name, 2026-09-06).
 
-  --raw   print every tag as found, with no grouping or verdict
+  --raw            print every tag as found, with no grouping or verdict
+  --require TAGS   one status line per target instead of the dump:
+                   OK when every named tag is present, CRITICAL naming the
+                   missing ones. Default set when given bare:
+                   og:title,og:description,og:url,og:image
+  --summary        with --require: only the CRITICAL lines and one total
+
+EXAMPLES
+  hee check-og https://tcos.us/people
+  find dist -name '*.html' | xargs hee check-og --require
+  hee check-og --require og:image --summary media/*/dist/**/*.html
 
 EXIT STATUS
-  0 tags found   2 no target given, or the target could not be read
+  0 every target read (and, with --require, complete)
+  1 a target could not be read or had no tags
+  2 with --require: at least one target is missing a required tag; or no target given
 """
+
+DEFAULT_REQUIRE = ["og:title", "og:description", "og:url", "og:image"]
 
 
 def fetch(target):
@@ -47,6 +63,50 @@ def fetch(target):
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.read().decode("utf-8", errors="replace")
     return Path(target).read_text(encoding="utf-8", errors="replace")
+
+
+def parse(argv):
+    targets, raw, require, summary = [], False, None, False
+    it = iter(argv)
+    for a in it:
+        if a == "--raw":
+            raw = True
+        elif a == "--summary":
+            summary = True
+        elif a == "--require":
+            require = DEFAULT_REQUIRE
+        elif a.startswith("--require="):
+            require = [t for t in a.split("=", 1)[1].split(",") if t]
+        else:
+            if require is DEFAULT_REQUIRE and targets == [] and ("og:" in a or "twitter:" in a) and not Path(a).exists():
+                require = [t for t in a.split(",") if t]      # `--require og:image` form
+            else:
+                targets.append(a)
+    return targets, raw, require, summary
+
+
+def report_one(target, html, raw):
+    if raw:
+        tags = hee_ogtags.extract_tags(html)
+        if not tags:
+            print("hee-check-og: no OG/Twitter/title/canonical tags found", file=sys.stderr)
+            return 1
+        for tag in tags:
+            print(tag)
+        return 0
+    pairs = hee_ogtags.extract_meta_pairs(html)
+    title_match = hee_ogtags.TITLE_RE.search(html)
+    canonical_match = hee_ogtags.CANONICAL_RE.search(html)
+    if not pairs and not title_match and not canonical_match:
+        print("hee-check-og: no OG/Twitter/title/canonical tags found", file=sys.stderr)
+        return 1
+    if title_match:
+        print(f"title: {title_match.group(0)}")
+    if canonical_match:
+        print(f"canonical: {canonical_match.group(0)}")
+    for key, value in pairs.items():
+        print(f"{key}: {value}")
+    return 0
 
 
 def main(argv):
@@ -58,43 +118,39 @@ def main(argv):
         note_ignored(argv)
         print(USAGE, end="")
         return 0
-    if not argv:
+    targets, raw, require, summary = parse(argv)
+    if not targets:
         print(USAGE, end="", file=sys.stderr)
         return 2
 
-    target = argv[0]
-    raw = "--raw" in argv[1:]
-
-    try:
-        html = fetch(target)
-    except Exception as e:
-        print(f"hee-check-og: failed to read '{target}': {e}", file=sys.stderr)
-        return 1
-
-    if raw:
-        tags = hee_ogtags.extract_tags(html)
-        if not tags:
-            print("hee-check-og: no OG/Twitter/title/canonical tags found", file=sys.stderr)
-            return 1
-        for tag in tags:
-            print(tag)
-        return 0
-
-    pairs = hee_ogtags.extract_meta_pairs(html)
-    title_match = hee_ogtags.TITLE_RE.search(html)
-    canonical_match = hee_ogtags.CANONICAL_RE.search(html)
-
-    if not pairs and not title_match and not canonical_match:
-        print("hee-check-og: no OG/Twitter/title/canonical tags found", file=sys.stderr)
-        return 1
-
-    if title_match:
-        print(f"title: {title_match.group(0)}")
-    if canonical_match:
-        print(f"canonical: {canonical_match.group(0)}")
-    for key, value in pairs.items():
-        print(f"{key}: {value}")
-    return 0
+    worst = 0
+    incomplete = 0
+    for target in targets:
+        try:
+            html = fetch(target)
+        except Exception as e:
+            print(f"🔴 CRITICAL hee-check-og: failed to read '{target}': {e}", file=sys.stderr)
+            worst = max(worst, 1)
+            continue
+        if require:
+            pairs = hee_ogtags.extract_meta_pairs(html)
+            missing = [t for t in require if t not in pairs]
+            if missing:
+                incomplete += 1; worst = 2
+                print(f"🔴 CRITICAL {target}: missing {', '.join(missing)}")
+            elif not summary:
+                print(f"🟢 OK {target}: {', '.join(require)}")
+            continue
+        if len(targets) > 1:
+            print(f"== {target} ==")
+        rc = report_one(target, html, raw)
+        worst = max(worst, rc)
+        if len(targets) > 1:
+            print()
+    if require and (summary or len(targets) > 1):
+        label = "🔴 CRITICAL" if incomplete else "🟢 OK"
+        print(f"{label} hee-check-og: {len(targets)} page(s), {incomplete} missing required tags")
+    return worst
 
 
 if __name__ == "__main__":
