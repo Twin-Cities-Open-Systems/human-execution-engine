@@ -7,7 +7,8 @@ SYNOPSIS
   hee release next              the version the next cut gets (semver from the commits)
   hee release lab               build and push every surface to lab, gates included
   hee release cut [VERSION]     changelog + version commit on a release branch, as a PR
-  hee release promote           deploy every surface from the release commit, tag it
+  hee release promote           deploy every surface from the release commit, tag it, publish it
+  hee release publish [VERSION] the GitHub Release for an existing version tag, notes from CHANGELOG.md
   hee release help
 
 DESCRIPTION
@@ -32,8 +33,11 @@ DESCRIPTION
 
   Each surface's promote command receives RELEASE_VERSION in its
   environment and tags prod/<surface>/<version>; the tool then signs
-  <version> itself on the release commit (hee git tag). Timestamps are
-  gone from tag names; they live in the tag's own date.
+  <version> itself on the release commit (hee git tag) and publishes the
+  GitHub Release for it, notes being that version's CHANGELOG section
+  (operator, 2026-09-06: "where is 1.0.0 release info" -- the first
+  releases were tags only). Timestamps are gone from tag names; they
+  live in the tag's own date.
 
 VERSIONS
   Semantic. The next version comes from the Conventional Commit subjects
@@ -228,7 +232,30 @@ def cmd_promote(root, card):
     if r.returncode != 0:
         say("CRITICAL", f"surfaces deployed, but {version} could not be tagged -- hee git tag {version} -m 'release {version}' HEAD --yes --push"); return CRITICAL
     say("OK", f"{version} promoted: {len(card['spec']['surfaces'])} surface(s), tagged and pushed")
-    return OK
+    return cmd_publish(root, card, version)
+
+
+def changelog_section(root, version) -> str:
+    text = (root / "CHANGELOG.md").read_text() if (root / "CHANGELOG.md").is_file() else ""
+    m = re.search(rf"^## \[{re.escape(version[1:])}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
+    return m.group(1).strip() if m else ""
+
+
+def cmd_publish(root, card, version=None):
+    version = version or last_version()
+    if not version or not git("tag", "-l", version):
+        say("CRITICAL", f"no tag {version or '(none)'} here -- promote first"); return CRITICAL
+    r = subprocess.run(["gh", "release", "view", version], cwd=root, capture_output=True, text=True)
+    if r.returncode == 0:
+        say("OK", f"{version} is already published: {r.stdout.splitlines()[0] if r.stdout else version}"); return OK
+    notes = changelog_section(root, version) or f"Release {version}."
+    surfaces = ", ".join(s["name"] for s in card["spec"]["surfaces"])
+    notes += f"\n\n---\nSurfaces: {surfaces}. Tags: " + ", ".join(f"`prod/{s['name']}/{version}`" for s in card["spec"]["surfaces"]) + f", `{version}` (GPG-signed)."
+    r = subprocess.run(["gh", "release", "create", version, "--verify-tag", "--title", version, "--notes", notes, "--latest"],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        say("CRITICAL", f"gh release create {version} failed: {r.stderr.strip()[-200:]}"); return CRITICAL
+    say("OK", f"{version} published: {r.stdout.strip()}"); return OK
 
 
 def sh_quote(s: str) -> str:
@@ -253,7 +280,9 @@ def main(argv):
         return cmd_cut(root, card, argv[1] if len(argv) > 1 else None)
     if cmd == "promote":
         return cmd_promote(root, card)
-    say("CRITICAL", f"unknown subcommand {cmd} -- status|next|lab|cut|promote"); return CRITICAL
+    if cmd == "publish":
+        return cmd_publish(root, card, argv[1] if len(argv) > 1 else None)
+    say("CRITICAL", f"unknown subcommand {cmd} -- status|next|lab|cut|promote|publish"); return CRITICAL
 
 
 if __name__ == "__main__":
