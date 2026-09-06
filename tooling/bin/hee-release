@@ -4,9 +4,11 @@
 
 SYNOPSIS
   hee release status            what main holds beyond the last release, per surface
+  hee release <cmd> --all       the same across every checkout under ~/git with a release card
+  hee release <cmd> --repos a,b the same across the named checkouts, in that order
   hee release next              the version the next cut gets (semver from the commits)
   hee release lab               build and push every surface to lab, gates included
-  hee release cut [VERSION]     changelog + version commit on a release branch, as a PR
+  hee release cut [VERSION] [--dry-run]   build every surface, changelog, version commit on a release branch, as a PR
   hee release promote           deploy every surface from the release commit, tag it, publish it
   hee release publish [VERSION] the GitHub Release for an existing version tag, notes from CHANGELOG.md
   hee release help
@@ -18,8 +20,9 @@ DESCRIPTION
   This is the whole procedure now:
 
     hee release lab        review on lab
-    hee release cut        approve and merge the release PR -- that IS the sign-off (HEE_POLICY 17)
-    hee release promote    every surface, one version, verified
+    hee release cut        builds every surface into the release commit, opens the release PR;
+                           approving and merging it IS the sign-off (HEE_POLICY 17)
+    hee release promote    every surface, one version, verified, published
 
   A repo declares its surfaces in release.card.v1.yaml at its root:
 
@@ -29,7 +32,11 @@ DESCRIPTION
     spec:
       credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
       surfaces:
-        - { name: tcos-www, lab: "./deploy.sh lab", promote: "./deploy.sh promote" }
+        - name: tcos-www
+          build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
+          outputs: ["*.html"]                           # what build produces (git pathspecs); tracked build outputs only
+          lab: "./deploy.sh lab"
+          promote: "./deploy.sh promote"
 
   Each surface's promote command receives RELEASE_VERSION in its
   environment and tags prod/<surface>/<version>; the tool then signs
@@ -45,10 +52,21 @@ VERSIONS
   feat bumps minor, anything else bumps patch. No v* tag yet: v1.0.0,
   because prod is already real. `cut VERSION` overrides.
 
-  cut writes CHANGELOG.md through hee gen-changelog --release, commits
-  "chore(release): vX.Y.Z" on release/vX.Y.Z, pushes, opens the PR. The
+  cut runs each surface's build (if it has one) and stages its outputs,
+  writes CHANGELOG.md through hee gen-changelog --release, commits
+  "chore(release): vX.Y.Z" on release/vX.Y.Z, pushes, opens the PR -- so
+  the PR shows the exact bytes that will ship, and a lab step that
+  rebuilt tracked pages never blocks the cut (hee#594). --dry-run builds
+  and lists what the commit would carry, then restores the tree. The
   approval on that PR is the human sign-off; promote refuses unless HEAD
   is origin/main and its CHANGELOG's newest header is the version.
+
+ORG-WIDE
+  --all runs the subcommand in every ~/git/<repo> (HEE_REPO_DIR's parent,
+  the org's checkout convention) that has release.card.v1.yaml, in name
+  order; --repos a,b in the order given. One line per repo at the end,
+  worst status wins. status --all is the org's release dashboard; cut
+  --all opens one release PR per repo; promote --all releases them all.
 
 EXIT STATUS
   0 OK, 1 WARNING (nothing to release), 2 CRITICAL (gate, build or deploy failed), 3 UNKNOWN (no card)
@@ -141,6 +159,9 @@ def surface_prod_tag(name: str) -> str | None:
 
 
 def cmd_status(root, card):
+    dirty = git("status", "--porcelain", "--untracked-files=no")
+    if dirty:
+        say("WARNING", f"{len(dirty.splitlines())} tracked file(s) modified -- cut refuses on a dirty tree; a lab rebuild? git checkout -- . or commit")
     last = last_version()
     commits = commits_since(last)
     print(f"  release: last {last or '(none)'}  next {next_version(last, commits)}  ({len(commits)} commit(s) since, bump {bump_of(commits) if last else 'first'})")
@@ -170,7 +191,18 @@ def cmd_lab(root, card):
     return OK
 
 
-def cmd_cut(root, card, version=None):
+def build_surfaces(root, card) -> list[str]:
+    """Run every surface's build; return the pathspecs of their outputs."""
+    outputs = []
+    env = dict(os.environ)
+    for s in card["spec"]["surfaces"]:
+        if s.get("build"):
+            run_surface(root, s, "build", env)
+            outputs += list(s.get("outputs") or [])
+    return outputs
+
+
+def cmd_cut(root, card, version=None, dry_run=False):
     if git("status", "--porcelain", "--untracked-files=no"):
         say("CRITICAL", "uncommitted changes -- cut from a clean main"); return CRITICAL
     sh("git", "fetch", "-q", "origin", "main")
@@ -185,6 +217,19 @@ def cmd_cut(root, card, version=None):
     branch = f"release/{version}"
     if git("branch", "--list", branch):
         say("CRITICAL", f"branch {branch} already exists here -- a cut in progress? delete it or finish it"); return CRITICAL
+    outputs = build_surfaces(root, card)
+    if outputs:
+        sh("git", "add", "--", *outputs)
+    built = git("diff", "--cached", "--stat")
+    if dry_run:
+        print(f"  would cut {version} ({len(commits)} commit(s) since {last or 'the beginning'})")
+        print("  built into the release commit:" if built else "  no build outputs changed")
+        for line in built.splitlines():
+            print("   " + line)
+        sh("git", "reset", "-q")
+        if outputs:
+            sh("git", "checkout", "-q", "--", *outputs)
+        say("OK", "dry run -- nothing committed, tree restored"); return OK
     sh("git", "switch", "-q", "-c", branch)
     # the changelog window: since the last release tag, or, for the first
     # release, since the root commit (gen-changelog needs a start)
@@ -193,7 +238,10 @@ def cmd_cut(root, card, version=None):
     if r.returncode != 0:
         say("CRITICAL", "hee gen-changelog --release failed"); return CRITICAL
     sh("git", "add", "CHANGELOG.md")
-    sh("git", "commit", "-q", "-m", f"chore(release): {version}\n\n{len(commits)} commit(s) since {last or 'the beginning'}; bump {bump_of(commits) if last else 'first release'}.")
+    body = f"{len(commits)} commit(s) since {last or 'the beginning'}; bump {bump_of(commits) if last else 'first release'}."
+    if built:
+        body += "\n\nBuilt into this commit:\n" + built
+    sh("git", "commit", "-q", "-m", f"chore(release): {version}\n\n{body}")
     sh("git", "push", "-q", "-u", "origin", branch)
     body = f"Release {version}: {len(commits)} commit(s) since {last or 'the beginning'}. Approving and merging this PR is the sign-off (HEE_POLICY 17); `hee release promote` then deploys every surface from the merged commit and signs the tag."
     r = subprocess.run(["gh", "pr", "create", "--base", "main", "--title", f"chore(release): {version}", "--body", body], cwd=root, capture_output=True, text=True)
@@ -262,10 +310,46 @@ def sh_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def workspace() -> Path:
+    return Path(os.environ.get("HEE_REPO_DIR", str(Path.home() / "git" / "human-execution-engine"))).resolve().parent
+
+
+def cmd_many(argv, repos: list[Path]) -> int:
+    worst = OK
+    lines = []
+    for r in repos:
+        if not (r / CARD).is_file():
+            lines.append(f"⚪ UNKNOWN {r.name}: no {CARD}"); worst = max(worst, UNKNOWN); continue
+        print(f"\n##### {r.name} #####")
+        rc = subprocess.run([sys.executable, __file__, *argv], cwd=r).returncode
+        label = {0: "🟢 OK", 1: "🟡 WARNING", 2: "🔴 CRITICAL", 3: "⚪ UNKNOWN"}.get(rc, f"exit {rc}")
+        lines.append(f"{label} {r.name}: {argv[0]}")
+        worst = max(worst, rc if rc in (0, 1, 2, 3) else CRITICAL)
+    print("\n=== hee release " + " ".join(argv) + " ===")
+    for line in lines:
+        print("  " + line)
+    return worst
+
+
 def main(argv):
     if not argv or help_wanted(argv):
         note_ignored(argv)       # the CLI contract: say when arguments after the help token are ignored
         print(__doc__.strip()); return OK
+    if "--all" in argv or any(a.startswith("--repos") for a in argv):
+        rest = []; repos = []
+        it = iter(argv)
+        for a in it:
+            if a == "--all":
+                repos = sorted(p.parent for p in workspace().glob(f"*/{CARD}"))
+            elif a == "--repos":
+                repos = [workspace() / n for n in next(it).split(",") if n]
+            elif a.startswith("--repos="):
+                repos = [workspace() / n for n in a.split("=", 1)[1].split(",") if n]
+            else:
+                rest.append(a)
+        if not repos:
+            say("UNKNOWN", f"no checkout under {workspace()} has {CARD}"); return UNKNOWN
+        return cmd_many(rest, repos)
     root = Path(git("rev-parse", "--show-toplevel"))
     os.chdir(root)
     card = load_card(root)
@@ -277,7 +361,8 @@ def main(argv):
     if cmd == "lab":
         return cmd_lab(root, card)
     if cmd == "cut":
-        return cmd_cut(root, card, argv[1] if len(argv) > 1 else None)
+        rest = [a for a in argv[1:] if a != "--dry-run"]
+        return cmd_cut(root, card, rest[0] if rest else None, dry_run="--dry-run" in argv)
     if cmd == "promote":
         return cmd_promote(root, card)
     if cmd == "publish":

@@ -14,5 +14,7 @@ spec:
   # credential: publish goes over ssh as the current user (fleet-ops#392).
   surfaces:
     - name: man-pages
+      build: "hee gen-manpages --write && hee gen-manpages --gopher --write"
+      outputs: ["man"]
       lab: "hee gen-manpages --write && hee gen-manpages --gopher --write"
       promote: "hee gen-manpages --gopher --write --publish && hee git tag prod/man-pages/$RELEASE_VERSION -m \"prod promotion: man.tcos.us gopher tree, $RELEASE_VERSION\" HEAD --yes --push"
