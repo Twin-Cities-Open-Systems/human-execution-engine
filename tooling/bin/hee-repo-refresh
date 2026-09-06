@@ -274,10 +274,37 @@ case "$SCOPE_ARG" in
               echo "       fix: git -C $DIR remote set-head origin -a"
               echo "            git -C $DIR switch ${_def:-main}"
               ;;
+            *"Not possible to fast-forward"*)
+              _up="$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+              _local="$(git -C "$DIR" rev-list --count "${_up:-origin/main}..HEAD" 2>/dev/null || echo ?)"
+              echo "     ↳ local and remote histories diverged (a rewritten remote, or local commits)."
+              if [ "$_local" = "0" ]; then
+                echo "       no local commits beyond the remote -- safe to take the remote as-is:"
+                echo "         git -C $DIR reset --hard ${_up:-origin/main}"
+              else
+                echo "       $_local local commit(s) not on the remote -- push them to a branch first:"
+                echo "         git -C $DIR switch -c keep/$(date +%Y%m%d)-local && git -C $DIR push -u origin HEAD"
+                echo "       then: git -C $DIR switch main && git -C $DIR reset --hard ${_up:-origin/main}"
+              fi
+              ;;
             *"untracked working tree files would be overwritten"*)
-              echo "     ↳ incoming tracked files collide with untracked local copies."
-              echo "       'git checkout --' does NOT remove untracked files."
-              echo "       fix: git -C $DIR clean -nd <dir>   # dry run first"
+              # Name the real files and say whether each local copy is byte-
+              # identical to what is incoming -- a placeholder like <dir> is
+              # not a command anyone can paste (operator, 2026-09-06, after
+              # pasting it: "syntax error near unexpected token").
+              echo "     ↳ incoming tracked files collide with untracked local copies:"
+              _up="$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+              printf '%s\n' "$out" | sed -n '/would be overwritten by merge:/,/Please move or remove/p' | sed -n 's/^\t//p' | while IFS= read -r _f; do
+                [ -n "$_f" ] || continue
+                if [ -n "$_up" ] && [ "$(sha256sum "$DIR/$_f" 2>/dev/null | cut -c1-64)" = "$(git -C "$DIR" show "$_up:$_f" 2>/dev/null | sha256sum | cut -c1-64)" ]; then
+                  echo "       $_f -- identical to the incoming file; safe to remove:"
+                  echo "         rm '$DIR/$_f'"
+                else
+                  echo "       $_f -- DIFFERS from the incoming file; keep yours first:"
+                  echo "         mv '$DIR/$_f' '$DIR/$_f.local'"
+                fi
+              done
+              echo "       then: git -C $DIR pull --ff-only"
               echo "            git -C $DIR clean -fd <dir>"
               ;;
           esac
