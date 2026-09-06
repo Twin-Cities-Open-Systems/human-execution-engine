@@ -11,6 +11,7 @@ hee-view - hee-view command
 # DESCRIPTION
 
                     [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
+                    [--via [USER@]HOST] [--sites-only]
                     [--network {lab,public,all}]
 
     options:
@@ -23,6 +24,15 @@ hee-view - hee-view command
       --sites               check every real URL in the site map answers 200-399
       --sitemap SITEMAP     sitemap source -- URL or local path (default: real
                             .github/profile/SITEMAP.yaml on main)
+      --via [USER@]HOST     run the --sites checks FROM that host over ssh (this
+                            file is sent with `python3 -`; the host needs only
+                            python3). The point is a vantage that is not the
+                            operator's own IP: the DigitalOcean droplet
+                            (man.tcos.us) sees tcos.us the way the public does --
+                            Cloudflare edge, no LAN split-DNS, no home-IP
+                            exemptions. Implies --sites-only and --network public
+                            unless given.
+      --sites-only          skip the pve/haproxy/dns section; just the site checks
       --network {lab,public,all}
                             only check sites on this network. A GitHub-hosted
                             runner can only reach 'public'; an on-host checker

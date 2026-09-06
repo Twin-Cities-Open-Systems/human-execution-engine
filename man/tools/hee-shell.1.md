@@ -29,3 +29,4 @@ hee-shell - ssh into a known TCOS host by alias
 # KNOWN ALIASES
 
     kiosk -> kiosk.lab.tcos.us
+    man-tcos-us -> man.tcos.us   (the DigitalOcean droplet, 159.65.46.8; root = kiosk-spencer key, claude = no sudo)
