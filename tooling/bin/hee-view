@@ -221,6 +221,49 @@ def filter_sites(sites, network):
     return [e for e in sites if site_network(e) == network]
 
 
+def gopher_get(url, timeout=8):
+    """RFC 1436 over a plain socket: gopher://host[:port]/<type><selector>.
+    Returns (item_type, body_text). Menus (type 1) come back as their raw
+    lines; text (type 0) as text. Raises on connect/transport errors.
+    Operator, 2026-09-06: "it should support crawling our gopher man pages"."""
+    import socket
+    sp = urllib.parse.urlsplit(url)
+    host, port = sp.hostname, sp.port or 70
+    path = sp.path or "/"
+    itype, selector = (path[1], path[2:]) if len(path) > 1 else ("1", "")
+    with socket.create_connection((host, port), timeout=timeout) as s:
+        s.sendall((selector + "\r\n").encode())
+        chunks = []
+        while True:
+            b = s.recv(65536)
+            if not b:
+                break
+            chunks.append(b)
+            if sum(len(c) for c in chunks) > 2_000_000:
+                break
+    body = b"".join(chunks).decode("utf-8", "replace")
+    if itype == "1" and body.lstrip().startswith("3"):
+        raise ValueError("gopher error item: " + body.splitlines()[0][1:80])
+    return itype, body
+
+
+def gopher_menu_links(url, body):
+    """Menu items of type 0 (text) and 1 (menu) on the same host, as URLs."""
+    sp = urllib.parse.urlsplit(url)
+    out = []
+    for line in body.splitlines():
+        if not line or line[0] not in "01":
+            continue
+        parts = line.rstrip("\r").split("\t")
+        if len(parts) < 4:
+            continue
+        itype, selector, host, port = line[0], parts[1], parts[2], parts[3]
+        if host != sp.hostname:
+            continue
+        out.append(f"gopher://{host}{'' if port == '70' else ':' + port}/{itype}{selector}")
+    return out
+
+
 def _fetch(url, method):
     req = urllib.request.Request(url, method=method, headers={"User-Agent": "hee-view/1.0"})
     with urllib.request.urlopen(req, timeout=5) as r:
@@ -237,10 +280,20 @@ def sites_check(sites):
     # that are actually fine.
     results = []
     for entry in sites:
+        if not entry.get("check", True):
+            continue
         url = entry["url"]
         start = time.monotonic()
         code = None
         error = None
+        if url.startswith("gopher://"):
+            try:
+                gopher_get(url); code, error = 200, None
+            except Exception as e:
+                code, error = None, str(e)[:80]
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            results.append({"url": url, "code": code, "elapsed_ms": elapsed_ms, "note": entry.get("note", ""), "error": error})
+            continue
         for method in ("HEAD", "GET"):
             try:
                 code = _fetch(url, method)
@@ -287,11 +340,23 @@ def crawl_sites(sites, depth=2, listed=None):
 
     seen, broken, queue = {}, [], []
     for e in sites:
-        queue.append((e["url"], 0, "(site map)"))
+        if e.get("check", True):  # check: false = a tree that only covers pages under it
+            queue.append((e["url"], 0, "(site map)"))
     while queue:
         url, d, src = queue.pop(0)
         key = url.rstrip("/")
         if key in seen:
+            continue
+        if url.startswith("gopher://"):
+            try:
+                itype, gbody = gopher_get(url)
+                seen[key] = (200, url)
+                if itype == "1" and d < depth:
+                    for nxt in gopher_menu_links(url, gbody):
+                        if nxt.rstrip("/") not in seen:
+                            queue.append((nxt, d + 1, url))
+            except Exception as ex:
+                seen[key] = (None, url); broken.append((src, url, str(ex)[:60], url))
             continue
         try:
             code, final, body = get(url)
@@ -331,20 +396,21 @@ def crawl_sites(sites, depth=2, listed=None):
         u = u.split("?", 1)[0].rstrip("/")
         if u.endswith(".html"):
             u = u[:-5]  # /careers.html is the same page as /careers
-        if u in listed or u + ".html" in listed:
-            return True
-        # A lab mirror page is covered when its prod twin is listed: the
-        # site map lists tcos.us/careers once, not again for lab.tcos.us.
+        cands = [u]
+        # A lab mirror page is covered when its prod twin is: the site map
+        # lists tcos.us/careers once, not again for lab.tcos.us.
         sp = urllib.parse.urlsplit(u)
         if sp.netloc == "lab.tcos.us" or sp.netloc.endswith(".lab.tcos.us"):
-            twin = u.replace("://lab.tcos.us", "://tcos.us", 1).replace(".lab.tcos.us", ".tcos.us", 1)
-            if twin in listed or twin + "/" in listed or twin + ".html" in listed:
+            cands.append(u.replace("://lab.tcos.us", "://tcos.us", 1).replace(".lab.tcos.us", ".tcos.us", 1))
+        for c in cands:
+            if c in listed or c + ".html" in listed or c + "/" in listed:
                 return True
-        for l in listed:
-            if l.endswith("/") and urllib.parse.urlsplit(l).path not in ("", "/") and u.startswith(l):
-                return True
-            if urllib.parse.urlsplit(l).path not in ("", "/") and u.startswith(l + "/"):
-                return True
+            for l in listed:
+                lp = urllib.parse.urlsplit(l).path
+                if lp in ("", "/"):
+                    continue  # a host root covers nothing below it
+                if c.startswith(l if l.endswith("/") else l + "/"):
+                    return True
         return False
     unlisted = sorted({u.split("?", 1)[0] for u, (c, f) in seen.items() if c and 200 <= c < 300 and not covered(u)
                        and not u.split("?", 1)[0].rsplit("/", 1)[-1].endswith((".css", ".js", ".png", ".jpg", ".gif", ".ico", ".json", ".xml", ".txt", ".webp", ".svg", ".asc", ".jpeg"))})
@@ -531,16 +597,20 @@ def main():
             remote_argv.append("--crawl")
         if args.nerd:
             remote_argv.append("--nerd")
-        where = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", args.via,
+        where = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=8", args.via,
                                 "hostname; curl -4 -s -m 5 https://ifconfig.me || true"],
                                capture_output=True, text=True)
         if where.returncode != 0:
-            print(f"🔴 CRITICAL hee-view: cannot reach {args.via} over ssh: {where.stderr.strip()[:160]}")
+            err = where.stderr.strip()[:160]
+            hint = ""
+            if "Permission denied" in err and "@" not in args.via:
+                hint = " -- no user given, so ssh used your local username; the droplet answers root@ (kiosk-spencer key) or claude@"
+            print(f"🔴 CRITICAL hee-view: cannot reach {args.via} over ssh: {err}{hint}")
             return 2
         host, _, ip = where.stdout.strip().partition("\n")
         print(f"=== hee view --sites, from {host} ({ip or 'ip unknown'}) via {args.via} ===", flush=True)
         with open(__file__, "rb") as me:
-            proc = subprocess.run(["ssh", "-o", "BatchMode=yes", args.via, "python3", "-", *remote_argv],
+            proc = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", args.via, "python3", "-", *remote_argv],
                                   stdin=me)
         return proc.returncode
 
