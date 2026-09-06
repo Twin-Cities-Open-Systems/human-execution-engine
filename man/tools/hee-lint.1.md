@@ -18,8 +18,11 @@ hee-lint - fast lint gate for HEE-object YAML
     across a mixed repo.
 
     Checks: metadata present and parseable, metadata.annotations present,
-    metadata.annotations.inuid present, and a null inuid accompanied by
-    inuid_null_reason.
+    metadata.annotations.inuid present, a null inuid accompanied by
+    inuid_null_reason, and -- when the object declares
+    inuid_derivation: sha256(inuid_seed) -- that the recorded inuid actually
+    reproduces from its own seed. An identity hash that does not derive from
+    the seed it names is a determinism claim the object cannot support.
 
 
 # OPTIONS
