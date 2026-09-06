@@ -8,6 +8,7 @@ hee-print - render files nicely for terminal surfaces
 
     hee-print [--no-header] [--animate] [--image-format FMT] [--] FILE...
     hee-print [--no-header] --stdin [--hint md|yaml|json|text]
+    SOMETHING | hee-print [--hint md|yaml|json|text]
     hee-print help
 
 
@@ -47,8 +48,11 @@ hee-print - render files nicely for terminal surfaces
 
     --no-header  suppress the per-file header printed when given several files
     --animate    let an animated image play (10 s) instead of showing a still
-    --stdin      read the document from stdin instead of a path
-    --hint       tell --stdin which renderer to use; ignored otherwise
+    --stdin      read the document from stdin instead of a path. Implied when
+                 no FILE is given and stdin is a pipe, so `foo | hee-print`
+                 works -- answering a piped document with the usage page tells
+                 the reader nothing about what went wrong
+    --hint       which renderer to use when reading stdin; ignored otherwise
 
 
 # EXIT STATUS
