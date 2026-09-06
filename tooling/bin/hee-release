@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-release -- lab, cut, promote: a repo's release in three commands
+
+SYNOPSIS
+  hee release status            what main holds beyond the last release, per surface
+  hee release next              the version the next cut gets (semver from the commits)
+  hee release lab               build and push every surface to lab, gates included
+  hee release cut [VERSION]     changelog + version commit on a release branch, as a PR
+  hee release promote           deploy every surface from the release commit, tag it
+  hee release help
+
+DESCRIPTION
+  The release procedure was a dozen commands across three scripts, each
+  with its own timestamp tag (operator, 2026-09-06: "way too much to do
+  ... trimming that down and getting tags working properly and semver").
+  This is the whole procedure now:
+
+    hee release lab        review on lab
+    hee release cut        approve and merge the release PR -- that IS the sign-off (HEE_POLICY 17)
+    hee release promote    every surface, one version, verified
+
+  A repo declares its surfaces in release.card.v1.yaml at its root:
+
+    apiVersion: hee/v1
+    kind: Card
+    metadata: { name: tcos-www-release, labels: { domain: release } }
+    spec:
+      credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
+      surfaces:
+        - { name: tcos-www, lab: "./deploy.sh lab", promote: "./deploy.sh promote" }
+
+  Each surface's promote command receives RELEASE_VERSION in its
+  environment and tags prod/<surface>/<version>; the tool then signs
+  <version> itself on the release commit (hee git tag). Timestamps are
+  gone from tag names; they live in the tag's own date.
+
+VERSIONS
+  Semantic. The next version comes from the Conventional Commit subjects
+  merged since the last v* tag: a `!` or BREAKING CHANGE bumps major,
+  feat bumps minor, anything else bumps patch. No v* tag yet: v1.0.0,
+  because prod is already real. `cut VERSION` overrides.
+
+  cut writes CHANGELOG.md through hee gen-changelog --release, commits
+  "chore(release): vX.Y.Z" on release/vX.Y.Z, pushes, opens the PR. The
+  approval on that PR is the human sign-off; promote refuses unless HEAD
+  is origin/main and its CHANGELOG's newest header is the version.
+
+EXIT STATUS
+  0 OK, 1 WARNING (nothing to release), 2 CRITICAL (gate, build or deploy failed), 3 UNKNOWN (no card)
+
+FILES
+  release.card.v1.yaml    the repo's surfaces and credential (repo root)
+  CHANGELOG.md            written by cut, read by promote
+
+SEE ALSO
+  hee-gen-changelog(1), hee-git-tag(1), hee-git-merge(1), hee-cred(1)
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
+CARD = "release.card.v1.yaml"
+HEE = str(Path(__file__).resolve().parent / "hee")
+
+
+def say(level, msg):
+    icon = {"OK": "🟢 OK", "WARNING": "🟡 WARNING", "CRITICAL": "🔴 CRITICAL", "UNKNOWN": "⚪ UNKNOWN"}[level]
+    print(f"{icon} hee-release: {msg}", file=sys.stderr if level in ("CRITICAL", "UNKNOWN") else sys.stdout)
+
+
+def sh(*args, check=True, env=None, capture=True):
+    return subprocess.run(args, capture_output=capture, text=True, check=check, env=env)
+
+
+def git(*args):
+    return sh("git", *args).stdout.strip()
+
+
+def load_card(root: Path) -> dict:
+    p = root / CARD
+    if not p.is_file():
+        say("UNKNOWN", f"no {CARD} in {root} -- this repo declares no release surfaces"); sys.exit(UNKNOWN)
+    card = yaml.safe_load(p.read_text())
+    if card.get("kind") != "Card" or not card.get("spec", {}).get("surfaces"):
+        say("CRITICAL", f"{CARD}: kind: Card with spec.surfaces required"); sys.exit(CRITICAL)
+    return card
+
+
+def last_version() -> str | None:
+    tags = [t for t in git("tag", "-l", "v*", "--sort=-v:refname").splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", t)]
+    return tags[0] if tags else None
+
+
+def commits_since(ref: str | None) -> list[tuple[str, str]]:
+    rng = f"{ref}..HEAD" if ref else "HEAD"
+    out = git("log", "--no-merges", "--format=%h%x09%s", rng)
+    return [tuple(l.split("\t", 1)) for l in out.splitlines() if "\t" in l]
+
+
+CC_RE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?P<bang>!)?:\s")
+
+
+def bump_of(commits) -> str:
+    bump = "patch"
+    for _, subj in commits:
+        m = CC_RE.match(subj)
+        if not m:
+            continue
+        if m.group("bang") or "BREAKING CHANGE" in subj:
+            return "major"
+        if m.group("type") == "feat":
+            bump = "minor"
+    return bump
+
+
+def next_version(last: str | None, commits) -> str:
+    if not last:
+        return "v1.0.0"
+    maj, mnr, pat = (int(x) for x in last[1:].split("."))
+    b = bump_of(commits)
+    return f"v{maj + 1}.0.0" if b == "major" else f"v{maj}.{mnr + 1}.0" if b == "minor" else f"v{maj}.{mnr}.{pat + 1}"
+
+
+def surface_prod_tag(name: str) -> str | None:
+    tags = git("tag", "-l", f"prod/{name}/*", "--sort=-creatordate").splitlines()
+    return tags[0] if tags else None
+
+
+def cmd_status(root, card):
+    last = last_version()
+    commits = commits_since(last)
+    print(f"  release: last {last or '(none)'}  next {next_version(last, commits)}  ({len(commits)} commit(s) since, bump {bump_of(commits) if last else 'first'})")
+    for s in card["spec"]["surfaces"]:
+        t = surface_prod_tag(s["name"])
+        ahead = git("rev-list", "--count", f"{t}..HEAD") if t else "?"
+        print(f"  {s['name']:18} prod {t or '(never)':40} main ahead by {ahead}")
+    return OK if commits else WARNING
+
+
+def cmd_next(root, card):
+    last = last_version(); print(next_version(last, commits_since(last))); return OK
+
+
+def run_surface(root, s, key, env):
+    print(f"=== {s['name']}: {key} ===")
+    r = subprocess.run(["bash", "-c", s[key]], cwd=root, env=env)
+    if r.returncode != 0:
+        say("CRITICAL", f"{s['name']} {key} failed (exit {r.returncode}) -- stopping"); sys.exit(CRITICAL)
+
+
+def cmd_lab(root, card):
+    env = dict(os.environ)
+    for s in card["spec"]["surfaces"]:
+        run_surface(root, s, "lab", env)
+    say("OK", f"{len(card['spec']['surfaces'])} surface(s) on lab -- review, then hee release cut")
+    return OK
+
+
+def cmd_cut(root, card, version=None):
+    if git("status", "--porcelain", "--untracked-files=no"):
+        say("CRITICAL", "uncommitted changes -- cut from a clean main"); return CRITICAL
+    sh("git", "fetch", "-q", "origin", "main")
+    if git("rev-parse", "HEAD") != git("rev-parse", "origin/main"):
+        say("CRITICAL", "HEAD is not origin/main -- git switch main && git pull"); return CRITICAL
+    last = last_version(); commits = commits_since(last)
+    if not commits:
+        say("WARNING", f"nothing merged since {last} -- nothing to cut"); return WARNING
+    version = version or next_version(last, commits)
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
+        say("CRITICAL", f"not a version: {version} (vX.Y.Z)"); return CRITICAL
+    branch = f"release/{version}"
+    sh("git", "switch", "-q", "-c", branch)
+    r = subprocess.run([HEE, "gen-changelog", str(root), "--release", version[1:]], cwd=root)
+    if r.returncode != 0:
+        say("CRITICAL", "hee gen-changelog --release failed"); return CRITICAL
+    sh("git", "add", "CHANGELOG.md")
+    sh("git", "commit", "-q", "-m", f"chore(release): {version}\n\n{len(commits)} commit(s) since {last or 'the beginning'}; bump {bump_of(commits) if last else 'first release'}.")
+    sh("git", "push", "-q", "-u", "origin", branch)
+    body = f"Release {version}: {len(commits)} commit(s) since {last or 'the beginning'}. Approving and merging this PR is the sign-off (HEE_POLICY 17); `hee release promote` then deploys every surface from the merged commit and signs the tag."
+    r = subprocess.run(["gh", "pr", "create", "--base", "main", "--title", f"chore(release): {version}", "--body", body], cwd=root, capture_output=True, text=True)
+    url = (r.stdout.strip().splitlines() or [""])[-1]
+    say("OK", f"{version} cut -- approve and merge {url}, then hee release promote")
+    return OK
+
+
+def release_version_at_head(root) -> str | None:
+    text = (root / "CHANGELOG.md").read_text() if (root / "CHANGELOG.md").is_file() else ""
+    m = re.search(r"^## \[(\d+\.\d+\.\d+)\]", text, re.M)
+    return f"v{m.group(1)}" if m else None
+
+
+def cmd_promote(root, card):
+    if git("status", "--porcelain", "--untracked-files=no"):
+        say("CRITICAL", "uncommitted changes -- promote from origin/main"); return CRITICAL
+    sh("git", "fetch", "-q", "origin", "main", "--tags")
+    if git("rev-parse", "HEAD") != git("rev-parse", "origin/main"):
+        say("CRITICAL", "HEAD is not origin/main -- git switch main && git pull"); return CRITICAL
+    version = release_version_at_head(root)
+    if not version:
+        say("CRITICAL", "CHANGELOG.md has no released version header -- hee release cut first"); return CRITICAL
+    if git("tag", "-l", version):
+        say("CRITICAL", f"{version} is already tagged -- cut a new version first"); return CRITICAL
+    if commits_since(None) and not any(s.startswith(f"chore(release): {version}") for _, s in commits_since(last_version())):
+        say("CRITICAL", f"the {version} release commit is not on this main -- was the release PR merged?"); return CRITICAL
+    env = dict(os.environ); env["RELEASE_VERSION"] = version
+    cred = card["spec"].get("credential")
+    for s in card["spec"]["surfaces"]:
+        cmd = s["promote"]
+        if cred:
+            cmd = f"{HEE} cred -pass {cred['account']} -dir {cred['dir']} -exec bash -c {sh_quote(cmd)}"
+        run_surface(root, {**s, "promote": cmd}, "promote", env)
+    r = subprocess.run([HEE, "git", "tag", version, "-m", f"release {version}\nsurfaces: {', '.join(s['name'] for s in card['spec']['surfaces'])}", "HEAD", "--yes", "--push"], cwd=root)
+    if r.returncode != 0:
+        say("CRITICAL", f"surfaces deployed, but {version} could not be tagged -- hee git tag {version} -m 'release {version}' HEAD --yes --push"); return CRITICAL
+    say("OK", f"{version} promoted: {len(card['spec']['surfaces'])} surface(s), tagged and pushed")
+    return OK
+
+
+def sh_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def main(argv):
+    if not argv or argv[0] in ("help", "--help", "-h"):
+        print(__doc__.strip()); return OK
+    root = Path(git("rev-parse", "--show-toplevel"))
+    os.chdir(root)
+    card = load_card(root)
+    cmd = argv[0]
+    if cmd == "status":
+        return cmd_status(root, card)
+    if cmd == "next":
+        return cmd_next(root, card)
+    if cmd == "lab":
+        return cmd_lab(root, card)
+    if cmd == "cut":
+        return cmd_cut(root, card, argv[1] if len(argv) > 1 else None)
+    if cmd == "promote":
+        return cmd_promote(root, card)
+    say("CRITICAL", f"unknown subcommand {cmd} -- status|next|lab|cut|promote"); return CRITICAL
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

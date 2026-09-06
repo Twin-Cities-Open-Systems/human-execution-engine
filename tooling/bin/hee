@@ -69,6 +69,7 @@ DESCRIPTION
     hee hooks install [--repo <path>]
     hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
     hee git tag NAME -m MESSAGE [COMMIT] [--key ID] [--push] [--yes]   GPG-signed tag with the key that is really yours
+    hee release status|next|lab|cut [VERSION]|promote        a repo's release in three commands (release.card.v1.yaml)
     hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
     hee contract review [--dump [json]] [--gopher-menu]
     hee list
@@ -102,7 +103,7 @@ TXT
 # only discover commands by reading source or already knowing the name.
 list_commands() {
   echo "built-in:"
-  echo "  lint, hooks install, git merge, git tag, ssh send-keys, contract review, list, help"
+  echo "  lint, hooks install, git merge, git tag, release, ssh send-keys, contract review, list, help"
   echo ""
   echo "extensions found:"
   found=""
@@ -255,6 +256,9 @@ case "${cmd}" in
         exit 0
         ;;
     esac
+    ;;
+  release)
+    exec "${TOOL_ROOT}/tooling/bin/hee-release" "$@"
     ;;
   list)
     list_commands
