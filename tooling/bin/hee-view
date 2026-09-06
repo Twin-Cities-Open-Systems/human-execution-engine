@@ -36,7 +36,16 @@ import urllib.request
 # happens to be invoked against.
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
-from hee_cli import help_wanted, note_ignored  # noqa: E402
+try:
+    from hee_cli import help_wanted, note_ignored  # noqa: E402
+except ImportError:
+    # --via ships this file over ssh and runs it with `python3 -` on a host
+    # that has no HEE checkout; the two helpers are trivial to stand in for.
+    def help_wanted(argv):
+        return any(a in ("help", "-h", "--help") for a in argv)
+
+    def note_ignored(argv):
+        pass
 
 try:
     import yaml
@@ -240,6 +249,9 @@ def print_sites_nerd(results):
 
 
 def inbound_status():
+    import shutil
+    if not shutil.which("gh"):
+        return None, "gh not on this host"
     # Real trigger (2026-08-26): tcos.us/api/contact + /api/apply write
     # real applicant/investor/press submissions straight into the private
     # Twin-Cities-Open-Systems/inbound repo as issues -- confirmed live,
@@ -276,36 +288,9 @@ def print_inbound(issues):
     print(f"{flag} inbound: {n} open submission(s), oldest {age_days}d old (#{oldest['number']}) -- https://github.com/Twin-Cities-Open-Systems/inbound/issues")
 
 
-def main():
-    ap = argparse.ArgumentParser(prog="hee-view")
-    ap.add_argument("--pve-host", default="10.0.0.153")
-    ap.add_argument("--haproxy-host", default="10.0.0.160")
-    ap.add_argument("--dns-host", default="10.0.0.194")
-    ap.add_argument("--nerd", action="store_true",
-                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals; also full per-URL --sites detail")
-    ap.add_argument("--sites", action="store_true",
-                     help="check every real URL in the site map answers 200-399")
-    ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
-                     help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
-    ap.add_argument("--network", default="all",
-                    choices=["lab", "public", "all"],
-                    help="only check sites on this network. A GitHub-hosted "
-                         "runner can only reach 'public'; an on-host checker "
-                         "inside the lab can reach 'lab'. Default all.")
-    # Contextual help BEFORE argparse parses anything. argparse owns -h and
-    # --help but not the bare `help` verb, and resolves either only after
-    # parsing -- so an unrelated argument errors first and the help never
-    # prints. Measured: 8 tools exited non-zero for --help for exactly this
-    # reason. See library/py/hee_cli.
-    if help_wanted(sys.argv[1:]):
-        note_ignored(sys.argv[1:])
-        ap.print_help()
-        return 0
-
-    args = ap.parse_args()
-
+def lab_section(args):
+    """The pve / haproxy / dns part -- lab-only; --sites-only and --via skip it."""
     print("=== tcos lab -- hee view ===")
-
     health, pve_why = pve_health(args.pve_host)
     if health is None:
         # Unknown, not critical. This tool could not check; that is a
@@ -338,6 +323,72 @@ def main():
     dns = dns_check(args.dns_host)
     flag = "🟢" if dns else "🔴"
     print(f"{flag} dns (ns1): {dns or 'no answer'}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-view")
+    ap.add_argument("--pve-host", default="10.0.0.153")
+    ap.add_argument("--haproxy-host", default="10.0.0.160")
+    ap.add_argument("--dns-host", default="10.0.0.194")
+    ap.add_argument("--nerd", action="store_true",
+                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals; also full per-URL --sites detail")
+    ap.add_argument("--sites", action="store_true",
+                     help="check every real URL in the site map answers 200-399")
+    ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
+                     help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
+    ap.add_argument("--via", metavar="[USER@]HOST",
+                    help="run the --sites checks FROM that host over ssh (this file is "
+                         "sent with `python3 -`; the host needs only python3). The point "
+                         "is a vantage that is not the operator's own IP: the DigitalOcean "
+                         "droplet (man.tcos.us) sees tcos.us the way the public does -- "
+                         "Cloudflare edge, no LAN split-DNS, no home-IP exemptions. "
+                         "Implies --sites-only and --network public unless given.")
+    ap.add_argument("--sites-only", action="store_true",
+                    help="skip the pve/haproxy/dns section; just the site checks")
+    ap.add_argument("--network", default="all",
+                    choices=["lab", "public", "all"],
+                    help="only check sites on this network. A GitHub-hosted "
+                         "runner can only reach 'public'; an on-host checker "
+                         "inside the lab can reach 'lab'. Default all.")
+    # Contextual help BEFORE argparse parses anything. argparse owns -h and
+    # --help but not the bare `help` verb, and resolves either only after
+    # parsing -- so an unrelated argument errors first and the help never
+    # prints. Measured: 8 tools exited non-zero for --help for exactly this
+    # reason. See library/py/hee_cli.
+    if help_wanted(sys.argv[1:]):
+        note_ignored(sys.argv[1:])
+        ap.print_help()
+        return 0
+
+    args = ap.parse_args()
+
+    if args.via:
+        if not args.sites:
+            print("⚪ UNKNOWN hee-view: --via only makes sense with --sites", file=sys.stderr)
+            return 3
+        remote_argv = ["--sites", "--sites-only", "--network", args.network if args.network != "all" else "public",
+                       "--sitemap", args.sitemap]
+        if args.nerd:
+            remote_argv.append("--nerd")
+        where = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", args.via,
+                                "hostname; curl -4 -s -m 5 https://ifconfig.me || true"],
+                               capture_output=True, text=True)
+        if where.returncode != 0:
+            print(f"🔴 CRITICAL hee-view: cannot reach {args.via} over ssh: {where.stderr.strip()[:160]}")
+            return 2
+        host, _, ip = where.stdout.strip().partition("\n")
+        print(f"=== hee view --sites, from {host} ({ip or 'ip unknown'}) via {args.via} ===", flush=True)
+        with open(__file__, "rb") as me:
+            proc = subprocess.run(["ssh", "-o", "BatchMode=yes", args.via, "python3", "-", *remote_argv],
+                                  stdin=me)
+        return proc.returncode
+
+    if args.sites_only and not args.sites:
+        print("⚪ UNKNOWN hee-view: --sites-only without --sites checks nothing", file=sys.stderr)
+        return 3
+
+    if not args.sites_only:
+        lab_section(args)
 
     sites_ok = True
     if args.sites:
