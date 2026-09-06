@@ -15,6 +15,7 @@ each run -- not hardcoded, so this doesn't silently break if a field is
 ever renamed/reordered.
 
 Usage:
+  hee-fields audit [--repo OWNER/REPO] [--number N ...] [--all]
   hee-fields set --repo OWNER/REPO --number N [--type Task|Bug|Feature|Epic|Incident]
                  [--priority P0|P1|P2|P3] [--effort XS|S|M|L|XL]
                  [--start-date YYYY-MM-DD] [--target-date YYYY-MM-DD]
@@ -197,9 +198,66 @@ def apply_one(item, ctx):
     print(f"{repo}#{number} done.")
 
 
+REQUIRED_FIELDS = ("status", "priority", "effort", "start Date", "target Date")
+
+
+def audit(repo_filter, numbers, only_missing):
+    """Which open issues are missing which Roadmap fields -- and which
+    open issues in a repo are not on the Roadmap at all. Operator,
+    2026-09-06, on two tickets filed with no fields: "use the hee fields
+    tool to audit" / "always update all fields on tickets". Read-only;
+    one item-list call (+ one issue list per --repo)."""
+    items = fetch_items()
+    on_project = {}
+    for it in items:
+        c = it.get("content") or {}
+        if not c.get("number") or c.get("type") == "PullRequest":
+            continue
+        repo = c["repository"].split("github.com/")[-1]
+        on_project[(repo, c["number"])] = it
+    rows = []
+    keys = sorted(on_project)
+    if repo_filter:
+        keys = [k for k in keys if k[0] == repo_filter]
+        try:
+            open_issues = gh_json(["issue", "list", "--repo", repo_filter, "--state", "open", "--limit", "500",
+                                   "--json", "number,title"])
+        except SystemExit:
+            open_issues = []
+        for iss in open_issues:
+            if (repo_filter, iss["number"]) not in on_project and (not numbers or iss["number"] in numbers):
+                rows.append((repo_filter, iss["number"], "NOT ON ROADMAP", iss["title"]))
+    for k in keys:
+        if numbers and k[1] not in numbers:
+            continue
+        it = on_project[k]
+        if it.get("status") == "Done":
+            continue
+        missing = [f for f in REQUIRED_FIELDS if not it.get(f)]
+        if missing or not only_missing:
+            rows.append((k[0], k[1], ", ".join(missing) or "complete", it.get("title", "")))
+    rows.sort(key=lambda r: (r[2] == "complete", r[0], r[1]))
+    worst = 0
+    for repo, n, state, title in rows:
+        if state == "complete":
+            mark = "🟢 OK"
+        elif state == "NOT ON ROADMAP":
+            mark = "🔴 CRITICAL"; worst = max(worst, 2)
+        else:
+            mark = "🟡 WARNING"; worst = max(worst, 1)
+        print(f"{mark} {repo}#{n}: {state}  {title[:70]}")
+    n_missing = sum(1 for r in rows if r[2] != "complete")
+    print(f"{'🟢 OK' if not n_missing else '🟡 WARNING'} hee-fields audit: {len(rows)} issue(s) checked, {n_missing} incomplete")
+    return worst
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-fields")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("audit", help="which open issues are missing Roadmap fields, or are not on the Roadmap")
+    a.add_argument("--repo", help="OWNER/REPO: restrict to one repo, and also list its open issues not on the Roadmap")
+    a.add_argument("--number", type=int, action="append", help="restrict to these issue numbers (repeatable)")
+    a.add_argument("--all", action="store_true", help="list complete issues too, not only incomplete ones")
     s = sub.add_parser("set")
     s.add_argument("--repo", required=True)
     s.add_argument("--number", type=int, required=True)
@@ -227,6 +285,9 @@ def main():
         return 0
 
     args = ap.parse_args()
+
+    if args.cmd == "audit":
+        return audit(args.repo, set(args.number or []), not args.all)
 
     if args.cmd == "set":
         item = {"repo": args.repo, "number": args.number, "type": args.type,
@@ -288,4 +349,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
