@@ -429,7 +429,7 @@ def cmd_cut(root, card, version=None, yes=False):
         say("CRITICAL", f"branch {branch} already exists here -- a cut in progress? delete it or finish it"); return CRITICAL
     outputs = build_surfaces(root, card)
     if outputs:
-        sh("git", "add", "--", *outputs)
+        sh("git", "add", "-u", "--", *outputs)   # tracked build outputs only; ignored paths (dist/) would make plain add fail
     built = git("diff", "--cached", "--stat")
     if not yes:
         print(f"  would cut {version} ({len(commits)} commit(s) since {last or 'the beginning'}, bump {info['bump']})")
