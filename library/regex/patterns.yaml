@@ -90,6 +90,28 @@ spec:
   # sed and Go.
 
   patterns:
+    - name: org-repo-name
+      description: "A GitHub repository name as this org uses them: letters, digits, dot, dash, underscore, 1-100 characters, never starting with a dot except the org's own .github. The validation gate for anything that takes repo names as input (hee release -repos), so a typo or a stray path never reaches git or gh."
+      lane: portable
+      ere: '^(\.github|[A-Za-z0-9_-][A-Za-z0-9._-]{0,99})$'
+      notes:
+        - "GitHub allows '.' inside a name and this org has one leading-dot repo, .github, which is the only leading-dot name accepted; a relative path like '../x' or '.' must never validate (operator, 2026-09-06: 'a validation regex for repo names')."
+        - "Globs and filters that SELECT repos (tcos-*, cur_ver: v1.[12]*) are matched with fnmatch against names that already passed this pattern; the pattern validates names, it does not select them."
+      tests:
+        match:
+          - { input: "tcos-www", expect: "tcos-www" }
+          - { input: ".github", expect: ".github" }
+          - { input: "human-execution-engine", expect: "human-execution-engine" }
+          - { input: "MT-logo-render", expect: "MT-logo-render" }
+          - { input: "tick_task.v2", expect: "tick_task.v2" }
+        reject:
+          - "../resume"
+          - "."
+          - ".."
+          - ".hidden"
+          - "tcos www"
+          - "tcos/www"
+          - ""
     - name: locale-variant-prose
       description: "A locale-variant word standing alone as PROSE, not as a token. Neither locale is wrong -- library/py/hee_locale decides which side to search for from the declared HEE_LOCALE, and this is the shared statement of the POSITION rule both directions use. An explicit word list, never a generic -ise/-our rule: 'otherwise', 'raise', 'promise', 'concise', 'four', 'hour' and 'favour' are all -ise or -our and only one of them is wrong."
       lane: portable
