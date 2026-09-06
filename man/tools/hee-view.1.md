@@ -11,7 +11,7 @@ hee-view - hee-view command
 # DESCRIPTION
 
                     [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
-                    [--via [USER@]HOST] [--sites-only]
+                    [--via [USER@]HOST] [--crawl] [--sites-only]
                     [--network {lab,public,all}]
 
     options:
@@ -32,6 +32,10 @@ hee-view - hee-view command
                             Cloudflare edge, no LAN split-DNS, no home-IP
                             exemptions. Implies --sites-only and --network public
                             unless given.
+      --crawl               with --sites: follow same-host links from each listed
+                            site (depth 2), check every page found, follow
+                            blog->media redirects to a 2xx, and report reachable
+                            pages the site map does not list
       --sites-only          skip the pve/haproxy/dns section; just the site checks
       --network {lab,public,all}
                             only check sites on this network. A GitHub-hosted
