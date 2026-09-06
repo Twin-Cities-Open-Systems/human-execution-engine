@@ -490,7 +490,7 @@ def hardware() -> dict:
 
     r = _run(["systemd-detect-virt"])
     if r is not None and r.stdout.strip():
-        out["virtualisation"] = r.stdout.strip()
+        out["virtualization"] = r.stdout.strip()  # US English (operator standing rule)
 
     return out
 
@@ -515,6 +515,7 @@ def session() -> dict:
 
     out = {
         "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown"),
+        "session_kind": "agent" if os.environ.get("CLAUDE_CODE_SESSION_ID") else "human",
         "pid": str(os.getpid()),
         "host": socket.getfqdn(),
         "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown",
@@ -592,11 +593,32 @@ def session() -> dict:
     # location never shifts the session id to a different column. An
     # earlier draft interleaved them (host-user-TARGET-sessionid), which
     # sorted the two forms apart.
+    # A human shell has no CLAUDE_CODE_SESSION_ID, and 2026-09-06 its rc_tag
+    # came out as a bare "kiosk-spencer": no instance segment, so two of the
+    # operator's shells -- or two days of them -- were indistinguishable in
+    # a deploy record signed with it. Derive one the same way the fleet
+    # identifies a login: the logind session id when pam_systemd set it,
+    # else the controlling tty plus the login shell's start time; hashed so
+    # it has the agent form's shape (8 hex) and sorts beside it.
+    if out["session_id"] == "unknown":
+        import hashlib
+        seed = os.environ.get("XDG_SESSION_ID") or ""
+        if not seed:
+            try:
+                tty = os.ttyname(0) if os.isatty(0) else ""
+            except OSError:
+                tty = ""
+            r = _run(["ps", "-o", "lstart=", "-p", str(os.getppid())])
+            seed = f"{tty}|{(r.stdout if r else '').strip()}"
+        if seed.strip("|"):
+            out["session_id"] = "human-" + hashlib.sha256(f"{out['host']}|{out['user']}|{seed}".encode()).hexdigest()[:8]
+            out["session_seed"] = "logind" if os.environ.get("XDG_SESSION_ID") else "tty+login-time"
+    sid8 = out["session_id"].split("-", 1)[1][:8] if out["session_id"].startswith("human-") else out["session_id"][:8]
     base = "-".join(
         p for p in (
             out["host"].split(".", 1)[0] or out["host"],
             out["user"],
-            out["session_id"][:8] if out["session_id"] != "unknown" else "",
+            sid8 if out["session_id"] != "unknown" else "",
         ) if p
     )
     target = out.get("tmux_target", "unknown")
