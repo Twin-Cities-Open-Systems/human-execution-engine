@@ -675,7 +675,7 @@ if hee_help_wanted "$@"; then
       systemd)  usage_systemd ;;
       cli)      usage_cli ;;
       locale|style) usage_locale ;;
-      roster)   printf '%s\n' "hee-check roster -- the roster's claims match measured reality" "" "Reads roster.json in the given path, takes the org from the file's own org field, and for every person with a GitHub login measures whether that account exists and whether it is a member of that org. An entry claiming an active status (verified, ratified, peer) that reality does not support is CRITICAL. An entry marked departed that is still an org member is a warning. An account that cannot be measured is UNKNOWN, never CRITICAL -- a rate limit is not a departure." "" "EXIT: 0 agree  2 a claim reality does not support  3 no roster, or gh/python3 missing" ;;
+      roster)   printf '%s\n' "hee-check roster -- the roster's claims match measured reality" "" "Reads roster.json in the given path, takes the org from the file's own org field, and for every person with a GitHub login measures whether that account exists and whether it is a member of that org. An entry claiming an active status (verified, ratified, peer) that reality does not support is CRITICAL. An entry marked departed or inactive that is still an org member is a warning: both mean no access, so membership contradicts the claim. An account that cannot be measured is UNKNOWN, never CRITICAL -- a rate limit is not a departure." "" "EXIT: 0 agree  2 a claim reality does not support  3 no roster, or gh/python3 missing" ;;
       regex)    printf '%s\n' "hee-check regex -- verify shared regex patterns behave identically in every engine" "" "Runs library/regex/patterns.yaml's own match/reject tests through python, grep -E, bash =~ and awk, and fails if any engine disagrees with any other. Also rejects PCRE-only constructs, which RE2 and POSIX ERE cannot express." "" "EXIT: 0 agree  2 disagree  3 registry or python3 missing" ;;
       *)        usage ;;
   esac
@@ -892,8 +892,8 @@ for t in d.get("tiers",[]):
       printf '  🔴 %-12s %-18s claims %-9s but the GitHub account does not exist\n' "$_tier" "$_name" "$_st"
     elif [ "$_active" -eq 1 ] && [ "$_mem" = not-member ]; then
       printf '  🔴 %-12s %-18s claims %-9s but is not a member of %s\n' "$_tier" "$_name" "$_st" "$_org"
-    elif [ "$_st" = departed ] && [ "$_mem" = member ]; then
-      printf '  🟡 %-12s %-18s marked departed but still a member of %s\n' "$_tier" "$_name" "$_org"
+    elif { [ "$_st" = departed ] || [ "$_st" = inactive ]; } && [ "$_mem" = member ]; then
+      printf '  🟡 %-12s %-18s marked %s but still a member of %s\n' "$_tier" "$_name" "$_st" "$_org"
     else
       printf '  🟢 %-12s %-18s %-10s account=%s org=%s\n' "$_tier" "$_name" "$_st" "$_acct" "$_mem"
     fi

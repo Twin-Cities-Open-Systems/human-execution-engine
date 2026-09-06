@@ -76,7 +76,13 @@ spec:
   status_vocabulary:
     description: "roster status values, and which of them assert presence. hee check roster treats the first three as claims about the present and holds them to reality."
     asserts_presence: [verified, ratified, peer]
-    does_not: [proposed, departed]
+    does_not: [proposed, departed, inactive]
+    inactive:
+      meaning: "was a party and may be one again. Holds no access, appears on derived surfaces as inactive, and keeps every artifact that is still true -- a live media host stays linked, because nothing about it has been retired."
+      requires: [inactive_since]
+      note: "Operator, 2026-09-06. Added after the first real reconciliation forced the distinction: nuc1-claude and claudeops-j1 had been removed from org membership on 2026-08-16 with 'others to be re-added as needed', which is not departure. Recording them as departed would have turned a reversible decision into a permanent one, and leaving them ratified was the drift this blueprint exists to stop. Neither term fit, so the vocabulary was wrong, not the facts."
+      distinguishing_test: "Is anything being retired? Departed retires the host, the surface and the access. Inactive retires only the access. If you are not sure, the party is inactive -- that is the reversible one."
+
     departed:
       meaning: "was a party, is not now. Keeps their contracts, their history and their credit; holds no access and appears on derived surfaces as former."
       requires: [departed_at]
