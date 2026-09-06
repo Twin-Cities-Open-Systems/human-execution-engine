@@ -112,8 +112,9 @@ def main() -> int:
                       f"tmux `{s['tmux_uri']}` · {s.get('gh_actor','?')}@{s['host']} · "
                       f"{s['timestamp']}</sub>")
             else:
+                # A human shell is a known kind of session, not an unknown one.
                 line("OK" if s["session_id"] != "unknown" else "UNKNOWN",
-                     f"session: {s.get('gh_actor','?')}@{s['host']}")
+                     f"session: {s.get('gh_actor','?')}@{s['host']} ({s.get('session_kind','?')})")
                 kv(s)
         if s["session_id"] == "unknown":
             bump("UNKNOWN")
