@@ -27,20 +27,18 @@ client-side JS after load.
 """
 import re
 
-OG_META_RE = re.compile(r'<meta[^>]*property="og:[^"]*"[^>]*>')
-TWITTER_META_RE = re.compile(r'<meta[^>]*name="twitter:[^"]*"[^>]*>')
+# A <meta ...> tag, allowing a ">" inside a quoted attribute value (a
+# description that says "<person>.blog.tcos.us" ended the old match early
+# and the tag vanished, 2026-09-06). Attributes are read as a set, in any
+# order, so an id= between property= and content= no longer hides a tag.
+_META_TAG_RE = re.compile(r'<meta\b(?:[^>"]|"[^"]*")*>', re.I)
+_ANY_ATTR_RE = re.compile(r'([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"([^"]*)"')
+OG_META_RE = re.compile(r'<meta\b(?:[^>"]|"[^"]*")*property="og:[^"]*"(?:[^>"]|"[^"]*")*>', re.I)
+TWITTER_META_RE = re.compile(r'<meta\b(?:[^>"]|"[^"]*")*name="twitter:[^"]*"(?:[^>"]|"[^"]*")*>', re.I)
 TITLE_RE = re.compile(r'<title>[^<]*</title>')
 CANONICAL_RE = re.compile(r'<link rel="canonical"[^>]*>')
-
-# Real, live-tested full sweep -- same four alternatives Spencer ran by
-# hand: OG tags, Twitter Card tags, <title>, and the canonical link.
-# These are the things that actually matter for a link preview.
-ALL_TAGS_RE = re.compile(
-    "|".join(p.pattern for p in (OG_META_RE, TWITTER_META_RE, TITLE_RE, CANONICAL_RE))
-)
-
-_ATTR_RE = re.compile(r'(property|name)="([^"]+)"\s+content="([^"]*)"')
-_ATTR_RE_REVERSED = re.compile(r'content="([^"]*)"\s+(?:property|name)="([^"]+)"')
+# every tag, in document order (--raw)
+ALL_TAGS_RE = re.compile("|".join(p.pattern for p in (OG_META_RE, TWITTER_META_RE, TITLE_RE, CANONICAL_RE)), re.I)
 
 
 def extract_tags(html):
@@ -51,22 +49,15 @@ def extract_tags(html):
     return ALL_TAGS_RE.findall(html)
 
 
-def extract_meta_pairs(html):
-    """Return a dict of {property_or_name: content} for every real
-    og:*/twitter:* meta tag found (property="..." content="..." or
-    content="..." property="..." attribute order, both real -- some
-    pages emit one order, some the other). Later duplicate keys
-    overwrite earlier ones, same as a browser's own last-wins DOM
-    behavior for repeated meta tags.
-    """
+def extract_meta_pairs(html: str) -> dict:
+    """{property-or-name: content} for every og:* and twitter:* meta tag,
+    first occurrence wins, attribute order and extra attributes ignored."""
     pairs = {}
-    for tag in OG_META_RE.findall(html) + TWITTER_META_RE.findall(html):
-        m = _ATTR_RE.search(tag) or _ATTR_RE_REVERSED.search(tag)
-        if m:
-            groups = m.groups()
-            if len(groups) == 3:
-                _, key, value = groups
-            else:
-                value, key = groups
-            pairs[key] = value
+    for tag in _META_TAG_RE.findall(html):
+        attrs = {k.lower(): v for k, v in _ANY_ATTR_RE.findall(tag)}
+        key = attrs.get("property") or attrs.get("name")
+        if not key or not (key.startswith("og:") or key.startswith("twitter:")):
+            continue
+        if key not in pairs:
+            pairs[key] = attrs.get("content", "")
     return pairs
