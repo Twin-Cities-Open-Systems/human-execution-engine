@@ -49,13 +49,14 @@ SEE ALSO
 from __future__ import annotations
 
 import argparse
-import os
 import pathlib
 import re
 import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
 OK, CRITICAL, UNKNOWN = 0, 2, 3
 
 
@@ -113,7 +114,8 @@ def sh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
 
 
 def main(argv: list[str]) -> int:
-    if argv and argv[0] in ("help", "--help", "-h"):
+    if help_wanted(argv):
+        note_ignored(argv)       # the CLI contract: say when arguments after the help token are ignored
         print(__doc__.strip()); return OK
     ap = argparse.ArgumentParser(prog="hee git tag", add_help=False)
     ap.add_argument("name", nargs="?")

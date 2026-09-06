@@ -113,7 +113,7 @@ check_files_claims() {
     [ -f "$_pg" ] || continue
     awk '/^\.SH FILES/{f=1;next} /^\.SH/{f=0} f && /^\.B /{sub(/^\.B +/,""); gsub(/\\f[BIR]/,""); print}' "$_pg" | while IFS= read -r _path; do
       case "$_path" in "~"/*|/*) ;; *) continue ;; esac
-      _abs="${_path/#\~/$HOME}"; _abs="${_abs%/}"
+      _abs="$_path"; case "$_abs" in "~"/*) _abs="$HOME${_abs#\~}" ;; esac; _abs="${_abs%/}"   # POSIX: no ${x/…}
       [ -e "$_abs" ] || { echo "⚠️ WARNING gen-manpages: $_pg claims $_path under FILES; not on this machine"; }
     done
   done
