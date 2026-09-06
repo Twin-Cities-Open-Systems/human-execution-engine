@@ -46,11 +46,10 @@ DESCRIPTION
   find what works in tmux and not, make it the default and add a switch
   to try something else"):
 
-    inside tmux, client declares `sixel`  -> sixels, raw (tmux draws them;
-                                             chafa's tmux passthrough is off)
-    inside tmux, no `sixel` feature       -> symbols (tmux discards pixels;
-                                             declare it: dotfiles .tmux.conf
-                                             `set -ga terminal-features "*:sixel"`)
+    inside tmux, allow-passthrough on     -> sixels, passed through to the
+                                             outer terminal (which must draw
+                                             them; tmux 3.4 cannot itself)
+    inside tmux, allow-passthrough off    -> symbols (pixels cannot leave tmux)
     kitty (KITTY_WINDOW_ID) / WezTerm     -> kitty
     iTerm2                                -> iterm
     Windows Terminal (WT_SESSION)         -> sixels
@@ -106,10 +105,13 @@ image_format() {
   if [ -n "${IMAGE_FORMAT:-}" ]; then printf '%s\t%s\n' "$IMAGE_FORMAT" "--image-format"; return; fi
   if [ -n "${HEE_PRINT_IMAGE_FORMAT:-}" ]; then printf '%s\t%s\n' "$HEE_PRINT_IMAGE_FORMAT" "HEE_PRINT_IMAGE_FORMAT"; return; fi
   if [ -n "${TMUX:-}" ] && have tmux; then
-    feats="$(tmux display -p '#{client_termfeatures}' 2>/dev/null)"
-    case ",$feats," in
-      *,sixel,*) printf 'sixels\ttmux client declares sixel\n' ;;
-      *) printf 'symbols\ttmux client declares no sixel feature -- pixels would be discarded\n' ;;
+    # tmux cannot draw sixels itself here; it can pass them through to the
+    # outer terminal, which then must draw them. allow-passthrough is the
+    # switch that decides whether anything gets out at all.
+    pt="$(tmux show -gv allow-passthrough 2>/dev/null)"
+    case "$pt" in
+      on|all) printf 'sixels\ttmux allow-passthrough=%s -- sixels pass through to the outer terminal\n' "$pt" ;;
+      *) printf 'symbols\ttmux allow-passthrough is off -- pixels cannot leave tmux (set -g allow-passthrough on)\n' ;;
     esac
     return
   fi
@@ -127,14 +129,13 @@ render_image() {
     fmt="$(image_format | cut -f1)"
     set -- "$1"
     [ "$fmt" != "auto" ] && set -- --format="$fmt" "$1"
-    # Inside tmux chafa wraps sixels in a tmux passthrough envelope by
-    # default (output begins ESC P tmux;), handing the blob past tmux to the
-    # outer terminal. Measured 2026-09-06: that drew nothing. A tmux that
-    # declares the sixel feature parses raw sixels and draws them itself,
-    # so passthrough must be OFF there. Left on for kitty/iterm, which tmux
-    # cannot draw and must pass through.
+    # Inside tmux the ONLY working sixel path on this org's tmux (3.4,
+    # Ubuntu build) is chafa's passthrough envelope with allow-passthrough
+    # on: measured 2026-09-06 with a scripted client, tmux then forwards one
+    # clean sixel; raw sixels are stored and never re-emitted (placeholder
+    # text only), with or without the `sixel` terminal feature declared.
     if [ -n "${TMUX:-}" ] && [ "$fmt" = "sixels" ]; then
-      set -- --passthrough=none "$@"
+      set -- --passthrough=tmux "$@"
     fi
     if [ "${ANIMATE:-0}" -eq 1 ]; then
       chafa "$@" --animate=on --duration=10

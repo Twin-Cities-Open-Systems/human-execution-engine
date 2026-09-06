@@ -31,11 +31,10 @@ hee-print - render files nicely for terminal surfaces
     find what works in tmux and not, make it the default and add a switch
     to try something else"):
 
-      inside tmux, client declares `sixel`  -> sixels, raw (tmux draws them;
-                                               chafa's tmux passthrough is off)
-      inside tmux, no `sixel` feature       -> symbols (tmux discards pixels;
-                                               declare it: dotfiles .tmux.conf
-                                               `set -ga terminal-features "*:sixel"`)
+      inside tmux, allow-passthrough on     -> sixels, passed through to the
+                                               outer terminal (which must draw
+                                               them; tmux 3.4 cannot itself)
+      inside tmux, allow-passthrough off    -> symbols (pixels cannot leave tmux)
       kitty (KITTY_WINDOW_ID) / WezTerm     -> kitty
       iTerm2                                -> iterm
       Windows Terminal (WT_SESSION)         -> sixels

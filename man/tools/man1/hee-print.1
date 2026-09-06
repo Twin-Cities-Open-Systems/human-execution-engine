@@ -49,11 +49,10 @@ where the tool is running, not guessed (operator, 2026-09-06: \[dq]when you
 find what works in tmux and not, make it the default and add a switch
 to try something else\[dq]):
 
-  inside tmux, client declares \[ga]sixel\[ga]  -> sixels, raw (tmux draws them;
-                                           chafa\[aq]s tmux passthrough is off)
-  inside tmux, no \[ga]sixel\[ga] feature       -> symbols (tmux discards pixels;
-                                           declare it: dotfiles .tmux.conf
-                                           \[ga]set -ga terminal-features \[dq]*:sixel\[dq]\[ga])
+  inside tmux, allow-passthrough on     -> sixels, passed through to the
+                                           outer terminal (which must draw
+                                           them; tmux 3.4 cannot itself)
+  inside tmux, allow-passthrough off    -> symbols (pixels cannot leave tmux)
   kitty (KITTY_WINDOW_ID) / WezTerm     -> kitty
   iTerm2                                -> iterm
   Windows Terminal (WT_SESSION)         -> sixels
