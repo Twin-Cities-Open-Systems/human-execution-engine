@@ -62,6 +62,21 @@ and loads them for every oper.
 \[ti]/.local/share/bash-completion/completions/hee       what \[ga]install\[ga] writes; dotfiles\[aq] .bashrc loads it
 \f[R]
 .fi
+.SH EXIT STATUS
+.IP
+.nf
+\f[C]
+Nagios plugin convention, like every other hee tool.
+0 OK        the script printed, the file installed, or candidates emitted
+2 CRITICAL  unrecognized argument
+3 UNKNOWN   reserved
+
+\[ga]-words\[ga] exits 0 even when it has nothing to suggest. At the prompt a
+failed completion and a completion with no candidates look identical, and
+bash discards the exit code either way -- so it reports success and prints
+nothing rather than a status nobody can observe.
+\f[R]
+.fi
 .SH SEE ALSO
 .IP
 .nf
