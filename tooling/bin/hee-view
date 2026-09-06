@@ -186,6 +186,32 @@ def site_network(entry):
     return "lab" if host == LAB_DOMAIN or host.endswith("." + LAB_DOMAIN) else "public"
 
 
+NOTE_MAX = 160
+
+
+def lint_sitemap(sites):
+    """The one tool that reads SITEMAP.yaml owns its schema. Operator,
+    2026-09-06: a note carried unmatched single quotes for a week and
+    nothing caught it -- YAML takes an unbalanced apostrophe in a plain
+    scalar. Rules: url/repo/note present; note is one short sentence
+    (<= NOTE_MAX chars), quotes balanced; url unique. WARNING each."""
+    warnings, seen = [], set()
+    for e in sites:
+        u = e.get("url", "?")
+        for k in ("url", "repo", "note"):
+            if not e.get(k):
+                warnings.append(f"{u}: missing {k}")
+        note = str(e.get("note", ""))
+        if len(note) > NOTE_MAX:
+            warnings.append(f"{u}: note is {len(note)} chars (max {NOTE_MAX}) -- history belongs in git, not the status line")
+        if note.count("'") % 2 == 1 or note.count('"') % 2 == 1:
+            warnings.append(f"{u}: note has unbalanced quotes")
+        if u in seen:
+            warnings.append(f"{u}: listed twice")
+        seen.add(u)
+    return warnings
+
+
 def filter_sites(sites, network):
     if network in (None, "", "all"):
         return sites
@@ -513,6 +539,8 @@ def main():
     if args.sites:
         sites, err = load_sitemap(args.sitemap)
         if not err:
+            for w in lint_sitemap(sites):
+                print(f"🟡 WARNING sitemap: {w}")
             total = len(sites)
             sites = filter_sites(sites, args.network)
             if args.network != "all":
