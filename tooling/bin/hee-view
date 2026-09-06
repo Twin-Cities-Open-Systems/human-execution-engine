@@ -186,10 +186,105 @@ def site_network(entry):
     return "lab" if host == LAB_DOMAIN or host.endswith("." + LAB_DOMAIN) else "public"
 
 
+NOTE_MAX = 160
+
+
+def lint_sitemap(sites):
+    """The one tool that reads SITEMAP.yaml owns its schema. Operator,
+    2026-09-06: a note carried unmatched single quotes for a week and
+    nothing caught it -- YAML takes an unbalanced apostrophe in a plain
+    scalar. Rules: url/repo/note present; note is one short sentence
+    (<= NOTE_MAX chars); url unique. WARNING each."""
+    warnings, seen = [], set()
+    for e in sites:
+        u = e.get("url", "?")
+        for k in ("url", "repo", "note"):
+            if not e.get(k):
+                warnings.append(f"{u}: missing {k}")
+        note = str(e.get("note", ""))
+        if len(note) > NOTE_MAX:
+            warnings.append(f"{u}: note is {len(note)} chars (max {NOTE_MAX}) -- history belongs in git, not the status line")
+        # Apostrophes in prose are fine once the note is a double-quoted YAML
+        # string (operator: "can just wrap in doubles"); only an unbalanced
+        # double quote is a real problem, and YAML would have refused it.
+        if note.count('"') % 2 == 1:
+            warnings.append(f"{u}: note has an unbalanced double quote")
+        if u in seen:
+            warnings.append(f"{u}: listed twice")
+        seen.add(u)
+    return warnings
+
+
 def filter_sites(sites, network):
     if network in (None, "", "all"):
         return sites
     return [e for e in sites if site_network(e) == network]
+
+
+def gopher_get(url, timeout=8):
+    """RFC 1436 over a plain socket: gopher://host[:port]/<type><selector>.
+    Returns (item_type, body_text). Menus (type 1) come back as their raw
+    lines; text (type 0) as text. Raises on connect/transport errors.
+    Operator, 2026-09-06: "it should support crawling our gopher man pages"."""
+    import socket
+    sp = urllib.parse.urlsplit(url)
+    host, port = sp.hostname, sp.port or 70
+    path = sp.path or "/"
+    itype, selector = (path[1], path[2:]) if len(path) > 1 else ("1", "")
+    with socket.create_connection((host, port), timeout=timeout) as s:
+        s.sendall((selector + "\r\n").encode())
+        chunks = []
+        while True:
+            b = s.recv(65536)
+            if not b:
+                break
+            chunks.append(b)
+            if sum(len(c) for c in chunks) > 2_000_000:
+                break
+    body = b"".join(chunks).decode("utf-8", "replace")
+    if itype == "1" and body.lstrip().startswith("3"):
+        raise ValueError("gopher error item: " + body.splitlines()[0][1:80])
+    return itype, body
+
+
+def gopher_menu_links(url, body):
+    """Menu items of type 0 (text) and 1 (menu) on the same host, as URLs."""
+    sp = urllib.parse.urlsplit(url)
+    out = []
+    for line in body.splitlines():
+        if not line or line[0] not in "01":
+            continue
+        parts = line.rstrip("\r").split("\t")
+        if len(parts) < 4:
+            continue
+        itype, selector, host, port = line[0], parts[1], parts[2], parts[3]
+        if host != sp.hostname:
+            continue
+        out.append(f"gopher://{host}{'' if port == '70' else ':' + port}/{itype}{selector}")
+    return out
+
+
+_RESOLVE_CACHE = {}
+
+
+def resolves_absolutely(url):
+    """Does the hostname exist as written -- not after the resolver's search
+    list appended a domain? Measured 2026-09-06 on kiosk: touchy.media.tcos.us
+    had no DNS anywhere, yet the checker reported an SSL error, because
+    systemd-resolved tried touchy.media.tcos.us.crooked.tcos.us, a wildcard
+    on the operator's home domain answered, and Traefik's default cert came
+    back. A trailing dot makes the name absolute and skips the search list."""
+    import socket
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if host in _RESOLVE_CACHE:
+        return _RESOLVE_CACHE[host]
+    try:
+        socket.getaddrinfo(host + ".", None)
+        ok = True
+    except socket.gaierror:
+        ok = False
+    _RESOLVE_CACHE[host] = ok
+    return ok
 
 
 def _fetch(url, method):
@@ -208,10 +303,25 @@ def sites_check(sites):
     # that are actually fine.
     results = []
     for entry in sites:
+        if not entry.get("check", True):
+            continue
         url = entry["url"]
         start = time.monotonic()
         code = None
         error = None
+        if url.startswith("gopher://"):
+            try:
+                gopher_get(url); code, error = 200, None
+            except Exception as e:
+                code, error = None, str(e)[:80]
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            results.append({"url": url, "code": code, "elapsed_ms": elapsed_ms, "note": entry.get("note", ""), "error": error})
+            continue
+        if url.startswith("http") and not resolves_absolutely(url):
+            elapsed_ms = round((time.monotonic() - start) * 1000)
+            results.append({"url": url, "code": None, "elapsed_ms": elapsed_ms, "note": entry.get("note", ""),
+                            "error": "does not resolve (no DNS record; the resolver's search list is not consulted)"})
+            continue
         for method in ("HEAD", "GET"):
             try:
                 code = _fetch(url, method)
@@ -239,7 +349,7 @@ def crawl_sites(sites, depth=2, listed=None):
     pages = every URL reached; broken = (from_page, url, code_or_error,
     final_url); unlisted = reachable page URLs absent from the site map."""
     import html.parser
-    listed = {e["url"].rstrip("/") for e in (listed or sites)}
+    listed = {e["url"].rstrip("/") for e in (listed or sites)} | {e["url"] for e in (listed or sites) if e["url"].endswith("/")}
 
     class Links(html.parser.HTMLParser):
         def __init__(self):
@@ -258,12 +368,26 @@ def crawl_sites(sites, depth=2, listed=None):
 
     seen, broken, queue = {}, [], []
     for e in sites:
-        queue.append((e["url"], 0, "(site map)"))
+        if e.get("check", True):  # check: false = a tree that only covers pages under it
+            queue.append((e["url"], 0, "(site map)"))
     while queue:
         url, d, src = queue.pop(0)
         key = url.rstrip("/")
         if key in seen:
             continue
+        if url.startswith("gopher://"):
+            try:
+                itype, gbody = gopher_get(url)
+                seen[key] = (200, url)
+                if itype == "1" and d < depth:
+                    for nxt in gopher_menu_links(url, gbody):
+                        if nxt.rstrip("/") not in seen:
+                            queue.append((nxt, d + 1, url))
+            except Exception as ex:
+                seen[key] = (None, url); broken.append((src, url, str(ex)[:60], url))
+            continue
+        if url.startswith("http") and not resolves_absolutely(url):
+            seen[key] = (None, url); broken.append((src, url, "does not resolve (no DNS record)", url)); continue
         try:
             code, final, body = get(url)
         except urllib.error.HTTPError as ex:
@@ -286,14 +410,40 @@ def crawl_sites(sites, depth=2, listed=None):
         for h in lp.hrefs:
             if h.startswith(("#", "mailto:", "javascript:", "tel:")):
                 continue
-            nxt = urllib.parse.urljoin(final, h).split("#")[0]
+            nxt = urllib.parse.urljoin(final, h).split("#")[0].split("?")[0]
             if urllib.parse.urlsplit(nxt).netloc != host:
                 continue  # stay on this host; cross-host redirects are followed by get()
             if nxt.rstrip("/") not in seen:
                 queue.append((nxt, d + 1, final))
     pages = sorted(seen)
-    unlisted = sorted(u for u, (c, f) in seen.items() if c and 200 <= c < 300 and u not in listed
-                      and not u.rsplit("/", 1)[-1].endswith((".css", ".js", ".png", ".jpg", ".gif", ".ico", ".json", ".xml", ".txt", ".webp", ".svg", ".asc", ".jpeg")))
+
+    def covered(u):
+        """Listed outright, or a page under a listed directory (an item page
+        under a listed gallery, a gopher path under the listed gateway root).
+        A host root covers nothing below it, or the check would be empty.
+        Operator, 2026-09-06: 24 'unlisted' on public were query-string
+        variants of one page and pages under listed directories."""
+        u = u.split("?", 1)[0].rstrip("/")
+        if u.endswith(".html"):
+            u = u[:-5]  # /careers.html is the same page as /careers
+        cands = [u]
+        # A lab mirror page is covered when its prod twin is: the site map
+        # lists tcos.us/careers once, not again for lab.tcos.us.
+        sp = urllib.parse.urlsplit(u)
+        if sp.netloc == "lab.tcos.us" or sp.netloc.endswith(".lab.tcos.us"):
+            cands.append(u.replace("://lab.tcos.us", "://tcos.us", 1).replace(".lab.tcos.us", ".tcos.us", 1))
+        for c in cands:
+            if c in listed or c + ".html" in listed or c + "/" in listed:
+                return True
+            for l in listed:
+                lp = urllib.parse.urlsplit(l).path
+                if lp in ("", "/"):
+                    continue  # a host root covers nothing below it
+                if c.startswith(l if l.endswith("/") else l + "/"):
+                    return True
+        return False
+    unlisted = sorted({u.split("?", 1)[0] for u, (c, f) in seen.items() if c and 200 <= c < 300 and not covered(u)
+                       and not u.split("?", 1)[0].rsplit("/", 1)[-1].endswith((".css", ".js", ".png", ".jpg", ".gif", ".ico", ".json", ".xml", ".txt", ".webp", ".svg", ".asc", ".jpeg"))})
     return pages, broken, unlisted
 
 
@@ -434,7 +584,7 @@ def main():
     ap.add_argument("--sitemap", default=DEFAULT_SITEMAP_URL,
                      help="sitemap source -- URL or local path (default: real .github/profile/SITEMAP.yaml on main)")
     ap.add_argument("--via", metavar="[USER@]HOST",
-                    help="run the --sites checks FROM that host over ssh (this file is "
+                    help="an ssh target or alias, never a URL: run the --sites checks FROM that host (this file is "
                          "sent with `python3 -`; the host needs only python3). The point "
                          "is a vantage that is not the operator's own IP: the DigitalOcean "
                          "droplet (man.tcos.us) sees tcos.us the way the public does -- "
@@ -464,6 +614,10 @@ def main():
     args = ap.parse_args()
 
     if args.via:
+        if "://" in args.via or "/" in args.via:
+            print(f"⚪ UNKNOWN hee-view: --via takes an ssh target ([user@]host or an ssh alias), not a URL: {args.via!r}. "
+                  "For the droplet: --via man-tcos-us", file=sys.stderr)
+            return 3
         if not args.sites:
             print("⚪ UNKNOWN hee-view: --via only makes sense with --sites", file=sys.stderr)
             return 3
@@ -473,16 +627,20 @@ def main():
             remote_argv.append("--crawl")
         if args.nerd:
             remote_argv.append("--nerd")
-        where = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", args.via,
+        where = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=8", args.via,
                                 "hostname; curl -4 -s -m 5 https://ifconfig.me || true"],
                                capture_output=True, text=True)
         if where.returncode != 0:
-            print(f"🔴 CRITICAL hee-view: cannot reach {args.via} over ssh: {where.stderr.strip()[:160]}")
+            err = where.stderr.strip()[:160]
+            hint = ""
+            if "Permission denied" in err and "@" not in args.via:
+                hint = " -- no user given, so ssh used your local username; the droplet answers root@ (kiosk-spencer key) or claude@"
+            print(f"🔴 CRITICAL hee-view: cannot reach {args.via} over ssh: {err}{hint}")
             return 2
         host, _, ip = where.stdout.strip().partition("\n")
         print(f"=== hee view --sites, from {host} ({ip or 'ip unknown'}) via {args.via} ===", flush=True)
         with open(__file__, "rb") as me:
-            proc = subprocess.run(["ssh", "-o", "BatchMode=yes", args.via, "python3", "-", *remote_argv],
+            proc = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", args.via, "python3", "-", *remote_argv],
                                   stdin=me)
         return proc.returncode
 
@@ -496,7 +654,10 @@ def main():
     sites_ok = True
     if args.sites:
         sites, err = load_sitemap(args.sitemap)
+        all_sites = list(sites) if not err else []
         if not err:
+            for w in lint_sitemap(sites):
+                print(f"🟡 WARNING sitemap: {w}")
             total = len(sites)
             sites = filter_sites(sites, args.network)
             if args.network != "all":
@@ -512,7 +673,9 @@ def main():
                 print_sites_condensed(results)
             sites_ok = all(r["code"] and 200 <= r["code"] < 400 for r in results)
             if args.crawl:
-                pages, broken, unlisted = crawl_sites(sites)
+                # crawl the scoped sites; judge coverage against the whole map,
+                # so a lab page is covered by its prod twin's entry
+                pages, broken, unlisted = crawl_sites(sites, listed=all_sites)
                 if print_crawl(pages, broken, unlisted, nerd=args.nerd) == 2:
                     sites_ok = False
 
