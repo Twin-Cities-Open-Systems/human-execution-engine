@@ -1,25 +1,43 @@
 #!/usr/bin/env python3
 # section: 1
-"""hee-release -- lab, cut, promote: a repo's release in three commands
+"""hee-release -- lab, cut, promote: releases for one repo, a list, or the org
 
 SYNOPSIS
-  hee release status            what main holds beyond the last release, per surface
-  hee release next              the version the next cut gets (semver from the commits)
-  hee release lab               build and push every surface to lab, gates included
-  hee release cut [VERSION]     changelog + version commit on a release branch, as a PR
-  hee release promote           deploy every surface from the release commit, tag it, publish it
-  hee release publish [VERSION] the GitHub Release for an existing version tag, notes from CHANGELOG.md
+  hee release -status  [SELECT]                what main holds beyond the last release, per surface
+  hee release -next    [SELECT]                the version the next cut gets (semver from the commits)
+  hee release -find    [SELECT]                releases that exist, with dates and surfaces
+  hee release -lab     [SELECT]                build and push every surface to lab, gates included
+  hee release -cut     [SELECT] [-version vX.Y.Z] [-yes]   build, changelog, release commit + PR
+  hee release -promote [SELECT] [-yes]         every surface from the release commit, tagged, published
+  hee release -publish [SELECT] [-version vX.Y.Z] [-yes]   the GitHub Release for an existing version tag
   hee release help
+
+  SELECT picks repos. Nothing: the repo you are in. -all: every checkout
+  under ~/git with a release card. -repos REGEX[,REGEX]: anchored regular
+  expressions over checkout names ('tcos-.*', 'resume|hee'; hee, gh, www
+  are aliases). -where "EXPR": a small SQL-like filter over what the repo
+  or release IS (below). Flags take one dash like the rest of hee (two
+  are accepted). Anything that writes is a dry run until -yes.
+
+REGEX OR GLOB -- WHICH, WHERE
+  Regex wherever feasible; a glob only where the flag says glob.
+    -repos            REGEX, anchored (fullmatch). 'tcos-.*' not 'tcos-*'.
+    -where  f ~ 'x'   REGEX, searched anywhere in the value.
+    -where  f like 'x'  GLOB (* ? [..]), the one glob in the tool, for people who think in shells.
+    -where  f = 'x'   exact; < <= > >= semver-aware for versions.
+  Names given without regex metacharacters are validated against the
+  regex registry's org-repo-name (library/regex/patterns.yaml) before
+  anything runs, so a path or a typo never reaches git or gh.
 
 DESCRIPTION
   The release procedure was a dozen commands across three scripts, each
-  with its own timestamp tag (operator, 2026-09-06: "way too much to do
-  ... trimming that down and getting tags working properly and semver").
-  This is the whole procedure now:
+  with its own timestamp tag. This is the whole procedure now, from any
+  directory:
 
-    hee release lab        review on lab
-    hee release cut        approve and merge the release PR -- that IS the sign-off (HEE_POLICY 17)
-    hee release promote    every surface, one version, verified
+    hee release -lab -repos hee              review on lab
+    hee release -cut -repos hee -yes         builds every surface into the release commit, opens the
+                                             release PR; approving and merging it IS the sign-off (HEE_POLICY 17)
+    hee release -promote -repos hee -yes     every surface, one version, verified, published
 
   A repo declares its surfaces in release.card.v1.yaml at its root:
 
@@ -28,40 +46,66 @@ DESCRIPTION
     metadata: { name: tcos-www-release, labels: { domain: release } }
     spec:
       credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
+      build: "./convert.sh"            # optional, repo-level: one build renders every surface (resume)
+      outputs: ["media", "dist"]       # its tracked outputs
       surfaces:
-        - { name: tcos-www, lab: "./deploy.sh lab", promote: "./deploy.sh promote" }
+        - name: tcos-www
+          build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
+          outputs: ["*.html"]                           # git pathspecs (glob) of tracked build outputs
+          lab: "./deploy.sh lab"
+          promote: "./deploy.sh promote"
 
-  Each surface's promote command receives RELEASE_VERSION in its
-  environment and tags prod/<surface>/<version>; the tool then signs
-  <version> itself on the release commit (hee git tag) and publishes the
-  GitHub Release for it, notes being that version's CHANGELOG section
-  (operator, 2026-09-06: "where is 1.0.0 release info" -- the first
-  releases were tags only). Timestamps are gone from tag names; they
-  live in the tag's own date.
+  Each surface's promote receives RELEASE_VERSION and tags
+  prod/<surface>/<version>; the tool then signs <version> on the release
+  commit (hee git tag) and publishes the GitHub Release, notes being that
+  version's CHANGELOG section.
+
+THE -where LANGUAGE
+  field op value, joined by and / or, parentheses allowed. Fields:
+
+    repo       checkout name                    surface   any surface name
+    cur_ver    last v* tag, or unreleased       ahead     commits since it
+    next_ver   what the next cut would be       bump      first|patch|minor|major
+    ver, date  a release tag and its date (-find only)
+
+    hee release -status -where "cur_ver ~ '^v1\\.[12]\\.' and bump = minor"
+    hee release -find -all -where "ver >= v1.0.0 and date >= 2026-09-01"
+    hee release -promote -repos 'tcos-.*|resume' -where "ahead > 0" -yes
+
+  The fields are a schema and probe() is its one backend today (git and
+  the release card). The same expression is meant to reach tickets
+  (hee fields) and an on-prem git remote next: same words, more backends,
+  the objects we already keep and their metadata -- rich and dead simple.
 
 VERSIONS
   Semantic. The next version comes from the Conventional Commit subjects
   merged since the last v* tag: a `!` or BREAKING CHANGE bumps major,
   feat bumps minor, anything else bumps patch. No v* tag yet: v1.0.0,
-  because prod is already real. `cut VERSION` overrides.
+  because prod is already real. -version overrides.
 
-  cut writes CHANGELOG.md through hee gen-changelog --release, commits
-  "chore(release): vX.Y.Z" on release/vX.Y.Z, pushes, opens the PR. The
-  approval on that PR is the human sign-off; promote refuses unless HEAD
-  is origin/main and its CHANGELOG's newest header is the version.
+  cut runs each surface's build and stages its outputs, writes
+  CHANGELOG.md through hee gen-changelog --release, commits
+  "chore(release): vX.Y.Z" on release/vX.Y.Z, pushes, opens the PR: the
+  PR shows the exact bytes that ship (hee#594). Without -yes it builds,
+  lists what the commit would carry, and restores the tree. promote
+  refuses unless HEAD is origin/main and CHANGELOG's newest header is
+  the version; without -yes it prints the plan and runs nothing.
 
 EXIT STATUS
-  0 OK, 1 WARNING (nothing to release), 2 CRITICAL (gate, build or deploy failed), 3 UNKNOWN (no card)
+  0 OK, 1 WARNING (nothing to release, nothing selected), 2 CRITICAL (gate, build or deploy failed, bad name or regex),
+  3 UNKNOWN (no card)
 
 FILES
-  release.card.v1.yaml    the repo's surfaces and credential (repo root)
-  CHANGELOG.md            written by cut, read by promote
+  release.card.v1.yaml         the repo's surfaces and credential (repo root)
+  CHANGELOG.md                 written by cut, read by promote
+  library/regex/patterns.yaml  org-repo-name, the validation pattern for -repos
 
 SEE ALSO
-  hee-gen-changelog(1), hee-git-tag(1), hee-git-merge(1), hee-cred(1)
+  hee-gen-changelog(1), hee-git-tag(1), hee-git-merge(1), hee-cred(1), hee-fields(1)
 """
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import subprocess
@@ -72,14 +116,20 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
+
 OK, WARNING, CRITICAL, UNKNOWN = 0, 1, 2, 3
 CARD = "release.card.v1.yaml"
 HEE = str(Path(__file__).resolve().parent / "hee")
+REGISTRY = Path(__file__).resolve().parent.parent.parent / "library" / "regex" / "patterns.yaml"
+ALIASES = {"hee": "human-execution-engine", "gh": ".github", ".gh": ".github", "www": "tcos-www"}
+VERBS = ("status", "next", "find", "lab", "cut", "promote", "publish")
+VER_RE = re.compile(r"v\d+\.\d+\.\d+")
+REGEX_META = set(".^$*+?{}[]\\|()")
 
 
 def say(level, msg):
     icon = {"OK": "🟢 OK", "WARNING": "🟡 WARNING", "CRITICAL": "🔴 CRITICAL", "UNKNOWN": "⚪ UNKNOWN"}[level]
-    print(f"{icon} hee-release: {msg}", file=sys.stderr if level in ("CRITICAL", "UNKNOWN") else sys.stdout)
+    print(f"{icon} hee-release: {msg}", file=sys.stderr if level in ("CRITICAL", "UNKNOWN") else sys.stdout, flush=True)
 
 
 def sh(*args, check=True, env=None, capture=True):
@@ -88,6 +138,19 @@ def sh(*args, check=True, env=None, capture=True):
 
 def git(*args):
     return sh("git", *args).stdout.strip()
+
+
+def gitc(repo: Path, *args) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True).stdout.strip()
+
+
+def sh_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+# ---------------------------------------------------------------- repos
+def workspace() -> Path:
+    return Path(os.environ.get("HEE_REPO_DIR", str(Path.home() / "git" / "human-execution-engine"))).resolve().parent
 
 
 def load_card(root: Path) -> dict:
@@ -100,17 +163,49 @@ def load_card(root: Path) -> dict:
     return card
 
 
-def last_version() -> str | None:
-    tags = [t for t in git("tag", "-l", "v*", "--sort=-v:refname").splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", t)]
-    return tags[0] if tags else None
+_NAME_RE = None
 
 
-def commits_since(ref: str | None) -> list[tuple[str, str]]:
-    rng = f"{ref}..HEAD" if ref else "HEAD"
-    out = git("log", "--no-merges", "--format=%h%x09%s", rng)
-    return [tuple(l.split("\t", 1)) for l in out.splitlines() if "\t" in l]
+def repo_name_re():
+    """org-repo-name from the regex registry; the tool carries no copy."""
+    global _NAME_RE
+    if _NAME_RE is None:
+        pats = yaml.safe_load(REGISTRY.read_text())["spec"]["patterns"]
+        _NAME_RE = re.compile(next(p_["ere"] for p_ in pats if p_["name"] == "org-repo-name"))
+    return _NAME_RE
 
 
+def checkouts_with_card() -> list[Path]:
+    return sorted(p.parent for p in workspace().glob(f"*/{CARD}"))
+
+
+def select_repos(specs: list[str]) -> list[Path]:
+    """-repos: each spec is an alias, an exact name (validated), or an
+    anchored REGEX over checkout names that have a release card."""
+    have = checkouts_with_card()
+    out = []
+    for spec in specs:
+        spec = ALIASES.get(spec, spec)
+        # a path or whitespace is never a repo name nor a name regex; a plain
+        # name (no regex metacharacters) must pass the registry's pattern
+        if "/" in spec or any(c.isspace() for c in spec):
+            say("CRITICAL", f"{spec!r} is not a repo name (library/regex/patterns.yaml org-repo-name)"); sys.exit(CRITICAL)
+        if not (set(spec) & REGEX_META) and not repo_name_re().fullmatch(spec):
+            say("CRITICAL", f"{spec!r} is not a repo name (library/regex/patterns.yaml org-repo-name)"); sys.exit(CRITICAL)
+        try:
+            rx = re.compile(spec)
+        except re.error as e:
+            say("CRITICAL", f"-repos {spec!r}: not a regex ({e}); -repos takes anchored regexes, e.g. 'tcos-.*'"); sys.exit(CRITICAL)
+        hits = [r for r in have if rx.fullmatch(r.name)]
+        if not hits and re.search(r"(?<![.\])\]])\*", spec):
+            say("WARNING", f"-repos {spec!r} matched nothing -- it is a REGEX, not a glob: 'tcos-.*' for what a shell calls tcos-*")
+        for r in hits:
+            if r not in out:
+                out.append(r)
+    return out
+
+
+# ------------------------------------------------------------- versions
 CC_RE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?P<bang>!)?:\s")
 
 
@@ -135,28 +230,158 @@ def next_version(last: str | None, commits) -> str:
     return f"v{maj + 1}.0.0" if b == "major" else f"v{maj}.{mnr + 1}.0" if b == "minor" else f"v{maj}.{mnr}.{pat + 1}"
 
 
-def surface_prod_tag(name: str) -> str | None:
-    tags = git("tag", "-l", f"prod/{name}/*", "--sort=-creatordate").splitlines()
-    return tags[0] if tags else None
+def version_tags(repo: Path) -> list[str]:
+    return [t for t in gitc(repo, "tag", "-l", "v*", "--sort=-v:refname").splitlines() if VER_RE.fullmatch(t)]
 
 
+def commits_since(repo: Path, ref: str | None):
+    rng = f"{ref}..HEAD" if ref else "HEAD"
+    out = gitc(repo, "log", "--no-merges", "--format=%h%x09%s", rng)
+    return [tuple(l.split("\t", 1)) for l in out.splitlines() if "\t" in l]
+
+
+def probe(repo: Path) -> dict:
+    """What a repo IS, for -where and -status: the schema of this tool."""
+    tags = version_tags(repo)
+    cur = tags[0] if tags else None
+    commits = commits_since(repo, cur)
+    card = yaml.safe_load((repo / CARD).read_text())
+    return {"repo": repo.name, "cur_ver": cur or "unreleased", "next_ver": next_version(cur, commits),
+            "bump": bump_of(commits) if cur else "first", "ahead": len(commits),
+            "surface": [s_["name"] for s_ in card["spec"]["surfaces"]], "versions": tags}
+
+
+# --------------------------------------------------------- where clause
+_TOK = re.compile(r"""\s*(?:(?P<lp>\()|(?P<rp>\))|(?P<op><=|>=|!=|=|<|>|~)|(?P<kw>and|or|like)\b|(?P<str>'[^']*'|"[^"]*")|(?P<word>[^\s()<>=!~']+))""", re.I)
+
+
+def _cmp_key(v):
+    if VER_RE.fullmatch(str(v)):
+        return (0, tuple(int(x) for x in str(v)[1:].split(".")))
+    try:
+        return (1, float(v))
+    except (TypeError, ValueError):
+        return (2, str(v))
+
+
+def where_fn(expr: str):
+    """Compile "field op value [and|or ...]" into a predicate over a dict.
+    ~ is regex (searched), like is glob, the rest exact / ordered. A list
+    value (surface) matches when any element does."""
+    toks = []
+    pos = 0
+    while pos < len(expr):
+        m = _TOK.match(expr, pos)
+        if not m or m.end() == pos:
+            say("CRITICAL", f"-where: cannot read {expr[pos:pos + 20]!r}"); sys.exit(CRITICAL)
+        pos = m.end()
+        kind = m.lastgroup
+        val = m.group(kind)
+        if kind == "str":
+            val = val[1:-1]
+        toks.append((val.lower() if kind == "kw" else kind, val))
+    i = 0
+
+    def peek():
+        return toks[i] if i < len(toks) else (None, None)
+
+    def take():
+        nonlocal i
+        if i >= len(toks):
+            say("CRITICAL", "-where: expression ends early"); sys.exit(CRITICAL)
+        t = toks[i]; i += 1; return t
+
+    def parse_or():
+        left = parse_and()
+        while peek()[0] == "or":
+            take(); right = parse_and(); left = (lambda a, b: lambda d: a(d) or b(d))(left, right)
+        return left
+
+    def parse_and():
+        left = parse_cmp()
+        while peek()[0] == "and":
+            take(); right = parse_cmp(); left = (lambda a, b: lambda d: a(d) and b(d))(left, right)
+        return left
+
+    def parse_cmp():
+        k, v = take()
+        if k == "lp":
+            inner = parse_or()
+            if take()[0] != "rp":
+                say("CRITICAL", "-where: missing )"); sys.exit(CRITICAL)
+            return inner
+        field = v
+        opk, opv = take()
+        if opk not in ("op", "like"):
+            say("CRITICAL", f"-where: expected an operator after {field!r}"); sys.exit(CRITICAL)
+        op = opv.lower()
+        _, value = take()
+        rx = None
+        if op == "~":
+            try:
+                rx = re.compile(value)
+            except re.error as e:
+                say("CRITICAL", f"-where: {value!r} is not a regex ({e})"); sys.exit(CRITICAL)
+
+        def pred(d, field=field, op=op, value=value, rx=rx):
+            got = d.get(field)
+            if got is None:
+                return False
+            vals = got if isinstance(got, list) else [got]
+            for x in vals:
+                if op == "~":
+                    if rx.search(str(x)):
+                        return True
+                elif op == "like":
+                    if fnmatch.fnmatchcase(str(x), value):
+                        return True
+                else:
+                    a, b = _cmp_key(x), _cmp_key(value)
+                    if {"=": a == b, "!=": a != b, "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]:
+                        return True
+            return False
+        return pred
+
+    fn = parse_or()
+    if i != len(toks):
+        say("CRITICAL", f"-where: trailing {toks[i][1]!r}"); sys.exit(CRITICAL)
+    return fn
+
+
+# ------------------------------------------------------------- verbs
 def cmd_status(root, card):
-    last = last_version()
-    commits = commits_since(last)
-    print(f"  release: last {last or '(none)'}  next {next_version(last, commits)}  ({len(commits)} commit(s) since, bump {bump_of(commits) if last else 'first'})")
+    dirty = git("status", "--porcelain", "--untracked-files=no")
+    if dirty:
+        say("WARNING", f"{len(dirty.splitlines())} tracked file(s) modified -- cut refuses on a dirty tree; a lab rebuild? git checkout -- . or commit")
+    info = probe(root)
+    print(f"  release: last {info['cur_ver']}  next {info['next_ver']}  ({info['ahead']} commit(s) since, bump {info['bump']})")
     for s in card["spec"]["surfaces"]:
-        t = surface_prod_tag(s["name"])
+        tags = git("tag", "-l", f"prod/{s['name']}/*", "--sort=-creatordate").splitlines()
+        t = tags[0] if tags else None
         ahead = git("rev-list", "--count", f"{t}..HEAD") if t else "?"
         print(f"  {s['name']:18} prod {t or '(never)':40} main ahead by {ahead}")
-    return OK if commits else WARNING
+    return OK if info["ahead"] else WARNING
 
 
 def cmd_next(root, card):
-    last = last_version(); print(next_version(last, commits_since(last))); return OK
+    print(probe(root)["next_ver"]); return OK
+
+
+def cmd_find(repos: list[Path], where) -> int:
+    rows = []
+    for r in repos:
+        info = probe(r)
+        for v in info["versions"]:
+            rec = {**info, "ver": v, "date": gitc(r, "log", "-1", "--format=%cs", v)}
+            if where is None or where(rec):
+                rows.append(rec)
+    for rec in rows:
+        print(f"  {rec['repo']:24} {rec['ver']:10} {rec['date']}  {', '.join(rec['surface'])}")
+    say("OK" if rows else "WARNING", f"{len(rows)} release(s) match"); return OK if rows else WARNING
 
 
 def run_surface(root, s, key, env):
-    print(f"=== {s['name']}: {key} ===")
+    print(f"=== {s['name']}: {key} ===", flush=True)
     r = subprocess.run(["bash", "-c", s[key]], cwd=root, env=env)
     if r.returncode != 0:
         say("CRITICAL", f"{s['name']} {key} failed (exit {r.returncode}) -- stopping"); sys.exit(CRITICAL)
@@ -166,40 +391,73 @@ def cmd_lab(root, card):
     env = dict(os.environ)
     for s in card["spec"]["surfaces"]:
         run_surface(root, s, "lab", env)
-    say("OK", f"{len(card['spec']['surfaces'])} surface(s) on lab -- review, then hee release cut")
-    return OK
+    say("OK", f"{len(card['spec']['surfaces'])} surface(s) on lab -- review, then hee release -cut"); return OK
 
 
-def cmd_cut(root, card, version=None):
+def build_surfaces(root, card) -> list[str]:
+    """A repo-level spec.build (one build renders every surface, as
+    resume's convert.sh does) runs first; then each surface's own build."""
+    outputs = []
+    env = dict(os.environ)
+    if card["spec"].get("build"):
+        run_surface(root, {"name": "repo", "build": card["spec"]["build"]}, "build", env)
+        outputs += list(card["spec"].get("outputs") or [])
+    for s in card["spec"]["surfaces"]:
+        if s.get("build"):
+            run_surface(root, s, "build", env)
+            outputs += list(s.get("outputs") or [])
+    return outputs
+
+
+def cmd_cut(root, card, version=None, yes=False):
     if git("status", "--porcelain", "--untracked-files=no"):
         say("CRITICAL", "uncommitted changes -- cut from a clean main"); return CRITICAL
     sh("git", "fetch", "-q", "origin", "main")
     if git("rev-parse", "HEAD") != git("rev-parse", "origin/main"):
-        say("CRITICAL", "HEAD is not origin/main -- git switch main && git pull"); return CRITICAL
-    last = last_version(); commits = commits_since(last)
+        if yes:
+            say("CRITICAL", "HEAD is not origin/main -- git switch main && git pull"); return CRITICAL
+        say("WARNING", "HEAD is not origin/main -- a real cut would refuse; dry run continues")
+    info = probe(root); last = None if info["cur_ver"] == "unreleased" else info["cur_ver"]
+    commits = commits_since(root, last)
     if not commits:
         say("WARNING", f"nothing merged since {last} -- nothing to cut"); return WARNING
-    version = version or next_version(last, commits)
-    if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
+    version = version or info["next_ver"]
+    if not VER_RE.fullmatch(version):
         say("CRITICAL", f"not a version: {version} (vX.Y.Z)"); return CRITICAL
     branch = f"release/{version}"
     if git("branch", "--list", branch):
         say("CRITICAL", f"branch {branch} already exists here -- a cut in progress? delete it or finish it"); return CRITICAL
+    outputs = build_surfaces(root, card)
+    if outputs:
+        sh("git", "add", "-u", "--", *outputs)   # tracked build outputs only; ignored paths (dist/) would make plain add fail
+    built = git("diff", "--cached", "--stat")
+    if not yes:
+        print(f"  would cut {version} ({len(commits)} commit(s) since {last or 'the beginning'}, bump {info['bump']})")
+        print("  built into the release commit:" if built else "  no build outputs changed")
+        for line in built.splitlines():
+            print("   " + line)
+        # the tree was clean when we started (checked above), so restoring it
+        # is exactly a hard reset; a pathspec-by-pathspec checkout left staged
+        # build outputs behind once (2026-09-06)
+        sh("git", "reset", "-q", "--hard")
+        say("OK", "dry run -- nothing committed, tree restored; add -yes to cut"); return OK
     sh("git", "switch", "-q", "-c", branch)
-    # the changelog window: since the last release tag, or, for the first
-    # release, since the root commit (gen-changelog needs a start)
     since = last or git("rev-list", "--max-parents=0", "HEAD").splitlines()[-1]
-    r = subprocess.run([HEE, "gen-changelog", str(root), "--release", version[1:], "--since", since], cwd=root)
-    if r.returncode != 0:
+    if subprocess.run([HEE, "gen-changelog", str(root), "--release", version[1:], "--since", since], cwd=root).returncode != 0:
         say("CRITICAL", "hee gen-changelog --release failed"); return CRITICAL
     sh("git", "add", "CHANGELOG.md")
-    sh("git", "commit", "-q", "-m", f"chore(release): {version}\n\n{len(commits)} commit(s) since {last or 'the beginning'}; bump {bump_of(commits) if last else 'first release'}.")
+    body = f"{len(commits)} commit(s) since {last or 'the beginning'}; bump {info['bump']}."
+    if built:
+        body += "\n\nBuilt into this commit:\n" + built
+    sh("git", "commit", "-q", "-m", f"chore(release): {version}\n\n{body}")
     sh("git", "push", "-q", "-u", "origin", branch)
-    body = f"Release {version}: {len(commits)} commit(s) since {last or 'the beginning'}. Approving and merging this PR is the sign-off (HEE_POLICY 17); `hee release promote` then deploys every surface from the merged commit and signs the tag."
-    r = subprocess.run(["gh", "pr", "create", "--base", "main", "--title", f"chore(release): {version}", "--body", body], cwd=root, capture_output=True, text=True)
+    pr_body = (f"Release {version}: {len(commits)} commit(s) since {last or 'the beginning'}. Approving and merging this PR is the "
+               f"sign-off (HEE_POLICY 17); `hee release -promote -yes` then deploys every surface from the merged commit, "
+               f"signs the tag and publishes the release.")
+    r = subprocess.run(["gh", "pr", "create", "--base", "main", "--title", f"chore(release): {version}", "--body", pr_body],
+                       cwd=root, capture_output=True, text=True)
     url = (r.stdout.strip().splitlines() or [""])[-1]
-    say("OK", f"{version} cut -- approve and merge {url}, then hee release promote")
-    return OK
+    say("OK", f"{version} cut -- approve and merge {url}, then hee release -promote -yes"); return OK
 
 
 def release_version_at_head(root) -> str | None:
@@ -208,49 +466,25 @@ def release_version_at_head(root) -> str | None:
     return f"v{m.group(1)}" if m else None
 
 
-def cmd_promote(root, card):
-    if git("status", "--porcelain", "--untracked-files=no"):
-        say("CRITICAL", "uncommitted changes -- promote from origin/main"); return CRITICAL
-    sh("git", "fetch", "-q", "origin", "main", "--tags")
-    if git("rev-parse", "HEAD") != git("rev-parse", "origin/main"):
-        say("CRITICAL", "HEAD is not origin/main -- git switch main && git pull"); return CRITICAL
-    version = release_version_at_head(root)
-    if not version:
-        say("CRITICAL", "CHANGELOG.md has no released version header -- hee release cut first"); return CRITICAL
-    if git("tag", "-l", version):
-        say("CRITICAL", f"{version} is already tagged -- cut a new version first"); return CRITICAL
-    if commits_since(None) and not any(s.startswith(f"chore(release): {version}") for _, s in commits_since(last_version())):
-        say("CRITICAL", f"the {version} release commit is not on this main -- was the release PR merged?"); return CRITICAL
-    env = dict(os.environ); env["RELEASE_VERSION"] = version
-    cred = card["spec"].get("credential")
-    for s in card["spec"]["surfaces"]:
-        cmd = s["promote"]
-        if cred:
-            cmd = f"{HEE} cred -pass {cred['account']} -dir {cred['dir']} -exec bash -c {sh_quote(cmd)}"
-        run_surface(root, {**s, "promote": cmd}, "promote", env)
-    r = subprocess.run([HEE, "git", "tag", version, "-m", f"release {version}\nsurfaces: {', '.join(s['name'] for s in card['spec']['surfaces'])}", "HEAD", "--yes", "--push"], cwd=root)
-    if r.returncode != 0:
-        say("CRITICAL", f"surfaces deployed, but {version} could not be tagged -- hee git tag {version} -m 'release {version}' HEAD --yes --push"); return CRITICAL
-    say("OK", f"{version} promoted: {len(card['spec']['surfaces'])} surface(s), tagged and pushed")
-    return cmd_publish(root, card, version)
-
-
 def changelog_section(root, version) -> str:
     text = (root / "CHANGELOG.md").read_text() if (root / "CHANGELOG.md").is_file() else ""
     m = re.search(rf"^## \[{re.escape(version[1:])}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
     return m.group(1).strip() if m else ""
 
 
-def cmd_publish(root, card, version=None):
-    version = version or last_version()
+def cmd_publish(root, card, version=None, yes=False):
+    version = version or (version_tags(root) or [None])[0]
     if not version or not git("tag", "-l", version):
         say("CRITICAL", f"no tag {version or '(none)'} here -- promote first"); return CRITICAL
     r = subprocess.run(["gh", "release", "view", version], cwd=root, capture_output=True, text=True)
     if r.returncode == 0:
         say("OK", f"{version} is already published: {r.stdout.splitlines()[0] if r.stdout else version}"); return OK
+    if not yes:
+        say("OK", f"would publish the GitHub Release {version} from its CHANGELOG section -- add -yes"); return OK
     notes = changelog_section(root, version) or f"Release {version}."
     surfaces = ", ".join(s["name"] for s in card["spec"]["surfaces"])
-    notes += f"\n\n---\nSurfaces: {surfaces}. Tags: " + ", ".join(f"`prod/{s['name']}/{version}`" for s in card["spec"]["surfaces"]) + f", `{version}` (GPG-signed)."
+    notes += (f"\n\n---\nSurfaces: {surfaces}. Tags: " + ", ".join(f"`prod/{s['name']}/{version}`" for s in card["spec"]["surfaces"])
+              + f", `{version}` (GPG-signed).")
     r = subprocess.run(["gh", "release", "create", version, "--verify-tag", "--title", version, "--notes", notes, "--latest"],
                        cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
@@ -258,31 +492,131 @@ def cmd_publish(root, card, version=None):
     say("OK", f"{version} published: {r.stdout.strip()}"); return OK
 
 
-def sh_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
+def cmd_promote(root, card, yes=False):
+    if git("status", "--porcelain", "--untracked-files=no"):
+        say("CRITICAL", "uncommitted changes -- promote from origin/main"); return CRITICAL
+    sh("git", "fetch", "-q", "origin", "main", "--tags")
+    if git("rev-parse", "HEAD") != git("rev-parse", "origin/main"):
+        say("CRITICAL", "HEAD is not origin/main -- git switch main && git pull"); return CRITICAL
+    version = release_version_at_head(root)
+    if not version:
+        say("CRITICAL", "CHANGELOG.md has no released version header -- hee release -cut first"); return CRITICAL
+    if git("tag", "-l", version):
+        say("CRITICAL", f"{version} is already tagged -- cut a new version first"); return CRITICAL
+    if not any(s_.startswith(f"chore(release): {version}") for _, s_ in commits_since(root, None)[:50]):
+        say("CRITICAL", f"the {version} release commit is not on this main -- was the release PR merged?"); return CRITICAL
+    env = dict(os.environ); env["RELEASE_VERSION"] = version
+    cred = card["spec"].get("credential")
+    if not yes:
+        print(f"  would promote {version} from {git('rev-parse', '--short', 'HEAD')} ({len(card['spec']['surfaces'])} surface(s))"
+              + (f", under hee cred {cred['account']}" if cred else ""))
+        for s in card["spec"]["surfaces"]:
+            print(f"    {s['name']:18} {s['promote']}")
+        print(f"    then: hee git tag {version} ... --yes --push; gh release create {version}")
+        say("OK", "dry run -- add -yes to promote"); return OK
+    for s in card["spec"]["surfaces"]:
+        cmd = s["promote"]
+        if cred:
+            cmd = f"{HEE} cred -pass {cred['account']} -dir {cred['dir']} -exec bash -c {sh_quote(cmd)}"
+        run_surface(root, {**s, "promote": cmd}, "promote", env)
+    r = subprocess.run([HEE, "git", "tag", version, "-m", f"release {version}\nsurfaces: {', '.join(s['name'] for s in card['spec']['surfaces'])}",
+                        "HEAD", "--yes", "--push"], cwd=root)
+    if r.returncode != 0:
+        say("CRITICAL", f"surfaces deployed, but {version} could not be tagged -- hee git tag {version} -m 'release {version}' HEAD --yes --push"); return CRITICAL
+    say("OK", f"{version} promoted: {len(card['spec']['surfaces'])} surface(s), tagged and pushed")
+    return cmd_publish(root, card, version, yes=True)
+
+
+# ------------------------------------------------------------ dispatch
+def cmd_many(argv, repos: list[Path]) -> int:
+    worst = OK
+    lines = []
+    for r in repos:
+        print(f"\n##### {r.name} #####", flush=True)
+        rc = subprocess.run([sys.executable, __file__, *argv], cwd=r).returncode
+        label = {0: "🟢 OK", 1: "🟡 WARNING", 2: "🔴 CRITICAL", 3: "⚪ UNKNOWN"}.get(rc, f"exit {rc}")
+        lines.append(f"{label} {r.name}: {argv[0].lstrip('-')}")
+        worst = max(worst, rc if rc in (0, 1, 2, 3) else CRITICAL)
+    print("\n=== hee release " + " ".join(argv) + " ===", flush=True)
+    for line in lines:
+        print("  " + line)
+    return worst
+
+
+def parse_flags(argv):
+    verb, yes, version, repos, allrepos, where, unknown = None, False, None, None, False, None, []
+    it = iter(argv)
+    for a in it:
+        k = a.lstrip("-")
+        if k in VERBS and verb is None:
+            verb = k
+        elif k == "yes":
+            yes = True
+        elif k == "all":
+            allrepos = True
+        elif k in ("repos", "repo"):
+            repos = select_repos([n for n in next(it, "").split(",") if n])
+        elif k.startswith(("repos=", "repo=")):
+            repos = select_repos([n for n in k.split("=", 1)[1].split(",") if n])
+        elif k == "where":
+            where = next(it, "")
+        elif k.startswith("where="):
+            where = k.split("=", 1)[1]
+        elif k == "version":
+            version = next(it, None)
+        elif k.startswith("version="):
+            version = k.split("=", 1)[1]
+        elif VER_RE.fullmatch(k) and version is None:
+            version = k
+        elif a == "--dry-run":
+            pass
+        else:
+            unknown.append(a)
+    return verb, yes, version, repos, allrepos, where, unknown
 
 
 def main(argv):
     if not argv or help_wanted(argv):
         note_ignored(argv)       # the CLI contract: say when arguments after the help token are ignored
         print(__doc__.strip()); return OK
-    root = Path(git("rev-parse", "--show-toplevel"))
+    verb, yes, version, repos, allrepos, where, unknown = parse_flags(argv)
+    if unknown or not verb:
+        say("CRITICAL", "usage: hee release -status|-next|-find|-lab|-cut|-promote|-publish [-repos REGEX,.. | -all] "
+            "[-where EXPR] [-version vX.Y.Z] [-yes]" + (f" (unknown: {' '.join(unknown)})" if unknown else "")); return CRITICAL
+    pred = where_fn(where) if where else None
+    inside = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    here = Path(inside.stdout.strip()) if inside.returncode == 0 else None
+    if allrepos or (repos is None and (where or here is None)):
+        repos = checkouts_with_card()
+    if repos is not None:
+        if pred and verb != "find":
+            kept = [r for r in repos if pred(probe(r))]
+            for r in repos:
+                if r not in kept:
+                    print(f"  skip {r.name}: not matched by -where")
+            repos = kept
+        if not repos:
+            say("WARNING", "no repo selected" + (" after -where" if pred else "")); return WARNING
+        if verb == "find":
+            return cmd_find(repos, pred)
+        inner = [f"-{verb}"] + (["-yes"] if yes else []) + ([f"-version={version}"] if version else [])
+        return cmd_many(inner, repos)
+    root = here
     os.chdir(root)
     card = load_card(root)
-    cmd = argv[0]
-    if cmd == "status":
+    if verb == "find":
+        return cmd_find([root], pred)
+    if verb == "status":
         return cmd_status(root, card)
-    if cmd == "next":
+    if verb == "next":
         return cmd_next(root, card)
-    if cmd == "lab":
+    if verb == "lab":
         return cmd_lab(root, card)
-    if cmd == "cut":
-        return cmd_cut(root, card, argv[1] if len(argv) > 1 else None)
-    if cmd == "promote":
-        return cmd_promote(root, card)
-    if cmd == "publish":
-        return cmd_publish(root, card, argv[1] if len(argv) > 1 else None)
-    say("CRITICAL", f"unknown subcommand {cmd} -- status|next|lab|cut|promote|publish"); return CRITICAL
+    if verb == "cut":
+        return cmd_cut(root, card, version, yes=yes)
+    if verb == "promote":
+        return cmd_promote(root, card, yes=yes)
+    return cmd_publish(root, card, version, yes=yes)
 
 
 if __name__ == "__main__":
