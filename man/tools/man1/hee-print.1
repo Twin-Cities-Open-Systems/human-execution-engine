@@ -23,7 +23,7 @@ hee-print - render files nicely for terminal surfaces
 .IP
 .nf
 \f[C]
-hee-print [--no-header] [--animate] [--] FILE...
+hee-print [--no-header] [--animate] [--image-format FMT] [--] FILE...
 hee-print [--no-header] --stdin [--hint md|yaml|json|text]
 hee-print help
 \f[R]
@@ -44,10 +44,24 @@ nicer tool is not installed. Never prompts, never writes.
                    never a raw byte dump to the terminal
   other         -> bat/batcat -p --paging=never, else cat
 
-Images render as symbols by default, which works inside tmux over ssh
-on any terminal. A terminal with a real graphics protocol can do better:
-set HEE_PRINT_IMAGE_FORMAT to kitty, sixels or iterm (in heerc or the
-environment). Inside tmux that also needs \[ga]allow-passthrough on\[ga].
+Images: the format that is known to work is the default, measured from
+where the tool is running, not guessed (operator, 2026-09-06: \[dq]when you
+find what works in tmux and not, make it the default and add a switch
+to try something else\[dq]):
+
+  inside tmux, client declares \[ga]sixel\[ga]  -> sixels (tmux draws the image)
+  inside tmux, no \[ga]sixel\[ga] feature       -> symbols (tmux discards pixels;
+                                           declare it: dotfiles .tmux.conf
+                                           \[ga]set -ga terminal-features \[dq]*:sixel\[dq]\[ga])
+  kitty (KITTY_WINDOW_ID) / WezTerm     -> kitty
+  iTerm2                                -> iterm
+  Windows Terminal (WT_SESSION)         -> sixels
+  anything else                         -> chafa\[aq]s own guess
+
+--image-format FMT  try something else: symbols, sixels, kitty, iterm,
+                    or auto. HEE_PRINT_IMAGE_FORMAT (heerc or environment)
+                    is the same override, persistent. \[ga]--image-format
+                    show\[ga] prints the format that would be used and why.
 
 --no-header  suppress the per-file header printed when given several files
 --animate    let an animated image play (10 s) instead of showing a still

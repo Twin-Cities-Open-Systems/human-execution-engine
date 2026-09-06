@@ -24,7 +24,7 @@ usage() {
 hee-print -- render files nicely for terminal surfaces
 
 SYNOPSIS
-  hee-print [--no-header] [--animate] [--] FILE...
+  hee-print [--no-header] [--animate] [--image-format FMT] [--] FILE...
   hee-print [--no-header] --stdin [--hint md|yaml|json|text]
   hee-print help
 
@@ -41,10 +41,24 @@ DESCRIPTION
                      never a raw byte dump to the terminal
     other         -> bat/batcat -p --paging=never, else cat
 
-  Images render as symbols by default, which works inside tmux over ssh
-  on any terminal. A terminal with a real graphics protocol can do better:
-  set HEE_PRINT_IMAGE_FORMAT to kitty, sixels or iterm (in heerc or the
-  environment). Inside tmux that also needs `allow-passthrough on`.
+  Images: the format that is known to work is the default, measured from
+  where the tool is running, not guessed (operator, 2026-09-06: "when you
+  find what works in tmux and not, make it the default and add a switch
+  to try something else"):
+
+    inside tmux, client declares `sixel`  -> sixels (tmux draws the image)
+    inside tmux, no `sixel` feature       -> symbols (tmux discards pixels;
+                                             declare it: dotfiles .tmux.conf
+                                             `set -ga terminal-features "*:sixel"`)
+    kitty (KITTY_WINDOW_ID) / WezTerm     -> kitty
+    iTerm2                                -> iterm
+    Windows Terminal (WT_SESSION)         -> sixels
+    anything else                         -> chafa's own guess
+
+  --image-format FMT  try something else: symbols, sixels, kitty, iterm,
+                      or auto. HEE_PRINT_IMAGE_FORMAT (heerc or environment)
+                      is the same override, persistent. `--image-format
+                      show` prints the format that would be used and why.
 
   --no-header  suppress the per-file header printed when given several files
   --animate    let an animated image play (10 s) instead of showing a still
@@ -85,12 +99,37 @@ render_json() {
   if have jq; then jq . < "$1"; else cat "$1"; fi
 }
 
+# The image format that works here, and why -- prints "FORMAT<TAB>reason".
+# Precedence: --image-format, HEE_PRINT_IMAGE_FORMAT, then what is measured.
+image_format() {
+  if [ -n "${IMAGE_FORMAT:-}" ]; then printf '%s\t%s\n' "$IMAGE_FORMAT" "--image-format"; return; fi
+  if [ -n "${HEE_PRINT_IMAGE_FORMAT:-}" ]; then printf '%s\t%s\n' "$HEE_PRINT_IMAGE_FORMAT" "HEE_PRINT_IMAGE_FORMAT"; return; fi
+  if [ -n "${TMUX:-}" ] && have tmux; then
+    feats="$(tmux display -p '#{client_termfeatures}' 2>/dev/null)"
+    case ",$feats," in
+      *,sixel,*) printf 'sixels\ttmux client declares sixel\n' ;;
+      *) printf 'symbols\ttmux client declares no sixel feature -- pixels would be discarded\n' ;;
+    esac
+    return
+  fi
+  if [ -n "${KITTY_WINDOW_ID:-}" ]; then printf 'kitty\tKITTY_WINDOW_ID set\n'; return; fi
+  case "${TERM_PROGRAM:-}" in
+    WezTerm) printf 'kitty\tTERM_PROGRAM=WezTerm\n'; return ;;
+    iTerm.app) printf 'iterm\tTERM_PROGRAM=iTerm.app\n'; return ;;
+  esac
+  if [ -n "${WT_SESSION:-}" ]; then printf 'sixels\tWT_SESSION set (Windows Terminal)\n'; return; fi
+  printf 'auto\tno terminal signal -- chafa guesses\n'
+}
+
 render_image() {
   if have chafa; then
+    fmt="$(image_format | cut -f1)"
+    set -- "$1"
+    [ "$fmt" != "auto" ] && set -- --format="$fmt" "$1"
     if [ "${ANIMATE:-0}" -eq 1 ]; then
-      chafa --format="${HEE_PRINT_IMAGE_FORMAT:-symbols}" --animate=on --duration=10 "$1"
+      chafa "$@" --animate=on --duration=10
     else
-      chafa --format="${HEE_PRINT_IMAGE_FORMAT:-symbols}" --animate=off "$1"
+      chafa "$@" --animate=off
     fi
   else
     echo "⚠️ WARNING hee-print: no image renderer -- install chafa. Not dumping bytes." >&2
@@ -127,6 +166,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --no-header) no_header=1; shift ;;
     --animate) ANIMATE=1; shift ;;
+    --image-format)
+      [ $# -ge 2 ] || { echo "hee-print: --image-format needs a value (symbols|sixels|kitty|iterm|auto|show)" >&2; exit 2; }
+      if [ "$2" = "show" ]; then image_format | awk -F'\t' '{print "🟢 OK hee-print: image format " $1 " -- " $2}'; exit 0; fi
+      IMAGE_FORMAT="$2"; shift 2 ;;
     --stdin) stdin_mode=1; shift ;;
     --hint) hint="${2:-}"; shift 2 ;;
     --) shift; break ;;
