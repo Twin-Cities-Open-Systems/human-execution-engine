@@ -52,6 +52,8 @@ hee-release - lab, cut, promote: releases for one repo, a list, or the org
         metadata: { name: tcos-www-release, labels: { domain: release } }
         spec:
           credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
+          build: "./convert.sh"            # optional, repo-level: one build renders every surface (resume)
+          outputs: ["media", "dist"]       # its tracked outputs
           surfaces:
             - name: tcos-www
               build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit

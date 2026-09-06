@@ -71,6 +71,8 @@ REGEX OR GLOB -- WHICH, WHERE
     metadata: { name: tcos-www-release, labels: { domain: release } }
     spec:
       credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
+      build: \[dq]./convert.sh\[dq]            # optional, repo-level: one build renders every surface (resume)
+      outputs: [\[dq]media\[dq], \[dq]dist\[dq]]       # its tracked outputs
       surfaces:
         - name: tcos-www
           build: \[dq]python3 generate-public-site.py\[dq]     # optional: run by cut, outputs go into the release commit

@@ -46,6 +46,8 @@ DESCRIPTION
     metadata: { name: tcos-www-release, labels: { domain: release } }
     spec:
       credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
+      build: "./convert.sh"            # optional, repo-level: one build renders every surface (resume)
+      outputs: ["media", "dist"]       # its tracked outputs
       surfaces:
         - name: tcos-www
           build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
@@ -393,8 +395,13 @@ def cmd_lab(root, card):
 
 
 def build_surfaces(root, card) -> list[str]:
+    """A repo-level spec.build (one build renders every surface, as
+    resume's convert.sh does) runs first; then each surface's own build."""
     outputs = []
     env = dict(os.environ)
+    if card["spec"].get("build"):
+        run_surface(root, {"name": "repo", "build": card["spec"]["build"]}, "build", env)
+        outputs += list(card["spec"].get("outputs") or [])
     for s in card["spec"]["surfaces"]:
         if s.get("build"):
             run_surface(root, s, "build", env)
