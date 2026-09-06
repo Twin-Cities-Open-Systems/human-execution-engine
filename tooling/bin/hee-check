@@ -845,6 +845,14 @@ case "$cmd" in
     check_signatures "$_s_root" "$_s_resign" "$_s_key" ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
   all)      shift 2>/dev/null || true
+            # The CI gate. CRITICAL fails it; WARNING and UNKNOWN are
+            # reported and do not. Rule 16: a check that is red for a
+            # spelling in a comment or a signature it has no key for trains
+            # people to ignore red -- measured 2026-09-06: dotfiles and
+            # resume CI red on exactly those, with nothing broken. --strict
+            # restores "worst status wins" for an operator checking by hand.
+            _strict=0
+            if [ "${1:-}" = "--strict" ]; then _strict=1; shift; fi
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
             check_locale "${1:-.}"; c=$?
@@ -853,7 +861,18 @@ case "$cmd" in
             [ "$b" -gt "$_worst" ] && _worst=$b
             [ "$c" -gt "$_worst" ] && _worst=$c
             [ "$d" -gt "$_worst" ] && _worst=$d
-            exit "$_worst" ;;
+            _crit=0
+            for _r in "$a" "$b" "$c" "$d"; do [ "$_r" -eq 2 ] && _crit=1; done
+            if [ "$_crit" -eq 1 ]; then
+              echo "❌ CRITICAL hee-check all: at least one check is CRITICAL"; exit 2
+            fi
+            if [ "$_worst" -ne 0 ]; then
+              if [ "$_strict" -eq 1 ]; then
+                echo "⚠️ WARNING hee-check all: no CRITICAL; warnings above (--strict: failing on them)"; exit "$_worst"
+              fi
+              echo "⚠️ WARNING hee-check all: no CRITICAL; warnings above are advisory (--strict fails on them)"; exit 0
+            fi
+            echo "🟢 OK hee-check all: every check passed"; exit 0 ;;
   *)
     # Back-compat: hee-check took a bare ROOT before it had subcommands.
     # Decide by asking the filesystem, not by guessing at path shapes -- a

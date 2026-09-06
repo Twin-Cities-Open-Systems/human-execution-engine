@@ -23,7 +23,7 @@ hee-fields - hee-fields command
 .IP
 .nf
 \f[C]
-hee-fields [-h] {set,batch} ...
+hee-fields [-h] {audit,set,batch} ...
 \f[R]
 .fi
 .SH DESCRIPTION
@@ -31,9 +31,11 @@ hee-fields [-h] {set,batch} ...
 .nf
 \f[C]
 positional arguments:
-  {set,batch}
+  {audit,set,batch}
+    audit            which open issues are missing Roadmap fields, or are not
+                     on the Roadmap
 
 options:
-  -h, --help   show this help message and exit
+  -h, --help         show this help message and exit
 \f[R]
 .fi

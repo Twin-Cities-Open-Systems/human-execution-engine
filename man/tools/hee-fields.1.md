@@ -6,12 +6,14 @@ hee-fields - hee-fields command
 
 # SYNOPSIS
 
-    hee-fields [-h] {set,batch} ...
+    hee-fields [-h] {audit,set,batch} ...
 
 # DESCRIPTION
 
     positional arguments:
-      {set,batch}
+      {audit,set,batch}
+        audit            which open issues are missing Roadmap fields, or are not
+                         on the Roadmap
 
     options:
-      -h, --help   show this help message and exit
+      -h, --help         show this help message and exit
