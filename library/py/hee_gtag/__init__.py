@@ -26,13 +26,17 @@ import re
 
 PROD_GUARD_JS = "/\\.tcos\\.us$/.test(location.hostname) && !/\\.lab\\.tcos\\.us$/.test(location.hostname)"
 _ID_RE = re.compile(r"^G-[A-Z0-9]{6,12}$")
+# Where the org's branding card lives on an operator machine (every repo is
+# checked out under ~/git, the org's own convention). Used when
+# $HEE_BRANDING is unset, so a build on kiosk cannot silently lose the tag.
+DEFAULT_BRANDING = os.path.expanduser("~/git/tcos-audit/policy/branding.card.v1.yaml")
 
 
 def measurement_id(branding_path=None):
     """The GA4 measurement ID from the branding card. None when there is no
     card or the card has no analytics block -- callers decide whether that
     is a warning (skip the tag) or an error."""
-    path = branding_path or os.environ.get("HEE_BRANDING")
+    path = branding_path or os.environ.get("HEE_BRANDING") or DEFAULT_BRANDING
     if not path or not os.path.isfile(path):
         return None
     try:
@@ -68,12 +72,22 @@ def snippet(mid, indent=""):
 
 
 def snippet_or_empty(branding_path=None, indent="", warn=True):
-    """The snippet for the card's ID, or "" (with a WARNING on stderr) when
-    the card has none -- a page without analytics is still a correct page."""
+    """The snippet for the card's ID. Without an ID this is CRITICAL and
+    exits -- a page built without the tag is a page that will be deployed
+    without the tag. Real trigger, 2026-09-06: tcos-www's pages were
+    regenerated with $HEE_BRANDING unset, this printed a WARNING and
+    returned "", the tagless pages were committed and deployed, and GA
+    reported "tag not detected" on tcos.us. The two places a tagless page
+    is legitimate say so explicitly: CI (no private tcos-audit checkout,
+    the page is never deployed from there) and HEE_GTAG_OPTIONAL=1."""
     mid = measurement_id(branding_path)
     if not mid:
-        if warn:
-            import sys
-            print("⚠️  WARNING hee_gtag: no ga4_measurement_id on the branding card ($HEE_BRANDING) -- page ships without the Google tag", file=sys.stderr)
-        return ""
+        import sys
+        if os.environ.get("CI") or os.environ.get("HEE_GTAG_OPTIONAL") == "1":
+            if warn:
+                print("⚠️  WARNING hee_gtag: no ga4_measurement_id (branding card not found) -- page built without the Google tag; allowed here (CI / HEE_GTAG_OPTIONAL=1)", file=sys.stderr)
+            return ""
+        sys.exit("❌ CRITICAL hee_gtag: no ga4_measurement_id -- set $HEE_BRANDING to the branding card "
+                 f"(default {DEFAULT_BRANDING}). Refusing to build a page without the Google tag; "
+                 "HEE_GTAG_OPTIONAL=1 if that is really intended.")
     return snippet(mid, indent)
