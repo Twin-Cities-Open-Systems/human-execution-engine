@@ -135,6 +135,8 @@ def cmd_status(args):
     for c in lxcs:
         entry = {
             "vmid": c["vmid"], "name": c["name"], "status": c["status"],
+            # a template never runs; pvesh reports it as stopped (measured 2026-09-06, vmid 112)
+            "template": bool(c.get("template", 0)),
             "cpu_pct": round(c.get("cpu", 0) * 100, 1),
             "mem_mb": c.get("mem", 0) // 1024 // 1024,
             "maxmem_mb": c.get("maxmem", 0) // 1024 // 1024,
@@ -188,6 +190,8 @@ def cmd_warn(args):
         if ratio > args.overcommit_max:
             bad.append(f"storage {sname}: {ratio:.2f}x overcommit (max {args.overcommit_max})")
     for c in lxcs:
+        if c.get("template"):
+            continue  # a template never runs
         if c["status"] != "running":
             bad.append(f"lxc {c['vmid']} {c['name']}: status={c['status']}, not running")
     if bad:

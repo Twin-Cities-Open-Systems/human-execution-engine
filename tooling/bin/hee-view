@@ -404,6 +404,11 @@ def lab_section(args):
             print(f"{flag} storage {sname}: {s['overcommit_ratio']}x overcommit "
                   f"({s['allocated_gb']}GB / {s['pool_total_gb']}GB pool)")
         for c in health["lxc"]:
+            if c.get("template"):
+                # a template is stopped by definition; red here sent the reader
+                # to a container that is never meant to run (tcos-golden-tiny)
+                print(f"⚪ lxc {c['name']}: template")
+                continue
             flag = "🟢" if c["status"] == "running" else "🔴"
             print(f"{flag} lxc {c['name']}: {c['status']}")
         if args.nerd:
