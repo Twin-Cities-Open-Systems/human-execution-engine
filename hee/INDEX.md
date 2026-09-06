@@ -28,7 +28,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🃏 Card (22)</summary>
+<summary>🃏 Card (23)</summary>
 
 - 🟢 [OK] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
 - 🟢 [OK] `hee/cards/attribution-standing.method.card.v1.yaml`
@@ -48,6 +48,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `hee/cards/regns.seed.card.v1.yaml`
 - 🟢 [OK] `hee/cards/rg-scan.authority.seed.card.v1.yaml`
 - 🟢 [OK] `hee/cards/rg-scan.card.v1.yaml`
+- 🟢 [OK] `hee/cards/shared-branch-race.method.card.v1.yaml`
 - 🟢 [OK] `hee/cards/shellboss.argv-contracts.card.v1.yaml`
 - 🟢 [OK] `hee/cards/spencer-blank-generation-lyric.card.v1.yaml`
 - 🟢 [OK] `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`
