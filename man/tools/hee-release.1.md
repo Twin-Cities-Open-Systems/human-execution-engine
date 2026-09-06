@@ -10,7 +10,8 @@ hee-release - lab, cut, promote: a repo's release in three commands
     hee release next              the version the next cut gets (semver from the commits)
     hee release lab               build and push every surface to lab, gates included
     hee release cut [VERSION]     changelog + version commit on a release branch, as a PR
-    hee release promote           deploy every surface from the release commit, tag it
+    hee release promote           deploy every surface from the release commit, tag it, publish it
+    hee release publish [VERSION] the GitHub Release for an existing version tag, notes from CHANGELOG.md
     hee release help
 
 
@@ -38,8 +39,11 @@ hee-release - lab, cut, promote: a repo's release in three commands
 
     Each surface's promote command receives RELEASE_VERSION in its
     environment and tags prod/<surface>/<version>; the tool then signs
-    <version> itself on the release commit (hee git tag). Timestamps are
-    gone from tag names; they live in the tag's own date.
+    <version> itself on the release commit (hee git tag) and publishes the
+    GitHub Release for it, notes being that version's CHANGELOG section
+    (operator, 2026-09-06: "where is 1.0.0 release info" -- the first
+    releases were tags only). Timestamps are gone from tag names; they
+    live in the tag's own date.
 
 
 # FILES
