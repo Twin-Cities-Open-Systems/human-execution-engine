@@ -137,6 +137,36 @@ class Broken:
     suggestion: str   # a real path with the same basename, or ""
 
 
+_MANIFEST_CACHE: dict[str, set[str]] = {}
+
+
+def _evidence_manifest(root: str) -> set[str]:
+    """Paths whose bytes left git for the evidence store (hee#562, tier T2)
+    but are still referenced by records: hee/evidence/MANIFEST.sha256 lists
+    them as ``<sha256>  <size>  <path>``. A reference to a listed path is a
+    reference to real, verifiable bytes, not a broken link. Real trigger,
+    2026-09-06: tcos-plan-private#45 moved 56 evidence files out of git and
+    ~50 inventory records went CRITICAL for pointing at them."""
+    key = os.path.abspath(root)
+    if key in _MANIFEST_CACHE:
+        return _MANIFEST_CACHE[key]
+    paths: set[str] = set()
+    for name in ("hee/evidence/MANIFEST.sha256", "inventory/evidence/MANIFEST.sha256"):
+        mp = os.path.join(root, name)
+        if not os.path.isfile(mp):
+            continue
+        with open(mp, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(None, 2)
+                if len(parts) == 3:
+                    paths.add(parts[2].strip())
+    _MANIFEST_CACHE[key] = paths
+    return paths
+
+
 def _tracked(root: str) -> list[str]:
     out = subprocess.run(["git", "-C", root, "ls-files"],
                          capture_output=True, text=True)
@@ -192,7 +222,7 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
                 if not ref.endswith(REF_EXT) and "." not in tail:
                     continue
                 checked += 1
-                if ref in existing or os.path.exists(os.path.join(root, ref)):
+                if ref in existing or os.path.exists(os.path.join(root, ref)) or ref in _evidence_manifest(root):
                     continue
                 cands = by_base.get(os.path.basename(ref), [])
                 broken.append(Broken(ref, f, lineno,
