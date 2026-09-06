@@ -38,6 +38,8 @@ TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
 
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ] && . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
 
 usage() {
   cat <<'USAGE'
@@ -371,7 +373,7 @@ publish_gopher() {
   _stamp="$(date -u +%Y%m%dT%H%MZ)"
   if ! tar -C "$_src" -cf - . | ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$_host" \
       "set -e; d='$_dir'; [ -w \"\$d\" ] || { echo \"not writable: \$d (join the gopher group)\" >&2; exit 2; }; \
-       cp -a \"\$d\" \"\$d.bak-$_stamp\" && rm -rf \"\$d\"/* && tar -C \"\$d\" -xf - && \
+       mkdir -p \"\$HOME/gopher-man.bak\" && cp -a \"\$d\" \"\$HOME/gopher-man.bak/$_stamp\" && rm -rf \"\$d\"/* && tar -C \"\$d\" -xf - && \
        printf 'published by %s at %s\n' '$_sig' '$_stamp' > \"\$d/.published\""; then
     hee_status CRITICAL "gen-manpages: publish to $_host failed"; return 2
   fi
@@ -381,7 +383,7 @@ publish_gopher() {
   _page="$(printf '/man/man1/hee.txt\r\n' | timeout 8 nc "$_h" 70 2>/dev/null | head -1)"
   case "$_menu" in i*) ;; *) hee_status CRITICAL "gen-manpages: $_h:70 did not answer with the root menu after publish"; return 2 ;; esac
   [ -n "$_page" ] || { hee_status CRITICAL "gen-manpages: $_h:70 does not serve /man/man1/hee.txt after publish"; return 2; }
-  hee_status OK "gen-manpages: published $_n file(s) to $_host:$_dir (backup $_dir.bak-$_stamp), serving on $_h:70, by $_sig"
+  hee_status OK "gen-manpages: published $_n file(s) to $_host:$_dir (backup ~/gopher-man.bak/$_stamp on the host), serving on $_h:70, by $_sig"
 }
 
 if [ "$DO_GOPHER" -eq 1 ]; then
