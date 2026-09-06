@@ -304,9 +304,21 @@ def print_crawl(pages, broken, unlisted, nerd=False):
     if nerd:
         for u in unlisted:
             print(f"🟡 WARNING crawl: reachable but not in the site map: {u}")
-    flag = "🔴" if broken else ("🟡" if unlisted else "🟢")
-    print(f"{flag} crawl: {len(pages)} page(s) reached, {len(broken)} broken, {len(unlisted)} not in the site map"
-          + ("" if nerd or not unlisted else " (--nerd lists them)"))
+    # One line per network, so "lab is red, public is green" is visible
+    # without reading every finding. Operator, 2026-09-06: "it only checked
+    # the lab" -- it had crawled both; the summary did not say so.
+    def net(u):
+        h = urllib.parse.urlsplit(u).netloc
+        return "lab" if h.endswith(".lab.tcos.us") or h == "lab.tcos.us" else "public"
+    for which in ("public", "lab"):
+        pg = [u for u in pages if net(u) == which]
+        if not pg:
+            continue
+        br = [b for b in broken if net(b[1]) == which]
+        un = [u for u in unlisted if net(u) == which]
+        flag = "🔴" if br else ("🟡" if un else "🟢")
+        print(f"{flag} crawl {which}: {len(pg)} page(s) reached, {len(br)} broken, {len(un)} not in the site map"
+              + ("" if nerd or not un else " (--nerd lists them)"))
     return 2 if broken else (1 if unlisted else 0)
 
 
