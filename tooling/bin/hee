@@ -68,6 +68,7 @@ DESCRIPTION
     hee lint [--mode warn|error]
     hee hooks install [--repo <path>]
     hee git merge [-r <id/range/regex>] [--squash|--merge|--rebase] [--org <org>] [--author <login>]
+    hee git tag NAME -m MESSAGE [COMMIT] [--key ID] [--push] [--yes]   GPG-signed tag with the key that is really yours
     hee ssh send-keys -source USER@HOST -dest USER@HOST [--generate]
     hee contract review [--dump [json]] [--gopher-menu]
     hee list
@@ -101,7 +102,7 @@ TXT
 # only discover commands by reading source or already knowing the name.
 list_commands() {
   echo "built-in:"
-  echo "  lint, hooks install, git merge, ssh send-keys, contract review, list, help"
+  echo "  lint, hooks install, git merge, git tag, ssh send-keys, contract review, list, help"
   echo ""
   echo "extensions found:"
   found=""
@@ -245,6 +246,9 @@ case "${cmd}" in
           fi
         fi
         exec "${TOOL_ROOT}/tooling/bin/hee-git-merge" "$@"
+        ;;
+      tag)
+        exec "${TOOL_ROOT}/tooling/bin/hee-git-tag" "$@"
         ;;
       *)
         usage
