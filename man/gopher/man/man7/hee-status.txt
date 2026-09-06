@@ -20,7 +20,7 @@ DESCRIPTION
 ICON AND LABEL, NEVER COLOUR ALONE
        Every line ships an icon and a text  label.  Icons  are  shape-distinct
        (check,  triangle,  cross, question) rather than hue-only, so they sur‐
-       vive colour blindness, a monochrome pipe, and a log file.
+       vive color blindness, a monochrome pipe, and a log file.
 
        Machine  consumers  parse  the  label,  never  the   icon.    Decoupled
        2026-08-31 so presentation can change without breaking parsers.
