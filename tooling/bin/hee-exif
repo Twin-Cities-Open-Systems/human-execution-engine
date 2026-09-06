@@ -131,7 +131,9 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
+import shlex
 import subprocess
 import sys
 import urllib.request
@@ -192,16 +194,60 @@ def cmd_read(args):
         return _cmd_read(args)
 
 
+def unpack_provenance(desc):
+    """'provenance: k=v; k=v' -> an ordered dict. The writer joins with '; '
+    and escapes ';' out of values, so splitting on it is exact rather than
+    hopeful."""
+    body = desc.split("provenance:", 1)[1] if "provenance:" in desc else desc
+    out = {}
+    for part in body.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
 def _cmd_read(args):
     require_exiftool()
+    if getattr(args, "provenance", False):
+        proc = run(["exiftool", "-s", "-s", "-s", "-XMP-dc:Description", args.file])
+        desc = proc.stdout.strip()
+        if not desc:
+            print(f"# no provenance on {Path(args.file).name}", file=sys.stderr)
+            return 1
+        fields = unpack_provenance(desc)
+        fmt = getattr(args, "format", "yaml")
+        if fmt == "json":
+            print(json.dumps(fields, indent=2))
+        elif fmt == "tsv":
+            for k, v in fields.items():
+                print(f"{k}\t{v}")
+        elif fmt == "env":
+            # upper-cased and prefixed so an eval cannot clobber PATH or HOME
+            for k, v in fields.items():
+                key = "HEE_PROV_" + re.sub(r"[^A-Za-z0-9]", "_", k).upper()
+                print(f"{key}={shlex.quote(v)}")
+        else:
+            try:
+                import yaml
+                sys.stdout.write(yaml.safe_dump(fields, sort_keys=False, default_flow_style=False, allow_unicode=True))
+            except ImportError:
+                for k, v in fields.items():
+                    print(f'{k}: "{v}"')
+        return 0
     fmt = ["-j"] if args.json else ["-a", "-G1"]
     proc = run(["exiftool", *fmt, args.file])
     if proc.returncode != 0:
         sys.exit(f"hee-exif: exiftool failed:\n{proc.stderr}")
     if args.json:
-        print(json.dumps(json.loads(proc.stdout)[0], indent=2))
+        d = json.loads(proc.stdout)[0]
+        for key in ("Directory", "SourceFile"):
+            if key in d:
+                d[key] = _relative_dir(d[key])
+        print(json.dumps(d, indent=2))
     else:
-        print(proc.stdout)
+        print(_strip_absolute_dir(proc.stdout))
 
 
 def get_agent_signature_fields():
@@ -333,6 +379,32 @@ def relative_label(path, anchor_file):
     # scratch dir while the source stayed on the share). Beside or below
     # the stamped file: keep the path. Anywhere else: just the name.
     return p.name if rel.startswith("..") else rel
+
+
+def _relative_dir(value):
+    """Never hand back an absolute directory. Under the cwd -> relative to it;
+    anywhere else -> the last component only. A '../../../mnt/...' form is an
+    absolute path in disguise, the same judgement relative_label already makes."""
+    p = Path(value)
+    if not p.is_absolute():
+        return value
+    try:
+        rel = os.path.relpath(p, Path.cwd())
+    except ValueError:
+        return p.name
+    return p.name if rel.startswith("..") else rel
+
+
+def _strip_absolute_dir(text):
+    """Rewrite exiftool's own Directory/SourceFile lines to a relative form.
+    These are generated at read time, not stored in the file, so rewriting the
+    display loses nothing -- and an absolute path pasted into a ticket, a chat
+    or an evidence file is how a private layout gets published by accident."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^(\[\w+\]\s+(?:Directory|Source File)\s+:\s+)(\S.*)$", line)
+        out.append(m.group(1) + _relative_dir(m.group(2).strip()) if m else line)
+    return "\n".join(out)
 
 
 def load_branding(path):
@@ -574,6 +646,13 @@ def cmd_provenance(args):
         if "=" not in item:
             sys.exit(f"hee-exif provenance: --kv wants k=v, got {item!r}")
         k, v = item.split("=", 1)
+        # An absolute filesystem path in a kv value is a private layout leak
+        # the moment the image is published, and unlike the read side it is
+        # written INTO the file and travels with it. --source and --job have
+        # always relativized; --kv did not, which is the inconsistency rather
+        # than the design. URLs are untouched: they start with a scheme.
+        if v.startswith("/"):
+            v = relative_label(v, anchor_file)
         kv.append((k, v))
     kv.append(("signed", sig_tag()))
     desc = "provenance: " + "; ".join(f"{k}={v}" for k, v in kv)
@@ -754,7 +833,12 @@ def main():
 
     r = sub.add_parser("read", help="dump all real EXIF/metadata for a file")
     r.add_argument("file")
-    r.add_argument("--json", action="store_true")
+    r.add_argument("--json", action="store_true", help="exiftool's full record as JSON")
+    r.add_argument("--provenance", action="store_true",
+                   help="just the provenance line, unpacked -- pipe it to yq")
+    r.add_argument("--format", choices=["yaml", "json", "tsv", "env"], default="yaml",
+                   help="with --provenance: yaml (default, for yq and hee print --hint yaml), "
+                        "json (jq), tsv (cut, awk, join), env (eval in a shell)")
 
     s = sub.add_parser("sign", help="write the real agent-instance-signature block + optional Artist/Copyright")
     s.add_argument("file")
@@ -815,8 +899,14 @@ def main():
     # parsing -- so an unrelated argument errors first and the help never
     # prints. Measured: 8 tools exited non-zero for --help for exactly this
     # reason. See library/py/hee_cli.
-    if help_wanted(sys.argv[1:]):
-        note_ignored(sys.argv[1:])
+    # ...but a SUBCOMMAND's --help must reach that subparser, or its own flags
+    # are undiscoverable. Measured 2026-09-06: `hee exif read --help` printed
+    # the top-level page, so --json existed and nobody could find it, and the
+    # operator reached for grep and yq instead.
+    argv = sys.argv[1:]
+    _subs = set(sub.choices)
+    if help_wanted(argv) and not (argv and argv[0] in _subs):
+        note_ignored(argv)
         ap.print_help()
         return 0
 
