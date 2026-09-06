@@ -554,6 +554,7 @@ def main():
     sites_ok = True
     if args.sites:
         sites, err = load_sitemap(args.sitemap)
+        all_sites = list(sites) if not err else []
         if not err:
             for w in lint_sitemap(sites):
                 print(f"🟡 WARNING sitemap: {w}")
@@ -572,7 +573,9 @@ def main():
                 print_sites_condensed(results)
             sites_ok = all(r["code"] and 200 <= r["code"] < 400 for r in results)
             if args.crawl:
-                pages, broken, unlisted = crawl_sites(sites)
+                # crawl the scoped sites; judge coverage against the whole map,
+                # so a lab page is covered by its prod twin's entry
+                pages, broken, unlisted = crawl_sites(sites, listed=all_sites)
                 if print_crawl(pages, broken, unlisted, nerd=args.nerd) == 2:
                     sites_ok = False
 
