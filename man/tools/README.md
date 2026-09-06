@@ -10,6 +10,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-cache-prune`](hee-cache-prune.1.md)
 - [`hee-check-og`](hee-check-og.1.md)
 - [`hee-check`](hee-check.1.md)
+- [`hee-completion`](hee-completion.1.md)
 - [`hee-con`](hee-con.1.md)
 - [`hee-contract-review`](hee-contract-review.1.md)
 - [`hee-dns`](hee-dns.1.md)

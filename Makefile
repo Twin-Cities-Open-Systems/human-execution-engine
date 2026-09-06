@@ -25,7 +25,7 @@ help:
 	@echo "  uninstall-cli          remove installed tools from $${HEE_PREFIX}/bin"
 	@echo "  install-man            install hee(1) manpage into $(MAN1DIR)"
 	@echo "  uninstall-man          uninstall hee(1) manpage"
-	@echo "  install-bash-completion install bash completion into $(COMPDIR)/hee"
+	@echo "  install-bash-completion install hee completion (candidates + meanings from --help) into $(COMPDIR)/hee"
 	@echo "  uninstall-bash-completion uninstall bash completion"
 	@echo "  doctor                 show env + PATH + unfuck hints"
 	@echo "  test-drive             create test-drive branch + repo-local install + generate site (no serve)"
@@ -66,11 +66,8 @@ uninstall-man:
 
 .PHONY: install-bash-completion
 install-bash-completion:
-	@mkdir -p "$(COMPDIR)"
-	@cp -f "$(REPO_ROOT)/completions/bash/hee" "$(COMPDIR)/hee"
-	@echo "🟢 installed: $(COMPDIR)/hee"
-	@echo "🟦 loader: ~/.local/bin/hee-bash-completion-load (source from ~/.bashrc)"
-	@echo "🟦 reload: source ~/.local/bin/hee-bash-completion-load"
+	@# generated from every tool's own --help; dotfiles' .bashrc loads $(COMPDIR)/hee
+	@"$(REPO_ROOT)/tooling/bin/hee-completion" install
 
 .PHONY: uninstall-bash-completion
 uninstall-bash-completion:
