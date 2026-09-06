@@ -107,6 +107,10 @@ def main() -> int:
         s = session()
         out["session"] = s
         if not want_json:
+            if "--tag" in args:
+                # The bare signature tag, for scripts: deploy messages, prod
+                # tags, exif provenance. Nothing else on the line.
+                print(s["sig_tag"]); return 0
             if "--signature" in args:
                 print(f"\n---\n<sub>signed: session `{s['session_id']}` · pid `{s['pid']}` · "
                       f"tmux `{s['tmux_uri']}` · {s.get('gh_actor','?')}@{s['host']} · "
