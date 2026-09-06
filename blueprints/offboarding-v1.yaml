@@ -1,0 +1,114 @@
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: offboarding-v1
+  description: "How a party leaves. The mirror of hiring-handshake-v1: that blueprint grants ability and records presence, this one revokes ability and records absence, in that order. Written after measuring what actually happened when nobody had a process -- three roster entries claimed an active status for weeks after the accounts were gone, and a departed party's production host was still serving."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: governance
+    topic: offboarding
+    artifact: blueprint
+  annotations:
+    inuid: "bb91f07d9af0c853b7b031866d11217cb8c23f924ce71d6966995133d64a703b"
+    inuid_seed: "hee-blueprint://core/offboarding/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-09-06T00:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+
+  problem:
+    - "Offboarding existed as a list of things somebody remembered to do, so it was done partially and then stopped being done at all. Measured 2026-09-06 with hee check roster: 3 of 7 roster entries claimed an active status that reality did not support, the oldest by three weeks."
+    - "The failure is not that people forgot. It is that appearance was easier to update than ability, so the visible half got done and the half that actually matters did not. A page that says someone is gone while their access still works is worse than no page, because it reports the job as finished."
+
+  ordering_principle: "Revoke ability before updating appearance. Access is ability; the roster and the people page are appearance. Any order that updates appearance first is theater, and it reads as complete to everyone who looks."
+
+  actors:
+    boss:
+      role: "the party the departing one reported to; runs the steps and files the evidence"
+    oper:
+      role: "the human whose signature changes the contract state -- the act itself, not a rubber stamp on it"
+    departing:
+      role: "may be unreachable, uncooperative, or already gone. The process must complete without their participation, which is why nothing here depends on them handing anything over."
+
+  ceremony:
+    - step: 1
+      name: measure
+      does: "hee check roster, plus a search for every surface naming the party"
+      why: "start from what is, not from what anyone remembers. Every later step is scoped by this output, and the same command at the end is what says the work is done."
+    - step: 2
+      name: revoke-ability
+      does: "org membership, API tokens, SSH CA certificates, host accounts and sudoers, access lists, and GPG key revocation where the private key is reachable"
+      why: "this is the only step with a security deadline. Everything after it is bookkeeping. If the process is interrupted, it must be interrupted after this."
+      note: "sealed secrets are CHECKED here, never assumed. Measured in the 2026-09 instance: recipients were only the remaining parties' keys, so nothing needed rotation -- but that was a measurement, and the next case may differ."
+    - step: 3
+      name: change-authority
+      does: "the hire-authority contract moves to status terminated, signed by the oper"
+      why: "the signature is the act. The roster is its record, not its cause. A roster edited without this is an assertion nobody made."
+    - step: 4
+      name: record-absence
+      does: "roster status to departed with departed_at; every derived surface regenerates from it"
+      why: "one edit, many surfaces. If a surface needs its own hand-edit, that surface is not derived and should be."
+    - step: 5
+      name: retire-artifacts
+      does: "hosts, workers, DNS records, and the release card surfaces that rebuild them"
+      why: "a surface left in the release card is rebuilt by the next promote, so removing the host without removing the surface undoes itself on the next release."
+    - step: 6
+      name: leave-history
+      does: "nothing"
+      why: "contracts, changelogs, man pages, past reviews and the credit in a security fix all keep the name. A departure is not a deletion, and rewriting history to remove someone destroys the audit trail that makes the rest of this trustworthy."
+    - step: 7
+      name: reconcile
+      does: "hee check roster again; it must return OK"
+      why: "the process ends with a measurement, not with a belief."
+
+  invariants:
+    - "Ability is revoked before appearance is updated."
+    - "The signed contract state change is the act; every other record follows it."
+    - "History is never rewritten. The departed keep credit for what they did."
+    - "A departure with no date is not finished."
+    - "No step depends on the departing party's cooperation."
+    - "The process ends with the same check it started with, and that check must pass."
+
+  status_vocabulary:
+    description: "roster status values, and which of them assert presence. hee check roster treats the first three as claims about the present and holds them to reality."
+    asserts_presence: [verified, ratified, peer]
+    does_not: [proposed, departed]
+    departed:
+      meaning: "was a party, is not now. Keeps their contracts, their history and their credit; holds no access and appears on derived surfaces as former."
+      requires: [departed_at]
+      note: "new term, introduced by this blueprint. GLOSSARY's Ratify entry knows only proposed and ratified, which is why every departure so far had to be recorded by leaving a stale ratified in place. That gap is the direct cause of the drift this blueprint was written after."
+
+  footguns:
+    - id: appearance-first
+      risk: "the people page is updated, the access is not, and the job reads as done to everyone including the person who did it"
+      mitigation: "ordering_principle, and step 2 is the only step with a deadline"
+    - id: unreconciled-roster
+      risk: "nothing checks the roster, so it drifts and is then cited as authority"
+      mitigation: "hee check roster, in CI, not only at offboarding time"
+      measured: "3 of 7 entries wrong, oldest by three weeks, 2026-09-06"
+    - id: host-outlives-party
+      risk: "a departed party's production host keeps serving"
+      measured: "claudesec.media.tcos.us returned 200 weeks after the account ceased to exist"
+      mitigation: "step 5, including the release card surface"
+    - id: surface-rebuilt-by-release
+      risk: "the host is removed, then the next promote rebuilds it from the release card"
+      mitigation: "step 5 removes the surface in the same change as the host"
+    - id: codeowners-blocks-work
+      risk: "a departed owner is still required to review, so pull requests cannot merge"
+      measured: "glass-ops review was blocked by exactly this"
+      mitigation: "step 2 includes ownership entries, and the org fallback governs afterwards"
+    - id: assumed-secret-safety
+      risk: "sealed secrets are assumed not to include the departing party rather than checked"
+      mitigation: "step 2 checks recipients and records the measurement either way"
+    - id: deletion-as-tidiness
+      risk: "someone removes the departed party's history to make surfaces clean, destroying the audit trail"
+      mitigation: "step 6, stated as an action of doing nothing so that it is visible as a decision"
+
+  prerequisites_not_yet_built:
+    - "hee check roster in CI for the repo that holds the roster, so drift is caught between departures rather than during one."
+    - "A terminated state for hire-authority contracts. HEE_POLICY and GLOSSARY's Ratify entry know proposed and ratified only."
+    - "Automated reconciliation of derived surfaces against roster status, so step 4 is provably one edit."
