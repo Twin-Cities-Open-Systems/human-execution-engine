@@ -31,7 +31,8 @@ hee-print - render files nicely for terminal surfaces
     find what works in tmux and not, make it the default and add a switch
     to try something else"):
 
-      inside tmux, client declares `sixel`  -> sixels (tmux draws the image)
+      inside tmux, client declares `sixel`  -> sixels, raw (tmux draws them;
+                                               chafa's tmux passthrough is off)
       inside tmux, no `sixel` feature       -> symbols (tmux discards pixels;
                                                declare it: dotfiles .tmux.conf
                                                `set -ga terminal-features "*:sixel"`)

@@ -46,7 +46,8 @@ DESCRIPTION
   find what works in tmux and not, make it the default and add a switch
   to try something else"):
 
-    inside tmux, client declares `sixel`  -> sixels (tmux draws the image)
+    inside tmux, client declares `sixel`  -> sixels, raw (tmux draws them;
+                                             chafa's tmux passthrough is off)
     inside tmux, no `sixel` feature       -> symbols (tmux discards pixels;
                                              declare it: dotfiles .tmux.conf
                                              `set -ga terminal-features "*:sixel"`)
@@ -126,6 +127,15 @@ render_image() {
     fmt="$(image_format | cut -f1)"
     set -- "$1"
     [ "$fmt" != "auto" ] && set -- --format="$fmt" "$1"
+    # Inside tmux chafa wraps sixels in a tmux passthrough envelope by
+    # default (output begins ESC P tmux;), handing the blob past tmux to the
+    # outer terminal. Measured 2026-09-06: that drew nothing. A tmux that
+    # declares the sixel feature parses raw sixels and draws them itself,
+    # so passthrough must be OFF there. Left on for kitty/iterm, which tmux
+    # cannot draw and must pass through.
+    if [ -n "${TMUX:-}" ] && [ "$fmt" = "sixels" ]; then
+      set -- --passthrough=none "$@"
+    fi
     if [ "${ANIMATE:-0}" -eq 1 ]; then
       chafa "$@" --animate=on --duration=10
     else
