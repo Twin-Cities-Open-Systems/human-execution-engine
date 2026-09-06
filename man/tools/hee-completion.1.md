@@ -42,6 +42,19 @@ hee-completion - bash completion for hee that teaches while it completes
     ~/.local/share/bash-completion/completions/hee       what `install` writes; dotfiles' .bashrc loads it
 
 
+# EXIT STATUS
+
+    Nagios plugin convention, like every other hee tool.
+    0 OK        the script printed, the file installed, or candidates emitted
+    2 CRITICAL  unrecognized argument
+    3 UNKNOWN   reserved
+
+    `-words` exits 0 even when it has nothing to suggest. At the prompt a
+    failed completion and a completion with no candidates look identical, and
+    bash discards the exit code either way -- so it reports success and prints
+    nothing rather than a status nobody can observe.
+
+
 # SEE ALSO
 
     hee-gen-manpages(1), hee-check(1) (cli: every tool's help obeys the contract)
