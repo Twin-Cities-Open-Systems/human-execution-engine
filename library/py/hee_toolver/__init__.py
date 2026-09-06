@@ -602,8 +602,28 @@ def session() -> dict:
     # it has the agent form's shape (8 hex) and sorts beside it.
     if out["session_id"] == "unknown":
         import hashlib
-        seed = os.environ.get("XDG_SESSION_ID") or ""
-        if not seed:
+        # First choice, operator 2026-09-06: "should use index/_.yaml [when
+        # it] is defined" -- the oper's SOA anchor (~/.hee/index/_.yaml,
+        # hee-soa.v1). Its stool hash IS this oper-on-this-host's durable
+        # identity; a label built from it composes what the fleet already
+        # has (contract extension-path) instead of inventing a seed. Still
+        # a label, never the authority (short_token_never_authoritative).
+        anchor = os.path.join(os.path.expanduser("~"), ".hee", "index", "_.yaml")
+        soa = None
+        if os.path.isfile(anchor):
+            try:
+                import yaml
+                soa = (yaml.safe_load(open(anchor)) or {}).get("yaml.v0", {}).get("hee_soa") or None
+            except Exception:
+                soa = None
+        if soa and soa.get("stool_hash_full"):
+            out["session_id"] = "soa-" + str(soa["stool_hash_full"])[:8]
+            out["session_seed"] = "soa-anchor"
+            out["soa_anchor"] = anchor
+            if soa.get("host") and soa["host"] != out["host"] or soa.get("user") and soa["user"] != out["user"]:
+                out["soa_mismatch"] = f"anchor says {soa.get('user')}@{soa.get('host')}, running as {out['user']}@{out['host']}"
+        seed = "" if soa and soa.get("stool_hash_full") else (os.environ.get("XDG_SESSION_ID") or "")
+        if not seed and out["session_id"] == "unknown":
             try:
                 tty = os.ttyname(0) if os.isatty(0) else ""
             except OSError:
@@ -613,7 +633,7 @@ def session() -> dict:
         if seed.strip("|"):
             out["session_id"] = "human-" + hashlib.sha256(f"{out['host']}|{out['user']}|{seed}".encode()).hexdigest()[:8]
             out["session_seed"] = "logind" if os.environ.get("XDG_SESSION_ID") else "tty+login-time"
-    sid8 = out["session_id"].split("-", 1)[1][:8] if out["session_id"].startswith("human-") else out["session_id"][:8]
+    sid8 = out["session_id"].split("-", 1)[1][:8] if out["session_id"].startswith(("human-", "soa-")) else out["session_id"][:8]
     base = "-".join(
         p for p in (
             out["host"].split(".", 1)[0] or out["host"],
