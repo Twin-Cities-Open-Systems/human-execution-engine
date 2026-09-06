@@ -29,7 +29,7 @@ spec:
       description: "trusted third party who can vouch for both sides -- a role, not a fixed identity. Designed so a real-world notary can fill it for future higher-stakes contracts, not just spencer."
       types_governed_by:
         registry: hee/registries/party-kind.registry.v1.yaml
-        registry_inuid: "5c2a9e7f4b1d8630a7e2f9c4d1b8e6a3f0c5d2b9e7a4f1c8d5b2e9f6a3c0d7b4"
+        registry_inuid: "6e662a4325413f3af9b056a1baba88eb259a96d824e05a04b808b24490422f9d"
         note: "each witness_<X> name below is 'witness' + an active party-kind value from that registry, not vocabulary invented locally. Adding a fourth witness type means promoting a new party-kind there first, not editing this list directly."
       types:
         witness_machine: "another agent in the fleet, verification limited to what's technically available (SOA/stool-hash, GPG, etc.)"

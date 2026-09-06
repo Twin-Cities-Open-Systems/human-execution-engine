@@ -10,7 +10,7 @@ metadata:
     topic: party-kind-registry
     artifact: registry
   annotations:
-    inuid: "5c2a9e7f4b1d8630a7e2f9c4d1b8e6a3f0c5d2b9e7a4f1c8d5b2e9f6a3c0d7b4"
+    inuid: "6e662a4325413f3af9b056a1baba88eb259a96d824e05a04b808b24490422f9d"
     inuid_seed: "hee-registry://core/party-kind/v1"
     inuid_derivation: "sha256(inuid_seed)"
     updated-at: "2026-08-13T00:00:00Z"
@@ -47,5 +47,6 @@ spec:
     - "future actor/party/reporter fields anywhere in HEE (contracts, evidence records, signal taxonomy) should reference this registry the same way rather than re-deriving human/machine/court locally."
 
   known_gaps:
+    - "inuid corrected 2026-09-06. This file recorded an inuid that did not reproduce from its own declared derivation, sha256(inuid_seed) -- the value was written by hand rather than derived, in the one object whose whole job is to be authoritative about a term set. Found by sweeping every HEE object in the org: 19 of 21 reproduced exactly, this one and its copy in a stale worktree did not. Corrected to the real sha256 of the seed, and blueprints/hiring-handshake-v1.yaml's registry_inuid citation moved with it so the reference stays valid. hee-lint now checks this on every object that declares the derivation, so it cannot recur silently."
     - "hee.kind-registry.contract.v1.yaml's active_kinds did not include 'Registry' until this same work session (2026-08-13) -- hee/registries/dir-groups.registry.v1.yaml had already used kind=Registry in production, and hee.kind-registry.contract.v1.yaml itself failed its own envelope schema (missing required metadata.labels.hee.object) until fixed alongside this file. Both fixed together rather than building a new Registry object on top of an inconsistent foundation."
     - "not yet wired into CI (ci/doctrine/validate_doctrine.py doesn't currently check party-kind usage against this registry, same gap as the kind-registry enforcement noted in fleet.dir-layout.contract.v1.yaml)."

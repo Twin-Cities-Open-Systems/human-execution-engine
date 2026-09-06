@@ -20,8 +20,11 @@ DESCRIPTION
   across a mixed repo.
 
   Checks: metadata present and parseable, metadata.annotations present,
-  metadata.annotations.inuid present, and a null inuid accompanied by
-  inuid_null_reason.
+  metadata.annotations.inuid present, a null inuid accompanied by
+  inuid_null_reason, and -- when the object declares
+  inuid_derivation: sha256(inuid_seed) -- that the recorded inuid actually
+  reproduces from its own seed. An identity hash that does not derive from
+  the seed it names is a determinism claim the object cannot support.
 
 OPTIONS
   --mode warn    report findings, exit 1 if any (default)
@@ -146,6 +149,23 @@ check_file() {
     if ($inuid_val eq "null" || $inuid_val eq "~") {
       if (!$null_reason) {
         print "🔴 CRITICAL: inuid is null but missing inuid_null_reason: $ARGV\n";
+        exit 3;
+      }
+    }
+
+    # An inuid that declares sha256(inuid_seed) must actually reproduce from it.
+    # Determinism is one of this project stated top-level priorities; an
+    # identity hash that does not derive from its own stated seed is a claim
+    # the object cannot support. Measured 2026-09-06: 19 of 21 objects across
+    # the org reproduced, one did not.
+    my ($deriv) = $ann =~ /(?:^|\n)\s*inuid_derivation:\s*"?(.*?)"?\s*(?:\n|$)/s;
+    my ($seed)  = $ann =~ /(?:^|\n)\s*inuid_seed:\s*"?(.*?)"?\s*(?:\n|$)/s;
+    my ($hex)   = $inuid_val =~ /^"?([0-9a-f]{64})"?$/;
+    if (defined $deriv && defined $seed && defined $hex && $deriv =~ /sha256\(inuid_seed\)/) {
+      require Digest::SHA;
+      my $calc = Digest::SHA::sha256_hex($seed);
+      if ($calc ne $hex) {
+        print "🔴 CRITICAL: inuid does not reproduce from inuid_seed: $ARGV\n";
         exit 3;
       }
     }
