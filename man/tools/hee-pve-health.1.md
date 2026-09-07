@@ -6,12 +6,12 @@ hee-pve-health - hee-pve-health command
 
 # SYNOPSIS
 
-    hee-pve-health [-h] {status,warn} ...
+    hee-pve-health [-h] {status,inventory,warn} ...
 
 # DESCRIPTION
 
     positional arguments:
-      {status,warn}
+      {status,inventory,warn}
 
     options:
-      -h, --help     show this help message and exit
+      -h, --help            show this help message and exit
