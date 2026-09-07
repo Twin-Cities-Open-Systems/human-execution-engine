@@ -180,6 +180,10 @@ EXIT STATUS
 ENVIRONMENT
   HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
   HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+  HEE_HOME_PATH_SKIP git pathspecs the home-path scan skips, e.g. ':!hosts/*'
+                     for host-pinned scripts and units that name the real
+                     user on the real host on purpose. Set it in heerc; the
+                     repo declares the exemption, the checker never guesses.
 
 EXAMPLES
   hee-check                     boundary check of the current repo
@@ -257,6 +261,13 @@ check_boundary() {
   _HP_SKIP="':!docs/history' ':!*/evidence/*' ':!*.log' ':!library/regex/patterns.yaml'"
   _HP_SKIP="$_HP_SKIP ':!dist/*' ':!*/dist/*' ':!build/*' ':!*/build/*'"
   _HP_SKIP="$_HP_SKIP ':!*/node_modules/*' ':!node_modules/*' ':!*.netrwhist'"
+  # Per-repo additions, space-separated git pathspecs in HEE_HOME_PATH_SKIP.
+  # Real case, 2026-09-07: fleet-ops' hosts/<name>/ scripts and per-host
+  # systemd units name the real user on the real host on purpose -- that is
+  # what a host-pinned unit IS, and the repo is private. Rule 10 scopes the
+  # ban to SHARED bootstrap scripts. The repo declares the exemption; the
+  # checker does not guess it.
+  _HP_SKIP="$_HP_SKIP ${HEE_HOME_PATH_SKIP:-}"
 
   # A path on the RIGHT of a docker -v/--volume is inside the image, not on
   # this host, so it cannot break for anyone. Real false positive:

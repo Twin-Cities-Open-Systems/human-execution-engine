@@ -106,6 +106,17 @@ EXCLUDE_PREFIXES = ("docs/history/", "hee/evidence/", "man/tools/")
 EXCLUDE_SEGMENTS = ("dist", "build", "node_modules", ".git", "__pycache__")
 
 
+LOCKFILES = frozenset({
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock",
+    "poetry.lock", "Pipfile.lock", "composer.lock", "Gemfile.lock", "go.sum",
+})
+
+
+def _derived_prefixes() -> tuple[str, ...]:
+    dirs = os.environ.get("HEE_DERIVED_DIRS", "").split()
+    return tuple(d.rstrip("/") + "/" for d in dirs if d and not d.startswith("."))
+
+
 def _in_excluded_dir(path: str) -> bool:
     return any(seg in EXCLUDE_SEGMENTS for seg in path.split("/")[:-1])
 
@@ -190,13 +201,29 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
     existing = set(files)
     checked = 0
     broken: list[Broken] = []
+    # Sibling checkouts, for cross-repo references written as bare paths --
+    # a fleet-ops contract citing blueprints/dir-layout-v1.yaml means HEE's.
+    _here = os.path.abspath(root)
+    siblings = [d for d in discover_repos(os.path.dirname(_here)) if os.path.abspath(d) != _here]
+    cross: dict[str, int] = {}
 
     for f in sorted(files):
         if not f.endswith(DOC_EXT):
             continue
         if not include_history and f.startswith(EXCLUDE_PREFIXES):
             continue
+        if f.startswith(_derived_prefixes()):
+            # HEE_DERIVED_DIRS is the org's existing name for "generated, not
+            # a source": the boundary check already honors it. A rendered
+            # surface holding copies of objects it does not own should not
+            # have its copies' references judged as if they were canonical.
+            continue
         if _in_excluded_dir(f):
+            continue
+        if os.path.basename(f) in LOCKFILES:
+            # Machine output: npm's "bin" maps look like paths and are not
+            # references anyone wrote. Four false positives from one
+            # package-lock.json, 2026-09-07.
             continue
         if os.path.basename(f) == "CHANGELOG.md":
             # generated history (hee gen-changelog, rule 18): commit subjects
@@ -230,9 +257,21 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
                 checked += 1
                 if ref in existing or os.path.exists(os.path.join(root, ref)) or ref in _evidence_manifest(root):
                     continue
+                # Not here. Resolved in exactly one sibling checkout: real,
+                # tallied, not broken. In several: ambiguous, and that IS broken.
+                hits = [s for s in siblings if os.path.exists(os.path.join(s, ref))]
+                if len(hits) == 1:
+                    name = os.path.basename(os.path.abspath(hits[0]))
+                    cross[name] = cross.get(name, 0) + 1
+                    continue
                 cands = by_base.get(os.path.basename(ref), [])
                 broken.append(Broken(ref, f, lineno,
                                      cands[0] if len(cands) == 1 else ""))
+    if cross:
+        # Informational, on stderr, so the OK/CRITICAL line stays parseable.
+        import sys
+        print("  ℹ️  cross-repo references resolved in sibling checkouts: "
+              + ", ".join(f"{n} in {r}" for r, n in sorted(cross.items())), file=sys.stderr)
     return checked, broken
 
 

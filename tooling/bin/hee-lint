@@ -30,6 +30,12 @@ OPTIONS
   --mode warn    report findings, exit 1 if any (default)
   --mode error   report findings, exit 2 if any
 
+ENVIRONMENT
+  HEE_LINT_SKIP  git pathspecs to exclude, space-separated, e.g.
+                 ':!viz-dashboard/public/*' -- a rendered surface holding
+                 copies of objects it does not own is derived, not a source,
+                 and declaring that is the repo's job.
+
 EXIT STATUS
   0  OK        clean, OR any findings under --mode warn
   1           findings under --mode error
@@ -90,8 +96,13 @@ fi
 FAIL=0
 WARN=0
 
-# Only tracked YAML files (avoid untracked noise)
-FILES="$(cd "${REPO_ROOT}" && git ls-files '*.yml' '*.yaml' 2>/dev/null)"
+# Only tracked YAML files (avoid untracked noise). HEE_LINT_SKIP holds
+# space-separated git pathspecs to exclude, e.g. ':!viz-dashboard/public/*'
+# -- for a rendered surface that carries copies of objects it does not own.
+# A derived directory is not a source of truth and should not be linted as
+# one; declaring it here is the repo saying so, out loud, per rule 16.
+# shellcheck disable=SC2086
+FILES="$(cd "${REPO_ROOT}" && eval git ls-files "'*.yml'" "'*.yaml'" ${HEE_LINT_SKIP:-} 2>/dev/null)"
 if [ -z "${FILES}" ]; then
   echo "🟢 OK: no tracked YAML files"
   exit 0
