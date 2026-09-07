@@ -843,6 +843,74 @@ check_signatures() {
 # their own config vocabulary in another locale is real parsing over two
 # registries -- rule 13 says that graduates out of sh. It lives in
 # library/py/hee_locale, where it is testable.
+# check_embedded ROOT -- a machine-readable definition committed where no
+# tool can reach it.
+#
+# Real trigger, hee#629 / hee#630, 2026-09-07. The TCOS SNMP taxonomy was
+# authored as RAW UNFENCED ASN.1 inside two Markdown narratives and
+# duplicated into a second manifest in the same commit. Three copies existed;
+# they had diverged by 121, 115 and 8 lines while every one of them looked
+# authoritative, and fleet-ops#373 was titled "moved from
+# human-execution-engine" when it could only ever have been a copy.
+#
+# The root cause was not carelessness. A definition living inside prose has
+# NO IDENTITY: it cannot be parsed, cannot be validated by smilint or
+# net-snmp, cannot be `git mv`d, and cannot be diffed against anything. So
+# nothing could detect 121 lines of drift, and nothing could notice the
+# sources surviving their own move.
+#
+# smilint does not close this gap. It validates files you POINT IT AT; it
+# cannot discover a module hiding in a paragraph. This check asks where a
+# definition LIVES, not whether it parses.
+#
+# Committed files only, the same rule check_boundary follows: a scratch file
+# on disk is the operator's own business.
+
+# One table, deliberately. An earlier draft of this check carried the rows in
+# two functions and would have drifted exactly the way the bug it detects
+# does. Add a row to cover another definition language -- the failure shape
+# is general and the next instance will not be SNMP.
+#   kind | home directory | regex identifying a definition of that kind
+check_embedded__rows() {
+  printf '%s\n' 'SMIv2 module|mib|^[A-Z][A-Z0-9-]+ DEFINITIONS ::= BEGIN'
+}
+
+# Emits one "kind|home|file|firstmatch" line per offender, nothing if clean.
+check_embedded__scan() {
+  _r="$1"
+  check_embedded__rows | while IFS='|' read -r _k _h _p; do
+    [ -n "$_p" ] || continue
+    git -C "$_r" ls-files 2>/dev/null | while IFS= read -r _f; do
+      case "$_f" in "$_h"/*|*/"$_h"/*) continue ;; esac
+      [ -f "$_r/$_f" ] || continue
+      _m="$(rg -n -m1 "$_p" "$_r/$_f" 2>/dev/null)" || continue
+      [ -n "$_m" ] || continue
+      # Deliberate absence, same convention as refs-ok and locale-ok.
+      rg -q 'hee-check:embedded-ok' "$_r/$_f" 2>/dev/null && continue
+      printf '%s|%s|%s|%s\n' "$_k" "$_h" "$_f" "$_m"
+    done
+  done
+}
+
+check_embedded() {
+  root="${1:-.}"
+  git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    hee_status UNKNOWN "not a git repository: $root"; return 3; }
+  command -v rg >/dev/null 2>&1 || {
+    hee_status UNKNOWN "rg unavailable -- cannot scan, and a scan that cannot run is not a pass"; return 3; }
+
+  _found="$(check_embedded__scan "$root")"
+  [ -n "$_found" ] || { hee_status OK "no definition committed outside its home directory"; return 0; }
+
+  printf '%s\n' "$_found" | while IFS='|' read -r _k _h _f _m; do
+    hee_status CRITICAL "$_k defined outside $_h/: $_f"
+    printf '              %s\n' "$_m"
+    printf '              A definition here cannot be parsed, validated or moved.\n'
+    printf '              Put it in %s/ and link to it, or mark hee-check:embedded-ok.\n' "$_h"
+  done
+  return 2
+}
+
 check_locale() {
   root="${1:-.}"
   command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; return 3; }
@@ -1091,6 +1159,7 @@ case "$cmd" in
             command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; exit 3; }
             HEE_CLICHECK_ARGS="$*" python3 "$TOOL_ROOT/library/py/hee_clicheck/_cli.py" ;;
   locale)   shift 2>/dev/null || true; check_locale "${1:-.}" ;;
+  embedded) shift 2>/dev/null || true; check_embedded "${1:-.}" ;;
   # `style` was this check's name for one day, 2026-09-01, before the
   # operator reframed it. Kept as an alias rather than broken: the cost is
   # one line, and a subcommand that vanishes is worse than one that redirects.
