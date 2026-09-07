@@ -1,0 +1,127 @@
+HEE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, OBJECT-IDENTITY, enterprises
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION, DisplayString
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF;
+
+heeMIB MODULE-IDENTITY
+    LAST-UPDATED "202609062200Z"
+    ORGANIZATION "Human Execution Engine"
+    CONTACT-INFO
+        "Human Execution Engine
+         Email: inspector@tcos.us
+         IANA PEN 66582, verified against
+         https://www.iana.org/assignments/enterprise-numbers.txt"
+    DESCRIPTION
+        "The portable half of the HEE object model, expressed as SNMP.
+
+         This module deliberately defines NO instances and NO fleet
+         structure. It publishes vocabulary -- textual conventions and
+         conformance -- so that an adopting organization defines its own
+         tree under its own enterprise arc while sharing these types.
+
+         Why types and not a tree: in SMIv2 an imported object keeps the
+         OID it was defined with. An org CANNOT import a subtree and
+         re-parent instances under its own PEN. Sharing therefore happens
+         at the TEXTUAL-CONVENTION layer, which is the supported and
+         intended mechanism. TCOS's own module (PEN 66550) imports these
+         types and defines its tree; nothing is duplicated except the
+         structure that SMIv2 requires each arc to own."
+    REVISION "202609062200Z"
+    DESCRIPTION "Initial: textual conventions and conformance only."
+    ::= { enterprises 66582 }
+
+heeObjects      OBJECT IDENTIFIER ::= { heeMIB 1 }
+heeConformance  OBJECT IDENTIFIER ::= { heeMIB 2 }
+heeRegistry     OBJECT IDENTIFIER ::= { heeMIB 3 }
+
+HeeStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The org's single status vocabulary. Values match the Nagios
+         plugin API exit codes exactly, which every hee tool already
+         returns, so a check's exit status maps to this type with no
+         translation table."
+    SYNTAX      INTEGER { ok(0), warning(1), critical(2), unknown(3) }
+
+HeePartyKind ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Who or what is acting. From the party-kind registry, which is
+         authoritative for the term set: human is a person, machine is an
+         agent or service account verified technically, court is a
+         legally-recognized third party verified by legal means. 'ai' is
+         not a valid value anywhere."
+    SYNTAX      INTEGER { human(1), machine(2), court(3) }
+
+HeeObjectKind ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The HEE object kinds. Promotion of an eighth kind is governed by
+         the kind-registry contract, not by editing this enumeration
+         casually: an SMIv2 enumeration may gain values but existing
+         labels and numbers are permanent."
+    SYNTAX      INTEGER {
+                    card(1), pill(2), delta(3), contract(4),
+                    blueprint(5), plan(6), registry(7) }
+
+HeeContractStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Lifecycle of a contract object. proposed and ratified are the
+         values the glossary's Ratify entry defines today. terminated is
+         carried here because offboarding-v1 requires it; that blueprint
+         is itself status proposed, and this value is reserved rather
+         than claimed as settled."
+    SYNTAX      INTEGER { proposed(1), ratified(2), terminated(3) }
+
+heeStatusVocabulary OBJECT-IDENTITY
+    STATUS      current
+    DESCRIPTION
+        "Registration point for the status vocabulary, so an adopting org
+         can cite the definition by OID rather than by prose."
+    ::= { heeRegistry 1 }
+
+heePartyKindVocabulary OBJECT-IDENTITY
+    STATUS      current
+    DESCRIPTION "Registration point for the party-kind term set."
+    ::= { heeRegistry 2 }
+
+heeObjectKindVocabulary OBJECT-IDENTITY
+    STATUS      current
+    DESCRIPTION "Registration point for the HEE object kinds."
+    ::= { heeRegistry 3 }
+
+heeModuleVersion OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Version of this vocabulary module that an implementation was
+         built against. Present so a reader can detect a mismatch between
+         an adopting org's tree and the types it claims to use."
+    ::= { heeObjects 1 }
+
+heeVocabularyGroup OBJECT-GROUP
+    OBJECTS     { heeModuleVersion }
+    STATUS      current
+    DESCRIPTION
+        "The objects this module itself defines. Deliberately small: this
+         module publishes types, not instrumentation."
+    ::= { heeConformance 1 }
+
+heeBaseCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "What an adopting organization implements to claim it uses the
+         HEE vocabulary: this module's own objects, plus use of the
+         textual conventions above in its own arc."
+    MODULE
+        MANDATORY-GROUPS { heeVocabularyGroup }
+    ::= { heeConformance 2 }
+
+END
