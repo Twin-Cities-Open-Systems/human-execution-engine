@@ -25,8 +25,8 @@ hee-print -- render files nicely for terminal surfaces
 
 SYNOPSIS
   hee-print [--no-header] [--animate] [--image-format FMT] [--] FILE...
-  hee-print [--no-header] --stdin [--hint md|yaml|json|text]
-  SOMETHING | hee-print [--hint md|yaml|json|text]
+  hee-print [--no-header] --stdin [--hint md|yaml|json|image|text]
+  SOMETHING | hee-print [--hint md|yaml|json|image|text]
   hee-print help
 
 DESCRIPTION
@@ -67,7 +67,32 @@ DESCRIPTION
                no FILE is given and stdin is a pipe, so `foo | hee-print`
                works -- answering a piped document with the usage page tells
                the reader nothing about what went wrong
-  --hint       which renderer to use when reading stdin; ignored otherwise
+  --hint       which renderer to use when reading stdin; ignored otherwise.
+               Omit it and the bytes are sniffed with file(1), so a piped
+               image renders instead of being cat'd at the terminal
+
+EXAMPLES
+  A terminal takes text, so pasting an image into one gives you nothing
+  useful. The image is on the clipboard: read the clipboard, not the
+  terminal. Whichever tool your session has --
+
+      wl-paste --list-types                    Wayland: what is on it
+      wl-paste --type image/png > image.png    Wayland: write it
+      xclip -selection clipboard -t image/png -o > image.png   X11
+
+      hee-print image.png                      look at it
+
+  Or write and view in one pass. This tool never writes, so tee does that:
+
+      wl-paste --type image/png | tee image.png | hee-print
+
+  With no --hint the piped bytes are sniffed with file(1), so that renders
+  as an image instead of spraying it across the terminal.
+
+  Any command that emits a document works the same way:
+
+      hee exif read image.png --provenance | hee-print
+      curl -s https://example.com/data.json | hee-print
 
 EXIT STATUS
   0 rendered   2 usage error or no file given
@@ -217,11 +242,21 @@ fi
 if [ "$stdin_mode" -eq 1 ]; then
   tmp="${TMPDIR:-/tmp}/hee-print.$$"
   cat > "$tmp"
+  # With no hint, ask the bytes what they are. Without this, piping an image
+  # in falls through to cat and sprays a JPEG at the terminal -- which is
+  # exactly what `wl-paste --type image/png | hee print` would have done.
+  if [ -z "$hint" ] && command -v file >/dev/null 2>&1; then
+    case "$(file -b --mime-type "$tmp" 2>/dev/null)" in
+      image/*) hint=image ;;
+      application/json) hint=json ;;
+    esac
+  fi
   case "$hint" in
-    md)   render_md "$tmp" ;;
-    yaml) render_yaml "$tmp" ;;
-    json) render_json "$tmp" ;;
-    *)    render_other "$tmp" ;;
+    md)    render_md "$tmp" ;;
+    yaml)  render_yaml "$tmp" ;;
+    json)  render_json "$tmp" ;;
+    image) render_image "$tmp" ;;
+    *)     render_other "$tmp" ;;
   esac
   rm -f "$tmp"
   exit 0
