@@ -9,7 +9,8 @@ evidence; a document agreeing with its own prompter is not.
 James Hazard (CommonAccord) and Helena Haapio (University of Vaasa / Lexpert).
 In Schweighofer et al. (eds.), *Trends and Communities of Legal Informatics,
 Proceedings of IRIS 2017*, pp. 425--432. SSRN 2925871.
-Local copy: `/mnt/nuc1-pool/storage/docs/shared/ssrn-2925871.pdf`.
+Public: https://ssrn.com/abstract=2925871 (author preprint; also in Jusletter IT,
+23 February 2017). A local copy is kept on the shared docs store.
 
 Describes, nine years before this repository, four of HEE's core mechanisms:
 

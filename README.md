@@ -148,8 +148,8 @@ single host's local filesystem, placed per that host's own real
 hierarchy (`hier(7)`, reconciled against XDG for the unprivileged-user
 case: `~/.local/bin`, not `/usr/local/bin`, not NFS) — got named
 directly. The one standing, named exception is media (large binary
-assets that genuinely benefit from one shared copy, e.g.
-`/mnt/nuc1-pool/storage/media/`) — everything else defaults local.
+assets that genuinely benefit from one shared copy, on the org's shared
+storage mount) — everything else defaults local.
 
 ---
 
