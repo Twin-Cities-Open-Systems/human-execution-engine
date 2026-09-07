@@ -10,6 +10,10 @@ cleveland:
   allocated_at: '2026-08-24T14:18:43+00:00'
   pool: family-guy
   scope: pve-lxc
+joe:
+  allocated_at: '2026-09-07T01:24:04+00:00'
+  pool: family-guy
+  scope: pve-lxc
 lois:
   allocated_at: '2026-08-24T14:18:43+00:00'
   pool: family-guy
