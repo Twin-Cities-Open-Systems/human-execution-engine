@@ -51,6 +51,14 @@ hee-check - repo boundary and integrity checks
 
     HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
     HEE_DERIVED_DIRS   directories treated as generated state. Default: .cursor
+    HEE_REFS_SKIP      directories whose references are not judged as canonical,
+                       space-separated, e.g. viz-dashboard/public -- a rendered
+                       surface holding copies of objects it does not own. Not
+                       HEE_DERIVED_DIRS, which means "must not be committed".
+    HEE_HOME_PATH_SKIP git pathspecs the home-path scan skips, e.g. ':!hosts/*'
+                       for host-pinned scripts and units that name the real
+                       user on the real host on purpose. Set it in heerc; the
+                       repo declares the exemption, the checker never guesses.
 
 
 # EXIT STATUS

@@ -51,6 +51,16 @@ the seed it names is a determinism claim the object cannot support.
 --mode error   report findings, exit 2 if any
 \f[R]
 .fi
+.SH ENVIRONMENT
+.IP
+.nf
+\f[C]
+HEE_LINT_SKIP  git pathspecs to exclude, space-separated, e.g.
+               \[aq]:!viz-dashboard/public/*\[aq] -- a rendered surface holding
+               copies of objects it does not own is derived, not a source,
+               and declaring that is the repo\[aq]s job.
+\f[R]
+.fi
 .SH EXIT STATUS
 .IP
 .nf

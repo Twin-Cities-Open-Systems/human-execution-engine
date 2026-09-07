@@ -31,6 +31,14 @@ hee-lint - fast lint gate for HEE-object YAML
     --mode error   report findings, exit 2 if any
 
 
+# ENVIRONMENT
+
+    HEE_LINT_SKIP  git pathspecs to exclude, space-separated, e.g.
+                   ':!viz-dashboard/public/*' -- a rendered surface holding
+                   copies of objects it does not own is derived, not a source,
+                   and declaring that is the repo's job.
+
+
 # EXIT STATUS
 
     0  OK        clean, OR any findings under --mode warn
