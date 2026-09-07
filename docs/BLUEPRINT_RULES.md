@@ -1,4 +1,4 @@
-# Contributing to Blueprint Doctrine
+# Blueprint doctrine rules
 
 This document governs changes to files in `blueprints/`.
 
