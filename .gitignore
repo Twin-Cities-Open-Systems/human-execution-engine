@@ -147,3 +147,19 @@ hee/docs/00-hee-deploy-env-setup.sh
 # blobs, which is exactly how a 53 KB coverage binary landed here before.
 man/**/index.db
 man/index.db
+
+# >>> hee gitignore base >>>
+# Managed by: hee check gitignore --fix. Edit the base, not this block.
+# Base: /home/claude/git/.github/gitignore/base.gitignore
+# Never negate one of these back in: in a public repo it publishes
+# the file permanently -- see pr:609@human-execution-engine.
+secrets/
+.hee/secrets/
+*.env
+*.p12
+*.pfx
+.netrc
+id_rsa
+id_ecdsa
+id_ed25519
+# <<< hee gitignore base <<<
