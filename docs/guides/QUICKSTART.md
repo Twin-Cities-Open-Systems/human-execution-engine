@@ -128,9 +128,20 @@ that key to expire.
 
 ## Next
 
-- Every tool's `--help` is its man page: `man hee-check`, or `hee check help`.
-- `hee list` prints every tool with its one-line meaning; `hee <TAB>` does
-  the same at the prompt.
+- Every tool's help is its man page, and both spellings reach it:
+
+  ```sh
+  $ man hee-check
+  $ hee check help
+  ```
+
+- Every tool with its one-line meaning, and the same list at the prompt:
+
+  ```sh
+  $ hee list
+  $ hee <TAB>
+  ```
+
 - The rules an agent reads at session start: `prompts/PROMPTING_RULES.md`.
 - Why any of this exists: the README's problem statement, and
   `docs/REFERENCES.md` for the twenty-year lineage.

@@ -91,7 +91,13 @@ Then the [quick start](docs/guides/QUICKSTART.md): real captured output
 from `hee print`, `hee ver`, `hee check roster`, `hee cred`, and what each
 one is telling you.
 
-Every tool's `--help` is its man page (`man hee-check`, or `hee check help`).
+Every tool's help is its man page, reachable either way:
+
+```sh
+$ man hee-check
+$ hee check help
+```
+
 Rules for changing this repo: [CONTRIBUTING.md](CONTRIBUTING.md). The rules
 an agent reads at session start: [`prompts/PROMPTING_RULES.md`](prompts/PROMPTING_RULES.md).
 
