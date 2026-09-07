@@ -61,134 +61,33 @@ Content-Type: application/json
   "args": "-kernel /var/lib/vz/template/kernel/hee-unikernel-core.bin -append \"hee_epoch=1789640000 pen=66550\""
 }
 
-## The Sanitized Production MIB Specification (PEN: 66550)
-Below is the formal, compiled ASN.1 MIB taxonomy mapping structure initialized under your officially assigned private enterprise arc. All structural elements have been sanitized of explicit vendor text, replacing them with generic, low-abstraction ownership primitives (ownerOrg), while leveraging the active registration 66550 as the concrete production example.
+## The MIB Specification (PEN 66550)
 
-OWNER-ROOT-MIB DEFINITIONS ::= BEGIN
+The TCOS taxonomy under PEN 66550 is **defined in exactly one place**, and it
+is not this document:
 
-IMPORTS
-    MODULE-IDENTITY, OBJECT-TYPE, Unsigned32, Integer32, enterprises
-        FROM SNMPv2-SMI
-    DisplayString
-        FROM SNMPv2-TC;
+    https://github.com/Twin-Cities-Open-Systems/fleet-ops/blob/main/mib/TCOS-MIB.txt
 
-ownerRootMIB MODULE-IDENTITY
-    LAST-UPDATED "202608172200Z" -- August 17, 2026
-    ORGANIZATION "Twin Cities Open Systems - Operations LLC"
-    CONTACT-INFO
-        "HEE Core Architecture Registry
-         Email: inspector@tcos.us
-         Registry URL: https://www.iana.org/assignments/enterprise-numbers/"
-    DESCRIPTION
-        "Sanitized Core Management Information Base for the HEE architecture.
-         Maps deterministic operational variables directly to the private enterprise 
-         registration node 66550 without vendor-specific software abstractions."
-    REVISION "202608172200Z"
-    DESCRIPTION
-        "Production release substituting active registered PEN 66550 matrix."
-    ::= { enterprises 66550 } -- Official IANA Private Enterprise Number Allocation
+This section previously carried a full copy of the module inline, as raw
+unfenced ASN.1. That copy is removed rather than refreshed. Three copies of
+this taxonomy existed -- one here, one in the -duople manifest, one real file
+in fleet-ops -- and they had diverged by 121, 115 and 8 lines respectively
+while every one of them looked authoritative. See hee#629.
 
--- ============================================================================
--- Core System Taxonomy Branches
--- ============================================================================
+Why a link and not a refreshed copy: a module embedded in prose cannot be
+parsed, cannot be validated by smilint or net-snmp, cannot be `git mv`d, and
+cannot be diffed against anything. It has no identity. That is the whole
+reason the divergence happened -- fleet-ops#373 was titled "moved from
+human-execution-engine" but could only ever have been a copy, because there
+was no file to move. The same failure in two other places this week was cured
+the same way: `~/.hee/library` became a symlink (hee#628) and the kiosk entry
+doc became one file, because a link cannot drift and a copy always can.
 
-ownerFleetOrg         OBJECT IDENTIFIER ::= { ownerRootMIB 1 }
-ownerHumanRightsOrg   OBJECT IDENTIFIER ::= { ownerRootMIB 2 }
-ownerMachineRightsOrg OBJECT IDENTIFIER ::= { ownerRootMIB 3 }
-
--- ============================================================================
--- Machine Rights Enforcement Sub-Tree
--- ============================================================================
-
-ownerAgentIdentities  OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 1 }
-ownerAgentContracts   OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 2 }
-ownerTemporalAnchor   OBJECT IDENTIFIER ::= { ownerMachineRightsOrg 3 }
-
-heeEpoch OBJECT-TYPE
-    SYNTAX      Unsigned32
-    MAX-ACCESS  read-only
-    STATUS      current
-    DESCRIPTION
-        "The absolute 0-second universal epoch baseline marker used by the unikernel
-         gate to algorithmically compute time-window expirations across the fleet."
-    ::= { ownerTemporalAnchor 1 }
-
-contractTable OBJECT-TYPE
-    SYNTAX      SEQUENCE OF ContractEntry
-    MAX-ACCESS  not-accessible
-    STATUS      current
-    DESCRIPTION
-        "Live matrix reflecting cryptographically verified cross-signing agreements."
-    ::= { ownerAgentContracts 1 }
-
-contractEntry OBJECT-TYPE
-    SYNTAX      ContractEntry
-    MAX-ACCESS  not-accessible
-    STATUS      current
-    DESCRIPTION
-        "A singular authority validation record mapping permissions to hardware."
-    INDEX       { contractIndex }
-    ::= { contractTable 1 }
-
-ContractEntry ::= SEQUENCE {
-    contractIndex           Integer32,
-    contractFileName        DisplayString,
-    contractType            INTEGER,
-    contractTimeExpires     Unsigned32,
-    contractStatus          INTEGER
-}
-
-contractIndex OBJECT-TYPE
-    SYNTAX      Integer32 (1..2147483647)
-    MAX-ACCESS  not-accessible
-    STATUS      current
-    DESCRIPTION
-        "Primary look-up index matching the local kernel verification sequence."
-    ::= { contractEntry 1 }
-
-contractFileName OBJECT-TYPE
-    SYNTAX      DisplayString (SIZE (1..128))
-    MAX-ACCESS  read-only
-    STATUS      current
-    DESCRIPTION
-        "The literal file target matching the repository configuration payload."
-    ::= { contractEntry 2 }
-
-contractType OBJECT-TYPE
-    SYNTAX      INTEGER {
-                    peerToPeer(1),
-                    manyToMachine(2),
-                    seniorAuthority(3)
-                }
-    MAX-ACCESS  read-only
-    STATUS      current
-    DESCRIPTION
-        "The hierarchical scope of authority granted to the digital execution gate."
-    ::= { contractEntry 3 }
-
-contractTimeExpires OBJECT-TYPE
-    SYNTAX      Unsigned32
-    MAX-ACCESS  read-only
-    STATUS      current
-    DESCRIPTION
-        "Absolute tick limit relative to the heeEpoch. If the current tick counter 
-         exceeds this value, authorization boundaries instantly collapse to 0."
-    ::= { contractEntry 4 }
-
-contractStatus OBJECT-TYPE
-    SYNTAX      INTEGER {
-                    active(1),
-                    expired(2),
-                    revoked(3),
-                    compromised(4)
-                }
-    MAX-ACCESS  read-write
-    STATUS      current
-    DESCRIPTION
-        "The operational state variable of the contract. Administrative scripts 
-         can write a value of revoked(3) to instantly lock out peripheral execution."
-    ::= { contractEntry 5 }
-
-END
+Note the module was renamed in fleet-ops#419: `OWNER-ROOT-MIB` -> `TCOS-MIB`,
+`ownerRootMIB` -> `tcosMIB`, `heeEpoch` -> `tcosEpoch`. The copy this section
+used to hold still named the retired identifiers, which is what a frozen copy
+does. HEE is the generic vocabulary (HEE-MIB, PEN 66582, in this repo's
+`mib/`); TCOS is the first organization to instantiate it, and its tree
+belongs in fleet-ops alongside the rest of that org's real infrastructure.
 
 
