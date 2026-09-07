@@ -264,29 +264,29 @@ check_boundary() {
   # flagged for "-v $CODER_DATA:/home/coder/.config".
   _hp_filter() { grep -v -E -- '(-v|--volume)[[:space:]=][^[:space:]]*:/home/'; }
 
-  _hp_code="$(eval git -C '"$root"' grep -n -I -E "'/home/[a-z][a-z0-9_-]*/'" -- \
+  _hp_code="$(eval git -C '"$root"' grep -n -I -E "'/(home|mnt)/[a-z][a-z0-9_-]*/'" -- \
               "'*.sh'" "'*.bash'" "'*.mjs'" "'*.js'" "'*.py'" "'*.service'" \
               "'*.timer'" "'*.pl'" "'*.rb'" "'bin/*'" $_HP_SKIP 2>/dev/null | _hp_filter)"
-  _hp_prose="$(eval git -C '"$root"' grep -n -I -E "'/home/[a-z][a-z0-9_-]*/'" -- \
+  _hp_prose="$(eval git -C '"$root"' grep -n -I -E "'/(home|mnt)/[a-z][a-z0-9_-]*/'" -- \
                "'*.md'" "'*.yaml'" "'*.yml'" "'*.json'" "'*.txt'" $_HP_SKIP 2>/dev/null | _hp_filter)"
 
   if [ -n "$_hp_code" ]; then
     _n="$(printf '%s\n' "$_hp_code" | wc -l)"
     printf '%s\n' "$_hp_code" | head -20 | while IFS= read -r l; do
-      hee_status CRITICAL "hardcoded home path in executable code: $l"
+      hee_status CRITICAL "hardcoded home or mount path in executable code: $l"
     done
     # Report the true total, never the truncated one -- a capped count that
     # looks like a real count is the same failure as a false OK.
-    [ "$_n" -gt 20 ] && hee_status CRITICAL "hardcoded home path: $((_n - 20)) more not shown ($_n total)"
+    [ "$_n" -gt 20 ] && hee_status CRITICAL "hardcoded home or mount path: $((_n - 20)) more not shown ($_n total)"
     rc=2
   fi
 
   if [ -n "$_hp_prose" ]; then
     _n="$(printf '%s\n' "$_hp_prose" | wc -l)"
     printf '%s\n' "$_hp_prose" | head -10 | while IFS= read -r l; do
-      hee_status WARNING "hardcoded home path in prose (not blocking): $l"
+      hee_status WARNING "hardcoded home or mount path in prose (not blocking): $l"
     done
-    [ "$_n" -gt 10 ] && hee_status WARNING "hardcoded home path in prose: $((_n - 10)) more not shown ($_n total)"
+    [ "$_n" -gt 10 ] && hee_status WARNING "hardcoded home or mount path in prose: $((_n - 10)) more not shown ($_n total)"
   fi
 
   for d in $DERIVED_DIRS; do

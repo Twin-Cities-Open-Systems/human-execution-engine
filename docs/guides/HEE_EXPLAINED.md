@@ -17,7 +17,7 @@ quantizing Proudhon/Marx/Bakunin/Kropotkin into `hee-ratios(tm)`), and
 most people don't get that on first contact. Precise language is correct
 for governance. It's bad for a first fifteen minutes.
 
-## The core shape: idea -> footgun -> dogfood
+## The core shape: idea -> footgun <-> dogfood
 
 Every real thing in HEE goes through the same three-legged stool before
 it's trusted. Take any leg away and it falls over.
@@ -28,9 +28,11 @@ it's trusted. Take any leg away and it falls over.
 3. **Dogfood** -- prove it works with real usage, real data, real output.
    Only *then* does it get promoted/ratified into something people rely on.
 
-This is the same as the real `propose -> prove -> ratify` sequence already
+This is the same as the real `propose -> prove <-> ratify` sequence already
 established in `fleet-ops#16` -- this is just the version you can say out
-loud without looking anything up.
+loud without looking anything up. Notice that ideas move to footguns, and
+dogfood can send back to dogfood - but never correct the idea. This is key
+to understanding hee philosphy.
 
 ## The illustrative "axioms"
 

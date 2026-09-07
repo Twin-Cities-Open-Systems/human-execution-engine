@@ -1018,7 +1018,7 @@ buried inside the original's own binary/opaque format.
 - `.exif` -- real image EXIF metadata, written out as a plain sidecar
   next to the source image rather than left only in the binary. Real
   trigger, 2026-08-29: Spencer, direct, while planning a real shared
-  images store on nuc-1 (`/mnt/nuc1-pool/storage/docs/shared/images/`):
+  images store on the org's shared mount:
   "write[e] exif next to file" -- so metadata survives and stays
   inspectable even if a downstream copy of the image gets its EXIF
   stripped (a common, real thing that happens when images are shared
