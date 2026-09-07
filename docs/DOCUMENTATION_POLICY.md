@@ -33,7 +33,7 @@ it's the index, and the home for rules that cut across all of them.
 
 | Type | Lives in | Authority | Specific guide |
 |---|---|---|---|
-| **Doctrine / Blueprints** | `blueprints/` | Authoritative, non-terminal (`result: false`), changes must be deliberate and minimal | [`docs/CONTRIBUTING.md`](CONTRIBUTING.md) |
+| **Doctrine / Blueprints** | `blueprints/` | Authoritative, non-terminal (`result: false`), changes must be deliberate and minimal | [`docs/BLUEPRINT_RULES.md`](CONTRIBUTING.md) |
 | **Contracts** | `hee/contracts/` (schema here, live signed instances in `fleet-ops`) | Real, cryptographically signed authority — the actual binding relationship, not a description of one | — |
 | **Cards / Pills** | `hee/cards/`, `hee/pills/` | Structured working notes — decisions, WIP evidence, seed vocabulary. `Card` for a durable typed record, `Pill` for lighter-weight WIP/evidence. Not authoritative on their own | — |
 | **RFCs** | `docs/rfc/` | Narrative proposals. May *reference* doctrine identities, must **not** *define* them | — |
