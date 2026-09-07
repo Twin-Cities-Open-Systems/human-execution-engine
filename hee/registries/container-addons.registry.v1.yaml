@@ -39,6 +39,12 @@ spec:
         without it nothing can verify TLS to anything and every clone would
         need it.
 
+    snmp-agent:
+      description: "net-snmp agent and client tools. The agent so a container
+        can expose its own arc of the fleet MIB; the tools so the same
+        container can validate a MIB against net-snmp's own parser, which is
+        a different parser from smilint and the one that actually matters."
+      packages: [net-snmp, net-snmp-tools]
     bastion-base:
       description: "An identity bastion that other hosts reach."
       packages: [openssh-server, openssh-keygen]
