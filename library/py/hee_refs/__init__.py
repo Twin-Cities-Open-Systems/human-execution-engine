@@ -112,8 +112,8 @@ LOCKFILES = frozenset({
 })
 
 
-def _derived_prefixes() -> tuple[str, ...]:
-    dirs = os.environ.get("HEE_DERIVED_DIRS", "").split()
+def _refs_skip_prefixes() -> tuple[str, ...]:
+    dirs = os.environ.get("HEE_REFS_SKIP", "").split()
     return tuple(d.rstrip("/") + "/" for d in dirs if d and not d.startswith("."))
 
 
@@ -212,11 +212,13 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
             continue
         if not include_history and f.startswith(EXCLUDE_PREFIXES):
             continue
-        if f.startswith(_derived_prefixes()):
-            # HEE_DERIVED_DIRS is the org's existing name for "generated, not
-            # a source": the boundary check already honors it. A rendered
-            # surface holding copies of objects it does not own should not
-            # have its copies' references judged as if they were canonical.
+        if f.startswith(_refs_skip_prefixes()):
+            # HEE_REFS_SKIP: directories whose references are not judged as
+            # canonical -- a rendered surface holding copies of objects it
+            # does not own. NOT HEE_DERIVED_DIRS: that one means "must not be
+            # committed" to the boundary check, and reusing it here turned
+            # every committed file under it CRITICAL. Measured 2026-09-07,
+            # 8 -> 24, before it reached main.
             continue
         if _in_excluded_dir(f):
             continue
