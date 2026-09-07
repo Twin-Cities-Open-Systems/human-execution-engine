@@ -24,7 +24,13 @@ metadata:
   ...
 ```
 
-Pipe anything in and it does the same: `hee exif read image.png --provenance | hee print`.
+Anything piped in is rendered the same way. Here the input is a tool's own
+output, on a real file in this repo:
+
+```sh
+$ hee exif read library/rrr/examples/hee-logo-1024.png --provenance | hee print
+# no provenance on hee-logo-1024.png
+```
 
 ## What am I running on
 
@@ -89,11 +95,9 @@ $ hee exif read library/rrr/examples/hee-logo-1024.png --provenance
 ```
 
 That is a real answer: those example images predate stamping. A stamped one
-returns YAML you can pipe to `yq`:
-
-```sh
-$ hee exif read diagram.png --provenance | yq '.tool, .commit'
-```
+returns YAML -- `tool`, `commit`, `job`, `owner` and the rest -- that `yq`
+reads directly. There is no stamped image in this repository yet to show it
+on, so no example is shown.
 
 ## Hold a secret without ever pasting it
 
@@ -112,11 +116,13 @@ can be logged, captured in a transcript, or left in shell history. Run it at
 a real terminal and it prompts. Then nothing ever prints it:
 
 ```sh
-$ hee cred -pass example.com -exec ./deploy.sh
+$ hee cred -pass example.com -dir .hee/secrets -exec env
+hee-cred: no sealed credential at .hee/secrets/example.com.gpg
 ```
 
-`-exec` runs the command with `HEE_CRED_PASS` set in its environment and
-nowhere else. The sealed file is GPG to the listed recipients; seal to more
+Also a real answer: nothing was sealed above, because the seal refused the
+pipe. At a terminal the seal succeeds, and then `-exec` runs the given
+command with `HEE_CRED_PASS` set in its environment and nowhere else. The sealed file is GPG to the listed recipients; seal to more
 than one, because a secret only one key can open is an outage waiting for
 that key to expire.
 
