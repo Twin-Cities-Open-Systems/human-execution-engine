@@ -79,7 +79,8 @@ opinion on implementation language.
 
 ## Get started
 
-Without installing anything, in a directory you will delete:
+The intended way is a container; that image is not built yet. Until it
+is, nothing needs installing -- in a directory you will delete:
 
 ```sh
 $ d=$(mktemp -d)

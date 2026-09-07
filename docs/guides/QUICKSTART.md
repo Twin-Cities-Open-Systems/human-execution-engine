@@ -4,11 +4,19 @@ Every block below is real output, captured on 2026-09-06 and pasted, not
 typed. Where a tool refused to do something, the refusal is shown, because
 the refusal is usually the point.
 
-## Try it without touching your machine
+## Try it in a container
 
-Nothing here needs to be installed. The tools run from the checkout, and
-`man` finds the pages the moment `MANPATH` points at them. So the honest
-first step is a directory you will delete:
+The intended way. A container is a machine you throw away, with nothing of
+yours inside it -- no dotfiles, no `$HOME`, no argument about what a script
+may touch. The HEE image is not built yet; the org's existing image pattern
+is `tick-task/Dockerfile`, and the HEE one will follow it and be listed
+here the day it exists.
+
+## Until then: a directory you will delete
+
+Nothing needs to be installed. The tools run from the checkout, and `man`
+finds the pages the moment `MANPATH` points at them. So without a container,
+the honest first step is a temp directory:
 
 ```sh
 $ d=$(mktemp -d)
@@ -22,9 +30,10 @@ $ man -w hee-check
 $ cd /; rm -rf "$d"
 ```
 
-That was run in a clean environment with an empty `$HOME`. After the
-`rm -rf`, `$HOME` still had zero entries. Nothing was written anywhere but
-the directory you chose, and it is gone.
+Run in a clean environment with an empty `$HOME`: after the `rm -rf`,
+`$HOME` still had zero entries. Nothing was written anywhere but the
+directory you chose, and it is gone. It is a workaround for the missing
+image, not the design.
 
 The trailing colon in `MANPATH="...:"` matters: it appends the system's own
 manpath, so `man ls` keeps working. Without it you get only ours.
@@ -54,9 +63,6 @@ $ make uninstall-manpath    # copies ~/.manpath to ~/.manpath.bak, then removes 
 `make install` and `make uninstall` do the same for the dotfiles themselves.
 Every target says what it wrote. None of them is run for you by anything in
 this repository -- a sysadmin's dotfiles are theirs.
-
-A container image for the throwaway tier is planned and does not exist yet.
-When it does, it will be listed here; until then, `mktemp -d` is the image.
 
 ## See an object
 
