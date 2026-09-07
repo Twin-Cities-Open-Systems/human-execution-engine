@@ -189,9 +189,34 @@ clone-all-repos: ## clone every repo in the org, discovered via gh api
 		fi; \
 	done
 
-link-hee: clone-repo ## symlink hee into the bin dir -- the router, not a copy
+link-hee: clone-repo ## symlink hee AND ~/.hee/library at the clone -- routers, not copies
 	@mkdir -p "$(BIN_DIR)"
 	@ln -sf "$(CLONE_DIR)/tooling/bin/hee" "$(BIN_DIR)/hee"
+# ~/.hee/library is what hee-verify and anything else importing hee_hash
+# reads. It used to be a hand-made COPY: on kiosk, library/py/hee_hash was
+# placed by hand on 2026-08-14 and no target has touched it since. Measured
+# 2026-09-03, it had already drifted 3 lines from the repo -- cosmetic that
+# day (an unused import, a comment example), and nothing was stopping the
+# next divergence from being in the hash itself.
+#
+# That is the vendoring failure rule 16 names, in the one place it can do
+# real damage: the identity library. A symlink cannot drift, and `git pull`
+# becomes the update mechanism, which is the same property man pages get
+# from being read out of the checkout.
+#
+# ~/.hee/index and ~/.hee/current are NOT touched here. Those are identity
+# state, they belong outside any git work tree, and `ssot_is_the_bastion`
+# means replacing one replaces an identity rather than a file.
+	@mkdir -p "$(HOME)/.hee"
+	@if [ -e "$(HOME)/.hee/library" ] && [ ! -L "$(HOME)/.hee/library" ]; then \
+		echo "link-hee: ~/.hee/library is a real directory, not a symlink."; \
+		echo "  That is the hand-made copy this target replaces. It is NOT removed"; \
+		echo "  automatically -- move it aside and re-run:"; \
+		echo "    mv ~/.hee/library ~/.hee/library.vendored-$$(date +%Y%m%d)"; \
+	else \
+		ln -sfn "$(CLONE_DIR)/library" "$(HOME)/.hee/library"; \
+		echo "link-hee: ~/.hee/library -> $(CLONE_DIR)/library"; \
+	fi
 
 status: ## report what is actually installed: clone, hee symlink, repo count
 	@echo "ORG=$(ORG) USER=$(USER)"
