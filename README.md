@@ -10,6 +10,41 @@ It prioritizes:
 - structure over vibes,
 - determinism over convenience.
 
+---
+
+## The problem
+
+**Records drift from reality. Silently, and mostly discovered by accident.**
+
+Four found in a single day, 2026-09-06, none of them by looking for them:
+
+- A roster listed 3 of 7 people as active. Two of those GitHub accounts had not existed for weeks.
+- A host document described a mail server as *"a stub -- no MTA installed, nothing listening."* OpenSMTPD 7.8.0 was installed, running, and listening on four addresses.
+- A registry declared `inuid_derivation: sha256(inuid_seed)`. The recorded value did not reproduce from that seed.
+- A GPG-sealed credential was committed to a **public** repository inside a pull request titled as a documentation typo fix.
+
+Nobody lied. Every one of those was true when written, or was never checked
+in the first place. That is the whole problem:
+
+> **A claim with nothing comparing it to reality decays into a lie, without
+> anyone doing anything wrong.**
+
+Agents make this urgent rather than causing it. An agent reads records at
+machine speed and acts on them with confidence. This project's own agent
+read "mx1 is a stub" and repeated it into an architecture diagram and a
+disaster-recovery ticket before a human caught it. The document was already
+wrong; the agent propagated it faster than a human would have.
+
+HEE is the machinery for finding that **on purpose instead of by luck**:
+typed objects that state what they assert, checks that compare the
+assertion against a measurement, and a signature chain recording who
+attested to what.
+
+See [Why HEE](#why-hee) for the mechanisms, and
+[Thesis vs. Duople](#thesis-vs-duople) for how a claim earns the right to be
+believed.
+
+
 This repository is the **canonical source of HEE doctrine**.
 
 ---
@@ -252,6 +287,8 @@ HEE defines **what must be true**, not **how you make it true**.
 ---
 
 ## Why HEE
+
+*The problem is stated up top with evidence; this section is the mechanism.*
 
 Modern development fails less from lack of talent and more from ambiguity:
 unclear authority, drifting scope, unverifiable claims, and
