@@ -8,11 +8,11 @@
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 IMAGE="${IMAGE:-alpine:3}"
-exec docker run --rm -v "$HERE":/mibs:ro "$IMAGE" sh -c '
+exec docker run --rm -v "$HERE":/mib:ro "$IMAGE" sh -c '
   apk add -q --no-cache net-snmp net-snmp-tools >/dev/null 2>&1
-  snmpd -C -c /mibs/snmpd.test.conf -Lf /dev/null &
+  snmpd -C -c /mib/snmpd.test.conf -Lf /dev/null &
   sleep 3
-  export MIBDIRS=/usr/share/snmp/mibs:/mibs MIBS=+HEE-MIB
+  export MIBDIRS=/usr/share/snmp/mibs:/mib MIBS=+HEE-MIB
   echo "--- tree ---"
   snmptranslate -Tp HEE-MIB::heeMIB
   echo "--- walk ---"
