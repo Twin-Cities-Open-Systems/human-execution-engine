@@ -426,7 +426,8 @@ def load_branding(path):
 def cmd_brand(args):
     import datetime, os
     require_exiftool()
-    spec = load_branding(args.branding or os.environ.get("HEE_BRANDING"))
+    _card_path = args.branding or os.environ.get("HEE_BRANDING")
+    spec = load_branding(_card_path)
     name_full = spec["name"]["full"]
     publisher = spec.get("credit", {}).get("publisher", name_full)
     year = str(datetime.date.today().year)
@@ -449,9 +450,25 @@ def cmd_brand(args):
     # JPEG-only groups get filtered per container, same reason as provenance.
     MIRROR = {"Artist": ["IPTC:By-line", "XMP:Creator", "XMP:ImageCreatorName"],
               "Copyright": ["IPTC:CopyrightNotice", "XMP:Rights"]}
+    # Branding is additive: every field above is written, none is cleared. So
+    # re-branding with a different card leaves the previous identity's fields
+    # in place -- measured 2026-09-06, a personal card changed Publisher and
+    # Credit while the org's Rights, PEN Identifier and GPL UsageTerms stayed,
+    # leaving a personal photo still claiming the company's enterprise number.
+    # --reset clears the identity fields this card does not define, first.
+    _identity_fields = ["IPTC:Credit", "XMP-photoshop:Credit", "XMP-dc:Publisher",
+                        "XMP-xmp:Identifier", "XMP-dc:Identifier",
+                        "XMP-xmpRights:UsageTerms", "XMP-xmpRights:WebStatement",
+                        "XMP-xmpRights:Marked"]
+    _defined = {k for k, _ in always}
+
     rc = 0
     for file in args.files:
         jpeg = Path(file).suffix.lower() in (".jpg", ".jpeg")
+        if getattr(args, "reset", False) and not args.dry_run:
+            _clear = [f"-{f}=" for f in _identity_fields if f not in _defined and (jpeg or not f.startswith("IPTC"))]
+            if _clear:
+                run(["exiftool", "-overwrite_original", *_clear, file])
         exif_args = ["exiftool", "-overwrite_original"]
         report = []
         for tag, value in always:
@@ -471,14 +488,25 @@ def cmd_brand(args):
                     continue
                 exif_args.append(f"-{mirror}={value}")
         if args.dry_run:
-            print(f"hee-exif brand --dry-run, would write to {file}:")
+            print(f"hee-exif brand --dry-run, would write to {file} as [{name_full}  via {_card_path}]:")
             for line in report:
                 print(f"  {line}")
             continue
         r = run(exif_args + [file])
         if r.returncode != 0:
             print(f"hee-exif brand: FAILED on {file}: {r.stderr.strip()}", file=sys.stderr); rc = 2; continue
-        print(f"hee-exif brand: {file}")
+        # Name the identity, not just the file. Two branding cards produce
+        # byte-different metadata and identical output, so stamping a personal
+        # photo with the org card -- publisher, legal entity, PEN and all --
+        # looks exactly like doing it right. Operator, 2026-09-06, wanting a
+        # personal card for a photo that is nobody's company property.
+        print(f"hee-exif brand: {file}  [{name_full}  via {_card_path}]")
+        _got = run(["exiftool", "-s", "-s", "-s", "-XMP-dc:Publisher", "-XMP-dc:Rights", "-XMP-dc:Identifier", file]).stdout.split("\n")
+        _resid = [v.strip() for v in _got if v.strip() and name_full not in v and publisher not in v]
+        _resid = [v for v in _resid if not urn or v != urn]
+        if _resid and not getattr(args, "reset", False):
+            print(f"  🟡 WARNING another identity is still on this file: {'; '.join(_resid)}", file=sys.stderr)
+            print(f"     branding only adds. Use --reset to clear what this card does not define.", file=sys.stderr)
         for line in report:
             print(f"  {line}")
     return rc
@@ -855,6 +883,8 @@ def main():
     br.add_argument("--artist", default=None, help="whose work this is, when not ours")
     br.add_argument("--copyright", default=None, help="their notice, when the IP is someone else's")
     br.add_argument("--force", action="store_true", help="overwrite an existing real Artist/Copyright")
+    br.add_argument("--reset", action="store_true",
+                    help="clear identity fields this card does not define, so switching identity leaves no residue")
     br.add_argument("--dry-run", action="store_true")
 
     es = sub.add_parser("embed-sig", help="put a GPG signature IN the file: sign its metadata-stripped form, store the armor in XMP-hee")

@@ -1,0 +1,36 @@
+# A PERSONAL branding card -- an example to copy, not a card to use as-is.
+#
+# Why this exists: hee-exif brand defaults to the org card, which writes the
+# company's legal entity, publisher and IANA PEN into the file. Correct for
+# org artifacts and wrong for a personal photo, where it asserts company
+# ownership of somebody's private life -- and the recipient sees it.
+#
+# Copy this somewhere personal (NOT an org repo -- your own directory, or
+# ~/.config/hee/), fill in your own name and notice, then:
+#
+#   hee exif brand --branding /path/to/your.card.v1.yaml photo.jpg
+#
+# or set HEE_BRANDING in your heerc when personal work is the default on a
+# given machine. brand now prints which identity it used, so a mix-up is
+# visible in the output rather than only in the file.
+#
+# Only name.full and copyright.notice are required. Leave out credit,
+# identifier and license: publisher defaults to your own name, and a personal
+# photo has no enterprise number and usually no license to assert.
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: personal-branding-example
+  labels:
+    domain: personal
+    scope: identity
+    topic: branding
+    artifact: card
+  annotations:
+    inuid: null
+    inuid_null_reason: example
+spec:
+  name:
+    full: "Your Name"
+  copyright:
+    notice: "© {year} Your Name"
