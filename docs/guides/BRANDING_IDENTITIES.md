@@ -58,7 +58,7 @@ The output names the identity, so a mix-up is visible without reading the
 file back:
 
 ```
-hee-exif brand: photo.jpg  [Spencer Butler  via /home/spencer/.config/hee/personal.card.v1.yaml]
+hee-exif brand: photo.jpg  [Spencer Butler  via ~/.config/hee/personal.card.v1.yaml]
 ```
 
 ## The part that will catch you: branding only adds
