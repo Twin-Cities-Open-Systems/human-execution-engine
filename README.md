@@ -79,24 +79,23 @@ opinion on implementation language.
 
 ## Get started
 
-```sh
-git clone https://github.com/Twin-Cities-Open-Systems/human-execution-engine ~/git/human-execution-engine
-cd ~/git/human-execution-engine
-hee check all          # boundary, refs, locale, signatures -- Nagios exits
-hee lint               # every hee/v1 object validates
-hee list               # every tool, with its one-line meaning
-```
-
-Then the [quick start](docs/guides/QUICKSTART.md): real captured output
-from `hee print`, `hee ver`, `hee check roster`, `hee cred`, and what each
-one is telling you.
-
-Every tool's help is its man page, reachable either way:
+Without installing anything, in a directory you will delete:
 
 ```sh
-$ man hee-check
-$ hee check help
+$ d=$(mktemp -d)
+$ git clone -q https://github.com/Twin-Cities-Open-Systems/human-execution-engine "$d/hee"
+$ cd "$d/hee"
+$ export PATH="$PWD/tooling/bin:$PATH" MANPATH="$PWD/man/tools:"
+$ hee check all
+$ hee lint
+$ hee list
+$ cd /; rm -rf "$d"
 ```
+
+Proven in a clean environment: after the last line, `$HOME` is untouched.
+The [quick start](docs/guides/QUICKSTART.md) has the real output of each
+tool, the session-only and make-it-stick tiers with their undo, and what
+each result is telling you.
 
 Rules for changing this repo: [CONTRIBUTING.md](CONTRIBUTING.md). The rules
 an agent reads at session start: [`prompts/PROMPTING_RULES.md`](prompts/PROMPTING_RULES.md).

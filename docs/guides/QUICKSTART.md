@@ -4,6 +4,60 @@ Every block below is real output, captured on 2026-09-06 and pasted, not
 typed. Where a tool refused to do something, the refusal is shown, because
 the refusal is usually the point.
 
+## Try it without touching your machine
+
+Nothing here needs to be installed. The tools run from the checkout, and
+`man` finds the pages the moment `MANPATH` points at them. So the honest
+first step is a directory you will delete:
+
+```sh
+$ d=$(mktemp -d)
+$ git clone -q https://github.com/Twin-Cities-Open-Systems/human-execution-engine "$d/hee"
+$ cd "$d/hee"
+$ export PATH="$PWD/tooling/bin:$PATH" MANPATH="$PWD/man/tools:"
+$ hee ver | head -1
+✅ OK bash: 5.2.21  [self]
+$ man -w hee-check
+/tmp/tmp.k3x9Qm/hee/man/tools/man1/hee-check.1
+$ cd /; rm -rf "$d"
+```
+
+That was run in a clean environment with an empty `$HOME`. After the
+`rm -rf`, `$HOME` still had zero entries. Nothing was written anywhere but
+the directory you chose, and it is gone.
+
+The trailing colon in `MANPATH="...:"` matters: it appends the system's own
+manpath, so `man ls` keeps working. Without it you get only ours.
+
+## Or keep a checkout and still write nothing
+
+Same two exports, in your own clone, for this shell only. Close the shell
+and it is as if nothing happened:
+
+```sh
+$ cd ~/git/human-execution-engine
+$ export PATH="$PWD/tooling/bin:$PATH" MANPATH="$PWD/man/tools:"
+```
+
+## Make it stick, with a matching undo
+
+Only when you have decided to. The `dotfiles` repo's Makefile registers
+the man pages with `man(1)` by writing one line to `~/.manpath`, and the
+undo backs that file up before touching it:
+
+```sh
+$ cd ~/git/dotfiles
+$ make manpath              # writes MANDATORY_MANPATH lines to ~/.manpath
+$ make uninstall-manpath    # copies ~/.manpath to ~/.manpath.bak, then removes them
+```
+
+`make install` and `make uninstall` do the same for the dotfiles themselves.
+Every target says what it wrote. None of them is run for you by anything in
+this repository -- a sysadmin's dotfiles are theirs.
+
+A container image for the throwaway tier is planned and does not exist yet.
+When it does, it will be listed here; until then, `mktemp -d` is the image.
+
 ## See an object
 
 Every governance record is YAML with a `kind`, a `metadata` block and a
@@ -152,11 +206,12 @@ that key to expire.
 
 ## Next
 
-- Every tool's help is its man page, and both spellings reach it:
+- Every tool's help is its man page. The second form works anywhere; the
+  first needs `MANPATH` from one of the tiers at the top:
 
   ```sh
-  $ man hee-check
   $ hee check help
+  $ man hee-check
   ```
 
 - Every tool with its one-line meaning, and the same list at the prompt:
