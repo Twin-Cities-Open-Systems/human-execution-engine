@@ -506,7 +506,7 @@ def cmd_brand(args):
         _resid = [v for v in _resid if not urn or v != urn]
         if _resid and not getattr(args, "reset", False):
             print(f"  🟡 WARNING another identity is still on this file: {'; '.join(_resid)}", file=sys.stderr)
-            print(f"     branding only adds. Use --reset to clear what this card does not define.", file=sys.stderr)
+            print("     branding only adds. Use --reset to clear what this card does not define.", file=sys.stderr)
         for line in report:
             print(f"  {line}")
     return rc
