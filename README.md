@@ -40,6 +40,11 @@ typed objects that state what they assert, checks that compare the
 assertion against a measurement, and a signature chain recording who
 attested to what.
 
+This is not a new idea. Hazard & Haapio described the same mechanisms --
+hash-bound references, static records as anchors for intelligence, git as
+the transmission medium -- in 2017, without knowing this project would
+exist. See [docs/REFERENCES.md](docs/REFERENCES.md).
+
 See [Why HEE](#why-hee) for the mechanisms, and
 [Thesis vs. Duople](#thesis-vs-duople) for how a claim earns the right to be
 believed.
