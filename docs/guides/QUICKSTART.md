@@ -98,7 +98,12 @@ $ hee exif read diagram.png --provenance | yq '.tool, .commit'
 ## Hold a secret without ever pasting it
 
 ```sh
-$ printf 'sk_live_example_not_real\n' | hee cred -seal example.com -recipients 6A58FE47EF8900C4...
+# a recipient is a GPG key. GitHub publishes every user's at a fixed URL:
+$ curl -s https://github.com/spencerbutler.gpg | gpg --import
+$ gpg --fingerprint spencerbutler | grep -A1 '^pub'
+      2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B
+
+$ printf 'sk_live_example_not_real\n' | hee cred -seal example.com -recipients 2D990922FB9DCAB3EE405C710C2E2A08D47F2A2B
 hee-cred: -seal requires an interactive terminal -- refusing to read a secret from a pipe/redirect/script
 ```
 
