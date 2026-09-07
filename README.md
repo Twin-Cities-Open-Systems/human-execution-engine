@@ -87,6 +87,10 @@ hee lint               # every hee/v1 object validates
 hee list               # every tool, with its one-line meaning
 ```
 
+Then the [quick start](docs/guides/QUICKSTART.md): real captured output
+from `hee print`, `hee ver`, `hee check roster`, `hee cred`, and what each
+one is telling you.
+
 Every tool's `--help` is its man page (`man hee-check`, or `hee check help`).
 Rules for changing this repo: [CONTRIBUTING.md](CONTRIBUTING.md). The rules
 an agent reads at session start: [`prompts/PROMPTING_RULES.md`](prompts/PROMPTING_RULES.md).
@@ -101,7 +105,7 @@ an agent reads at session start: [`prompts/PROMPTING_RULES.md`](prompts/PROMPTIN
 | `hee/` | cards, pills, contracts, registries, skills | yes |
 | `mib/` | the HEE-MIB vocabulary module under PEN 66582 | yes |
 | `docs/doctrine/` | HEE_POLICY and the canon moved out of this file | yes |
-| `docs/guides/` | how-tos: HEE_EXPLAINED, CONTINUITY, BRANDING_IDENTITIES | no |
+| `docs/guides/` | how-tos: QUICKSTART, HEE_EXPLAINED, CONTINUITY, BRANDING_IDENTITIES | no |
 | `docs/rfc/` | open questions; RFC identifiers are reserved here | no |
 | `docs/REFERENCES.md` | prior art this design converges with | no |
 | `tooling/bin/` | the `hee` tools; `library/` holds the shared code | consumes doctrine |
@@ -130,7 +134,4 @@ tier honestly marked proven / designed / not built:
 ## Status
 
 HEE doctrine is **active and evolving**. History is git (authoritative),
-explicit `schema-version`, and narrative RFCs when needed. Corporate
-disposition of the HEE asset is governed by
-[`contracts/tcos.mna.hee-sale-deal.contract.v1.yaml`](contracts/tcos.mna.hee-sale-deal.contract.v1.yaml),
-which is the source of truth for that and this file is not.
+explicit `schema-version`, and narrative RFCs when needed.
