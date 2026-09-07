@@ -1,0 +1,14 @@
+{
+ "for": "https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/main/docs/guides/QUICKSTART.md",
+ "host": "github.com",
+ "owner": "Twin Cities Open Systems",
+ "page": "root",
+ "palette": [
+  "#3fd4c8",
+  "#ff6161"
+ ],
+ "radius": 56,
+ "seed": "quickstart-2026-09-06",
+ "size": 256,
+ "text": "HEE"
+}

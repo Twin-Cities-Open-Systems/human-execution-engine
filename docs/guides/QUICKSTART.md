@@ -94,10 +94,34 @@ $ hee exif read library/rrr/examples/hee-logo-1024.png --provenance
 # no provenance on hee-logo-1024.png
 ```
 
-That is a real answer: those example images predate stamping. A stamped one
-returns YAML -- `tool`, `commit`, `job`, `owner` and the rest -- that `yq`
-reads directly. There is no stamped image in this repository yet to show it
-on, so no example is shown.
+That is a real answer: those example images predate stamping. This one was
+generated for this guide by meme-factory, which stamps as it renders, and
+its job file sits beside it in the repo:
+
+```sh
+$ hee exif read docs/guides/examples/quickstart-tile.png --provenance
+tool: meme-factory/tile
+commit: eabdc39
+job: human-execution-engine/docs/guides/examples/quickstart-tile.png.job.json
+job_sha256: b05434bd8740e2779d77c012a5f5cf75f19906c084c3cafd9011fc3a2ddf1aee
+shape: tile
+og_for: https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/main/docs/guides/QUICKSTART.md
+page: root
+owner: Twin Cities Open Systems
+host: github.com
+signed: kiosk-claude-84f0007d_1:0.0
+```
+
+It is YAML, so `yq` reads it without a parsing step:
+
+```sh
+$ hee exif read docs/guides/examples/quickstart-tile.png --provenance | yq '.tool, .commit'
+meme-factory/tile
+eabdc39
+```
+
+Every line of that is a claim the file makes about itself, and `job_sha256`
+is how you check the claim: hash the job file it names and compare.
 
 ## Hold a secret without ever pasting it
 

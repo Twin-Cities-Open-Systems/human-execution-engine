@@ -1,0 +1,12 @@
+{
+  "output": "docs/guides/examples/quickstart-tile.png",
+  "size": 256,
+  "radius": 56,
+  "palette": ["#3fd4c8", "#ff6161"],
+  "text": "HEE",
+  "seed": "quickstart-2026-09-06",
+  "for": "https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/main/docs/guides/QUICKSTART.md",
+  "page": "root",
+  "owner": "Twin Cities Open Systems",
+  "host": "github.com"
+}
