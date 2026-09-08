@@ -45,8 +45,16 @@ from hee_status import Status, emit  # noqa: E402
 # isn't available, fall back to the real HTTPS API using that token --
 # same pvesh-style path, no new flags, no user action needed beyond
 # having sealed the token once (hee-cred -seal pve-api-token-spencer).
-_TOKEN_ID = "spencer@pve!hee-cli"
-_TOKEN_ACCOUNT = "pve-api-token-spencer"
+# Overridable, because they are per-operator, not properties of the fleet.
+# Hardcoding one person's account is what made the API path dead for everyone
+# else: the tool asked for `pve-api-token-spencer` in the hee checkout, while
+# the real sealed credentials are `pve-api-token-factory` and
+# `pve-api-token-touchy-claude` in fleet-ops, and the operator's own hee
+# checkout holds `pve-admin-spencer`. Three names, none of them the one asked
+# for. Measured 2026-09-08.
+_TOKEN_ID = os.environ.get("HEE_PVE_TOKEN_ID", "spencer@pve!hee-cli")
+_TOKEN_ACCOUNT = os.environ.get("HEE_PVE_TOKEN_ACCOUNT", "pve-api-token-spencer")
+_CRED_DIR = os.environ.get("HEE_PVE_CRED_DIR", "")
 _SSL_CTX = ssl.create_default_context()
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
@@ -55,7 +63,10 @@ _SSL_CTX.verify_mode = ssl.CERT_NONE
 def _token_api_json(host, path):
     script_dir = __file__.rsplit("/", 1)[0]
     tool = script_dir + "/hee-cred"
-    secrets_dir = script_dir + "/../../.hee/secrets"  # real repo root, where -seal put it
+    # HEE_PVE_CRED_DIR wins; otherwise this tool's own repo root. The default
+    # is only correct when the credential happens to be sealed in the hee
+    # checkout, which is not where fleet credentials actually live.
+    secrets_dir = _CRED_DIR or (script_dir + "/../../.hee/secrets")
     # hee-cred passes the secret via $HEE_CRED_PASS to the exec'd
     # command only -- relay it out through a tiny real subprocess so it
     # never touches this process's own argv/stdout, just an in-memory
@@ -82,19 +93,37 @@ def _token_api_json(host, path):
 
 
 def pvesh_json(host, path):
+    """The pve API first, ssh second.
+
+    Reversed 2026-09-08. Operator: "should be using the api for pve anyway" --
+    and the old order made ssh load-bearing, so clearing known_hosts took the
+    whole tool down while the "fallback" had never worked. The API needs no
+    host key and no shell on the node.
+    """
+    token_result = _token_api_json(host, path)
+    if token_result is not None:
+        return token_result
+
     proc = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", f"root@{host}", "pvesh", "get", path, "--output-format", "json"],
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", f"root@{host}",
+         "pvesh", "get", path, "--output-format", "json"],
         capture_output=True, text=True,
     )
     if proc.returncode == 0:
         return json.loads(proc.stdout)
 
-    token_result = _token_api_json(host, path)
-    if token_result is not None:
-        return token_result
-
-    sys.exit(f"hee-pve-health: pvesh get {path} failed (SSH and API-token fallback both "
-             f"failed):\n{proc.stderr}")
+    # Name what was tried. "cannot reach pve" sent the operator to clear
+    # known_hosts, which cannot help: ssh runs with BatchMode=yes and so can
+    # never accept an unknown key -- an empty known_hosts fails identically.
+    sys.exit(
+        f"hee-pve-health: cannot read {path} from {host}.\n"
+        f"  API token: account '{_TOKEN_ACCOUNT}' id '{_TOKEN_ID}' in "
+        f"{_CRED_DIR or '<hee-repo>/.hee/secrets'} -- not usable.\n"
+        f"  ssh root@{host}: exit {proc.returncode}: {(proc.stderr or '').strip().splitlines()[-1] if proc.stderr.strip() else 'no stderr'}\n"
+        f"  Set HEE_PVE_TOKEN_ACCOUNT / HEE_PVE_TOKEN_ID / HEE_PVE_CRED_DIR to a sealed\n"
+        f"  credential that exists, or add the host key (ssh runs BatchMode, so it will\n"
+        f"  never accept one on its own)."
+    )
 
 
 def gather(host, node):
@@ -132,7 +161,13 @@ def _container_rows(args):
     """
     try:
         _, _, _, lxcs = gather(args.host, args.node)
-    except SystemExit:
+    except SystemExit as e:
+        # Keep the reason. Catching SystemExit and returning a bare None threw
+        # away a message that named exactly which credential and which host had
+        # been tried, and replaced it with "cannot reach pve" -- which is what
+        # sent the operator to clear known_hosts on 2026-09-08.
+        if e.code:
+            _PVE_WHY.append(str(e.code))
         return None, {}
 
     # DNS is the zone's stated SSOT; use it when present, shrug when not.
@@ -173,6 +208,7 @@ def _container_rows(args):
 
 
 _HAPROXY_WHY = []
+_PVE_WHY = []
 
 
 def _haproxy_raw(via, vmid):
@@ -204,41 +240,127 @@ def _haproxy_raw(via, vmid):
     return out.stdout
 
 
-def _haproxy_backends(via, vmid):
-    """Real backend -> address edges, read from the running haproxy.
+def _haproxy_stats(ip, port):
+    """Live backend -> server routing, from haproxy's own stats CSV.
 
-    THIS IS THE POINT OF THE WHOLE SUBCOMMAND. The hand-drawn map in
-    issue:408@fleet-ops asserted edges that no file anywhere declares: the
-    pve/services/*.yaml specs carry template, storage, cores, memory and
-    bridge, and nothing about what talks to what. Measured 2026-09-08, two
-    of its edges were simply wrong -- it drew haproxy fronting `soju`, which
-    has no backend at all, and marked `thesis-engine` a stub while it served
-    two live backends.
+    HTTP, not ssh. The previous version shelled out to `ssh root@<fqdn> pct
+    exec`, which hardcoded one FQDN and therefore worked only for whoever
+    happened to have that exact name in known_hosts. Measured 2026-09-08: the
+    operator's own account has `Host pve -> HostName 10.0.0.153` in
+    ~/.ssh/config, so `ssh root@pve` worked while the tool's
+    `root@pve.lab.tcos.us` failed host key verification and silently produced
+    a map with no routes at all.
 
-    So the edges come from haproxy's own config on the running container.
-    Returns {} and says nothing when unreachable; the caller reports that
-    rather than quietly drawing an edgeless graph, because a map with no
-    lines looks like a fleet with no connections.
+    The stats endpoint is better than the config file on its own terms: it is
+    what haproxy is REALLY doing, including whether each server is UP, where
+    the file only says what it was told.
+
+    Returns a list of (backend, server, addr, status), or None with the reason
+    recorded. None means "could not read", never "no routes".
     """
-    raw = _haproxy_raw(via, vmid)
-    if raw is None:
-        return {}
+    url = f"http://{ip}:{port}/;csv"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as r:
+            body = r.read().decode("utf-8", "replace")
+    except Exception as e:
+        _HAPROXY_WHY.append(f"haproxy stats at {url}: {e}")
+        return None
 
+    lines = [l for l in body.splitlines() if l.strip()]
+    if not lines or not lines[0].startswith("#"):
+        _HAPROXY_WHY.append(f"haproxy stats at {url}: unexpected format")
+        return None
+
+    # Address the columns BY NAME. haproxy's CSV has ~200 fields and grows
+    # between releases; a positional index silently reads the wrong column
+    # after an upgrade.
+    cols = [c.strip() for c in lines[0].lstrip("#").split(",")]
+    def col(row, name):
+        try:
+            return row[cols.index(name)].strip()
+        except (ValueError, IndexError):
+            return ""
+
+    out = []
+    for line in lines[1:]:
+        row = line.split(",")
+        px, sv = col(row, "pxname"), col(row, "svname")
+        if not px or sv in ("FRONTEND", "BACKEND", ""):
+            continue
+        addr = col(row, "addr").split(":")[0]
+        out.append((px, sv, addr, col(row, "status")))
+    if not out:
+        _HAPROXY_WHY.append(f"haproxy stats at {url}: no server rows")
+        return None
+    return out
+
+
+def _haproxy_backends_from_cfg(path):
+    """{backend: [addresses]} parsed from the COMMITTED haproxy config.
+
+    Topology comes from the repo, not the network, for three measured reasons.
+
+    The ssh route hardcoded one FQDN and so worked only for whoever had that
+    exact string in known_hosts -- 2026-09-08, the operator's own account had
+    `Host pve -> HostName 10.0.0.153` and got a silent no-routes map. It also
+    used BatchMode, which can never accept an unknown key, so clearing
+    known_hosts made it worse rather than better.
+
+    The stats endpoint cannot supply it either: its CSV `addr` column is empty
+    on every server row here, so it knows liveness but not addresses.
+
+    And the repo is the right source anyway -- `hee pve-health drift` proves
+    the committed config still matches the running one, so reading the file is
+    reading the machine, with the difference made loud instead of assumed.
+    """
+    if not os.path.isfile(path):
+        _HAPROXY_WHY.append(f"no haproxy config at {path}")
+        return {}
     backends, cur = {}, None
-    for line in raw.splitlines():
+    for line in open(path, encoding="utf-8", errors="replace"):
         st = line.strip()
         m = re.match(r"^(backend|listen)\s+(\S+)", st)
         if m:
             cur = m.group(2)
             backends.setdefault(cur, [])
             continue
+        if st.startswith("frontend "):
+            cur = None
+            continue
         if cur and st.startswith("server "):
             parts = st.split()
             if len(parts) >= 3 and ":" in parts[2]:
                 backends[cur].append(parts[2].split(":")[0])
-        if st.startswith("frontend "):
-            cur = None
-    return {k: v for k, v in backends.items() if v}
+    out = {k: v for k, v in backends.items() if v}
+    if not out:
+        _HAPROXY_WHY.append(f"{path} declares no backend servers")
+    return out
+
+
+def _haproxy_live_status(ip, port):
+    """{(backend, server): status} from the stats API, or {} if unreachable.
+
+    Enrichment only. The map is still correct without it; a route that exists
+    is a route whether or not this answers.
+    """
+    rows = _haproxy_stats(ip, port)
+    return {} if rows is None else {(px, sv): st for px, sv, _a, st in rows}
+
+
+def _haproxy_backends(ip, port):
+    """{backend: [addresses]} from the live stats, DOWN servers included.
+
+    A server that is DOWN is still a declared route; drawing only UP ones
+    would make an outage look like a topology change.
+    """
+    rows = _haproxy_stats(ip, port)
+    if rows is None:
+        return {}
+    backends = {}
+    for px, _sv, addr, _st in rows:
+        if addr:
+            backends.setdefault(px, []).append(addr)
+    return backends
 
 
 def _mermaid_id(name):
@@ -317,10 +439,12 @@ def cmd_map(args):
 
     rows, _ = _container_rows(args)
     if rows is None:
-        print("❓ UNKNOWN hee-pve-health map: cannot reach pve -- map not rendered", file=sys.stderr)
+        emit(Status.UNKNOWN, "hee-pve-health map: cannot reach pve -- map not rendered")
+        for why in _PVE_WHY:
+            print(why, file=sys.stderr)
         return 3
 
-    backends = _haproxy_backends(args.haproxy_via, args.haproxy_vmid)
+    backends = _haproxy_backends_from_cfg(args.haproxy_cfg)
     by_ip = {ip: (vmid, name) for vmid, name, ip, _ in rows}
 
     # The haproxy container is the graph's entry point, so edges leave the
@@ -531,7 +655,9 @@ def cmd_inventory(args):
     """
     rows, dns = _container_rows(args)
     if rows is None:
-        print("❓ UNKNOWN hee-pve-health inventory: cannot reach pve -- table not rendered", file=sys.stderr)
+        emit(Status.UNKNOWN, "hee-pve-health inventory: cannot reach pve -- table not rendered")
+        for why in _PVE_WHY:
+            print(why, file=sys.stderr)
         return 3
 
     print("| vmid | hostname | address | state |")
@@ -586,10 +712,17 @@ def cmd_drift(args):
 
     # 1. haproxy: committed vs running.
     cfg = os.path.join(args.repo, "pve/haproxy/haproxy.cfg")
-    live = _haproxy_raw(args.haproxy_via, args.haproxy_vmid)
+    # cmd_map is re-used verbatim below and reads args.haproxy_cfg, so derive
+    # it from --repo rather than adding a second flag that could disagree.
+    args.haproxy_cfg = cfg
+    # Derived, never a hardcoded name. A fixed FQDN only works for whoever has
+    # that exact string in known_hosts -- measured 2026-09-08, the operator's
+    # own account did not, and got a silent no-routes map for it.
+    via = args.haproxy_via or f"root@{args.host}"
+    live = _haproxy_raw(via, args.haproxy_vmid)
     if live is None:
-        unknown.append("haproxy config unreadable on "
-                       f"{args.haproxy_via} ct{args.haproxy_vmid}")
+        why = ("; ".join(_HAPROXY_WHY)) or "reason not reported"
+        unknown.append(f"haproxy config unreadable via {via} ct{args.haproxy_vmid} ({why})")
     elif not os.path.isfile(cfg):
         unknown.append(f"no committed config at {cfg}")
     else:
@@ -757,10 +890,11 @@ def main():
     m.add_argument("--node", default="pve")
     m.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"),
                    help="tinydns-format zone file for addresses; skipped if absent")
-    m.add_argument("--haproxy-via", default="root@pve.lab.tcos.us",
-                   help="ssh target that can `pct exec` the haproxy container; edges come from "
-                        "its live config, because no file in the repo declares them")
     m.add_argument("--haproxy-vmid", type=int, default=103)
+    m.add_argument("--haproxy-cfg",
+                   default=os.path.expanduser("~/git/fleet-ops/pve/haproxy/haproxy.cfg"),
+                   help="committed haproxy config; routes are read from it rather than over "
+                        "ssh, and `hee pve-health drift` is what proves it still matches the box")
     m.add_argument("--term", action="store_true",
                    help="draw it for a terminal instead of emitting mermaid -- same rows, "
                         "no browser engine, and nothing leaves this network")
@@ -776,7 +910,11 @@ def main():
     d.add_argument("--repo", default=os.path.expanduser("~/git/fleet-ops"),
                    help="checkout holding the committed pve artifacts")
     d.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"))
-    d.add_argument("--haproxy-via", default="root@pve.lab.tcos.us")
+    d.add_argument("--haproxy-via", default=None,
+                   help="ssh target that can `pct exec` the haproxy container. Only the "
+                        "CONFIG comparison needs this -- the pve API has no file-read for "
+                        "LXC. Defaults to root@ the --host address, never a hardcoded name.")
+    d.add_argument("--haproxy-stats-port", type=int, default=8404)
     d.add_argument("--haproxy-vmid", type=int, default=103)
     d.add_argument("--proposed", action="store_true", help=argparse.SUPPRESS)
     d.add_argument("--roster",
