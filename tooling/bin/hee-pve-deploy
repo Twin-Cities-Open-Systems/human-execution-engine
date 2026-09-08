@@ -80,6 +80,46 @@ def ensure_template(host, template_storage, template):
             sys.exit(f"hee-pve-deploy: template download failed:\n{pvesh_download.stderr}")
 
 
+def _net0(spec):
+    """The net0 string, with a static address when the manifest declares one.
+
+    The address used to be the literal `ip=dhcp`. The bridge was configurable
+    and the address was not, so EVERY container this tool created came up on
+    DHCP and any static had to be set by hand afterward -- which is why ct111,
+    ct112 and ct113 are all `ip=dhcp` today while ct100-110, which predate the
+    tool, hold statics. It is also why two of them appear in no zone file:
+    nobody did the hand step. golden-tiny.yaml already recorded this as a
+    known gap, in a `not_expressible:` block.
+
+    That matters more than it looks. pve/network-172.16-migration.md assigns
+    fourteen static addresses, and a provisioner that cannot express one turns
+    every single assignment into a manual step -- the exact shape that
+    produced the config drift this repo spent 2026-09-08 removing.
+
+    `address` is a CIDR, because pve wants one. A bare address silently
+    produces a container with no usable netmask, so it is refused here rather
+    than accepted and puzzled over later.
+    """
+    net = f"name=eth0,bridge={spec.get('bridge', 'vmbr0')}"
+    addr = spec.get("address")
+    gw = spec.get("gateway")
+
+    if not addr:
+        if gw:
+            sys.exit("hee-pve-deploy: 'gateway' set without 'address' -- a gateway "
+                     "means nothing on a DHCP interface, and DHCP supplies its own.")
+        return net + ",ip=dhcp"
+
+    if "/" not in str(addr):
+        sys.exit(f"hee-pve-deploy: address '{addr}' has no prefix length. pve needs "
+                 f"CIDR -- write '{addr}/24', not '{addr}'. A bare address yields an "
+                 f"interface with no usable netmask.")
+    net += f",ip={addr}"
+    if gw:
+        net += f",gw={gw}"
+    return net
+
+
 def main():
     def require(key):
         """Fail loudly rather than invent a storage name.
@@ -138,7 +178,7 @@ def main():
         "-cores", str(spec.get("cores", 1)),
         "-memory", str(spec.get("memory_mb", 256)),
         "-rootfs", f"{require('storage')}:{spec.get('disk_gb', 4)}",
-        "-net0", f"name=eth0,bridge={spec.get('bridge', 'vmbr0')},ip=dhcp",
+        "-net0", _net0(spec),
         "-unprivileged", "1" if spec.get("unprivileged", True) else "0",
         "-start", "1",
     ]
