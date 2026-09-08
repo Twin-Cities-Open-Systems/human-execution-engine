@@ -67,6 +67,10 @@ hee-repo-refresh - per-repo health check, pull, hygiene and branch prune
     replayed, because "the repo declares the exemption, the checker never
     guesses". Reading them from the repo beats copying them: a copy drifts.
 
+    A result is annotated when the tree is not a clean main at origin --
+    [on BRANCH, not main], [N behind origin], [N uncommitted]. An unannotated
+    line is the only one that is an answer about main.
+
     It judges the WORKING TREE, not origin. That is the point locally -- you
     want to know before you push -- but it means a result here can differ from
     CI. Measured 2026-09-07: dotfiles read 2 findings locally and 0 from a

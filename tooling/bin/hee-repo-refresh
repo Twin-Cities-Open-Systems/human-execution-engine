@@ -115,6 +115,10 @@ GATE
   replayed, because "the repo declares the exemption, the checker never
   guesses". Reading them from the repo beats copying them: a copy drifts.
 
+  A result is annotated when the tree is not a clean main at origin --
+  [on BRANCH, not main], [N behind origin], [N uncommitted]. An unannotated
+  line is the only one that is an answer about main.
+
   It judges the WORKING TREE, not origin. That is the point locally -- you
   want to know before you push -- but it means a result here can differ from
   CI. Measured 2026-09-07: dotfiles read 2 findings locally and 0 from a
@@ -455,13 +459,30 @@ PYJ
         HEE_LINT_SKIP="$(_gate_skip HEE_LINT_SKIP)"
         HEE_REFS_SKIP="$(_gate_skip HEE_REFS_SKIP)"
         export HEE_HOME_PATH_SKIP HEE_LINT_SKIP HEE_REFS_SKIP
+        # A gate result is about a WORKING TREE. If that tree is parked on
+        # another branch or sits behind origin, the answer is true about code
+        # that is not main -- which is a wrong answer delivered confidently.
+        # Measured 2026-09-08: eight checkouts here were one commit behind
+        # their own just-merged PRs, so a sweep would have judged the code as
+        # it existed before the change it was checking.
+        _gb="$(git -C "$DIR" branch --show-current 2>/dev/null)"
+        _gs=""
+        if [ -n "$_gb" ] && [ "$_gb" != main ]; then
+          _gs=" [on $_gb, not main]"
+        else
+          _gbehind="$(git -C "$DIR" rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)"
+          [ "${_gbehind:-0}" -gt 0 ] && _gs=" [$_gbehind behind origin]"
+        fi
+        _gdirty="$(git -C "$DIR" status --porcelain 2>/dev/null | rg -vc '^\?\?' || echo 0)"
+        [ "${_gdirty:-0}" -gt 0 ] && _gs="$_gs [$_gdirty uncommitted]"
+
         out="$(cd "$DIR" && "$HEE_DIR/tooling/bin/hee-check" all . 2>&1)"
         rc=$?
         if [ "$rc" -eq 0 ]; then
-          printf 'OK        %s\n' "$R"
+          printf 'OK        %s%s\n' "$R" "$_gs"
         else
           n=$(printf '%s\n' "$out" | rg -c '^❌' || echo '?')
-          printf 'CRITICAL  %s -- %s finding(s), hee-check all exit %s\n' "$R" "$n" "$rc"
+          printf 'CRITICAL  %s%s -- %s finding(s), hee-check all exit %s\n' "$R" "$_gs" "$n" "$rc"
           printf '%s\n' "$out" | rg '^❌' | head -5 | sed 's/^/            | /'
         fi
         ;;
