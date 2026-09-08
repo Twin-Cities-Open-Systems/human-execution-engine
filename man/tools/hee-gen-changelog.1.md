@@ -38,8 +38,15 @@ hee-gen-changelog - render CHANGELOG.md from the repo's own merge history
 
       Because a PR cannot know its own squash subject in advance, the file
       is regenerated AFTER merges, as a chore PR -- the same cadence as the
-      gopher man tree. `hee-gen-changelog` with no flags is the check: empty
-      output means the file is current.
+      gopher man tree. `hee-gen-changelog` with no flags is the check: its
+      first line is a status line saying whether the committed [Unreleased]
+      block still matches a fresh render.
+
+      That line used to be documented here as "empty output means the file is
+      current", which was never true -- a dry run always printed the whole
+      rendered block, so nothing could tell current from stale without diffing
+      by hand. `hee repo-refresh regen` needs that answer, so the tool now
+      gives it rather than having its caller re-derive it (rule 15).
 
 
 # EXIT STATUS

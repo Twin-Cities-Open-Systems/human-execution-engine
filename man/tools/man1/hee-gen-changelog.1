@@ -57,8 +57,15 @@ The [Unreleased] block, from conventional-commit subjects; nothing typed.
 
   Because a PR cannot know its own squash subject in advance, the file
   is regenerated AFTER merges, as a chore PR -- the same cadence as the
-  gopher man tree. \[ga]hee-gen-changelog\[ga] with no flags is the check: empty
-  output means the file is current.
+  gopher man tree. \[ga]hee-gen-changelog\[ga] with no flags is the check: its
+  first line is a status line saying whether the committed [Unreleased]
+  block still matches a fresh render.
+
+  That line used to be documented here as \[dq]empty output means the file is
+  current\[dq], which was never true -- a dry run always printed the whole
+  rendered block, so nothing could tell current from stale without diffing
+  by hand. \[ga]hee repo-refresh regen\[ga] needs that answer, so the tool now
+  gives it rather than having its caller re-derive it (rule 15).
 \f[R]
 .fi
 .SH EXIT STATUS

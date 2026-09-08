@@ -2,13 +2,14 @@
 
 # NAME
 
-hee-repo-refresh - per-repo health check, pull, hygiene and branch prune
+hee-repo-refresh - per-repo health, pull, hygiene, prune and artifact regeneration
 
 # SYNOPSIS
 
     hee-repo-refresh MODE REPO_DIR
     hee-repo-refresh MODE [all|-all]
     hee-repo-refresh MODE -repo NAME[,NAME...]
+    hee-repo-refresh regen [SCOPE] [--write]
     hee-repo-refresh help
 
 
@@ -21,16 +22,40 @@ hee-repo-refresh - per-repo health check, pull, hygiene and branch prune
     than two copies that can drift.
 
 
+# OPTIONS
+
+    --write     apply the regeneration. Without it nothing is written.
+    --json      hygiene only: one JSON object per repo.
+
+
 # ENVIRONMENT
 
     HEE_GIT_ROOT     where repos live. Default: $HOME/git
     HEE_GIT_TIMEOUT  seconds any single network git call may take before it is
                      reported as unanswered rather than waited on. Default: 45
+    HEE_REGEN_TIMEOUT
+                     seconds any single generator in `regen` may take before it
+                     is reported as unanswered. Default: 300
 
 
 # EXIT STATUS
 
     0 completed   2 usage error
+
+    regen reports in the Nagios vocabulary instead, because it has a real
+    verdict to give:
+      0 OK        every artifact current, or every stale one regenerated
+      1 WARNING   something is stale (dry run), or was not written
+      2 CRITICAL  a generator failed with its source reachable, or a write failed
+      3 UNKNOWN   a source could not be reached -- NOT a pass
+
+# SEE ALSO
+
+    hee-pve-health(1)   drift, which detects what regen acts on
+    hee-gen-manpages(1), hee-gen-changelog(1)   two of the generators regen runs
+    tooling/systemd/hee-regen.{service,timer}   the units that would schedule it;
+                                                installing them is an operator action
+
 
 # MODES
 
@@ -41,6 +66,8 @@ hee-repo-refresh - per-repo health check, pull, hygiene and branch prune
     prune     delete local branches GitHub confirms are merged
     refresh   health, then pull, then the governance reminder -- the same
               sequence as bootstrap.mk's refresh-all-repos
+    regen     regenerate the generated artifacts these repos commit or
+              publish. DRY RUN unless --write
     gate      does this repo still pass hee-check as its own CI runs it,
               against the human-execution-engine checkout beside it? The same
               question .github/workflows/stable.yaml asks in CI before letting
@@ -81,3 +108,45 @@ hee-repo-refresh - per-repo health check, pull, hygiene and branch prune
 
     Exit is 0 even when repos fail -- this reports, it does not gate. Read the
     per-repo lines.
+
+
+# REGEN
+
+    `pull` brings in what other people wrote. `regen` brings in what the
+    MACHINES say -- the artifacts in these repos that are generated and were
+    being regenerated only when somebody remembered. Measured 2026-09-08: five
+    generated artifacts, no crontab entry, no workflow, no timer touching any
+    of them, and pve/network-map.md carrying a written admission that
+    "regeneration is a habit, not a gate".
+
+    DRY RUN IS THE DEFAULT, the same rule and the same reason as
+    hee-gen-manpages and hee-release: a bare run reports what WOULD change and
+    writes nothing (issue:464@human-execution-engine, where a documentation
+    generator installed a pre-commit hook as a side effect of being run).
+
+    IT NEVER COMMITS, and it never deploys. Regenerating is not landing.
+    --write updates files in your working tree; opening the PR is yours. An
+    artifact that is published rather than committed (view.lab's
+    old-commits.html) is rendered and compared against what the host is really
+    serving, and the deploy is named, never run.
+
+    FAILS CLOSED. Each generator already answers "could you reach your source?"
+    in its own exit code -- 3 is UNKNOWN in every hee tool -- so an artifact
+    whose source is unreachable is reported UNKNOWN, counted, and named in a
+    closing "source(s) not reached" line. It is never folded into the
+    unchanged list, and the pass never returns a quietly shorter report. The
+    cost of the alternative is measured: namespace-audit reported OK across 17
+    repos for days while reading none of them (issue:423@fleet-ops).
+
+    --write will not overwrite a destination that already has uncommitted
+    changes; it says so and leaves it alone. Dirtiness is snapshotted once, at
+    the start of the pass, because network-map.md holds two generated blocks
+    and a per-write check would refuse the second one on dirtiness the pass
+    itself had just created.
+
+    The artifact registry is library/py/hee_regen -- a table, not a code path.
+
+    `hee pve-health drift` already asked this question for the two pve
+    artifacts and could only answer it. regen asks it for every declared
+    artifact and, with --write, does something about the answer. The pve
+    generators are reused, not reimplemented, so the two cannot disagree.

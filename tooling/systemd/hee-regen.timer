@@ -1,0 +1,25 @@
+# hee-regen.timer -- see hee-regen.service for why this exists and why it
+# runs the dry run rather than --write.
+#
+# NOT INSTALLED BY ANYTHING. `systemctl --user enable --now hee-regen.timer`
+# after copying both files into ~/.config/systemd/user is an operator action,
+# on purpose.
+
+[Unit]
+Description=Daily check that every generated artifact still matches its source
+Documentation=man:hee-repo-refresh(1)
+
+[Timer]
+# Daily, not hourly. The sources move at very different speeds -- the pve
+# container table changes when a container is built, the man pages when a
+# tool's --help changes, old-commits.html whenever any branch moves -- and
+# the slowest useful answer is "is anything stale today". Hourly would add
+# 24x the pve API and GitHub traffic to tell the operator the same thing.
+OnCalendar=daily
+# Off the exact midnight boundary, where every other daily job already is.
+RandomizedDelaySec=1800
+# A laptop that was asleep at the scheduled time still gets its answer.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
