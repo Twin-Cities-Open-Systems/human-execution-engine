@@ -903,7 +903,17 @@ def cmd_status(args):
         print(f"{flag} storage {sname}: pool {s['pool_total_gb']}GB, real used {s['pool_used_gb']}GB, "
               f"allocated {s['allocated_gb']}GB ({s['overcommit_ratio']}x overcommit)")
     for c in result["lxc"]:
-        flag = "🟢" if c["status"] == "running" else "🔴"
+        # A template is stopped BY DEFINITION -- that is what a template is,
+        # and pvesh reports it as stopped. Painting it red makes a permanently
+        # red line that is never actionable, which is precisely the "trains
+        # people to ignore red" failure rule 16 names. `warn` already skips
+        # templates for this reason; `status` captured the flag in its JSON
+        # and then ignored it when rendering. Measured 2026-09-08 on vmid 112,
+        # tcos-golden-tiny, which carries `template: 1`.
+        if c.get("template"):
+            flag = "⚪"
+        else:
+            flag = "🟢" if c["status"] == "running" else "🔴"
         if args.nerd:
             h, rem = divmod(c['uptime_s'], 3600)
             m = rem // 60
