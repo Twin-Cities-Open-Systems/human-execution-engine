@@ -12,6 +12,8 @@ to see that at a glance.
 
 Usage:
   hee-pve-health status [--host IP] [--node NAME] [--json]
+  hee-pve-health map --diff [--roster FILE]
+                 -- roster minus machine: what is declared and not built.
   hee-pve-health warn [--host IP] [--node NAME] [--overcommit-max N]
                  -- exit 1 if real overcommit ratio (allocated/pool)
                     exceeds N (default 3.0x), or any container isn't
@@ -119,6 +121,9 @@ def gather(host, node):
 
 
 
+_PVE_WHY = []
+
+
 def _container_rows(args):
     """(vmid, name, address, state) per container, plus the DNS map.
 
@@ -132,7 +137,13 @@ def _container_rows(args):
     """
     try:
         _, _, _, lxcs = gather(args.host, args.node)
-    except SystemExit:
+    except SystemExit as e:
+        # Keep the REASON, the same way _HAPROXY_WHY does. This used to
+        # swallow it, so every caller could say only "cannot reach pve" --
+        # which reads identically for a wrong --host, an unsealed API token,
+        # a firewalled node and a dead one. A checker that cannot say why it
+        # failed trains people to assume the check, not the fleet, is broken.
+        _PVE_WHY.append(str(e.code).strip() if e.code else "reason not reported")
         return None, {}
 
     # DNS is the zone's stated SSOT; use it when present, shrug when not.
@@ -312,12 +323,15 @@ def cmd_map(args):
     2026-09-08 -- two containers missing, two mislabelled as stubs while
     running, one name stale, and one edge to a backend that does not exist.
     """
+    if getattr(args, "diff", False):
+        return _cmd_map_diff(args)
     if args.proposed:
         return _cmd_map_proposed(args)
 
     rows, _ = _container_rows(args)
     if rows is None:
-        print("❓ UNKNOWN hee-pve-health map: cannot reach pve -- map not rendered", file=sys.stderr)
+        print("❓ UNKNOWN hee-pve-health map: cannot reach pve -- map not rendered ("
+              + ("; ".join(_PVE_WHY) or "reason not reported") + ")", file=sys.stderr)
         return 3
 
     backends = _haproxy_backends(args.haproxy_via, args.haproxy_vmid)
@@ -419,6 +433,210 @@ def cmd_map(args):
     return 0
 
 
+def _load_roster(path):
+    """(spec, agents, error) from the agent roster registry.
+
+    ONE reader, shared by `--proposed` and `--diff` on purpose. Two readers
+    of the same registry is how a picture and a build queue come to disagree
+    about what was declared -- the same shape that produced three divergent
+    TCOS taxonomies. `agents` is normalized to a list of dicts each carrying
+    `name`, whether the registry writes a dict keyed by role (it does today)
+    or a list.
+
+    Every failure is an error string, never an empty roster. "The file did
+    not parse" and "the roster declares no agents" are different facts and a
+    build queue that confuses them is worse than no build queue.
+    """
+    if not os.path.isfile(path):
+        return None, [], f"no roster at {path}"
+    try:
+        import yaml
+    except ImportError:
+        return None, [], "pyyaml not available"
+    try:
+        doc = yaml.safe_load(open(path, encoding="utf-8")) or {}
+    except Exception as e:
+        return None, [], f"{os.path.basename(path)} did not parse: {e}"
+    spec = doc.get("spec", {}) or {}
+    agents = []
+    for key in ("agents", "roster", "narrow_agents"):
+        if isinstance(spec.get(key), list):
+            agents = spec[key]
+            break
+        if isinstance(spec.get(key), dict):
+            # role key wins over any `name:` inside the body -- the key is
+            # what the rest of the registry references.
+            agents = [{**(v or {}), "name": k} for k, v in spec[key].items()]
+            break
+    return spec, agents, None
+
+
+def _norm(s):
+    """Loose comparison form: lowercase, non-alphanumerics to hyphens, and
+    the `tcos-` hostname prefix dropped (ct109/ct112/ct113 carry it, the
+    other eleven do not)."""
+    return re.sub(r"^tcos-", "", re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-"))
+
+
+def _match_kind(role, name):
+    """How a role name relates to a container name, or None.
+
+    THIS IS A GUESS ABOUT NAMING AND NOTHING MORE. It is spelled out as four
+    named cases rather than one regex so the output can say WHICH weak thing
+    it did, and so a reader can see that none of them is a recorded binding.
+    """
+    r, n = _norm(role), _norm(name)
+    if r == n:
+        return "container name IS the role name"
+    if r in n:
+        return "role name appears in the container name"
+    # Guarded: a two- or three-character container name is inside far too
+    # many words to mean anything (`mx1`, `ns1`, `view`).
+    if len(n) >= 5 and n in r:
+        return "container name appears in the role name"
+    rt, nt = set(r.split("-")), set(n.split("-"))
+    if rt and rt <= nt:
+        return "every word of the role appears in the container name"
+    return None
+
+
+_DIFF_CAVEAT = """MATCH IS HEURISTIC, AND IT IS THE WEAKEST PART OF THIS OUTPUT.
+No role -> container binding is recorded anywhere in this org today. The roster
+refuses to record one on purpose -- common_boundaries.container: "allocated by
+hee name from the durable pool ... This registry records the role; the name is
+not hardcoded here." So there is no key to join on, and the only signal left is
+whether the role name happens to turn up in the container name.
+
+What that cannot know, stated rather than papered over:
+  * A container built for a role and named from the durable pool shares no
+    substring with it. It reads here as UNDECLARED and as TO BUILD at the same
+    time -- one real thing counted as two wrong ones.
+  * A name that matches proves a naming coincidence, not that the container
+    runs that role, is scoped to it, or has a ratified contract.
+  * Nothing here reads the model an agent actually runs, so a matched row says
+    nothing about the model-drift footgun the roster names.
+This becomes a real join, not a guess, when issue:434@fleet-ops step 1 lands:
+an allocation record in git binding role -> hostname -> vmid. Until then the
+UNDECLARED list is the honest answer and it is supposed to be long."""
+
+
+def _cmd_map_diff(args):
+    """Roster minus machine. That difference IS the build queue.
+
+    issue:434@fleet-ops step 4. Two pictures already existed and nothing
+    subtracted one from the other: `map` renders what the pve API says does
+    exist, `map --proposed` renders what the roster says should exist, and
+    the queue between them lived only in somebody's head.
+
+    FAILS CLOSED, which is the whole point. Either side unreadable is UNKNOWN
+    (exit 3), never an empty build queue -- "nothing to build" from a tool
+    that could not see the machine is exactly how `namespace-audit` reported
+    OK across 17 repos it had never read (issue:423@fleet-ops).
+    """
+    spec, agents, err = _load_roster(args.roster)
+    if err:
+        emit(Status.UNKNOWN, f"roster not read: {err}")
+        emit(Status.UNKNOWN, "the DECLARED side is missing -- this is not an empty build queue")
+        return Status.UNKNOWN
+
+    rows, _ = _container_rows(args)
+    if rows is None:
+        for why in (_PVE_WHY or ["reason not reported"]):
+            emit(Status.UNKNOWN, f"pve not read: {why}")
+        emit(Status.UNKNOWN, "the MEASURED side is missing -- this is not an empty build queue")
+        return Status.UNKNOWN
+
+    status = spec.get("status", "unknown")
+    no_model = (spec.get("no_model", {}) or {}).get("entries", {}) or {}
+    by_name = {name: (vmid, ip, state) for vmid, name, ip, state in rows}
+
+    def candidates(role):
+        return [(n, k) for n in by_name if (k := _match_kind(role, n))]
+
+    claimed, to_build, matched, ambiguous = set(), [], [], []
+    for a in agents:
+        role = a.get("name", "agent")
+        hits = candidates(role)
+        claimed.update(n for n, _ in hits)
+        if not hits:
+            to_build.append((role, a.get("model", "unspecified")))
+        elif len(hits) == 1:
+            matched.append((role, hits[0][0], hits[0][1]))
+        else:
+            ambiguous.append((role, hits))
+
+    deterministic = []
+    for role in sorted(no_model):
+        hits = candidates(role)
+        claimed.update(n for n, _ in hits)
+        deterministic.append((role, [n for n, _ in hits]))
+
+    undeclared = [(v, n, ip, st) for v, n, ip, st in rows if n not in claimed]
+
+    print(f"declared: {os.path.basename(args.roster)}  spec.status = {status}"
+          + ("  ·  NOT AUTHORIZED" if status != "ratified" else ""))
+    print(f"measured: pve node {args.node} via {args.host}  ·  {len(rows)} containers, read live")
+    print()
+    print(_DIFF_CAVEAT)
+    print()
+
+    print(f"TO BUILD -- declared by the roster, no container matches ({len(to_build)})")
+    for role, model in to_build:
+        print(f"     {role.ljust(18)} {model}")
+    if not to_build:
+        print("     (none)")
+    print()
+
+    print(f"MATCHED (heuristically) -- one candidate container ({len(matched)})")
+    for role, name, why in matched:
+        vmid, ip, st = by_name[name]
+        print(f"     {role.ljust(18)} -> ct{vmid} {name} {ip} {st}   [{why}]")
+    if not matched:
+        print("     (none -- not one roster role's name occurs in any container name)")
+    print()
+
+    if ambiguous:
+        print(f"AMBIGUOUS -- more than one container matches, so none is the answer ({len(ambiguous)})")
+        for role, hits in ambiguous:
+            print(f"     {role.ljust(18)} -> " + ", ".join(n for n, _ in hits))
+        print()
+
+    print(f"DECLARED WITH NO MODEL -- roster names these as deterministic, not agents ({len(deterministic)})")
+    for role, hits in deterministic:
+        print(f"     {role.ljust(18)} " + (", ".join(hits) if hits else "(no container matches)"))
+    print("     Not in the build queue: the roster lists them so a later session cannot")
+    print("     mistake the absence of an agent for an oversight.")
+    print()
+
+    print(f"UNDECLARED -- running, no roster role matches ({len(undeclared)})")
+    for vmid, name, ip, st in undeclared:
+        print(f"     ct{str(vmid).ljust(4)} {name.ljust(22)} {ip.ljust(12)} {st}")
+    print("     REPORTED, NOT AN ERROR. Most of this fleet predates the roster, which")
+    print("     covers agent roles only and never claimed to describe the whole node.")
+    print()
+
+    if not agents:
+        emit(Status.UNKNOWN, "the roster declares no agents -- nothing to subtract, so this is not a pass")
+        return Status.UNKNOWN
+
+    queue = len(to_build) + len(ambiguous)
+    if queue and status == "ratified":
+        # Only once the roster is real intent. A ratified role with nothing
+        # running is a promise the fleet is not keeping.
+        emit(Status.WARNING, f"{queue} ratified role(s) unbuilt or unresolved")
+        return Status.WARNING
+    if queue:
+        # Deliberately not red on day one (rule 16). The roster is `proposed`
+        # and says no agent is dispatched before its hire-authority Contract
+        # is ratified -- so an unbuilt role is the correct state, not a fault.
+        emit(Status.OK, f"build queue is {queue} role(s); roster is `{status}`, so unbuilt is correct")
+    else:
+        emit(Status.OK, "every declared role has a candidate container")
+    emit(Status.OK, f"diff ran against a live pve read: {len(rows)} containers, "
+                    f"{len(agents)} declared role(s), {len(undeclared)} undeclared")
+    return Status.OK
+
+
 def _cmd_map_proposed(args):
     """The proposed map, from the agent roster registry.
 
@@ -428,27 +646,12 @@ def _cmd_map_proposed(args):
     that does not say so is how `mx1` came to be called a stub in a
     disaster-recovery ticket.
     """
-    if not os.path.isfile(args.roster):
-        print(f"❓ UNKNOWN hee-pve-health map --proposed: no roster at {args.roster}", file=sys.stderr)
+    spec, agents, err = _load_roster(args.roster)
+    if err:
+        print(f"❓ UNKNOWN hee-pve-health map --proposed: {err}", file=sys.stderr)
         return 3
-    try:
-        import yaml
-    except ImportError:
-        print("❓ UNKNOWN hee-pve-health map --proposed: pyyaml not available", file=sys.stderr)
-        return 3
-    doc = yaml.safe_load(open(args.roster, encoding="utf-8")) or {}
-    spec = doc.get("spec", {}) or {}
     status = spec.get("status", "unknown")
     needs = spec.get("ratification_required_from", []) or []
-
-    agents = []
-    for key in ("agents", "roster", "narrow_agents"):
-        if isinstance(spec.get(key), list):
-            agents = spec[key]
-            break
-        if isinstance(spec.get(key), dict):
-            agents = [dict(name=k, **(v or {})) for k, v in spec[key].items()]
-            break
 
     boundaries = spec.get("common_boundaries", {}) or {}
     reach = boundaries.get("reach", "")
@@ -531,7 +734,8 @@ def cmd_inventory(args):
     """
     rows, dns = _container_rows(args)
     if rows is None:
-        print("❓ UNKNOWN hee-pve-health inventory: cannot reach pve -- table not rendered", file=sys.stderr)
+        print("❓ UNKNOWN hee-pve-health inventory: cannot reach pve -- table not rendered ("
+              + ("; ".join(_PVE_WHY) or "reason not reported") + ")", file=sys.stderr)
         return 3
 
     print("| vmid | hostname | address | state |")
@@ -740,19 +944,22 @@ def cmd_warn(args):
 def main():
     ap = argparse.ArgumentParser(prog="hee-pve-health")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("status")
+    # A one-line help per subcommand, because the top-level --help IS the
+    # published man page (rule 17) and without these it listed five bare
+    # words and nothing about what any of them does.
+    s = sub.add_parser("status", help="node, storage overcommit and per-container state")
     s.add_argument("--host", default="10.0.0.153")
     s.add_argument("--node", default="pve")
     s.add_argument("--json", action="store_true")
     s.add_argument("--nerd", action="store_true",
                     help="per-container cpu/mem/disk-io/net-io/elapsed + totals (real stats-for-nerds)")
-    i = sub.add_parser("inventory")
+    i = sub.add_parser("inventory", help="the container table, rendered from the pve API")
     i.add_argument("--host", default="10.0.0.153")
     i.add_argument("--node", default="pve")
     i.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"),
                    help="tinydns-format zone file for addresses; skipped if absent")
 
-    m = sub.add_parser("map")
+    m = sub.add_parser("map", help="topology as mermaid; --term for a terminal, --proposed for the roster, --diff for the build queue")
     m.add_argument("--host", default="10.0.0.153")
     m.add_argument("--node", default="pve")
     m.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"),
@@ -764,13 +971,17 @@ def main():
     m.add_argument("--term", action="store_true",
                    help="draw it for a terminal instead of emitting mermaid -- same rows, "
                         "no browser engine, and nothing leaves this network")
+    m.add_argument("--diff", action="store_true",
+                   help="subtract the machine from the roster: which declared roles have no "
+                        "container, and which containers no role declares. Fails closed -- an "
+                        "unreadable pve or roster is UNKNOWN, never an empty build queue")
     m.add_argument("--proposed", action="store_true",
                    help="render the PROPOSED map from the agent roster instead of the live fleet, "
                         "stamped with the roster's own spec.status")
     m.add_argument("--roster",
                    default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
                    help="agent roster registry, for --proposed")
-    d = sub.add_parser("drift")
+    d = sub.add_parser("drift", help="do the committed artifacts still match the machine?")
     d.add_argument("--host", default="10.0.0.153")
     d.add_argument("--node", default="pve")
     d.add_argument("--repo", default=os.path.expanduser("~/git/fleet-ops"),
@@ -779,11 +990,12 @@ def main():
     d.add_argument("--haproxy-via", default="root@pve.lab.tcos.us")
     d.add_argument("--haproxy-vmid", type=int, default=103)
     d.add_argument("--proposed", action="store_true", help=argparse.SUPPRESS)
+    d.add_argument("--diff", action="store_true", help=argparse.SUPPRESS)
     d.add_argument("--roster",
                    default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
                    help=argparse.SUPPRESS)
 
-    w = sub.add_parser("warn")
+    w = sub.add_parser("warn", help="exit 1 on real overcommit or a container that is not running")
     w.add_argument("--host", default="10.0.0.153")
     w.add_argument("--node", default="pve")
     w.add_argument("--overcommit-max", type=float, default=3.0)
