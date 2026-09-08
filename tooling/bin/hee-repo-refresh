@@ -91,6 +91,11 @@ MODES
   prune     delete local branches GitHub confirms are merged
   refresh   health, then pull, then the governance reminder -- the same
             sequence as bootstrap.mk's refresh-all-repos
+  gate      does this repo still pass hee-check as its own CI runs it,
+            against the human-execution-engine checkout beside it? The same
+            question .github/workflows/stable.yaml asks in CI before letting
+            `stable` advance -- asked locally, before pushing a tightening
+            that would turn other repos red with no commit to them
 
 SCOPE
   A bare REPO_DIR is a filesystem path and is what bootstrap.mk passes
@@ -98,6 +103,26 @@ SCOPE
   one worker among many. `all`/`-all` and `-repo NAME,NAME` are the
   human-facing forms, and take repo NAMES (dotfiles, not a full path),
   resolved under ${HEE_GIT_ROOT:-$HOME/git}.
+
+GATE
+  Runs `hee-check all .` from INSIDE each repo, with human-execution-engine
+  as a sibling checkout. Both details are load-bearing and were each measured
+  wrong first: hee-check resolves cross-repo references by walking sibling
+  checkouts with git, so an absolute-path invocation from elsewhere reports
+  CRITICAL that the repo's own CI never sees.
+
+  A repo's own HEE_*_SKIP exemptions are read out of its workflows and
+  replayed, because "the repo declares the exemption, the checker never
+  guesses". Reading them from the repo beats copying them: a copy drifts.
+
+  It judges the WORKING TREE, not origin. That is the point locally -- you
+  want to know before you push -- but it means a result here can differ from
+  CI. Measured 2026-09-07: dotfiles read 2 findings locally and 0 from a
+  clean clone, purely from uncommitted work. When the two disagree, CI is
+  right about main and this is right about your desk.
+
+  Exit is 0 even when repos fail -- this reports, it does not gate. Read the
+  per-repo lines.
 
 ENVIRONMENT
   HEE_GIT_ROOT   where repos live. Default: $HOME/git
@@ -401,8 +426,47 @@ PYJ
         "$SELF" health "$DIR"
         "$SELF" pull "$DIR"
         ;;
+      gate)
+        HEE_DIR="$GIT_ROOT/human-execution-engine"
+        if [ ! -d "$HEE_DIR/.git" ]; then
+          echo "UNKNOWN  $R: no human-execution-engine checkout at $HEE_DIR"
+          exit 0
+        fi
+        # Replay this repo's own declared exemptions. Not replaying them
+        # judges the repo by rules it never agreed to, which produces a
+        # CRITICAL its CI would never raise -- measured on fleet-ops, which
+        # reported 5 false CRITICAL before its HEE_REFS_SKIP was honored.
+        _gate_skip() {
+          # Strips the YAML double quotes and NOTHING ELSE. The single
+          # quotes inside are load-bearing: hee-check evals these pathspecs
+          # (`eval git -C ... $_HP_SKIP`), so ':!hosts/*' must keep its
+          # quotes or the pathspec is never applied. Measured 2026-09-07 --
+          # stripping them turned fleet-ops from 0 findings into 20.
+          #
+          # --no-filename matters too: scanning a DIRECTORY makes rg prefix
+          # every hit with its path, which corrupts the value and hides the
+          # leading quote from the strip. Measured, not guessed.
+          rg --no-filename --no-line-number -o -m1 \
+             "^[[:space:]]*$1:[[:space:]]*(.*)$" -r '$1' \
+             "$DIR/.github/workflows" 2>/dev/null | head -1 \
+             | sed -e 's/^"//' -e 's/"$//'
+        }
+        HEE_HOME_PATH_SKIP="$(_gate_skip HEE_HOME_PATH_SKIP)"
+        HEE_LINT_SKIP="$(_gate_skip HEE_LINT_SKIP)"
+        HEE_REFS_SKIP="$(_gate_skip HEE_REFS_SKIP)"
+        export HEE_HOME_PATH_SKIP HEE_LINT_SKIP HEE_REFS_SKIP
+        out="$(cd "$DIR" && "$HEE_DIR/tooling/bin/hee-check" all . 2>&1)"
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+          printf 'OK        %s\n' "$R"
+        else
+          n=$(printf '%s\n' "$out" | rg -c '^❌' || echo '?')
+          printf 'CRITICAL  %s -- %s finding(s), hee-check all exit %s\n' "$R" "$n" "$rc"
+          printf '%s\n' "$out" | rg '^❌' | head -5 | sed 's/^/            | /'
+        fi
+        ;;
       *)
-        echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh)" >&2
+        echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh|gate)" >&2
         exit 2
         ;;
     esac
@@ -413,7 +477,7 @@ esac
 # Reached only for the all/-all/-repo scopes above -- $repos is a real,
 # space-separated list of repo dirs to fan out over.
 case "$MODE" in
-  health|pull|hygiene|prune)
+  health|pull|hygiene|prune|gate)
     # --json is re-passed explicitly: the worker form must not depend on
     # an inherited environment variable to know what it was asked for.
     JSON_FLAG=""; [ "$JSON" = "1" ] && JSON_FLAG="--json"
@@ -435,7 +499,7 @@ case "$MODE" in
     [ -f "$BOOTSTRAP_MK" ] && make -f "$BOOTSTRAP_MK" print-governance-reminder
     ;;
   *)
-    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh)" >&2
+    echo "hee-repo-refresh: unknown mode '$MODE' (want health|pull|hygiene|prune|refresh|gate)" >&2
     exit 2
     ;;
 esac
