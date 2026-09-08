@@ -1,0 +1,60 @@
+# hee-regen.service -- the scheduler this org did not have.
+#
+# Measured 2026-09-08: five generated artifacts (fleet-ops/pve/addressing.md,
+# fleet-ops/pve/network-map.md twice over, human-execution-engine's man/tools
+# and CHANGELOG.md, view.lab's old-commits.html) and NO crontab entry, no
+# workflow and no timer referencing any of them. pve/network-map.md said so
+# in writing: "regeneration is a habit, not a gate".
+#
+# NOT INSTALLED BY ANYTHING. This file is the unit that would run the pass;
+# putting it under /etc/systemd/user (or ~/.config/systemd/user) and enabling
+# the timer is a separate, deliberate operator action. Nothing in this repo
+# installs it, and `hee-check systemd` validates it where it sits.
+#
+# WHY IT RUNS THE DRY RUN. `regen --write` edits files in whatever checkout
+# it finds, and these are the operator's live working trees. A timer that
+# rewrites files under a running editor, unattended, is how you lose work you
+# did not know was in progress -- the same reason `hee-repo-refresh pull`
+# refuses to touch a repo with uncommitted changes. So the timer REPORTS and
+# the operator applies. That is still the whole missing half: nothing was
+# looking at all before this.
+
+[Unit]
+Description=Report which generated artifacts have drifted from their sources
+Documentation=man:hee-repo-refresh(1)
+Documentation=https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/main/library/py/hee_regen/__init__.py
+# The pass reads the pve API and every origin remote in the org.
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=%h/git/human-execution-engine
+
+[Service]
+Type=oneshot
+Environment=HOME=%h
+ExecStart=%h/git/human-execution-engine/tooling/bin/hee-repo-refresh regen all
+
+# The pass talks to the pve API, ssh, GitHub and view.lab.tcos.us. Measured
+# 2026-09-08 on kiosk: 66s for fleet-ops, 5s for human-execution-engine, 8s
+# for .github. This bound is generous against a slow remote and still short
+# of the timer's own interval.
+TimeoutStartSec=900
+
+# 1 is WARNING in the Nagios vocabulary every hee tool speaks: the pass RAN
+# and found something stale. That is the expected steady state -- old-commits
+# .html is a view of branch heads and goes stale within hours of any deploy
+# -- so treating it as unit failure would leave `systemctl --failed` red
+# permanently, which is exactly the cost rule 16 measures (.github's
+# site-health was red on 14/14 hosts every 30 minutes for weeks, and a real
+# outage would have been invisible in it).
+#
+# 2 (CRITICAL, a generator broke) and 3 (UNKNOWN, a source could not be
+# reached) are NOT listed here and do fail the unit. That is the fail-closed
+# half: "could not read it" must never look like "nothing to do".
+SuccessExitStatus=1
+
+# Read-only work with one exception this unit does not take: without --write
+# the pass writes nothing outside its own temp dir. It does run `git fetch`
+# in the repos it inspects, which updates remote-tracking refs, so $HOME is
+# not made read-only here.
+NoNewPrivileges=true
+PrivateTmp=true

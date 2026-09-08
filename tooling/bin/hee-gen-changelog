@@ -32,12 +32,20 @@ DESCRIPTION
 
   Because a PR cannot know its own squash subject in advance, the file
   is regenerated AFTER merges, as a chore PR -- the same cadence as the
-  gopher man tree. `hee-gen-changelog` with no flags is the check: empty
-  output means the file is current.
+  gopher man tree. `hee-gen-changelog` with no flags is the check: its
+  first line is a status line saying whether the committed [Unreleased]
+  block still matches a fresh render.
+
+  That line used to be documented here as "empty output means the file is
+  current", which was never true -- a dry run always printed the whole
+  rendered block, so nothing could tell current from stale without diffing
+  by hand. `hee repo-refresh regen` needs that answer, so the tool now
+  gives it rather than having its caller re-derive it (rule 15).
 
 EXIT STATUS
   0 OK (dry run rendered, or written)   2 CRITICAL (not a git repo, no window)   3 UNKNOWN
 """
+import difflib
 import re
 import signal
 import subprocess
@@ -47,6 +55,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
+# `render` is already this module's changelog renderer, so the status
+# renderer is aliased rather than shadowing it -- a real collision, hit
+# on the first run.
+from hee_status import Status
+from hee_status import render as status_line  # noqa: E402
 
 HEADER = """# Changelog
 
@@ -124,6 +137,17 @@ def render(entries, slug):
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def committed_block(text):
+    """The [Unreleased] block as it stands in the file, or None.
+
+    Same regex splice() replaces with, deliberately: a currency check that
+    reads a different region than the writer writes reports drift that is
+    not there and misses drift that is.
+    """
+    m = re.search(r"^## \[Unreleased\].*?(?=^## \[|\Z)", text, re.M | re.S)
+    return m.group(0) if m else None
+
+
 def splice(text, block, release=None):
     """Replace the [Unreleased] block (or insert one after the header)."""
     if release:
@@ -162,6 +186,18 @@ def main(argv):
     entries = collect(cwd, start)
     block = render(entries, repo_slug(cwd))
     if not write:
+        have = committed_block(text)
+        if have is None:
+            verdict = status_line(Status.WARNING, "CHANGELOG.md has no [Unreleased] block -- one would be added")
+        elif have.strip() == block.strip():
+            verdict = status_line(Status.OK, "CHANGELOG.md [Unreleased] is current")
+        else:
+            n = sum(1 for x in difflib.unified_diff(have.strip().splitlines(),
+                                                    block.strip().splitlines(), lineterm="", n=0)
+                    if x[:1] in "+-" and not x.startswith(("+++", "---")))
+            verdict = status_line(Status.WARNING,
+                                  f"CHANGELOG.md [Unreleased] would change: {n} line(s)")
+        print(verdict)
         print(f"DRY RUN -- nothing will be written. window: since {start}, {len(entries)} commit(s) on main\nwould write to: {cl}\n")
         print(block); return 0
     new = splice(text if text else HEADER + "\n", block, release)
