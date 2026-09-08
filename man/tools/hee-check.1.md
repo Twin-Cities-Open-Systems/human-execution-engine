@@ -59,6 +59,8 @@ hee-check - repo boundary and integrity checks
                        for host-pinned scripts and units that name the real
                        user on the real host on purpose. Set it in heerc; the
                        repo declares the exemption, the checker never guesses.
+                       For a single deliberate line, prefer the marker
+                       hee-check:home-ok -- see `hee-check boundary --help`.
 
 
 # EXIT STATUS
