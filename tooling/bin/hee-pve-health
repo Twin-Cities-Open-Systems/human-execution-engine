@@ -19,6 +19,7 @@ Usage:
 """
 import argparse
 import os
+import re
 import json
 import ssl
 import subprocess
@@ -114,30 +115,25 @@ def gather(host, node):
 
 
 
-def cmd_inventory(args):
-    """Render the container table from the machine, not from memory.
+def _container_rows(args):
+    """(vmid, name, address, state) per container, plus the DNS map.
 
-    Real trigger 2026-09-06: pve/addressing.md described mx1 as a stub with
-    no MTA while OpenSMTPD 7.8.0 was installed, running and listening on
-    four addresses, and omitted soju (vmid 111) entirely. Two drifts in one
-    46-line file, both found by accident. A hand-kept table of live
-    infrastructure is a promise nobody renews.
+    Shared by `inventory` and `map` on purpose. These two render the same
+    facts in two shapes, and the whole point of both is that they cannot
+    disagree with the machine -- so they must not disagree with each other
+    either. A second copy of this loop would be the fourth instance of the
+    shape that produced three divergent TCOS taxonomies.
 
-    Deliberately TOLERANT. A container the API cannot describe, a missing
-    DNS file, an unresolvable name -- none of those are failures. They are
-    rendered as what they are, because a generator that dies on one odd row
-    teaches people to stop running it, and a table that omits what it could
-    not explain is how mx1 stayed a stub in writing for weeks.
+    Returns (None, {}) when pve is unreachable; callers decide how loud to be.
     """
     try:
         _, _, _, lxcs = gather(args.host, args.node)
     except SystemExit:
-        print("❓ UNKNOWN hee-pve-health inventory: cannot reach pve -- table not rendered", file=sys.stderr)
-        return 3
+        return None, {}
 
     # DNS is the zone's stated SSOT; use it when present, shrug when not.
     dns = {}
-    if args.dns and os.path.isfile(args.dns):
+    if getattr(args, "dns", None) and os.path.isfile(args.dns):
         for line in open(args.dns, encoding="utf-8", errors="replace"):
             line = line.strip()
             if not line.startswith("="):
@@ -169,6 +165,279 @@ def cmd_inventory(args):
                     ip = addr
                     break
         rows.append((vmid, name, ip or "dhcp", state))
+    return rows, dns
+
+
+def _haproxy_backends(via, vmid):
+    """Real backend -> address edges, read from the running haproxy.
+
+    THIS IS THE POINT OF THE WHOLE SUBCOMMAND. The hand-drawn map in
+    issue:408@fleet-ops asserted edges that no file anywhere declares: the
+    pve/services/*.yaml specs carry template, storage, cores, memory and
+    bridge, and nothing about what talks to what. Measured 2026-09-08, two
+    of its edges were simply wrong -- it drew haproxy fronting `soju`, which
+    has no backend at all, and marked `thesis-engine` a stub while it served
+    two live backends.
+
+    So the edges come from haproxy's own config on the running container.
+    Returns {} and says nothing when unreachable; the caller reports that
+    rather than quietly drawing an edgeless graph, because a map with no
+    lines looks like a fleet with no connections.
+    """
+    cmd = ("pct exec %d -- sh -c "
+           "'cat /etc/haproxy/haproxy.cfg 2>/dev/null'" % vmid)
+    try:
+        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                              via, cmd], capture_output=True, text=True, timeout=45)
+    except Exception:
+        return {}
+    if out.returncode != 0 or not out.stdout.strip():
+        return {}
+
+    backends, cur = {}, None
+    for line in out.stdout.splitlines():
+        st = line.strip()
+        m = re.match(r"^(backend|listen)\s+(\S+)", st)
+        if m:
+            cur = m.group(2)
+            backends.setdefault(cur, [])
+            continue
+        if cur and st.startswith("server "):
+            parts = st.split()
+            if len(parts) >= 3 and ":" in parts[2]:
+                backends[cur].append(parts[2].split(":")[0])
+        if st.startswith("frontend "):
+            cur = None
+    return {k: v for k, v in backends.items() if v}
+
+
+def _mermaid_id(name):
+    """A mermaid-safe node id. Hyphens and dots break the parser unquoted."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", name)
+
+
+def _undeclared(lines, declared):
+    """Node ids used on an edge but never declared. Empty set means renderable."""
+    used = set()
+    for ln in lines:
+        m = re.match(r"^\s*([A-Za-z0-9_]+)\s*-{2,3}>?\|?", ln)
+        if m and not ln.strip().startswith(("subgraph", "class", "end")):
+            used.add(m.group(1))
+        m2 = re.search(r"-->(?:\|[^|]*\|)?\s*([A-Za-z0-9_]+)", ln)
+        if m2:
+            used.add(m2.group(1))
+    return used - declared
+
+
+def cmd_map(args):
+    """Emit the pve topology as mermaid, from the machine rather than memory.
+
+    issue:408@fleet-ops: "generate it, don't draw it". The map it carries was
+    drawn by hand on 2026-09-06 and had drifted in six measured ways by
+    2026-09-08 -- two containers missing, two mislabelled as stubs while
+    running, one name stale, and one edge to a backend that does not exist.
+    """
+    if args.proposed:
+        return _cmd_map_proposed(args)
+
+    rows, _ = _container_rows(args)
+    if rows is None:
+        print("❓ UNKNOWN hee-pve-health map: cannot reach pve -- map not rendered", file=sys.stderr)
+        return 3
+
+    backends = _haproxy_backends(args.haproxy_via, args.haproxy_vmid)
+    by_ip = {ip: (vmid, name) for vmid, name, ip, _ in rows}
+
+    # The haproxy container is the graph's entry point, so edges leave the
+    # node that really terminates them rather than a floating label.
+    hap_id = None
+    for vmid, name, ip, _ in rows:
+        if int(vmid) == int(args.haproxy_vmid):
+            hap_id = _mermaid_id(name)
+
+    out, declared = [], set()
+    out.append("graph TD")
+    out.append("  lan([LAN · gateway])")
+    declared.add("lan")
+    out.append(f'  pvehost["pve host API<br/>{args.host}"]')
+    declared.add("pvehost")
+    out.append('  subgraph pve["pve host · vmbr0"]')
+    for vmid, name, ip, state in rows:
+        nid = _mermaid_id(name)
+        stopped = "" if state == "running" else "<br/>STOPPED"
+        out.append(f'    {nid}["{name}<br/>{ip} · {vmid}{stopped}"]')
+        declared.add(nid)
+    out.append("  end")
+    if hap_id:
+        out.append(f"  lan --> {hap_id}")
+
+    # Edges, and ONLY edges something real declares. An address haproxy
+    # serves that is not a container on this node is drawn as the pve host
+    # itself when it matches, and otherwise skipped and counted -- never
+    # invented, and never silently dropped.
+    drawn, skipped = 0, []
+    for be, addrs in sorted(backends.items()):
+        for a in addrs:
+            hit = by_ip.get(a)
+            if hit and hap_id:
+                out.append(f"  {hap_id} -->|{be}| {_mermaid_id(hit[1])}")
+                drawn += 1
+            elif a == args.host and hap_id:
+                out.append(f"  {hap_id} -->|{be}| pvehost")
+                drawn += 1
+            else:
+                skipped.append(f"{be}->{a}")
+    out.append("  classDef stopped stroke-dasharray:4 3")
+    stopped_ids = [_mermaid_id(n) for _, n, _, st in rows if st != "running"]
+    if stopped_ids:
+        out.append("  class " + ",".join(stopped_ids) + " stopped")
+
+    # A diagram that references a node it never declared does not render at
+    # all -- it fails as a blank box in GitHub, which reads as "no data"
+    # rather than "broken". Refuse to emit one.
+    bad = _undeclared(out, declared)
+    if bad:
+        print("❌ CRITICAL hee-pve-health map: edge references undeclared node(s): "
+              + ", ".join(sorted(bad)), file=sys.stderr)
+        return 2
+
+    print("```mermaid")
+    for line in out:
+        print(line)
+    print("```")
+    print()
+    if backends:
+        note = (f"_{len(rows)} containers and {drawn} haproxy route(s), read from the pve API and "
+                f"the running haproxy config.")
+        if skipped:
+            # Say what was dropped. A quiet omission is how a map comes to
+            # show fewer connections than the fleet really has.
+            note += (f" **{len(skipped)} backend target(s) are not containers on this node "
+                     f"and are not drawn: {', '.join(skipped)}.**")
+        print(note + " Generated by `hee pve-health map` -- do not hand-edit._")
+    else:
+        # Loud, not silent. An edgeless map is a real result only if haproxy
+        # really has no backends, and that is not what happened here.
+        print(f"_{len(rows)} containers, read from the pve API. **haproxy was unreachable, so NO "
+              f"routes are drawn** -- this map shows hosts only, not what talks to what. "
+              f"Generated by `hee pve-health map` -- do not hand-edit._")
+    return 0
+
+
+def _cmd_map_proposed(args):
+    """The proposed map, from the agent roster registry.
+
+    Stamps the registry's OWN spec.status into the diagram title. The roster
+    is `status: proposed` and says plainly that no agent is dispatched until
+    its hire-authority Contract is ratified. A picture of unratified agents
+    that does not say so is how `mx1` came to be called a stub in a
+    disaster-recovery ticket.
+    """
+    if not os.path.isfile(args.roster):
+        print(f"❓ UNKNOWN hee-pve-health map --proposed: no roster at {args.roster}", file=sys.stderr)
+        return 3
+    try:
+        import yaml
+    except ImportError:
+        print("❓ UNKNOWN hee-pve-health map --proposed: pyyaml not available", file=sys.stderr)
+        return 3
+    doc = yaml.safe_load(open(args.roster, encoding="utf-8")) or {}
+    spec = doc.get("spec", {}) or {}
+    status = spec.get("status", "unknown")
+    needs = spec.get("ratification_required_from", []) or []
+
+    agents = []
+    for key in ("agents", "roster", "narrow_agents"):
+        if isinstance(spec.get(key), list):
+            agents = spec[key]
+            break
+        if isinstance(spec.get(key), dict):
+            agents = [dict(name=k, **(v or {})) for k, v in spec[key].items()]
+            break
+
+    boundaries = spec.get("common_boundaries", {}) or {}
+    reach = boundaries.get("reach", "")
+
+    out, declared = [], set()
+    out.append("graph TD")
+    label = f"PROPOSED · status={status}"
+    if status != "ratified":
+        label += " · NOT AUTHORIZED"
+    out.append(f'  title["{label}"]')
+    declared.add("title")
+    out.append('  gh([GitHub])')
+    declared.add("gh")
+    out.append('  fac["container-factory<br/>mints a 1h scoped token per job"]')
+    declared.add("fac")
+    # One LXC each, per the roster's own common_boundaries.container. The
+    # subgraph label says it so the picture cannot imply shared tenancy.
+    out.append('  subgraph agents["narrow agents · one LXC each"]')
+    if agents:
+        for a in agents:
+            nm = a.get("name", "agent")
+            model = a.get("model", "unspecified")
+            nid = _mermaid_id(nm)
+            out.append(f'    {nid}["{nm}<br/>{model}"]')
+            declared.add(nid)
+    else:
+        out.append('    none["roster declares no agents yet"]')
+        declared.add("none")
+    out.append("  end")
+
+    # Every agent lands work through a pull request and reaches nothing else.
+    # Drawn per-agent rather than from one collective node, because the
+    # collective node was not a real thing and did not render.
+    for a in agents:
+        out.append(f'  fac --> {_mermaid_id(a.get("name", "agent"))}')
+    for a in agents:
+        out.append(f'  {_mermaid_id(a.get("name", "agent"))} -->|pull requests only| gh')
+
+    out.append("  classDef banner fill:#7c2d12,color:#fff,stroke-width:0px")
+    out.append("  classDef unratified stroke-dasharray:5 3")
+    out.append("  class title banner")
+    if agents:
+        out.append("  class " + ",".join(_mermaid_id(a.get("name", "agent")) for a in agents) + " unratified")
+
+    bad = _undeclared(out, declared)
+    if bad:
+        print("❌ CRITICAL hee-pve-health map --proposed: edge references undeclared node(s): "
+              + ", ".join(sorted(bad)), file=sys.stderr)
+        return 2
+
+    print("```mermaid")
+    for line in out:
+        print(line)
+    print("```")
+    print()
+    print(f"_Generated by `hee pve-health map --proposed` from "
+          f"`{os.path.basename(args.roster)}` (spec.status = **{status}**"
+          + (f", ratification required from {', '.join(needs)}" if needs else "")
+          + "). Dashed means not built and not authorized._")
+    if reach:
+        print()
+        print(f"_Boundary, quoted from the registry rather than redrawn: {reach}_")
+    return 0
+
+
+def cmd_inventory(args):
+    """Render the container table from the machine, not from memory.
+
+    Real trigger 2026-09-06: pve/addressing.md described mx1 as a stub with
+    no MTA while OpenSMTPD 7.8.0 was installed, running and listening on
+    four addresses, and omitted soju (vmid 111) entirely. Two drifts in one
+    46-line file, both found by accident. A hand-kept table of live
+    infrastructure is a promise nobody renews.
+
+    Deliberately TOLERANT. A container the API cannot describe, a missing
+    DNS file, an unresolvable name -- none of those are failures. They are
+    rendered as what they are, because a generator that dies on one odd row
+    teaches people to stop running it, and a table that omits what it could
+    not explain is how mx1 stayed a stub in writing for weeks.
+    """
+    rows, dns = _container_rows(args)
+    if rows is None:
+        print("❓ UNKNOWN hee-pve-health inventory: cannot reach pve -- table not rendered", file=sys.stderr)
+        return 3
 
     print("| vmid | hostname | address | state |")
     print("|---|---|---|---|")
@@ -285,6 +554,21 @@ def main():
     i.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"),
                    help="tinydns-format zone file for addresses; skipped if absent")
 
+    m = sub.add_parser("map")
+    m.add_argument("--host", default="10.0.0.153")
+    m.add_argument("--node", default="pve")
+    m.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"),
+                   help="tinydns-format zone file for addresses; skipped if absent")
+    m.add_argument("--haproxy-via", default="root@pve.lab.tcos.us",
+                   help="ssh target that can `pct exec` the haproxy container; edges come from "
+                        "its live config, because no file in the repo declares them")
+    m.add_argument("--haproxy-vmid", type=int, default=103)
+    m.add_argument("--proposed", action="store_true",
+                   help="render the PROPOSED map from the agent roster instead of the live fleet, "
+                        "stamped with the roster's own spec.status")
+    m.add_argument("--roster",
+                   default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
+                   help="agent roster registry, for --proposed")
     w = sub.add_parser("warn")
     w.add_argument("--host", default="10.0.0.153")
     w.add_argument("--node", default="pve")
@@ -300,7 +584,8 @@ def main():
         return 0
 
     args = ap.parse_args()
-    {"status": cmd_status, "inventory": cmd_inventory, "warn": cmd_warn}[args.cmd](args)
+    return {"status": cmd_status, "inventory": cmd_inventory,
+            "warn": cmd_warn, "map": cmd_map}[args.cmd](args)
 
 
 if __name__ == "__main__":
