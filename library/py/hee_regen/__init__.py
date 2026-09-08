@@ -441,7 +441,7 @@ def _do_publish(a: Artifact, repo_dir: Path, write: bool, dirty):
     if staged:
         tail = f" -- staged at {staged}{tail}"
     return Result(a, Status.WARNING,
-                  f"published page differs from a fresh render"
+                  "published page differs from a fresh render"
                   + (f" (published {when})" if when else "") + tail)
 
 
