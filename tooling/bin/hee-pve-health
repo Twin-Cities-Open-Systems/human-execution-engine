@@ -19,6 +19,9 @@ Usage:
 """
 import argparse
 import os
+import difflib
+import contextlib
+import io
 import re
 import json
 import ssl
@@ -33,6 +36,7 @@ import urllib.request
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
+from hee_status import Status, emit  # noqa: E402
 
 # Real KISS fallback (Spencer, live): not every real account has SSH
 # root access to pve (by design -- see fleet-ops#285's real user/token
@@ -168,6 +172,38 @@ def _container_rows(args):
     return rows, dns
 
 
+_HAPROXY_WHY = []
+
+
+def _haproxy_raw(via, vmid):
+    """The running haproxy config, verbatim, or None if it cannot be read.
+
+    None means "could not read", never "empty". The difference is the whole
+    point: a drift check that reads nothing and reports no drift is the
+    namespace-audit failure (issue:423@fleet-ops) in a new costume.
+    """
+    cmd = ("pct exec %d -- sh -c "
+           "'cat /etc/haproxy/haproxy.cfg 2>/dev/null'" % vmid)
+    try:
+        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                              via, cmd], capture_output=True, text=True, timeout=45)
+    except Exception as e:
+        _HAPROXY_WHY.append(f"ssh to {via} failed: {e}")
+        return None
+    if out.returncode != 0:
+        # Say WHY. Returning a bare None here is how an operator gets a map
+        # with no routes and no idea that anything went wrong -- measured
+        # 2026-09-08, a run under a different account produced an edgeless
+        # map because its key could not reach the host.
+        _HAPROXY_WHY.append(f"ssh to {via} exited {out.returncode}: "
+                            f"{(out.stderr or '').strip().splitlines()[-1] if out.stderr.strip() else 'no stderr'}")
+        return None
+    if not out.stdout.strip():
+        _HAPROXY_WHY.append(f"ct{vmid} returned an empty haproxy.cfg")
+        return None
+    return out.stdout
+
+
 def _haproxy_backends(via, vmid):
     """Real backend -> address edges, read from the running haproxy.
 
@@ -184,18 +220,12 @@ def _haproxy_backends(via, vmid):
     rather than quietly drawing an edgeless graph, because a map with no
     lines looks like a fleet with no connections.
     """
-    cmd = ("pct exec %d -- sh -c "
-           "'cat /etc/haproxy/haproxy.cfg 2>/dev/null'" % vmid)
-    try:
-        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-                              via, cmd], capture_output=True, text=True, timeout=45)
-    except Exception:
-        return {}
-    if out.returncode != 0 or not out.stdout.strip():
+    raw = _haproxy_raw(via, vmid)
+    if raw is None:
         return {}
 
     backends, cur = {}, None
-    for line in out.stdout.splitlines():
+    for line in raw.splitlines():
         st = line.strip()
         m = re.match(r"^(backend|listen)\s+(\S+)", st)
         if m:
@@ -227,6 +257,51 @@ def _undeclared(lines, declared):
         if m2:
             used.add(m2.group(1))
     return used - declared
+
+
+def _term_map(args, rows, backends, by_ip):
+    """The same facts as the mermaid map, drawn for a terminal.
+
+    Not a picture of a picture. Rendering mermaid to an image and then to
+    cells would need a browser engine, and the only zero-install way to do it
+    is to POST the topology to a public rendering service -- which would ship
+    this lab's internal addressing to a third party. This draws from the same
+    rows instead, so it needs nothing and leaks nothing.
+    """
+    hap = None
+    for vmid, name, ip, _ in rows:
+        if int(vmid) == int(args.haproxy_vmid):
+            hap = (vmid, name, ip)
+
+    w = max((len(n) for _, n, _, _ in rows), default=12)
+    out = []
+    out.append("LAN · gateway")
+    if hap:
+        out.append(f"  └─ {hap[1]} · {hap[0]} · {hap[2]}   ← ingress, every vhost")
+        routes = []
+        for be, addrs in sorted(backends.items()):
+            for a in addrs:
+                hit = by_ip.get(a)
+                if hit:
+                    routes.append((be, f"{hit[1]} · {hit[0]} · {a}"))
+                elif a == args.host:
+                    routes.append((be, f"pve host · {a}"))
+                else:
+                    routes.append((be, f"{a}  (not a container on this node)"))
+        if routes:
+            bw = max(len(b) for b, _ in routes)
+            for i, (be, tgt) in enumerate(routes):
+                tee = "└─" if i == len(routes) - 1 else "├─"
+                out.append(f"       {tee} {be.ljust(bw)} → {tgt}")
+        else:
+            out.append("       (no routes read -- see the warning below)")
+    out.append("")
+    out.append(f"pve host · vmbr0 · {len(rows)} containers")
+    for vmid, name, ip, state in rows:
+        mark = "  " if state == "running" else "!!"
+        tail = "" if state == "running" else f"   {state.upper()}"
+        out.append(f"  {mark} {str(vmid).ljust(4)} {name.ljust(w)}  {ip}{tail}")
+    return out
 
 
 def cmd_map(args):
@@ -301,6 +376,25 @@ def cmd_map(args):
               + ", ".join(sorted(bad)), file=sys.stderr)
         return 2
 
+    if getattr(args, "term", False):
+        for line in _term_map(args, rows, backends, by_ip):
+            print(line)
+        print()
+        # stdout is block-buffered when piped and emit() writes to stderr
+        # unbuffered, so without this flush the warning lands ABOVE the map it
+        # is warning about -- or gets cut off by a pager. Measured 2026-09-08.
+        sys.stdout.flush()
+        if backends:
+            emit(Status.OK, f"{len(rows)} containers, {drawn} route(s), read from the machine")
+        else:
+            # LOUD. An edgeless map is a real result only if haproxy really
+            # has no backends, and that is not what happens when ssh fails.
+            for why in _HAPROXY_WHY:
+                emit(Status.CRITICAL, f"haproxy not read -- {why}")
+            emit(Status.CRITICAL,
+                 "NO ROUTES DRAWN. This shows hosts only, not what talks to what.")
+        return 0
+
     print("```mermaid")
     for line in out:
         print(line)
@@ -318,8 +412,9 @@ def cmd_map(args):
     else:
         # Loud, not silent. An edgeless map is a real result only if haproxy
         # really has no backends, and that is not what happened here.
+        why = ("; ".join(_HAPROXY_WHY)) or "reason not reported"
         print(f"_{len(rows)} containers, read from the pve API. **haproxy was unreachable, so NO "
-              f"routes are drawn** -- this map shows hosts only, not what talks to what. "
+              f"routes are drawn** ({why}) -- this map shows hosts only, not what talks to what. "
               f"Generated by `hee pve-health map` -- do not hand-edit._")
     return 0
 
@@ -450,6 +545,109 @@ def cmd_inventory(args):
           + ". Generated by `hee pve-health inventory` -- do not hand-edit._")
     return 0
 
+def _capture(fn, args):
+    """Run a renderer and capture exactly what it would have printed.
+
+    Re-uses the REAL renderer rather than a second copy. A drift checker that
+    renders differently from the generator reports drift that does not exist
+    and misses drift that does -- and a second copy of a renderer is the same
+    shape that produced three divergent TCOS taxonomies.
+    """
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = fn(args)
+    return rc, buf.getvalue()
+
+
+def _block(path, marker):
+    """Text between <!-- marker:start --> and <!-- marker:end -->, or None."""
+    if not os.path.isfile(path):
+        return None
+    txt = open(path, encoding="utf-8", errors="replace").read()
+    a = txt.find(f"<!-- {marker}:start -->")
+    b = txt.find(f"<!-- {marker}:end -->")
+    if a < 0 or b < 0 or b < a:
+        return None
+    return txt[a + len(f"<!-- {marker}:start -->"):b].strip("\n")
+
+
+def cmd_drift(args):
+    """Does what is committed still match the machine?
+
+    Real trigger, measured 2026-09-08: ten lines had been live in ct103's
+    haproxy config since 2026-09-06 and were never committed. Git was the
+    stale copy and the box was correct -- so provisioning a second ingress
+    from git would have served 404 where the first served 200, decided per
+    request by whichever instance held the address (issue:428@fleet-ops).
+
+    FAILS CLOSED. Anything it cannot read is UNKNOWN, never "no drift".
+    """
+    findings, unknown = [], []
+
+    # 1. haproxy: committed vs running.
+    cfg = os.path.join(args.repo, "pve/haproxy/haproxy.cfg")
+    live = _haproxy_raw(args.haproxy_via, args.haproxy_vmid)
+    if live is None:
+        unknown.append("haproxy config unreadable on "
+                       f"{args.haproxy_via} ct{args.haproxy_vmid}")
+    elif not os.path.isfile(cfg):
+        unknown.append(f"no committed config at {cfg}")
+    else:
+        committed = open(cfg, encoding="utf-8", errors="replace").read()
+        if committed != live:
+            d = list(difflib.unified_diff(committed.splitlines(), live.splitlines(),
+                                          "committed", "running", lineterm="", n=0))
+            adds = sum(1 for x in d if x.startswith("+") and not x.startswith("+++"))
+            dels = sum(1 for x in d if x.startswith("-") and not x.startswith("---"))
+            findings.append(("haproxy.cfg",
+                             f"{adds} line(s) on the box are not committed, "
+                             f"{dels} committed line(s) are not on the box",
+                             [x for x in d if x[:1] in "+-" and not x.startswith(("+++", "---"))][:8]))
+        else:
+            emit(Status.OK, "haproxy.cfg: committed matches running")
+
+    # 2 and 3. Generated blocks, compared against a fresh render of the same
+    # generator -- not a reimplementation of it.
+    for label, path, marker, fn in (
+        ("network-map.md", os.path.join(args.repo, "pve/network-map.md"), "pve-map", cmd_map),
+        ("addressing.md", os.path.join(args.repo, "pve/addressing.md"), "pve-inventory", cmd_inventory),
+    ):
+        have = _block(path, marker)
+        if have is None:
+            unknown.append(f"{label}: no {marker} block found")
+            continue
+        rc, fresh = _capture(fn, args)
+        if rc != 0:
+            unknown.append(f"{label}: generator exited {rc}, cannot compare")
+            continue
+        if have.strip() != fresh.strip():
+            findings.append((label, "committed block differs from a fresh render",
+                             [x for x in difflib.unified_diff(
+                                 have.strip().splitlines(), fresh.strip().splitlines(),
+                                 "committed", "fresh", lineterm="", n=0)
+                              if x[:1] in "+-" and not x.startswith(("+++", "---"))][:8]))
+        else:
+            emit(Status.OK, f"{label}: committed block matches a fresh render")
+
+    for u in unknown:
+        emit(Status.UNKNOWN, u)
+    for name, what, sample in findings:
+        emit(Status.CRITICAL, f"{name}: {what}")
+        for line in sample:
+            print(f"     {line}")
+
+    if findings:
+        emit(Status.CRITICAL, f"{len(findings)} artifact(s) drifted from the machine")
+        return Status.CRITICAL
+    if unknown:
+        # Deliberately not OK. Something could not be read, and reporting
+        # that as clean is the exact failure this tool exists to catch.
+        emit(Status.UNKNOWN, f"{len(unknown)} check(s) could not run -- this is NOT a pass")
+        return Status.UNKNOWN
+    emit(Status.OK, "every generated artifact matches the machine")
+    return Status.OK
+
+
 def cmd_status(args):
     node_status, rootdir_storages, allocated_by_storage, lxcs = gather(args.host, args.node)
 
@@ -563,12 +761,28 @@ def main():
                    help="ssh target that can `pct exec` the haproxy container; edges come from "
                         "its live config, because no file in the repo declares them")
     m.add_argument("--haproxy-vmid", type=int, default=103)
+    m.add_argument("--term", action="store_true",
+                   help="draw it for a terminal instead of emitting mermaid -- same rows, "
+                        "no browser engine, and nothing leaves this network")
     m.add_argument("--proposed", action="store_true",
                    help="render the PROPOSED map from the agent roster instead of the live fleet, "
                         "stamped with the roster's own spec.status")
     m.add_argument("--roster",
                    default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
                    help="agent roster registry, for --proposed")
+    d = sub.add_parser("drift")
+    d.add_argument("--host", default="10.0.0.153")
+    d.add_argument("--node", default="pve")
+    d.add_argument("--repo", default=os.path.expanduser("~/git/fleet-ops"),
+                   help="checkout holding the committed pve artifacts")
+    d.add_argument("--dns", default=os.path.expanduser("~/git/fleet-ops/dns/lab.tcos.us.hosts"))
+    d.add_argument("--haproxy-via", default="root@pve.lab.tcos.us")
+    d.add_argument("--haproxy-vmid", type=int, default=103)
+    d.add_argument("--proposed", action="store_true", help=argparse.SUPPRESS)
+    d.add_argument("--roster",
+                   default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
+                   help=argparse.SUPPRESS)
+
     w = sub.add_parser("warn")
     w.add_argument("--host", default="10.0.0.153")
     w.add_argument("--node", default="pve")
@@ -585,8 +799,17 @@ def main():
 
     args = ap.parse_args()
     return {"status": cmd_status, "inventory": cmd_inventory,
-            "warn": cmd_warn, "map": cmd_map}[args.cmd](args)
+            "warn": cmd_warn, "map": cmd_map, "drift": cmd_drift}[args.cmd](args)
 
 
 if __name__ == "__main__":
-    main()
+    # sys.exit(main()), not a bare main(): the return value was discarded, so
+    # every subcommand exited 0 no matter what it found. `drift` would have
+    # reported CRITICAL and exited 0 -- a checker that cannot fail is the
+    # failure it exists to catch (issue:423@fleet-ops). Found 2026-09-08.
+    _rc = main()
+    # Status is a plain enum.Enum, not IntEnum -- its members are TRUTHY and
+    # sys.exit(member) prints the repr and exits 1. `.value` is the real code,
+    # as hee_status's own class docstring says. Measured 2026-09-08: `drift`
+    # reported OK and exited 1 before this.
+    sys.exit(_rc.value if isinstance(_rc, Status) else (_rc or 0))
