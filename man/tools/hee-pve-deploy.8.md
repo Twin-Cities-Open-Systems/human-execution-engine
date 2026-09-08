@@ -6,15 +6,21 @@ hee-pve-deploy - hee-pve-deploy command
 
 # SYNOPSIS
 
-    hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run] manifest
+    hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run]
 
 # DESCRIPTION
+
+                          [--anchors ANCHORS]
+                          manifest
 
     positional arguments:
       manifest
 
     options:
-      -h, --help   show this help message and exit
+      -h, --help         show this help message and exit
       --node NODE
       --host HOST
       --dry-run
+      --anchors ANCHORS  registry of roles whose address may be pinned. A manifest
+                         that declares address or hwaddr must name a role listed
+                         there; anything else has its address allocated.
