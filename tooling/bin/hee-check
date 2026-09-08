@@ -119,9 +119,26 @@ DESCRIPTION
 
   The rule is "not committed", never "not present".
 
+DELIBERATE USE
+  A path can be real and correct on purpose. Two ways to say so, and they
+  are not interchangeable:
+
+    hee-check:home-ok    exempts the LINE it appears on, optional reason
+                         after it. Use this for one deliberate path -- a
+                         comment describing a real mount, a host-pinned
+                         value that is the point of the line.
+    HEE_HOME_PATH_SKIP   exempts WHOLE FILES, as git pathspecs. Use this
+                         only when every path in a file is deliberate,
+                         e.g. ':!hosts/*' for host-pinned units.
+
+  Prefer the marker. A pathspec also hides every path added to that file
+  later, which turns a false positive into a false negative.
+
 ENVIRONMENT
   HEE_DERIVED_DIRS   space-separated directories treated as generated
                      state. Default: .cursor
+  HEE_HOME_PATH_SKIP git pathspecs the home-path scan skips. See
+                     DELIBERATE USE above.
 
 EXIT STATUS
   0 OK   2 CRITICAL generated state is tracked   3 UNKNOWN target unusable
@@ -188,6 +205,8 @@ ENVIRONMENT
                      for host-pinned scripts and units that name the real
                      user on the real host on purpose. Set it in heerc; the
                      repo declares the exemption, the checker never guesses.
+                     For a single deliberate line, prefer the marker
+                     hee-check:home-ok -- see `hee-check boundary --help`.
 
 EXAMPLES
   hee-check                     boundary check of the current repo
@@ -277,7 +296,28 @@ check_boundary() {
   # this host, so it cannot break for anyone. Real false positive:
   # devops/bin/get-coder.sh does the right thing with $HOME and was still
   # flagged for "-v $CODER_DATA:/home/coder/.config".
-  _hp_filter() { grep -v -E -- '(-v|--volume)[[:space:]=][^[:space:]]*:/home/'; }
+  #
+  # A line can also name a real path ON PURPOSE, and until now this check
+  # was the only one with no way to say so. refs, locale and embedded all
+  # take a line-level marker; this one took only HEE_HOME_PATH_SKIP, a
+  # whole-file pathspec -- so exempting one deliberate line meant blinding
+  # the checker to every future line in that file. Trading a false positive
+  # for a false negative is not an exemption mechanism.
+  #
+  # Real case, 2026-09-07: dotfiles/shared-dotfiles.sh names the nuc-1 NFS
+  # share in a COMMENT, describing a known still-open drift between two
+  # copies of that file. The same sentence in a .md is correctly downgraded
+  # to a non-blocking WARNING by the prose scan below; inside a .sh it was
+  # CRITICAL purely because of the file extension. That turned the repo red
+  # on a line that is documentation, not a path anything resolves.
+  #
+  # Same convention as hee-check:refs-ok / locale-ok / embedded-ok: the
+  # marker goes anywhere on the line, takes an optional reason after it,
+  # and exempts THAT LINE only.
+  _hp_filter() {
+    grep -v -E -- '(-v|--volume)[[:space:]=][^[:space:]]*:/home/' \
+      | grep -v -E -- 'hee-check:[[:space:]]*home-ok'
+  }
 
   _hp_code="$(eval git -C '"$root"' grep -n -I -E "'/(home|mnt)/[a-z][a-z0-9_-]*/'" -- \
               "'*.sh'" "'*.bash'" "'*.mjs'" "'*.js'" "'*.py'" "'*.service'" \
