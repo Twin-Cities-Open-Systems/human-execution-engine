@@ -1,0 +1,229 @@
+name: stable
+
+# The `stable` ref: what every other org repo checks out, instead of whatever
+# hee's default branch happens to hold at the moment their CI runs.
+#
+# WHY THIS EXISTS -- issue 633, and a real incident on 2026-09-07.
+#
+# Rule 16 mandates that org repos call hee tooling by checking out this repo
+# ("never by vendoring a copy"), but never said WHICH REF. All 16 consumer
+# workflows therefore resolved the default branch at run time. A tightening
+# merged here turns other repos red with no commit to those repos and no
+# signal to whoever merged it.
+#
+# Measured that day: dotfiles#22 and hee#632 merged SIX SECONDS out of order
+# (03:48:08Z and 03:48:14Z). dotfiles' main CI started at 03:48:10Z and
+# resolved this repo's default branch after #632 landed. It came out green by
+# scheduling luck. Nothing about that was designed.
+#
+# WHY THE GATE TESTS CONSUMERS AND NOT JUST US: hee's own CI was green through
+# that entire incident. It was dotfiles that broke. A `stable` gated on "our
+# checks pass" advances straight past this class of failure, which is the only
+# class it exists to catch.
+#
+# WHY IT ALSO TESTS US: measured 2026-09-07, every repo in this org has
+# `required_status_checks: NONE CONFIGURED` and `enforce_admins: false`. CI
+# passing is not enforced at merge anywhere in the org, so a commit reaching
+# main has NOT necessarily passed anything. Until that changes, this workflow
+# cannot assume its input is green and must check.
+#
+# WHY IT FAILS CLOSED: fleet-ops#423 is the live cost of the other choice --
+# namespace-audit reported "OK -- no naming ambiguity found across 17 repo(s)"
+# every day since 2026-08-31 while its token was empty and it read zero of
+# them. A consumer this gate cannot READ must never be counted as a consumer
+# that PASSED.
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# DELIBERATELY NOT `pull_request` OR `pull_request_target`. This repo is
+# PUBLIC and 10 of its 14 consumers are PRIVATE, so the consumer gate needs
+# an org-scoped token. Restricting the trigger to post-merge push is what
+# keeps that secret out of any fork-PR context, where an attacker controls
+# the code that would run beside it.
+permissions:
+  contents: read
+
+jobs:
+  self-check:
+    name: self
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # hee-check needs no runtime, but `refs` and `regex` shell out to rg and
+      # python3. Same install step as checks.yaml, same reason.
+      - name: Install rg
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: hee-check all -- on ourselves
+        run: tooling/bin/hee-check all .
+
+  # BLOCKING. These nine were measured green against cfcae29 on 2026-09-07.
+  consumer-gate:
+    name: consumer
+    runs-on: ubuntu-latest
+    strategy:
+      # Report EVERY consumer, not just the first to break. A partial picture
+      # is what makes an operator think one repo is the problem when four are.
+      fail-fast: false
+      matrix:
+        repo:
+          - tcos-www
+          - resume
+          - glass-ops
+          - roadmap
+          - dotfiles
+          - tcos-audit
+          - hee-epoch
+          - fleet-ops
+          - primitives
+        include:
+          # A repo's declared exemptions are part of how its own CI invokes
+          # hee-check -- "the repo declares the exemption, the checker never
+          # guesses" (hee-check's own help). Judging a repo WITHOUT them
+          # judges it by rules it never agreed to, which is not a prediction
+          # of its result but a different question.
+          #
+          # DUPLICATED FROM fleet-ops/.github/workflows/hee-check.yml. That is
+          # a real drift risk, and the same shape that produced three
+          # divergent security_scanner.py copies (issue 468). The fix is for a
+          # repo to DECLARE its exemptions in a file that both its own CI and
+          # this gate read. Tracked in 633.
+          - repo: fleet-ops
+            home_skip: "':!hosts/*' ':!systemd/*' ':!bin/systemd/*'"
+            lint_skip: "':!viz-dashboard/public/*'"
+            refs_skip: "viz-dashboard/public"
+    steps:
+      # The consumer, read with the org-scoped token. The default GITHUB_TOKEN
+      # is scoped to THIS repo only and cannot see the 10 private consumers --
+      # the same constraint fleet-ops/.github/workflows/namespace-audit.yml
+      # documents at its own token line.
+      #
+      # TCOS_AUDIT_TOKEN is an org secret with visibility ALL. Verified
+      # 2026-09-07 against /repos/{owner}/{repo}/contents/ -- 200 on all 14.
+      # Probed the CONTENTS endpoint on purpose: /repos/{owner}/{repo} returns
+      # 200 for a token holding only `metadata: read`, which cannot clone, so
+      # the obvious probe reports a false OK on a token that fails at checkout.
+      - name: Checkout ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: Twin-Cities-Open-Systems/${{ matrix.repo }}
+          token: ${{ secrets.TCOS_AUDIT_TOKEN }}
+          path: ${{ matrix.repo }}
+
+      # The CANDIDATE commit, not the default branch. Gating anything against
+      # a moving ref is the bug this workflow exists to fix; doing it here
+      # would be the same bug one level up.
+      #
+      # Checked out as a SIBLING, and as a real clone. Both matter: hee-check's
+      # cross-repo reference resolution (issue 627) walks sibling checkouts
+      # with git. Measured 2026-09-07 -- running it as `hee-check all <path>`
+      # from the workspace root reported 5 CRITICAL on fleet-ops that its own
+      # CI does not see, and an extracted tree with no .git resolves nothing
+      # at all. The proof line to look for in a green run is:
+      #   cross-repo references resolved in sibling checkouts: N in human-execution-engine
+      - name: Checkout hee at the candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: human-execution-engine
+
+      - name: Install rg
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      # Exactly what the consumer's own CI runs, from where it runs it, so a
+      # pass here means the same thing it will mean there.
+      - name: hee-check all ${{ matrix.repo }}
+        working-directory: ${{ matrix.repo }}
+        env:
+          HEE_HOME_PATH_SKIP: ${{ matrix.home_skip }}
+          HEE_LINT_SKIP: ${{ matrix.lint_skip }}
+          HEE_REFS_SKIP: ${{ matrix.refs_skip }}
+        run: ../human-execution-engine/tooling/bin/hee-check all .
+
+  # REPORTING ONLY, and this list is the whole point of issue 634.
+  #
+  # Rule 16: "Never add a check that is red on day one. If it finds real
+  # pre-existing problems, land it continue-on-error WITH the reason and the
+  # flip condition written in the workflow, and a ticket."
+  #
+  # Measured against cfcae29 on 2026-09-07:
+  #   MT-logo-render       28 CRITICAL   (CI already red)
+  #   thesis-engine         8 CRITICAL   (CI already red)
+  #   managed-media-stack   4 CRITICAL   (CI says SUCCESS -- latent red)
+  #   devops                4 CRITICAL   (CI says SUCCESS -- latent red)
+  #   tcos-plan-private     2 CRITICAL   (CI already red)
+  #
+  # managed-media-stack and devops are the ones that matter: their last CI run
+  # was green and they would fail now. Nothing reveals that until someone
+  # pushes. That is exactly the payload issue 633 exists to stop.
+  #
+  # FLIP CONDITION: each repo moves from this job's matrix into consumer-gate's
+  # the moment it measures green -- a one-line diff. Issue 634 closes when this
+  # matrix is empty and this job is deleted. Do not let this list become
+  # furniture.
+  consumer-known-red:
+    name: consumer (reporting, issue 634)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - MT-logo-render
+          - thesis-engine
+          - managed-media-stack
+          - devops
+          - tcos-plan-private
+    steps:
+      - name: Checkout ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: Twin-Cities-Open-Systems/${{ matrix.repo }}
+          token: ${{ secrets.TCOS_AUDIT_TOKEN }}
+          path: ${{ matrix.repo }}
+      - name: Checkout hee at the candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: human-execution-engine
+      - name: Install rg
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      # continue-on-error sits on the STEP, not the job. Measured in
+      # fleet-ops/.github/workflows/hee-check.yml: at job level it spares the
+      # workflow RUN from failing but leaves the job's own conclusion at
+      # "failure", and the job is what surfaces as the check. That produces
+      # run green / check red, which is the thing this is trying to avoid.
+      - name: hee-check all ${{ matrix.repo }} (reporting only)
+        continue-on-error: true
+        working-directory: ${{ matrix.repo }}
+        run: ../human-execution-engine/tooling/bin/hee-check all .
+
+  advance:
+    name: advance stable
+    # Deliberately NOT needs: consumer-known-red. Those five are reported, not
+    # gated -- making them block would be the day-one-red this split avoids.
+    needs: [ self-check, consumer-gate ]
+    runs-on: ubuntu-latest
+    # Only this job writes, and it writes one ref in this repo. The org token
+    # above is read-only and never used here; this job's GITHUB_TOKEN is
+    # repo-scoped and cannot read the consumers. Neither can do the other's
+    # job, which is the point of splitting them.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # No --force, ever. A non-fast-forward here means `stable` holds
+      # something that is not an ancestor of the commit we are advancing to --
+      # someone pushed to it by hand, or history was rewritten. Either way the
+      # correct response is to stop loudly, not to overwrite and hide it.
+      - name: Fast-forward stable to ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          echo "advancing refs/heads/stable -> ${GITHUB_SHA}"
+          git push origin "${GITHUB_SHA}:refs/heads/stable"
+          echo "OK -- stable now at ${GITHUB_SHA}"

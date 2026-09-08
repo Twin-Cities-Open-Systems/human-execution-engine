@@ -196,6 +196,29 @@ loaded, read this file directly rather than assume it did.
     across three repos, doing two different jobs, all diverged
     (issue:468@human-execution-engine).
 
+    **And pin that checkout to `ref: stable`, never the default branch.**
+    This rule said to check out the home repo but not WHICH REF, so all 16
+    consumer workflows resolved `main` at run time -- meaning a tightening
+    merged to `human-execution-engine` turned other repos red with no commit
+    to those repos and no signal to whoever merged it. Real trigger,
+    2026-09-07: pr:22@dotfiles and pr:632@human-execution-engine merged six
+    seconds apart in the wrong order and came out green only by scheduling
+    luck. Worse, the damage is invisible: a consumer's CI does not re-run
+    until someone pushes to it, so two repos
+    (`managed-media-stack`, `devops`) sat reporting SUCCESS while already
+    failing against current `main` (issue:634@human-execution-engine).
+    `stable` advances only after the consumer repos are measured green
+    against the candidate commit -- `.github/workflows/stable.yaml`, and
+    issue:633@human-execution-engine for the reasoning.
+
+    **A gate over other repos fails closed.** A repo the gate cannot read is
+    never a repo that passed. Real trigger, same week: `namespace-audit`
+    reported "OK -- no naming ambiguity found across 17 repo(s)" every day
+    from 2026-08-31 while its token was empty and it had read none of them
+    (issue:423@fleet-ops). That is rule 2's silence-as-a-result in its most
+    expensive form, because a false GREEN produces positive assurance from a
+    control that is not looking.
+
     **A CI job's name must not claim provenance its code does not have.**
     Same trigger: `MT-logo-render` had jobs called "HEE Security Scan" and
     "HEE Recipe Validation" that ran repo-local Python. A name implying a
