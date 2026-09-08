@@ -470,7 +470,7 @@ PYJ
         if [ -n "$_gb" ] && [ "$_gb" != main ]; then
           _gs=" [on $_gb, not main]"
         else
-          _gbehind="$(git -C "$DIR" rev-list --count HEAD..@{u} 2>/dev/null || echo 0)"
+          _gbehind="$(git -C "$DIR" rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)"
           [ "${_gbehind:-0}" -gt 0 ] && _gs=" [$_gbehind behind origin]"
         fi
         _gdirty="$(git -C "$DIR" status --porcelain 2>/dev/null | rg -vc '^\?\?' || echo 0)"
