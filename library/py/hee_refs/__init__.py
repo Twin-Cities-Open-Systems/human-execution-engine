@@ -136,8 +136,20 @@ def _in_excluded_dir(path: str) -> bool:
 # A filename genuinely ending in "." is not a thing on any filesystem we
 # target, so requiring a non-dot final character costs nothing and removes the
 # whole class.
+# "#" closes a reference too. Without it, a reference carrying an anchor --
+# hee/cards/x.card.v1.yaml#spec.entities.current -- cannot end at the "#", so
+# the engine backtracks looking for a legal non-dot final character and settles
+# on "hee/cards/x.card.v1", silently dropping ".yaml". The truncated path does
+# not exist, so a correct reference is reported broken. Measured 2026-09-08:
+# that was the ENTIRE tcos-plan-private finding in the org-wide sweep
+# (issue:646@human-execution-engine), and the suggestion it printed pointed at
+# a real file with the same basename, which makes the false positive look
+# authoritative.
+#
+# The non-dot final character above stays exactly as it was -- it is what stops
+# a sentence-ending period being read as part of the filename.
 _REF = re.compile(
-    r"""[`"'(\s]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.@-]*[A-Za-z0-9_@-])+)[`"')\s,;:.]""")
+    r"""[`"'(\s]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.@-]*[A-Za-z0-9_@-])+)[`"')\s,;:.#]""")
 
 
 @dataclass(frozen=True)
