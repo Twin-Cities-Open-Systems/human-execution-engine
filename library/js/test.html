@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>library/js -- component test page</title>
+<style>
+  :root {
+    --surface: #ffffff; --surface-2: #f4f5f8; --ink: #16181d; --ink-dim: #4a5061;
+    --ink-faint: #6b7280; --line: #d8dbe2; --accent: #2f6feb;
+    --ok: #1a7f4b; --bad: #b3261e; --warn: #8a6100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #16181d; --surface-2: #1d212a; --ink: #e8eaf0; --ink-dim: #b6bcc9;
+      --ink-faint: #8b93a3; --line: #2c313c; --accent: #6aa1ff;
+      --ok: #5dd39e; --bad: #ff8a80; --warn: #e0b355;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--surface); color: var(--ink);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0; }
+  .lede { color: var(--ink-faint); margin: 0 0 20px; font-size: 13px; }
+  section.panel {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+    padding: 14px 16px; margin: 0 0 14px;
+  }
+  section.panel > h2 { margin-bottom: 8px; }
+  .hint { font-size: 12px; color: var(--ink-faint); margin: 2px 0 10px; }
+  code, .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  ul.plain { list-style: none; margin: 0; padding: 0; }
+  ul.plain li { padding: 2px 0; }
+  a { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-dim); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  input[type=search] {
+    width: 260px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--surface); color: var(--ink); font: inherit;
+  }
+  .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .count { font-size: 12px; color: var(--ink-faint); }
+  /* Status vocabulary: an icon AND a label, never a color on its own. */
+  .st { font-weight: 600; }
+  .st-ok { color: var(--ok); }
+  .st-bad { color: var(--bad); }
+  .st-warn { color: var(--warn); }
+  #results li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+  #results .what { color: var(--ink-dim); }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin: 0 0 6px; font-size: 14px; font-weight: 600;
+  }
+  .grip { color: var(--ink-faint); font-size: 12px; }
+  [data-tc-arrange] { display: grid; gap: 10px; }
+  [data-tc-arrange-item] {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    padding: 10px 12px;
+  }
+  /* The contracts.html shape, reproduced so the legacy path is exercised too. */
+  .contract-item { position: relative; margin-bottom: 6px; }
+  .contract-link {
+    display: inline-block; padding: 6px 10px; border-radius: 6px;
+    background: var(--surface); border: 1px solid var(--line); text-decoration: none;
+  }
+  .file-preview {
+    position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; min-width: 320px;
+    max-width: 520px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    opacity: 0; pointer-events: none;
+  }
+  .contract-link:hover + .file-preview, .contract-link:focus + .file-preview { opacity: 1; }
+  .file-preview pre { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+  .file-preview .fp-status { font-size: 11px; color: var(--ink-faint); font-style: italic; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>library/js &mdash; component test page</h1>
+  <p class="lede">
+    Every component in this directory, with fixture markup, on one page. Serve it over
+    HTTP (<span class="mono">busybox httpd -f -p 8080</span>, or
+    <span class="mono">python3 -m http.server</span> from this directory) rather than
+    opening it as <span class="mono">file://</span> &mdash; the hovercard fetches, and
+    browsers block <span class="mono">fetch</span> on <span class="mono">file://</span>.
+  </p>
+
+  <section class="panel">
+    <h2>Self-checks</h2>
+    <p class="hint">
+      Assertions run automatically once the components have initialized. Each line
+      carries an icon and a text label; nothing here is distinguished by color alone.
+    </p>
+    <ul class="plain" id="results"><li><span class="st st-warn">&#9203; PENDING</span>
+      <span class="what">running&hellip;</span></li></ul>
+    <p class="hint" id="results-summary"></p>
+  </section>
+
+  <section class="panel">
+    <h2>links.js</h2>
+    <p class="hint">External links get <code>target="_blank"</code> and
+      <code>rel="noopener noreferrer"</code>. Everything else is left alone.</p>
+    <ul class="plain">
+      <li><a id="lnk-ext" href="https://github.com/Twin-Cities-Open-Systems/human-execution-engine">the HEE repo on GitHub</a>
+        &mdash; external, should open a new tab and gain a hidden hint</li>
+      <li><a id="lnk-same" href="./README.md">this directory's README</a>
+        &mdash; same origin, should be untouched</li>
+      <li><a id="lnk-mail" href="mailto:nobody@example.com">nobody@example.com</a>
+        &mdash; <code>mailto:</code>, should be untouched</li>
+      <li><a id="lnk-frag" href="#results">back to the self-checks</a>
+        &mdash; fragment, should be untouched</li>
+      <li><a id="lnk-blank" href="https://example.com/" target="_blank">example.com</a>
+        &mdash; author already set <code>target="_blank"</code> with no <code>rel</code>, which should be repaired</li>
+      <li><a id="lnk-keep" href="https://example.org/" data-tc-external="keep">example.org</a>
+        &mdash; opted out with <code>data-tc-external="keep"</code>, untouched</li>
+      <li><a id="lnk-dl" href="https://example.net/file.zip" download>file.zip</a>
+        &mdash; a download, untouched</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>hovercard.js</h2>
+    <p class="hint">
+      Hover <em>or</em> keyboard-focus each link. The first two need network access;
+      the third reads a file next to this page and works on any static server.
+    </p>
+    <ul class="plain">
+      <li><a id="hc-gh" href="https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/1"
+             data-tc-profile="https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/1">a GitHub issue &mdash; renders state, title, author</a></li>
+      <li><a id="hc-raw" href="https://github.com/Twin-Cities-Open-Systems/human-execution-engine/blob/main/README.md"
+             data-tc-profile="https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/main/README.md"
+             data-tc-profile-title="README.md">a raw file on GitHub &mdash; first 14 lines</a></li>
+      <li><a id="hc-local" href="./README.md" data-tc-profile="./README.md"
+             data-tc-profile-lines="8" data-tc-profile-title="library/js/README.md">this directory's README &mdash; first 8 lines, no network needed</a></li>
+    </ul>
+    <p class="hint">Below: the legacy <code>.contract-item</code> shape from
+      contracts.html, still handled so this file can replace
+      <code>shell/tc-hovercard.js</code> unchanged.</p>
+    <div class="contract-item">
+      <a class="contract-link" id="hc-legacy" href="./README.md">legacy shape &mdash; fills the sibling .file-preview in place</a>
+      <div class="file-preview" data-raw="./README.md"><span class="fp-status">hover to load&hellip;</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>collapse.js + arrange.js</h2>
+    <p class="hint">
+      Click a card heading to collapse it. Drag a card by its <span class="mono">⠿</span> grip to
+      reorder, or focus a grip and press Space, then the arrow keys, then Space again.
+      Both survive a reload.
+    </p>
+    <div data-tc-arrange="test-dashboard">
+
+      <section data-tc-arrange-item="hosts" data-tc-collapse="hosts">
+        <div class="card-head" data-tc-collapse-toggle>
+          <span>Hosts</span>
+          <span class="grip" data-tc-arrange-handle title="Drag, or press Space">&#10287;</span>
+        </div>
+        <div data-tc-collapse-body>
+          <ul class="plain">
+            <li><span class="st st-ok">&#9679; OK</span> pve &mdash; 42 days up</li>
+            <li><span class="st st-ok">&#9679; OK</span> nuc-1 &mdash; 12 days up</li>
+          </ul>
+        </div>
+      </section>
+
+      <section data-tc-arrange-item="alerts" data-tc-collapse="alerts">
+        <div class="card-head" data-tc-collapse-toggle>
+          <span>Alerts</span>
+          <span class="grip" data-tc-arrange-handle title="Drag, or press Space">&#10287;</span>
+        </div>
+        <div data-tc-collapse-body>
+          <ul class="plain">
+            <li><span class="st st-warn">&#9650; WARNING</span> local-lvm overcommitted 2.06x</li>
+          </ul>
+        </div>
+      </section>
+
+      <section data-tc-arrange-item="notes" data-tc-collapse="notes" data-tc-collapse-default="collapsed">
+        <div class="card-head" data-tc-collapse-toggle>
+          <span>Notes &mdash; starts collapsed</span>
+          <span class="grip" data-tc-arrange-handle title="Drag, or press Space">&#10287;</span>
+        </div>
+        <div data-tc-collapse-body>
+          <p style="margin:0">This card carries
+            <code>data-tc-collapse-default="collapsed"</code>, so it starts closed the
+            first time the page is seen. Stored state wins after that.</p>
+        </div>
+      </section>
+
+    </div>
+    <p class="hint">
+      <button type="button" id="reset-state">Forget saved collapse and order</button>
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>table.js</h2>
+    <p class="hint">
+      Click any column heading to sort (or focus it and press Enter). Type in the box to
+      filter across every column at once; words are ANDed, so
+      <span class="mono">pve down</span> narrows to rows mentioning both.
+    </p>
+    <div class="toolbar">
+      <input type="search" data-tc-table-filter="#hosts" placeholder="Search every field&hellip;" id="tbl-filter">
+      <span class="count" data-tc-table-count="#hosts"></span>
+    </div>
+    <table id="hosts" data-tc-table>
+      <thead>
+        <tr>
+          <th>Host</th>
+          <th>Role</th>
+          <th data-tc-sort="number">Uptime (days)</th>
+          <th data-tc-sort="date">Last seen</th>
+          <th data-tc-nosort>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>pve</td><td>hypervisor</td><td>412</td><td>2026-09-07</td>
+            <td data-tc-sort-value="ok"><span class="st st-ok">&#9679; OK</span></td></tr>
+        <tr><td>nuc-1</td><td>storage</td><td>12</td><td>2026-09-06</td>
+            <td data-tc-sort-value="ok"><span class="st st-ok">&#9679; OK</span></td></tr>
+        <tr><td>bast-a</td><td>bastion</td><td>3</td><td>2026-09-07</td>
+            <td data-tc-sort-value="warning"><span class="st st-warn">&#9650; WARNING</span></td></tr>
+        <tr><td>view-lab</td><td>web</td><td>88</td><td>2026-08-30</td>
+            <td data-tc-sort-value="ok"><span class="st st-ok">&#9679; OK</span></td></tr>
+        <tr><td>mail-1</td><td>mail</td><td>209</td><td>2026-09-05</td>
+            <td data-tc-sort-value="critical"><span class="st st-bad">&#10006; CRITICAL</span></td></tr>
+        <tr><td>gopher</td><td>web</td><td>7</td><td>2026-09-01</td>
+            <td data-tc-sort-value="unknown"><span class="st st-warn">&#9633; UNKNOWN</span></td></tr>
+        <tr><td>rrd-1</td><td>metrics</td><td>1204</td><td>2026-09-07</td>
+            <td data-tc-sort-value="ok"><span class="st st-ok">&#9679; OK</span></td></tr>
+        <tr><td>backup-2</td><td>storage</td><td>55</td><td>2026-07-19</td>
+            <td data-tc-sort-value="warning"><span class="st st-warn">&#9650; WARNING</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<script src="links.js"></script>
+<script src="hovercard.js"></script>
+<script src="collapse.js"></script>
+<script src="arrange.js"></script>
+<script src="table.js"></script>
+<script>
+/* Self-checks. Real assertions against the live DOM after the components have
+ * run -- not a claim in a comment that they work. */
+(function () {
+  "use strict";
+  var results = [];
+
+  function check(name, fn) {
+    var ok = false, detail = "";
+    try {
+      var r = fn();
+      if (r === true || r === undefined) { ok = true; }
+      else if (typeof r === "string") { detail = r; }
+      else { ok = !!r; }
+    } catch (e) {
+      detail = String(e && e.message ? e.message : e);
+    }
+    results.push({ name: name, ok: ok, detail: detail });
+  }
+
+  function rel(el) { return (el.getAttribute("rel") || ""); }
+  function relOk(el) {
+    return rel(el).indexOf("noopener") > -1 && rel(el).indexOf("noreferrer") > -1;
+  }
+  function attr(id, a) {
+    var el = document.getElementById(id);
+    return el ? el.getAttribute(a) : "(no such element: " + id + ")";
+  }
+
+  function run() {
+    /* links.js */
+    check("links: external link opens a new tab", function () {
+      var v = attr("lnk-ext", "target");
+      return v === "_blank" || "target is " + v;
+    });
+    check("links: external link is rel=noopener noreferrer", function () {
+      var el = document.getElementById("lnk-ext");
+      return relOk(el) || 'rel is "' + rel(el) + '"';
+    });
+    check("links: same-origin link untouched", function () {
+      var v = attr("lnk-same", "target");
+      return v === null || "target is " + v;
+    });
+    check("links: mailto untouched", function () {
+      var v = attr("lnk-mail", "target");
+      return v === null || "target is " + v;
+    });
+    check("links: fragment untouched", function () {
+      var v = attr("lnk-frag", "target");
+      return v === null || "target is " + v;
+    });
+    check("links: pre-existing target=_blank had its rel repaired", function () {
+      var el = document.getElementById("lnk-blank");
+      return relOk(el) || 'rel is "' + rel(el) + '"';
+    });
+    check('links: data-tc-external="keep" opted out', function () {
+      var v = attr("lnk-keep", "target");
+      return v === null || "target is " + v;
+    });
+    check("links: a rewritten link gains a hidden new-tab hint", function () {
+      var hint = document.querySelector("#lnk-ext .tc-sr-only");
+      return (hint && (hint.textContent || "").indexOf("opens in a new tab") > -1)
+        || "no .tc-sr-only hint on the link";
+    });
+    check("links: download link untouched", function () {
+      var v = attr("lnk-dl", "target");
+      return v === null || "target is " + v;
+    });
+
+    /* hovercard.js */
+    check("hovercard: [data-tc-profile] links were bound", function () {
+      var n = document.querySelectorAll("[data-tc-profile][data-tc-hovercard-bound='true']").length;
+      return n === 3 || "bound " + n + " of 3";
+    });
+    check("hovercard: legacy .contract-link was bound", function () {
+      return attr("hc-legacy", "data-tc-hovercard-bound") === "true" || "not bound";
+    });
+
+    /* collapse.js */
+    check("collapse: cards carry a collapsed state", function () {
+      var n = document.querySelectorAll("[data-tc-collapse][data-tc-collapsed]").length;
+      return n === 3 || "found " + n + " of 3";
+    });
+    check("collapse: toggle exposes aria-expanded", function () {
+      var t = document.querySelector("[data-tc-collapse='hosts'] [data-tc-collapse-head]");
+      return (t && t.getAttribute("aria-expanded") !== null) || "no aria-expanded";
+    });
+    check("collapse: toggle is keyboard-focusable", function () {
+      var t = document.querySelector("[data-tc-collapse='hosts'] [data-tc-collapse-head]");
+      var tag = t ? t.tagName.toLowerCase() : "";
+      return (t && (t.getAttribute("tabindex") !== null || tag === "button" || tag === "summary"))
+        || "not focusable";
+    });
+    check("collapse: clicking the toggle flips the state", function () {
+      var card = document.querySelector("[data-tc-collapse='hosts']");
+      var before = card.getAttribute("data-tc-collapsed");
+      card.querySelector("[data-tc-collapse-head]").click();
+      var after = card.getAttribute("data-tc-collapsed");
+      card.querySelector("[data-tc-collapse-head]").click();  /* put it back */
+      return before !== after || "state stayed " + before;
+    });
+    check('collapse: data-tc-collapse-default="collapsed" was honored', function () {
+      var card = document.querySelector("[data-tc-collapse='notes']");
+      var stored = null;
+      try { stored = localStorage.getItem("tc.collapse." + location.pathname + ".notes"); } catch (e) { /* no storage */ }
+      if (stored) { return "skipped: stored state (" + stored + ") wins, as designed"; }
+      return card.getAttribute("data-tc-collapsed") === "true" || "card is not collapsed";
+    });
+
+    /* arrange.js */
+    check("arrange: every card has a keyboard-reachable grip", function () {
+      var n = document.querySelectorAll("[data-tc-arrange-handle][tabindex]").length;
+      return n === 3 || "found " + n + " of 3";
+    });
+    check("arrange: grips announce what they do", function () {
+      var h = document.querySelector("[data-tc-arrange-handle]");
+      return (h && (h.getAttribute("aria-label") || "").indexOf("Reorder") === 0)
+        || 'aria-label is "' + (h ? h.getAttribute("aria-label") : "") + '"';
+    });
+    check("arrange: keyboard pick-up then ArrowDown moves the card", function () {
+      var box = document.querySelector("[data-tc-arrange]");
+      var first = box.querySelector("[data-tc-arrange-item]");
+      var id = first.getAttribute("data-tc-arrange-item");
+      var grip = first.querySelector("[data-tc-arrange-handle]");
+      function key(k) {
+        var e = document.createEvent("Event");
+        e.initEvent("keydown", true, true);
+        e.key = k;
+        grip.dispatchEvent(e);
+      }
+      grip.focus();
+      key(" ");          /* pick up */
+      key("ArrowDown");  /* move */
+      key(" ");          /* drop */
+      var nowFirst = box.querySelector("[data-tc-arrange-item]").getAttribute("data-tc-arrange-item");
+      /* Put it back so the page is left as it was found. */
+      grip.focus(); key(" "); key("ArrowUp"); key(" ");
+      return nowFirst !== id || "card did not move (still " + id + " first)";
+    });
+
+    /* table.js */
+    var table = document.getElementById("hosts");
+    function firstCell(col) {
+      var r = table.tBodies[0].rows[0];
+      return r ? (r.cells[col].textContent || "").replace(/\s+/g, "") : "";
+    }
+    check("table: sortable headings expose aria-sort", function () {
+      var n = table.querySelectorAll("th[data-tc-sortable][aria-sort]").length;
+      return n === 4 || "found " + n + " of 4";
+    });
+    check("table: data-tc-nosort column is not sortable", function () {
+      var th = table.tHead.rows[0].cells[4];
+      return th.getAttribute("data-tc-sortable") === null || "Status is sortable";
+    });
+    check("table: headings are keyboard-focusable", function () {
+      var n = table.querySelectorAll("th[data-tc-sortable][tabindex]").length;
+      return n === 4 || "found " + n + " of 4";
+    });
+    check("table: numeric sort orders by value, not by string", function () {
+      table.tHead.rows[0].cells[2].click();          /* ascending */
+      var asc = firstCell(2);
+      table.tHead.rows[0].cells[2].click();          /* descending */
+      var desc = firstCell(2);
+      return (asc === "3" && desc === "1204") || "ascending=" + asc + " descending=" + desc;
+    });
+    check("table: date sort orders chronologically", function () {
+      table.tHead.rows[0].cells[3].click();
+      var asc = firstCell(3);
+      return asc === "2026-07-19" || "oldest row is " + asc;
+    });
+    check("table: text sort is alphabetical", function () {
+      table.tHead.rows[0].cells[0].click();
+      var asc = firstCell(0);
+      return asc === "backup-2" || "first row is " + asc;
+    });
+    check("table: typing filters rows live", function () {
+      var input = document.getElementById("tbl-filter");
+      input.value = "storage";
+      var e = document.createEvent("Event");
+      e.initEvent("input", true, true);
+      input.dispatchEvent(e);
+      var shown = table.querySelectorAll("tbody tr:not([data-tc-filtered]):not([data-tc-table-note])").length;
+      return shown === 2 || 'showed ' + shown + " rows for \"storage\", expected 2";
+    });
+    check("table: words are ANDed across columns", function () {
+      var input = document.getElementById("tbl-filter");
+      input.value = "web gopher";
+      var e = document.createEvent("Event");
+      e.initEvent("input", true, true);
+      input.dispatchEvent(e);
+      var shown = table.querySelectorAll("tbody tr:not([data-tc-filtered]):not([data-tc-table-note])").length;
+      return shown === 1 || 'showed ' + shown + ' rows for "web gopher", expected 1';
+    });
+    check("table: the screen-reader new-tab hint is not searchable text", function () {
+      var input = document.getElementById("tbl-filter");
+      input.value = "opens in a new tab";
+      var e = document.createEvent("Event");
+      e.initEvent("input", true, true);
+      input.dispatchEvent(e);
+      var shown = table.querySelectorAll("tbody tr:not([data-tc-filtered]):not([data-tc-table-note])").length;
+      return shown === 0 || "matched " + shown + " rows on hidden text";
+    });
+    check("table: the row count is reported", function () {
+      var input = document.getElementById("tbl-filter");
+      input.value = "";
+      var e = document.createEvent("Event");
+      e.initEvent("input", true, true);
+      input.dispatchEvent(e);
+      var c = document.querySelector("[data-tc-table-count]").textContent;
+      return c === "8 rows" || 'count reads "' + c + '"';
+    });
+
+    /* Render what is already known, then fill in the fetch-dependent rows.
+     * Waiting for the network before showing anything is what makes a page
+     * look broken while it is in fact working. */
+    render();
+    hovercardChecks(render);
+  }
+
+  /* The hovercard actually fetches, so these cannot be synchronous. They are
+   * SKIPPED rather than failed when the fetch does not land -- opened as
+   * file://, or served with no route to the file, the component is behaving
+   * correctly by saying it has no preview. */
+  function hovercardChecks(done) {
+    function focus(id) {
+      var el = document.getElementById(id);
+      el.focus();
+      var e = document.createEvent("Event");
+      e.initEvent("focus", false, false);
+      el.dispatchEvent(e);
+    }
+    focus("hc-local");
+    focus("hc-legacy");
+
+    window.setTimeout(function () {
+      var panel = document.getElementById("tc-hovercard");
+      var legacy = document.querySelector(".file-preview");
+      var panelHtml = panel ? panel.innerHTML : "";
+      var legacyHtml = legacy ? legacy.innerHTML : "";
+      var offline = panelHtml.indexOf("no live preview") > -1 ||
+                    legacyHtml.indexOf("no live preview") > -1;
+
+      check("hovercard: the floating panel renders a fetched preview", function () {
+        if (offline) { return "skipped: no preview fetched (serve this page over HTTP)"; }
+        return panelHtml.indexOf("tc-hc-pre") > -1 || "panel holds: " + panelHtml.slice(0, 80);
+      });
+      check("hovercard: the legacy shape fills its own .file-preview in place", function () {
+        if (offline) { return "skipped: no preview fetched (serve this page over HTTP)"; }
+        return legacyHtml.indexOf("tc-hc-pre") > -1 || "preview holds: " + legacyHtml.slice(0, 80);
+      });
+      check("hovercard: two triggers on one URL do not share a render", function () {
+        if (offline) { return "skipped: no preview fetched (serve this page over HTTP)"; }
+        /* Both point at ./README.md, but only the floating one asked for a
+         * title. A cache keyed on the URL alone would leak that title here. */
+        return legacyHtml.indexOf("tc-hc-title") === -1
+          || "the legacy preview picked up the other trigger's heading";
+      });
+
+      var live = document.getElementById("tc-hovercard");
+      if (live) { live.setAttribute("data-tc-open", "false"); }
+      done();
+    }, 600);
+  }
+
+  function render() {
+    var ul = document.getElementById("results");
+    ul.innerHTML = "";
+    var bad = 0, skipped = 0;
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i];
+      var li = document.createElement("li");
+      var s = document.createElement("span");
+      var isSkip = !r.ok && r.detail.indexOf("skipped:") === 0;
+      if (isSkip) { skipped++; }
+      else if (!r.ok) { bad++; }
+      s.className = "st " + (r.ok ? "st-ok" : (isSkip ? "st-warn" : "st-bad"));
+      s.appendChild(document.createTextNode(r.ok ? "● OK" : (isSkip ? "□ SKIPPED" : "✖ CRITICAL")));
+      li.appendChild(s);
+      var w = document.createElement("span");
+      w.className = "what";
+      w.appendChild(document.createTextNode(r.name + (r.detail && !r.ok ? " — " + r.detail.replace(/^skipped: /, "") : "")));
+      li.appendChild(w);
+      ul.appendChild(li);
+    }
+    var sum = document.getElementById("results-summary");
+    sum.textContent = results.length + " checks, " + (results.length - bad - skipped) +
+      " OK, " + bad + " failed" + (skipped ? ", " + skipped + " skipped" : "") + ".";
+  }
+
+  document.getElementById("reset-state").addEventListener("click", function () {
+    try {
+      var kill = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k.indexOf("tc.collapse.") === 0 || k.indexOf("tc.arrange.") === 0) { kill.push(k); }
+      }
+      for (var j = 0; j < kill.length; j++) { localStorage.removeItem(kill[j]); }
+      location.reload();
+    } catch (e) {
+      window.alert("localStorage is unavailable here, so nothing was saved to forget.");
+    }
+  });
+
+  /* The components initialize on DOMContentLoaded; this script is last, so by
+   * the time load fires they have all run. */
+  if (document.readyState === "complete") { run(); }
+  else { window.addEventListener("load", run); }
+})();
+</script>
+</body>
+</html>
