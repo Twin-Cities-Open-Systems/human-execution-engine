@@ -129,7 +129,9 @@ GATE
   per-repo lines.
 
 ENVIRONMENT
-  HEE_GIT_ROOT   where repos live. Default: $HOME/git
+  HEE_GIT_ROOT     where repos live. Default: $HOME/git
+  HEE_GIT_TIMEOUT  seconds any single network git call may take before it is
+                   reported as unanswered rather than waited on. Default: 45
 
 EXIT STATUS
   0 completed   2 usage error
@@ -255,9 +257,23 @@ case "$SCOPE_ARG" in
         # Measured 2026-09-03: a second operator saw "remote is empty" for
         # 18 of 19 repos, including public ones with many branches. Nothing
         # was empty; ls-remote had failed and the tool said otherwise.
-        ls_err=$(git -C "$DIR" ls-remote --heads origin 2>&1 >/dev/null)
+        # ONE call, both streams. This was two ls-remote invocations -- one to
+        # capture stderr, one to capture stdout -- which doubled the network
+        # round trips for the sake of reading both. Measured 2026-09-08:
+        # `pull all` over 20 repos made 40 ls-remote calls before it made a
+        # single pull, and the operator reasonably read the silence as a hang.
+        _ls_err_f="$(mktemp)"
+        ls_out=$(timeout "${HEE_GIT_TIMEOUT:-45}" git -C "$DIR" ls-remote --heads origin 2>"$_ls_err_f")
         ls_rc=$?
-        ls_out=$(git -C "$DIR" ls-remote --heads origin 2>/dev/null)
+        ls_err=$(cat "$_ls_err_f")
+        rm -f "$_ls_err_f"
+        # A remote that never answers is not a remote with no branches. Without
+        # a timeout one unreachable host blocks the whole run indefinitely and
+        # says nothing about why.
+        if [ "$ls_rc" -eq 124 ]; then
+          echo "⚪ $R: remote did not answer within ${HEE_GIT_TIMEOUT:-45}s -- skipped, not empty"
+          exit 0
+        fi
         if [ "$ls_rc" -ne 0 ]; then
           echo "⚪ $R: cannot reach remote -- $(printf '%s\n' "$ls_err" | grep -v '^remote:' | tail -1)"
           exit 0
@@ -266,8 +282,12 @@ case "$SCOPE_ARG" in
           echo "⚪ $R: remote is empty (no branches) -- nothing to pull"
           exit 0
         fi
-        out=$(git -C "$DIR" pull --ff-only 2>&1)
+        out=$(timeout "${HEE_GIT_TIMEOUT:-45}" git -C "$DIR" pull --ff-only 2>&1)
         rc=$?
+        if [ "$rc" -eq 124 ]; then
+          echo "🔴 $R: pull did not finish within ${HEE_GIT_TIMEOUT:-45}s -- still running or wedged, not failed"
+          exit 0
+        fi
         if [ "$rc" -eq 0 ]; then
           echo "🟢 $R: $(printf '%s\n' "$out" | tail -1)"
         else
@@ -503,15 +523,19 @@ case "$MODE" in
     # an inherited environment variable to know what it was asked for.
     JSON_FLAG=""; [ "$JSON" = "1" ] && JSON_FLAG="--json"
     if command -v parallel >/dev/null 2>&1; then
-      parallel "$SELF" "$MODE" $JSON_FLAG ::: $repos
+      # --line-buffer, or GNU parallel holds every job's output until that job
+      # finishes and the whole run looks frozen. That is the actual reason
+      # `pull all` "takes a very long time to return": it is working, silently.
+      # shellcheck disable=SC2086
+      parallel --line-buffer "$SELF" "$MODE" $JSON_FLAG ::: $repos
     else
       for d in $repos; do "$SELF" "$MODE" $JSON_FLAG "$d"; done
     fi
     ;;
   refresh)
     if command -v parallel >/dev/null 2>&1; then
-      parallel "$SELF" health ::: $repos
-      parallel "$SELF" pull ::: $repos
+      parallel --line-buffer "$SELF" health ::: $repos
+      parallel --line-buffer "$SELF" pull ::: $repos
     else
       for d in $repos; do "$SELF" health "$d"; done
       for d in $repos; do "$SELF" pull "$d"; done

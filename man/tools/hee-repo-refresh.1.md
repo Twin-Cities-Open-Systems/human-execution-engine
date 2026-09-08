@@ -23,7 +23,9 @@ hee-repo-refresh - per-repo health check, pull, hygiene and branch prune
 
 # ENVIRONMENT
 
-    HEE_GIT_ROOT   where repos live. Default: $HOME/git
+    HEE_GIT_ROOT     where repos live. Default: $HOME/git
+    HEE_GIT_TIMEOUT  seconds any single network git call may take before it is
+                     reported as unanswered rather than waited on. Default: 45
 
 
 # EXIT STATUS
