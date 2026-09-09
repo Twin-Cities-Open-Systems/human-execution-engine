@@ -20,6 +20,15 @@ Usage:
                                      (default 20), otherwise exit 0 silently.
                                      Use as a real pre-flight gate:
                                        hee-quota warn --threshold 15 || exit 1
+  hee-quota status --pools host  -- the HOST as exhaustible pools: memory,
+                                    swap, load headroom and agent count, in
+                                    the same remaining/limit shape. Costs no
+                                    API call and needs no network.
+  hee-quota watch --pools host   -- sample on an interval and STOP ON ITS OWN.
+                                    Bounded by design: --samples defaults to
+                                    180 and there is no unbounded mode. A
+                                    watcher that can run forever is the bug it
+                                    was built to catch.
   hee-quota wait --pool graphql --min N
                                  -- block (with backoff) until the named
                                     pool has at least N remaining, then
@@ -28,6 +37,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -39,6 +49,12 @@ from datetime import datetime, timezone
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
+
+
+# One agent per task, flat -- agents do not spawn agents. On 2026-09-08 one
+# agent became nine and took the box down. The cap is a tripwire, not a limit
+# the kernel enforces; `warn` is what makes it actionable.
+AGENT_CAP = int(os.environ.get("HEE_AGENT_CAP", "6"))
 
 
 def fetch():
@@ -58,63 +74,193 @@ def fmt_reset(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%SZ")
 
 
+HOST_POOLS = ("mem", "swap", "load", "agents")
+
+
+def _meminfo():
+    d = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            k, _, v = line.partition(":")
+            d[k] = int(v.split()[0])          # kB
+    return d
+
+
+def host_pools():
+    """The host as exhaustible pools, in the same remaining/limit shape the
+    GitHub pools already use. Memory really is a quota: you have a budget,
+    you spend it, and finding out reactively is how kiosk reached load 39.82
+    at 4.5% CPU on 2026-09-08 -- all swap thrash, nothing watching.
+
+    No `reset` key: a host pool does not refill on a clock, so this reports
+    None rather than inventing a timestamp the caller would print as fact.
+    """
+    mi = _meminfo()
+    ncpu = os.cpu_count() or 1
+    load1 = float(open("/proc/loadavg").read().split()[0])
+    # load: "remaining" is headroom under one-runnable-per-cpu, floored at 0.
+    load_lim = ncpu * 100
+    load_rem = max(0, int(load_lim - load1 * 100))
+    try:
+        agents = int(subprocess.run(["pgrep", "-c", "-f", "bin/claude"],
+                                    capture_output=True, text=True).stdout or 0)
+    except Exception:
+        agents = 0
+    swap_total = mi.get("SwapTotal", 0)
+    return {
+        "mem":    {"remaining": mi["MemAvailable"] // 1024, "limit": mi["MemTotal"] // 1024,
+                   "reset": None, "unit": "MB"},
+        "swap":   {"remaining": (mi.get("SwapFree", 0) // 1024) if swap_total else 0,
+                   "limit": swap_total // 1024, "reset": None, "unit": "MB"},
+        "load":   {"remaining": load_rem, "limit": load_lim, "reset": None,
+                   "unit": "centi-cpu"},
+        "agents": {"remaining": max(0, AGENT_CAP - agents), "limit": AGENT_CAP,
+                   "reset": None, "unit": "procs"},
+    }
+
+
+def collect(which):
+    """Merge the requested pool families. GitHub is only fetched when asked,
+    so `--pools host` costs no API call and works with no network."""
+    pools = {}
+    if which in ("github", "all"):
+        r = fetch()
+        pools.update({k: r[k] for k in ("core", "graphql", "search") if k in r})
+    if which in ("host", "all"):
+        pools.update(host_pools())
+    return pools
+
+
+def _mark(pct):
+    """Icon AND text label, never color alone -- the org's status vocabulary.
+    Machine consumers parse the label; the icon is for the human beside it."""
+    if pct < 10:
+        return "\u274c", "CRITICAL"
+    if pct < 30:
+        return "\u26a0\ufe0f", "WARNING"
+    return "\u2705", "OK"
+
+
+def _fmt(name, pool):
+    pct = pct_remaining(pool)
+    icon, label = _mark(pct)
+    unit = pool.get("unit", "")
+    tail = (f"resets {fmt_reset(pool['reset'])}" if pool.get("reset")
+            else (unit and f"({unit})" or ""))
+    return (f"{icon} {label:8s} {name:8s} {pool['remaining']:6d}/{pool['limit']:6d} "
+            f"({pct:5.1f}%)  {tail}")
+
+
 def cmd_status(args):
-    resources = fetch()
-    pools = {k: resources[k] for k in ("core", "graphql", "search") if k in resources}
+    pools = collect(args.pools)
     if args.json:
         print(json.dumps(pools))
         return
     for name, pool in pools.items():
-        pct = pct_remaining(pool)
-        flag = "🔴" if pct < 10 else ("🟡" if pct < 30 else "🟢")
-        print(f"{flag} {name:8s} {pool['remaining']:5d}/{pool['limit']:5d}  ({pct:5.1f}%)  resets {fmt_reset(pool['reset'])}")
+        print(_fmt(name, pool))
 
 
 def cmd_warn(args):
-    resources = fetch()
-    bad = []
-    for name in ("core", "graphql", "search"):
-        pool = resources.get(name)
-        if not pool:
-            continue
-        pct = pct_remaining(pool)
-        if pct < args.threshold:
-            bad.append((name, pool["remaining"], pool["limit"], pct, fmt_reset(pool["reset"])))
-    if bad:
-        for name, rem, lim, pct, reset in bad:
-            print(f"WARN: {name} at {rem}/{lim} ({pct:.1f}%, below {args.threshold}% threshold) -- resets {reset}", file=sys.stderr)
-        sys.exit(1)
-    sys.exit(0)
+    """A pre-flight gate. Exit 1 if any requested pool is below threshold, so
+    it composes:  hee quota warn --pools host --threshold 25 || exit 1
+    """
+    pools = collect(args.pools)
+    bad = [(n, p) for n, p in pools.items() if pct_remaining(p) < args.threshold]
+    for n, p in bad:
+        print(f"WARNING: {n} at {p['remaining']}/{p['limit']} "
+              f"({pct_remaining(p):.1f}%, below {args.threshold}%)", file=sys.stderr)
+    sys.exit(1 if bad else 0)
 
 
 def cmd_wait(args):
+    """Block until a pool has headroom. Host pools have no reset clock, so the
+    backoff is fixed rather than derived from a timestamp that does not exist.
+    Bounded: --timeout is real, because a wait that cannot give up is the same
+    runaway this tool exists to catch."""
+    deadline = time.time() + args.timeout
     while True:
-        resources = fetch()
-        pool = resources.get(args.pool)
+        pool = collect("all" if args.pool in HOST_POOLS else "github").get(args.pool)
         if pool is None:
             sys.exit(f"hee-quota: no such pool '{args.pool}'")
         if pool["remaining"] >= args.min:
             print(f"{args.pool}: {pool['remaining']}/{pool['limit']} -- ready")
             return
-        now = time.time()
-        eta = max(0, pool["reset"] - now)
-        print(f"{args.pool}: {pool['remaining']}/{pool['limit']}, need {args.min} -- resets {fmt_reset(pool['reset'])} (~{int(eta)}s), waiting", file=sys.stderr)
-        time.sleep(min(30, max(2, eta / 10)))
+        if time.time() >= deadline:
+            print(f"hee-quota: timed out after {args.timeout}s waiting for "
+                  f"{args.pool} >= {args.min} (now {pool['remaining']})", file=sys.stderr)
+            sys.exit(1)
+        if pool.get("reset"):
+            eta = max(0, pool["reset"] - time.time())
+            print(f"{args.pool}: {pool['remaining']}/{pool['limit']}, need {args.min} "
+                  f"-- resets {fmt_reset(pool['reset'])} (~{int(eta)}s), waiting", file=sys.stderr)
+            time.sleep(min(30, max(2, eta / 10)))
+        else:
+            print(f"{args.pool}: {pool['remaining']}/{pool['limit']}, need {args.min} "
+                  f"-- waiting", file=sys.stderr)
+            time.sleep(5)
+
+
+def cmd_watch(args):
+    """Sample pools on an interval and STOP ON ITS OWN.
+
+    BOUNDED BY DESIGN. --samples has a default and cannot be infinite, because
+    a watcher that can run forever is the exact bug it was built to catch: on
+    2026-09-08 two unreaped searches ran 16.4h and 4.2h, and one agent fan-out
+    took kiosk to load 39.82 with swap full, unobserved for hours.
+
+    Output is one line per sample, append-only, so it composes with tail -f,
+    grep and a pipe -- no daemon, no socket, no dependency.
+    """
+    out = open(args.log, "a", buffering=1) if args.log else sys.stdout
+    worst = 0
+    try:
+        for n in range(1, args.samples + 1):
+            pools = collect(args.pools)
+            stamp = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
+            for name, pool in pools.items():
+                pct = pct_remaining(pool)
+                worst = max(worst, 2 if pct < 10 else (1 if pct < 30 else 0))
+                print(f"{stamp} {_fmt(name, pool)}", file=out)
+            if n < args.samples:
+                time.sleep(args.interval)
+        print(f"{datetime.now(tz=timezone.utc).strftime('%H:%M:%S')} \u23f9  watch "
+              f"exited after {args.samples} samples (bounded by design)", file=out)
+    finally:
+        if args.log:
+            out.close()
+    sys.exit(worst)
 
 
 def main():
     ap = argparse.ArgumentParser(prog="hee-quota", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    POOLS = ["github", "host", "all"]
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--pools", choices=POOLS, default="github",
+                   help="which pool family (default github -- unchanged from before)")
 
     w = sub.add_parser("warn")
     w.add_argument("--threshold", type=float, default=20.0, help="percent remaining below which to warn (default 20)")
+    w.add_argument("--pools", choices=POOLS, default="github",
+                   help="which pool family (default github -- unchanged from before)")
 
     wt = sub.add_parser("wait")
-    wt.add_argument("--pool", required=True, choices=["core", "graphql", "search"])
+    wt.add_argument("--pool", required=True,
+                    choices=["core", "graphql", "search"] + list(HOST_POOLS))
     wt.add_argument("--min", type=int, required=True)
+    wt.add_argument("--timeout", type=int, default=900,
+                    help="give up after N seconds (default 900) -- a wait that "
+                         "cannot give up is a runaway")
+
+    wa = sub.add_parser("watch")
+    wa.add_argument("--pools", choices=POOLS, default="host")
+    wa.add_argument("--interval", type=int, default=20, help="seconds between samples (default 20)")
+    wa.add_argument("--samples", type=int, default=180,
+                    help="stop after N samples (default 180). There is no "
+                         "unbounded mode, deliberately.")
+    wa.add_argument("--log", help="append here instead of stdout")
 
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
@@ -127,7 +273,8 @@ def main():
         return 0
 
     args = ap.parse_args()
-    {"status": cmd_status, "warn": cmd_warn, "wait": cmd_wait}[args.cmd](args)
+    {"status": cmd_status, "warn": cmd_warn, "wait": cmd_wait,
+     "watch": cmd_watch}[args.cmd](args)
 
 
 if __name__ == "__main__":
