@@ -24,13 +24,22 @@ hee-quota - hee-quota: monitor GitHub API rate-limit pools
 .IP
 .nf
 \f[C]
-hee-quota [-h] {status,warn,wait} ...
+hee-quota [-h] {status,warn,wait,watch} ...
   hee-quota status              -- print remaining/limit/reset per pool
   hee-quota status --json       -- machine-readable
   hee-quota warn [--threshold N]  -- exit 1 if any pool is below N% remaining
                                      (default 20), otherwise exit 0 silently.
                                      Use as a real pre-flight gate:
                                        hee-quota warn --threshold 15 || exit 1
+  hee-quota status --pools host  -- the HOST as exhaustible pools: memory,
+                                    swap, load headroom and agent count, in
+                                    the same remaining/limit shape. Costs no
+                                    API call and needs no network.
+  hee-quota watch --pools host   -- sample on an interval and STOP ON ITS OWN.
+                                    Bounded by design: --samples defaults to
+                                    180 and there is no unbounded mode. A
+                                    watcher that can run forever is the bug it
+                                    was built to catch.
   hee-quota wait --pool graphql --min N
                                  -- block (with backoff) until the named
                                     pool has at least N remaining, then
@@ -38,10 +47,10 @@ hee-quota [-h] {status,warn,wait} ...
                                     pool\[aq]s own reset timestamp, not guessed.
 
 positional arguments:
-  {status,warn,wait}
+  {status,warn,wait,watch}
 
 options:
-  -h, --help          show this help message and exit
+  -h, --help            show this help message and exit
 \f[R]
 .fi
 .SH DESCRIPTION
