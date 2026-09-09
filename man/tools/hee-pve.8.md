@@ -47,6 +47,21 @@ hee-pve - the pve family, and the host network read from a yaml.
     a week while its token was empty and it had read none of them; a green from a
     control that is not looking is worse than a red.
 
+    BEFORE IT WRITES, it checks that /etc/network/interfaces already loads
+    (`ifreload -a -n`). A file that does not parse is a refusal (exit 3) naming
+    the offending lines, not a half-finished apply -- pve's file had been
+    malformed since 2026-02-15 and this tool appended to it correctly, then died
+    on somebody else's seven-month-old lines with a stanza already written.
+
+    ON FAILURE IT ACTUALLY ROLLS BACK. An ERR trap restores the backup and
+    reloads. Until 2026-09-09 the tool printed "rollback: <path>", restored
+    nothing, and left its own partial write live on the hypervisor; the
+    announcement was what stopped anyone checking. The backup line now says
+    "backup:", because that is all it is until something fails. The restore
+    covers /etc/network/interfaces ONLY -- a sysctl persist file and a `pveum
+    acl modify` are additive and separately reversible, and this is not a
+    transaction.
+
     Exit codes are the Nagios convention this org already uses everywhere:
     0 OK, 1 WARNING (drift), 2 CRITICAL, 3 UNKNOWN.
 
