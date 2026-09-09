@@ -482,6 +482,15 @@ def run_tui(rows):
             elif c in (ord("k"), curses.KEY_UP):
                 idx = max(0, idx - 1)
             elif c in (10, 13, curses.KEY_ENTER):
+                # Guard the index. Spencer hit `IndexError: list index out of
+                # range` here 2026-09-09: with an empty queue, the earlier
+                # `idx = min(len(rows) - 1, idx + 1)` yields -1, and Enter
+                # then indexes a list that has nothing in it. A review tool
+                # that crashes when there is nothing to review is a tool
+                # people stop opening.
+                if not rows:
+                    continue
+                idx = max(0, min(idx, len(rows) - 1))
                 r = rows[idx]
                 stdscr.clear()
                 stdscr.addstr(0, 0, r["name"][:w-1], curses.A_BOLD)
@@ -506,12 +515,25 @@ def stage_for_ratification(path, keyid, signer):
         return False, "no 'status: proposed' found -- already ratified or unexpected format, not touching it"
     text = text.replace("status: proposed", "status: ratified", 1)
     asc_name = path.split("/")[-1] + ".asc"
-    if "ratification_required_from:" in text:
-        text = text.replace(
-            "ratification_required_from:",
-            f'ratification_evidence: "{asc_name} -- detached GPG signature, key {keyid} ({signer}), covers the exact ratified content in this file"\n  ratification_required_from:',
-            1,
-        )
+    ev = (f'ratification_evidence: "{asc_name} -- detached GPG signature, '
+          f'key {keyid} ({signer}), covers the exact ratified content in this file"')
+    # REPLACE an existing evidence line, never add a second. Measured
+    # 2026-09-09 on the sibling script: appending produced two
+    # `ratification_evidence` keys at the same level, with the contract's own
+    # "PENDING -- not yet ratified" line right after the inserted one. YAML
+    # takes the LAST duplicate, so the real evidence was silently overridden
+    # by the placeholder it was meant to replace -- and the file still parsed.
+    m = re.search(r"^([ \t]*)ratification_evidence:.*$", text, re.M)
+    if m:
+        text = text[:m.start()] + m.group(1) + ev + text[m.end():]
+    else:
+        m2 = re.search(r"^([ \t]*)ratification_required_from:", text, re.M)
+        if m2:
+            # Match the indent of the line we insert beside. It was hardcoded
+            # to two spaces, which breaks the object the moment that key is
+            # nested any deeper.
+            ind = m2.group(1)
+            text = text[:m2.start()] + f"{ind}{ev}\n" + text[m2.start():]
     open(path, "w").write(text)
     return True, asc_name
 
