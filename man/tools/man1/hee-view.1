@@ -31,7 +31,8 @@ hee-view [-h] [--pve-host PVE_HOST] [--haproxy-host HAPROXY_HOST]
 .nf
 \f[C]
                 [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
-                [--via [USER\[at]]HOST] [--crawl] [--sites-only]
+                [--via [USER\[at]]HOST] [--crawl] [--braindump] [--mark-seen]
+                [--braindump-url URL] [--sites-only]
                 [--network {lab,public,all}]
 
 options:
@@ -56,6 +57,19 @@ options:
                         site (depth 2), check every page found, follow
                         blog->media redirects to a 2xx, and report reachable
                         pages the site map does not list
+  --braindump           what has been written to the view.lab brain dump since
+                        you last looked. Append-only file, so the only
+                        question is what is NEW -- this keeps a cursor and
+                        reports the difference. WARNING exit (1) when there is
+                        something unread, so it drives a watch or a status
+                        line.
+  --mark-seen           with --braindump: remember the newest entry, so the
+                        next run reports only what arrives after it. Separate
+                        from reading on purpose -- a run that scrolled past
+                        should not silently mark it read.
+  --braindump-url URL   override the dump endpoint (heerc:
+                        HEE_VIEW_BRAINDUMP_URL, default
+                        https://view.lab.tcos.us/cgi-bin/braindump.cgi)
   --sites-only          skip the pve/haproxy/dns section; just the site checks
   --network {lab,public,all}
                         only check sites on this network. A GitHub-hosted
