@@ -32,6 +32,7 @@ Modes:
 """
 import curses
 import json
+import os
 import re
 import subprocess
 import sys
@@ -546,9 +547,26 @@ def do_sign(path, keyid, signer):
     himself, not something done on his behalf."""
     ok, result = stage_for_ratification(path, keyid, signer)
     if not ok:
-        print(f"  SKIP: {result}")
-        return
-    print(f"  staged: status -> ratified, evidence -> {result}")
+        # ALREADY STAGED IS NOT ALREADY SIGNED. Staging flips status to
+        # ratified; signing is a separate step, and between them the file is
+        # in a state this tool used to refuse to touch -- so an interrupted
+        # run, or a run of the sibling ratify-contract.sh, left contracts
+        # that no tool would finish. Measured 2026-09-09: three staged
+        # contracts that --action sign reported as "nothing to sign".
+        # Sign it if it is staged-but-unsigned; only genuinely-done files
+        # are skipped.
+        if os.path.exists(path + ".asc"):
+            print(f"  SKIP: {result}")
+            return
+        import re as _re
+        _t = open(path).read()
+        if not _re.search(r"^[ \t]*status: ratified", _t, _re.M):
+            print(f"  SKIP: {result}")
+            return
+        print("  already staged as ratified and unsigned -- signing it")
+        result = path.split("/")[-1] + ".asc"
+    else:
+        print(f"  staged: status -> ratified, evidence -> {result}")
     proc = subprocess.run(["gpg", "--detach-sign", "--armor", "--local-user", keyid, path])
     if proc.returncode != 0:
         print(f"  GPG SIGN FAILED for {path} -- content is staged as ratified but unsigned. "
@@ -558,7 +576,14 @@ def do_sign(path, keyid, signer):
 
 
 def run_sign_mode(rows, keyid, signer):
-    pending = [r for r in rows if r["status"] == "proposed"]
+    # Include staged-but-unsigned, not just proposed. A contract whose status
+    # already reads ratified with no .asc beside it is the MOST urgent thing
+    # in the queue, not something to filter out: it claims a ratification
+    # that has no signature behind it.
+    pending = [r for r in rows
+               if r["status"] == "proposed"
+               or (r["status"] == "ratified"
+                   and r.get("path") and not os.path.exists(r["path"] + ".asc"))]
     if not pending:
         print("hee-contract-review: nothing with status=proposed -- nothing to sign.")
         return
