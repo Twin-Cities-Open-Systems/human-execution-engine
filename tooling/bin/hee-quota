@@ -57,11 +57,48 @@ from hee_cli import help_wanted, note_ignored  # noqa: E402
 AGENT_CAP = int(os.environ.get("HEE_AGENT_CAP", "6"))
 
 
+def _graphql_truth():
+    """The GraphQL pool, read from GraphQL itself.
+
+    REST /rate_limit LIES about the graphql pool. Measured 2026-09-09, seconds
+    apart on the same credentials:
+
+        REST  /rate_limit .resources.graphql -> remaining 5000, used 0
+        GraphQL { rateLimit { ... } }        -> remaining   41, used 4959
+
+    Not a secondary/abuse limit and not propagation lag -- the REST view simply
+    does not reflect GraphQL consumption. Reading it is how `hee quota status`
+    reported all-green while `gh project` calls were failing outright, and how
+    `hee-fields` came to blame "propagation lag" for an exhausted budget.
+
+    Costs 1 point to ask, which is the honest price of a true answer. Returns
+    None if the query fails, so a broken GraphQL path degrades to the REST
+    number rather than taking the whole command down.
+    """
+    q = "{ rateLimit { limit remaining used resetAt } }"
+    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={q}"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
+    try:
+        rl = json.loads(out.stdout)["data"]["rateLimit"]
+    except (KeyError, ValueError, TypeError):
+        return None
+    reset = datetime.strptime(rl["resetAt"], "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=timezone.utc).timestamp()
+    return {"limit": rl["limit"], "remaining": rl["remaining"],
+            "used": rl["used"], "reset": int(reset)}
+
+
 def fetch():
     out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
     if out.returncode != 0:
         sys.exit(f"hee-quota: gh api rate_limit failed:\n{out.stderr}")
-    return json.loads(out.stdout)["resources"]
+    res = json.loads(out.stdout)["resources"]
+    truth = _graphql_truth()
+    if truth is not None:
+        res["graphql"] = truth
+    return res
 
 
 def pct_remaining(pool):
