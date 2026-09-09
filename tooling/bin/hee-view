@@ -24,6 +24,8 @@ Usage:
 """
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 import time
@@ -38,6 +40,7 @@ from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 try:
     from hee_cli import help_wanted, note_ignored  # noqa: E402
+    import hee_status  # noqa: E402
 except ImportError:
     # --via ships this file over ssh and runs it with `python3 -` on a host
     # that has no HEE checkout; the two helpers are trivial to stand in for.
@@ -46,6 +49,16 @@ except ImportError:
 
     def note_ignored(argv):
         pass
+
+    # --via runs this file on a host with no HEE checkout, so hee_status is
+    # not importable there. The vocabulary is the contract, not the module:
+    # same four words, same four exit codes, plain style.
+    class hee_status:  # noqa: N801 -- stands in for the module, not a type
+        @staticmethod
+        def emit(level, message="", stream=None):
+            lvl = str(level).upper()
+            print(f"{lvl} {message}",
+                  file=stream or (sys.stdout if lvl == "OK" else sys.stderr))
 
 try:
     import yaml
@@ -491,6 +504,133 @@ def print_sites_nerd(results):
         print(f"{flag} {r['url']:55} {status!s:10} {r['elapsed_ms']:5}ms  {r['note']}")
 
 
+# --- brain dump -----------------------------------------------------------
+# Real trigger (2026-09-09, Spencer): "we need a mech that you know when the
+# brain dump md is updated". The dump is append-only and lives on the view
+# container; the only thing anyone needs to know is what arrived since the
+# last look. So this is a CURSOR, not a poller: it reads the file, compares
+# the newest stamp against a remembered one, and reports the difference.
+#
+# It lives in hee-view rather than a new top-level subcommand because that is
+# what hee-view already is -- the one command that reports what view.lab is
+# doing. A `hee braindump` would be a second front door to the same house.
+DEFAULT_BRAINDUMP_URL = "https://view.lab.tcos.us/cgi-bin/braindump.cgi"
+
+# The SAME boundary braindump.js parses, deliberately duplicated rather than
+# loosened: both halves must agree on where an entry starts, or the count
+# here and the count on the page disagree and neither is trustworthy. If one
+# changes, change both -- view/assets/braindump.js in fleet-ops.
+BRAINDUMP_MARK = re.compile(
+    r"^<!--\s*tc-braindump-entry\s+"
+    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)"
+    r"(?:\s+source=(\S+))?\s*-->\s*$")
+
+
+def braindump_cursor_path():
+    """Where the last-seen stamp is remembered.
+
+    XDG_STATE_HOME is the right base: this is state the tool rewrites, not
+    config a human edits, and it must survive a cache prune.
+    """
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state")
+    return os.path.join(base, "hee", "view-braindump.cursor")
+
+
+def braindump_parse(md):
+    """[{ts, source, body}] in file order. Mirrors braindump.js parse()."""
+    lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out, cur = [], None
+    i = 0
+    while i < len(lines):
+        m = BRAINDUMP_MARK.match(lines[i])
+        # Both lines are required -- the marker AND the heading echo under it.
+        # An entry that merely QUOTES the marker (writing about this format is
+        # exactly that case) must not split itself in two.
+        if m and i + 1 < len(lines) and lines[i + 1] == "### " + m.group(1):
+            cur = {"ts": m.group(1), "source": m.group(2) or "", "body": []}
+            out.append(cur)
+            i += 2
+            if i < len(lines) and lines[i] == "":
+                i += 1
+            continue
+        if cur is not None:
+            cur["body"].append(lines[i])
+        i += 1
+    for e in out:
+        e["body"] = "\n".join(e["body"]).strip("\n")
+    return out
+
+
+def braindump_section(args):
+    url = args.braindump_url or os.environ.get(
+        "HEE_VIEW_BRAINDUMP_URL", DEFAULT_BRAINDUMP_URL)
+    cursor_file = braindump_cursor_path()
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "hee-view"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            md = r.read().decode("utf-8", "replace")
+    except Exception as e:  # noqa: BLE001 -- any failure is the same answer
+        hee_status.emit("CRITICAL", f"hee-view: cannot read the brain dump at {url}: {e}")
+        return 2
+
+    entries = braindump_parse(md)
+    if not entries:
+        # An empty PARSE of a non-empty file is not an empty dump -- it means
+        # the markers stopped matching, which is a drift between this tool and
+        # the CGI. Say which, rather than reporting a cheerful zero.
+        if md.strip():
+            hee_status.emit("UNKNOWN", f"hee-view: {len(md)} bytes at {url} but no entry markers matched "
+                                       "-- braindump.cgi's format and this parser have drifted apart")
+            return 3
+        hee_status.emit("OK", "hee-view: brain dump is empty")
+        return 0
+
+    seen = ""
+    try:
+        with open(cursor_file) as fh:
+            seen = fh.read().strip()
+    except OSError:
+        pass
+
+    # Stamps are ISO-8601 UTC with a fixed width, so a string compare IS a
+    # time compare here. No parsing, nothing to get wrong across zones.
+    fresh = [e for e in entries if e["ts"] > seen] if seen else entries
+    newest = entries[-1]["ts"]
+
+    if args.nerd:
+        for e in entries if not seen else fresh:
+            src = f"  [{e['source']}]" if e["source"] else ""
+            first = (e["body"].strip().split("\n") or [""])[0][:96]
+            print(f"  {e['ts']}{src}\n      {first}")
+
+    # Detail on stdout, status on stderr -- so without this flush the two
+    # interleave differently depending on whether the caller is a terminal or
+    # a pipe. The summary must always land after the entries it summarizes.
+    sys.stdout.flush()
+
+    if args.mark_seen:
+        os.makedirs(os.path.dirname(cursor_file), exist_ok=True)
+        tmp = cursor_file + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(newest + "\n")
+        os.replace(tmp, cursor_file)   # atomic: a killed run never truncates it
+
+    if not seen:
+        hee_status.emit("WARNING", f"hee-view: {len(entries)} brain dump entries, newest {newest} "
+                                   f"-- no cursor yet, so all of them are unread. "
+                                   f"`hee view --braindump --mark-seen` to start counting from here")
+        return 1
+    if fresh:
+        hee_status.emit("WARNING", f"hee-view: {len(fresh)} NEW brain dump "
+                                   f"entr{'y' if len(fresh) == 1 else 'ies'} since {seen} "
+                                   f"(newest {newest}, {len(entries)} total)")
+        return 1
+    hee_status.emit("OK", f"hee-view: no new brain dump entries since {seen} ({len(entries)} total)")
+    return 0
+
+
 def inbound_status():
     import shutil
     if not shutil.which("gh"):
@@ -599,6 +739,18 @@ def main():
                     help="with --sites: follow same-host links from each listed site (depth 2), "
                          "check every page found, follow blog->media redirects to a 2xx, and "
                          "report reachable pages the site map does not list")
+    ap.add_argument("--braindump", action="store_true",
+                    help="what has been written to the view.lab brain dump since you last looked. "
+                         "Append-only file, so the only question is what is NEW -- this keeps a "
+                         "cursor and reports the difference. WARNING exit (1) when there is "
+                         "something unread, so it drives a watch or a status line.")
+    ap.add_argument("--mark-seen", action="store_true",
+                    help="with --braindump: remember the newest entry, so the next run reports "
+                         "only what arrives after it. Separate from reading on purpose -- a run "
+                         "that scrolled past should not silently mark it read.")
+    ap.add_argument("--braindump-url", metavar="URL",
+                    help=f"override the dump endpoint (heerc: HEE_VIEW_BRAINDUMP_URL, "
+                         f"default {DEFAULT_BRAINDUMP_URL})")
     ap.add_argument("--sites-only", action="store_true",
                     help="skip the pve/haproxy/dns section; just the site checks")
     ap.add_argument("--network", default="all",
@@ -617,6 +769,15 @@ def main():
         return 0
 
     args = ap.parse_args()
+
+    if args.mark_seen and not args.braindump:
+        print("⚪ UNKNOWN hee-view: --mark-seen only makes sense with --braindump", file=sys.stderr)
+        return 3
+    if args.braindump_url and not args.braindump:
+        print("⚪ UNKNOWN hee-view: --braindump-url only makes sense with --braindump", file=sys.stderr)
+        return 3
+    if args.braindump:
+        return braindump_section(args)
 
     if args.via:
         if "://" in args.via or "/" in args.via:
