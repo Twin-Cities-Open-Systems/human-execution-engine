@@ -64,8 +64,37 @@ def field_map():
     return out
 
 
+ITEM_LIST_CEILING = 5000
+
+
 def fetch_items():
-    return gh_json(["project", "item-list", str(PROJECT_NUMBER), "--owner", PROJECT_OWNER, "--format", "json", "--limit", "300"])["items"]
+    """Every item on the board, or a loud failure -- never a silent prefix.
+
+    This asked for 300. The Roadmap crossed 300 items on 2026-09-09 and
+    every item past the 300th became invisible: `hee fields set` could not
+    find issue:452@fleet-ops while `gh project item-list --limit 2000`
+    showed it sitting on the board, item 320 of 320. What the tool said
+    was "real propagation lag, not a permanent failure; safe to retry this
+    one item later" -- wrong on every clause. It was not lag, retrying
+    never worked, and the documented workaround (add it to the project
+    first) was already satisfied.
+
+    A cap that returns a truncated list and lets the caller conclude
+    "absent" is the same failure shape as a gate that cannot read a repo
+    and reports OK -- rule 16's namespace-audit, and rule 2's silence as a
+    result. So the ceiling is high enough for real boards AND hitting it
+    is an error, because a prefix that looks like a whole list is the bug,
+    not the size.
+    """
+    items = gh_json(["project", "item-list", str(PROJECT_NUMBER),
+                     "--owner", PROJECT_OWNER, "--format", "json",
+                     "--limit", str(ITEM_LIST_CEILING)])["items"]
+    if len(items) >= ITEM_LIST_CEILING:
+        sys.exit(f"hee-fields: project item list returned {len(items)} items, at "
+                 f"the {ITEM_LIST_CEILING} ceiling -- the list is truncated and any "
+                 "'not found' past it would be a false negative. Raise "
+                 "ITEM_LIST_CEILING; do not retry, this will not resolve itself.")
+    return items
 
 
 def find_item(items, repo, number):
@@ -94,7 +123,15 @@ def ensure_item(items, repo, number):
         item_id = find_item(items, repo, number)
         if item_id:
             return item_id
-    raise RuntimeError(f"could not add/find project item for {repo}#{number} after retries -- real propagation lag, not a permanent failure; safe to retry this one item later")
+    raise RuntimeError(
+        f"could not add/find project item for {repo}#{number} after "
+        f"{len(items)} items scanned and 4 retries over 30s. Propagation lag is "
+        "real and the backoff above covers it, so by this point the cause is "
+        "almost certainly NOT lag: check that the item is on project "
+        f"{PROJECT_NUMBER} (`gh project item-list {PROJECT_NUMBER} --owner "
+        f"{PROJECT_OWNER} --limit 2000`) and that fetch_items() is not "
+        "truncating. Do not simply retry -- if this is a lookup problem, "
+        "retrying will fail forever with a message that blames the clock.")
 
 
 def set_project_fields(proj_id, item_id, priority, effort, target_date, start_date, fmap):
