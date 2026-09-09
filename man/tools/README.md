@@ -36,6 +36,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-pve-deploy`](hee-pve-deploy.1.md)
 - [`hee-pve-health`](hee-pve-health.1.md)
 - [`hee-pve-users`](hee-pve-users.1.md)
+- [`hee-pve`](hee-pve.1.md)
 - [`hee-quota`](hee-quota.1.md)
 - [`hee-release`](hee-release.1.md)
 - [`hee-repo-refresh`](hee-repo-refresh.1.md)
