@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+# section: 8
+"""hee-pve -- the pve family, and the host network read from a yaml.
+
+Real trigger (2026-09-09): Spencer, after being handed a five-mutation shell
+one-liner to paste at his own hypervisor -- "that is madness ... should be a
+pve tool and use yml's to configure the network. hee pve -things and stuff."
+
+He was right twice. The one-liner was unreviewable, and it existed only
+because the host's network was the ONE layer of this fleet with no object.
+`pve/services/*.yaml` declares containers and `hee pve deploy` applies them;
+`network-anchors.registry.v1.yaml` declares which roles may pin an address at
+all. But all fourteen manifests say `bridge: vmbr0` and NOTHING declared that
+vmbr0 exists. A thing with no object gets configured imperatively, every
+time, by whoever is standing closest.
+
+So: `pve/network.yaml` declares the host's bridges, and this reconciles.
+
+  hee pve network              dry run -- report declared vs measured
+  hee pve network --apply      apply the difference (additive only)
+  hee pve deploy|health|users  the existing tools, unchanged
+
+DRY RUN IS THE DEFAULT, the same contract hee-gen-manpages and hee-release
+already keep. A tool that mutates a hypervisor on a bare invocation is how an
+operator loses a network, and this one edits /etc/network/interfaces.
+
+WHAT IT WILL NOT DO, by construction rather than by intention:
+  - delete a bridge. It creates and it sets sysctls. Removal is an operator
+    action with a rollback file in hand.
+  - touch vmbr0. The household side is not this file's business, and an
+    additive tool that can still break the box it runs on is not additive.
+  - write a container address. The anchors registry is explicit that a role
+    is pinned by a DHCP reservation on its MAC, never by writing an IP. A
+    BRIDGE is not a role -- it is the hardware addresses are handed out on.
+
+FAILS CLOSED. A host that cannot be read is UNKNOWN (exit 3), never "no
+changes needed". `namespace-audit` reported OK across 17 repos every day for
+a week while its token was empty and it had read none of them; a green from a
+control that is not looking is worse than a red.
+
+Exit codes are the Nagios convention this org already uses everywhere:
+0 OK, 1 WARNING (drift), 2 CRITICAL, 3 UNKNOWN.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path as _Path
+
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_status import Status, emit  # noqa: E402
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+
+DEFAULT_SPEC = os.path.expanduser("~/git/fleet-ops/pve/network.yaml")
+DEFAULT_HOST = "10.0.0.153"
+FAMILY = ("deploy", "health", "users")
+
+
+def _ssh(host, script):
+    """One ssh, one script, captured. BatchMode so a missing host key fails
+    loudly instead of hanging on a prompt nobody is there to answer."""
+    p = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+         f"root@{host}", "sh", "-s"],
+        input=script, capture_output=True, text=True)
+    return p.returncode, p.stdout, p.stderr
+
+
+def _measure(host):
+    """What the machine actually has. Returns None if it cannot be read --
+    the caller turns that into UNKNOWN rather than an empty diff."""
+    rc, out, err = _ssh(host, r"""
+        echo "@@bridges"
+        ip -o link show type bridge | awk -F': ' '{print $2}'
+        echo "@@addr"
+        ip -o -4 addr show | awk '{print $2, $4}'
+        echo "@@forward"
+        sysctl -n net.ipv4.ip_forward
+        echo "@@iface"
+        grep -c '^auto vmbr1' /etc/network/interfaces || true
+        echo "@@acl"
+        pveum acl list 2>/dev/null | grep -c 'vmbr1' || true
+    """)
+    if rc != 0:
+        return None, (err or "ssh failed with no message").strip()
+    cur, sec = {}, None
+    for line in out.splitlines():
+        if line.startswith("@@"):
+            sec = line[2:]
+            cur[sec] = []
+        elif sec:
+            cur[sec].append(line.strip())
+    return cur, None
+
+
+def _load(path):
+    try:
+        import yaml
+    except ImportError:
+        emit(Status.UNKNOWN, "hee-pve network: pyyaml not available")
+        sys.exit(Status.UNKNOWN.value)
+    if not os.path.isfile(path):
+        emit(Status.UNKNOWN, f"hee-pve network: no spec at {path}")
+        sys.exit(Status.UNKNOWN.value)
+    return yaml.safe_load(open(path, encoding="utf-8"))["spec"]
+
+
+def _plan(spec, m):
+    """Declared minus measured. Every entry carries the reason from the yaml,
+    so the plan explains itself without the reader opening the file."""
+    have_br = set(m["bridges"])
+    steps = []
+    for name, b in (spec.get("bridges") or {}).items():
+        if b.get("change") == "none" or b.get("state") == "present":
+            continue
+        if name in have_br:
+            continue
+        steps.append({"kind": "bridge", "name": name, "address": b["address"],
+                      "ports": b.get("ports") or [], "why": b.get("why", "")})
+    for key, s in (spec.get("sysctl") or {}).items():
+        if m["forward"] and str(s["value"]) != m["forward"][0]:
+            steps.append({"kind": "sysctl", "name": key, "value": s["value"],
+                          "persist": s.get("persist"), "why": s.get("why", "")})
+    if int(m["acl"][0] or 0) == 0:
+        for a in spec.get("acl") or []:
+            steps.append({"kind": "acl", "name": a["path"], "role": a["role"],
+                          "grantee": a["grantee"], "why": a.get("why", "")})
+    return steps
+
+
+def _render(steps, m, applied=False):
+    verb = "applied" if applied else "would apply"
+    print(f"declared vs measured on the host -- {len(steps)} change(s) {verb}\n")
+    for s in steps:
+        if s["kind"] == "bridge":
+            ports = ", ".join(s["ports"]) or "none (internal, no physical port)"
+            print(f"  + bridge {s['name']}  {s['address']}  ports: {ports}")
+        elif s["kind"] == "sysctl":
+            print(f"  ~ sysctl {s['name']} -> {s['value']}  (persist {s['persist']})")
+        else:
+            g = s["grantee"]
+            print(f"  + acl {s['name']}  role={s['role']}  {g['type']}={g['id']}")
+        if s["why"]:
+            for ln in _wrap(s["why"]):
+                print(f"      {ln}")
+        print()
+
+
+def _wrap(text, width=72):
+    words, line, out = text.split(), "", []
+    for w in words:
+        if len(line) + len(w) + 1 > width:
+            out.append(line)
+            line = w
+        else:
+            line = f"{line} {w}".strip()
+    if line:
+        out.append(line)
+    return out
+
+
+def _apply(host, steps):
+    """Additive only, rollback first. The rollback copy is not optional and
+    not best-effort: if it cannot be taken, nothing is written."""
+    sh = ["set -e",
+          'S=$(date -u +%Y%m%d-%H%M%SZ)',
+          'cp -a /etc/network/interfaces "/root/interfaces.rollback.$S"',
+          'echo "rollback: /root/interfaces.rollback.$S"']
+    for s in steps:
+        if s["kind"] == "bridge":
+            sh += [
+                f'grep -q "^auto {s["name"]}" /etc/network/interfaces && '
+                f'{{ echo "{s["name"]} already declared -- refusing"; exit 1; }}',
+                f'printf "\\nauto {s["name"]}\\niface {s["name"]} inet static\\n'
+                f'        address {s["address"]}\\n        bridge-ports none\\n'
+                f'        bridge-stp off\\n        bridge-fd 0\\n'
+                f'# declared in fleet-ops pve/network.yaml -- do not hand-edit\\n" '
+                f'>> /etc/network/interfaces',
+                f'ifup {s["name"]}']
+        elif s["kind"] == "sysctl":
+            sh += [f'printf "{s["name"]} = {s["value"]}\\n" > {s["persist"]}',
+                   f'sysctl -q -p {s["persist"]}']
+        else:
+            g = s["grantee"]
+            flag = "--groups" if g["type"] == "group" else "--tokens"
+            sh.append(f'pveum acl modify {s["name"]} --roles {s["role"]} {flag} "{g["id"]}"')
+    rc, out, err = _ssh(host, "\n".join(sh))
+    return rc, out, err
+
+
+def cmd_network(args):
+    spec = _load(args.spec)
+    m, why = _measure(args.host)
+    if m is None:
+        emit(Status.UNKNOWN, f"hee-pve network: cannot read {args.host} -- {why}")
+        return Status.UNKNOWN
+    steps = _plan(spec, m)
+    if args.json:
+        print(json.dumps({"steps": steps, "measured": m}, indent=1))
+        return Status.OK if not steps else Status.WARNING
+    if not steps:
+        emit(Status.OK, "hee-pve network: host matches pve/network.yaml")
+        return Status.OK
+    if not args.apply:
+        _render(steps, m)
+        emit(Status.WARNING,
+             f"hee-pve network: {len(steps)} declared change(s) not on the host "
+             "-- DRY RUN, nothing written. Re-run with --apply.")
+        return Status.WARNING
+    rc, out, err = _apply(args.host, steps)
+    print(out.rstrip())
+    if rc != 0:
+        emit(Status.CRITICAL, f"hee-pve network: apply failed -- {(err or '').strip()}")
+        return Status.CRITICAL
+    m2, why2 = _measure(args.host)
+    if m2 is None:
+        emit(Status.UNKNOWN, f"hee-pve network: applied but cannot re-read host -- {why2}")
+        return Status.UNKNOWN
+    left = _plan(spec, m2)
+    if left:
+        _render(left, m2)
+        emit(Status.CRITICAL, f"hee-pve network: {len(left)} change(s) still missing after apply")
+        return Status.CRITICAL
+    _render(steps, m2, applied=True)
+    emit(Status.OK, "hee-pve network: host now matches pve/network.yaml, verified by re-reading it")
+    return Status.OK
+
+
+def main():
+    argv = sys.argv[1:]
+    # The family passthrough runs BEFORE argparse, so `hee pve health map
+    # --term` reaches hee-pve-health with its own flags intact rather than
+    # being rejected by this parser for arguments that were never ours.
+    if argv and argv[0] in FAMILY:
+        tool = _Path(__file__).resolve().parent / f"hee-pve-{argv[0]}"
+        if not tool.exists():
+            emit(Status.UNKNOWN, f"hee-pve: {tool.name} not found beside this tool")
+            return Status.UNKNOWN.value
+        os.execv(str(tool), [str(tool)] + argv[1:])
+
+    ap = argparse.ArgumentParser(
+        prog="hee-pve", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    n = sub.add_parser("network", help="reconcile the host's bridges against pve/network.yaml")
+    n.add_argument("--spec", default=DEFAULT_SPEC)
+    n.add_argument("--host", default=DEFAULT_HOST)
+    n.add_argument("--apply", action="store_true",
+                   help="write the changes. Without this nothing is written, ever.")
+    n.add_argument("--json", action="store_true")
+    for f in FAMILY:
+        sub.add_parser(f, help=f"passthrough to hee-pve-{f}")
+
+    if help_wanted(argv):
+        note_ignored(argv)
+        ap.print_help()
+        return 0
+    args = ap.parse_args(argv)
+    return cmd_network(args).value
+
+
+if __name__ == "__main__":
+    sys.exit(main())
