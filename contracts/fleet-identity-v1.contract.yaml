@@ -79,8 +79,9 @@ spec:
       technically_constrained_subca:
         finding: "the one genuine middle path, and the most likely first real step toward the moonshot"
         mechanism: "CA/Browser Forum Baseline Requirements 7.1.2.5 permits a name-constrained, serverAuth-only sub-CA under a public root. Per 8.7 it needs NO independent audit -- it falls under the parent's quarterly self-audit. Mozilla requires CCADB disclosure within 7 days regardless."
-        commercially: "real but bespoke. SSL.com's Custom-Branded Issuing CA is the clearest example; DigiCert and GlobalSign sell adjacent products. No vendor publishes a price; every path ends at contact-sales. The only figure found anywhere is a forum anecdote of '$10k+ and you sign a contract with the root CA' -- directional at best, not a quote."
+        commercially: "real but bespoke. SSL.coms Custom-Branded Issuing CA is the clearest example DigiCert and GlobalSign sell adjacent products. No vendor publishes a price every path ends at contact-sales. The only figure found anywhere is a forum anecdote of $10k+ and you sign a contract with the root CA -- directional at best, not a quote."
         why_hard_for_us: "the parent CA carries indefinite liability for everything issued beneath it -- the 2012 Trustwave incident, an unconstrained customer sub-CA used to mint MITM certs, is the direct origin of the whole constraint framework. Setup cost is fixed regardless of certificate volume, so it is uneconomic for both sides at our scale. No small-org holder was found. This is a reason it is a stretch, not a reason it is impossible -- being the first would itself be the achievement."
+        points:
       trust_distribution_is_worse_than_one_store:
         note: "the rationale line above says 'every browser', which understates it. There is no single store to install into, and this is the strongest argument for the split."
         - "Firefox does not use the OS trust store by default -- it needs security.enterprise_roots.enabled or the ImportEnterpriseRoots policy, which exists only on Windows and macOS, not Linux."
