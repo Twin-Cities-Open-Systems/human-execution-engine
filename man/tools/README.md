@@ -34,6 +34,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-procmail`](hee-procmail.1.md)
 - [`hee-publish`](hee-publish.1.md)
 - [`hee-pve-deploy`](hee-pve-deploy.1.md)
+- [`hee-pve-dispatch`](hee-pve-dispatch.1.md)
 - [`hee-pve-health`](hee-pve-health.1.md)
 - [`hee-pve-users`](hee-pve-users.1.md)
 - [`hee-pve`](hee-pve.1.md)

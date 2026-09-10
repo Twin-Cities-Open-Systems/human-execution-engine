@@ -6,7 +6,7 @@ hee-pve - the pve family, and the host network read from a yaml.
 
 # SYNOPSIS
 
-    hee-pve [-h] {network,deploy,health,users} ...
+    hee-pve [-h] {network,deploy,health,users,dispatch} ...
 
 # DESCRIPTION
 
@@ -27,7 +27,7 @@ hee-pve - the pve family, and the host network read from a yaml.
 
       hee pve network              dry run -- report declared vs measured
       hee pve network --apply      apply the difference (additive only)
-      hee pve deploy|health|users  the existing tools, unchanged
+      hee pve deploy|health|users|dispatch  the existing tools, unchanged
 
     DRY RUN IS THE DEFAULT, the same contract hee-gen-manpages and hee-release
     already keep. A tool that mutates a hypervisor on a bare invocation is how an
@@ -66,11 +66,12 @@ hee-pve - the pve family, and the host network read from a yaml.
     0 OK, 1 WARNING (drift), 2 CRITICAL, 3 UNKNOWN.
 
     positional arguments:
-      {network,deploy,health,users}
+      {network,deploy,health,users,dispatch}
         network             reconcile the host's bridges against pve/network.yaml
         deploy              passthrough to hee-pve-deploy
         health              passthrough to hee-pve-health
         users               passthrough to hee-pve-users
+        dispatch            passthrough to hee-pve-dispatch
 
     options:
       -h, --help            show this help message and exit

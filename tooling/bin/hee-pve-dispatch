@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+# section: 8
+# System administration -- runs work inside Proxmox containers. man-pages(7)
+# puts commands that administer the system in 8.
+"""hee-pve-dispatch -- hand one bounded job to one agent container and collect the result.
+
+The first dispatch mechanism for the pve agent containers (fleet-ops#387):
+until the GitHub App, the factory's per-job token and tick-task exist, this
+is how work reaches an agent. Operator, 2026-09-10: "this jobs go to the new
+agents", "do not run these on kiosk", "let's see if we can utilize hee cred
+to provide the anthropic auth needed", "hee ticket and tick-task will be
+merging soon".
+
+What a dispatch is:
+  1. AGENT names a role in the fleet allocation registry (ci-triage,
+     docs-keeper, ...). The registry gives its hostname and says it is an
+     agent; the live node gives its vmid. A non-agent container is refused.
+  2. JOBDIR holds job.yaml, a prompt file, the inputs the job may read, and
+     (after the run) results/. Everything the agent sees is in that
+     directory, so a job is reviewable before it runs and reproducible after.
+  3. The job's files are shipped INTO the container over pct exec (no repo
+     credential in the container), claude runs there as the `agent` user in
+     -p mode with a dollar budget and a wall-clock timeout, and the outputs
+     come back the same way into JOBDIR/results/<job id>/.
+  4. The Anthropic key never touches the container's disk or any command
+     line. With --cred, this tool re-runs itself under `hee cred -pass`, so
+     the key exists only in this process's environment and is written to the
+     job's stdin, where the generated run.sh reads it into the environment of
+     the one claude process. `hee cred -seal` is the only way a key gets into
+     the store, and it accepts input only from a real terminal.
+  5. A record of every dispatch is written to <repo>/.hee/dispatch/<job id>.yaml
+     (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
+
+job.yaml:
+  name: convert-legacy-page           # short, becomes part of the job id
+  prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
+  inputs: [in/, rules.md]             # shipped; default: everything but results/
+  outputs: [out/]                     # collected; default: out/
+  budget_usd: 2.00                    # required -- claude --max-budget-usd
+  timeout_s: 1800                     # default 1800 -- `timeout` around claude
+  permission_mode: acceptEdits        # default; claude --permission-mode
+  allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed
+  json_schema: schema.json            # optional; claude --json-schema
+  system_prompt: system.md            # optional; claude --append-system-prompt-file
+
+Usage:
+  hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
+  hee-pve-dispatch AGENT JOBDIR --dry-run
+"""
+import argparse
+import datetime as _dt
+import hashlib
+import io
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+import time
+
+from pathlib import Path as _Path  # noqa: E402
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("Requires pyyaml: pip install pyyaml")
+
+CONTAINER_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+DEFAULT_ALLOCATIONS = os.path.expanduser(
+    "~/git/fleet-ops/hee/registries/fleet-allocations.registry.v1.yaml")
+DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
+JOBS_ROOT = "/home/agent/jobs"
+KEY_ENV_DEFAULT = "HEE_CRED_PASS"
+
+
+def emit(status, msg):
+    icon = {"OK": "✅ OK", "WARNING": "⚠️  WARNING", "CRITICAL": "❌ CRITICAL", "UNKNOWN": "⚪ UNKNOWN"}[status]
+    print(f"{icon} hee-pve-dispatch: {msg}")
+
+
+def die(msg, code=2):
+    emit("CRITICAL", msg)
+    sys.exit(code)
+
+
+# ---- resolution -------------------------------------------------------------
+
+def load_allocations(path):
+    if not os.path.isfile(path):
+        die(f"allocation registry not found at {path} -- point --allocations at "
+            f"fleet-ops hee/registries/fleet-allocations.registry.v1.yaml")
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    return ((doc.get("spec") or {}).get("allocations") or {})
+
+
+def resolve_agent(agent, allocations):
+    """(role, hostname, registry vmid). AGENT may be a role or a hostname.
+    Only kind: agent may receive a dispatch."""
+    for role, rec in allocations.items():
+        if not isinstance(rec, dict):
+            continue
+        if agent in (role, rec.get("hostname")):
+            if rec.get("kind") != "agent":
+                die(f"'{agent}' is {rec.get('kind', 'unknown')} in the allocation registry, "
+                    f"not an agent -- refusing to dispatch to it")
+            return role, rec.get("hostname"), rec.get("vmid")
+    die(f"'{agent}' is not in the allocation registry ({', '.join(sorted(allocations))})")
+
+
+def ssh(host, remote, data=None, timeout=None):
+    return subprocess.run(["ssh", "-o", "BatchMode=yes", f"root@{host}", remote],
+                          input=data, capture_output=True, timeout=timeout)
+
+
+def pct(vmid, argv):
+    return " ".join(shlex.quote(c) for c in
+                    ["pct", "exec", str(vmid), "--", "env", f"PATH={CONTAINER_PATH}", *argv])
+
+
+def live_vmid(host, hostname):
+    r = ssh(host, "pct list")
+    if r.returncode != 0:
+        die(f"pct list on {host} failed:\n{r.stderr.decode('utf-8', 'replace')}")
+    for line in r.stdout.decode("utf-8", "replace").splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 3 and parts[-1] == hostname:
+            return int(parts[0]), parts[1]
+    return None, None
+
+
+# ---- the job ----------------------------------------------------------------
+
+def plan_job(jobdir):
+    jobdir = os.path.abspath(jobdir)
+    spec_path = os.path.join(jobdir, "job.yaml")
+    if not os.path.isfile(spec_path):
+        die(f"{spec_path} not found")
+    with open(spec_path, encoding="utf-8") as fh:
+        spec = yaml.safe_load(fh) or {}
+    name = str(spec.get("name") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", name):
+        die("job.yaml: name must be lowercase letters, digits and hyphens (it becomes the job id)")
+    prompt = spec.get("prompt") or "prompt.md"
+    if not os.path.isfile(os.path.join(jobdir, prompt)):
+        die(f"job.yaml: prompt file '{prompt}' not found in {jobdir}")
+    try:
+        budget = float(spec["budget_usd"])
+    except (KeyError, TypeError, ValueError):
+        die("job.yaml: budget_usd is required (a number of US dollars) -- a job without a "
+            "ceiling is not a job")
+    if not 0 < budget <= 50:
+        die(f"job.yaml: budget_usd {budget} is outside 0 < budget <= 50")
+    timeout_s = int(spec.get("timeout_s", 1800))
+    if not 30 <= timeout_s <= 6 * 3600:
+        die("job.yaml: timeout_s must be between 30 and 21600")
+    tools = spec.get("allowed_tools") or DEFAULT_TOOLS
+    if not isinstance(tools, list) or not all(re.fullmatch(r"[A-Za-z][A-Za-z0-9_()*:./ -]*", str(t)) for t in tools):
+        die("job.yaml: allowed_tools must be a list of tool names")
+    mode = str(spec.get("permission_mode") or "acceptEdits")
+    if mode not in ("default", "acceptEdits", "plan"):
+        die(f"job.yaml: permission_mode '{mode}' -- use default, acceptEdits or plan; "
+            f"bypassPermissions is refused here on purpose")
+    inputs = spec.get("inputs")
+    if inputs is None:
+        inputs = sorted(e for e in os.listdir(jobdir) if e != "results")
+    if not isinstance(inputs, list) or not inputs:
+        die("job.yaml: inputs must be a non-empty list")
+    for i in inputs:
+        p = os.path.join(jobdir, str(i))
+        if os.path.isabs(str(i)) or ".." in str(i).split("/") or not os.path.exists(p):
+            die(f"job.yaml: input '{i}' must be a relative path inside {jobdir}, and exist")
+    outputs = spec.get("outputs") or ["out"]
+    for o in outputs:
+        if os.path.isabs(str(o)) or ".." in str(o).split("/"):
+            die(f"job.yaml: output '{o}' must be a relative path")
+    for key in ("json_schema", "system_prompt"):
+        v = spec.get(key)
+        if v and not os.path.isfile(os.path.join(jobdir, str(v))):
+            die(f"job.yaml: {key} file '{v}' not found")
+    return {
+        "dir": jobdir, "name": name, "prompt": prompt, "budget_usd": budget,
+        "timeout_s": timeout_s, "tools": [str(t) for t in tools], "mode": mode,
+        "inputs": [str(i) for i in inputs], "outputs": [str(o).rstrip("/") for o in outputs],
+        "json_schema": spec.get("json_schema"), "system_prompt": spec.get("system_prompt"),
+    }
+
+
+def job_id(job, when=None):
+    when = when or _dt.datetime.now(_dt.timezone.utc)
+    return f"{job['name']}-{when.strftime('%Y%m%dT%H%M%SZ')}"
+
+
+def render_run_sh(job, jid):
+    """The script that runs INSIDE the container. It reads the key from its
+    stdin into the environment, drops to the agent user with that environment
+    preserved (busybox su -p), and runs one bounded claude -p. The key is never
+    on a command line and never in a file."""
+    remote = f"{JOBS_ROOT}/{jid}"
+    claude = ["claude", "-p", '"$(cat ' + shlex.quote(job["prompt"]) + ')"',
+              "--output-format", "json",
+              "--max-budget-usd", f"{job['budget_usd']:.2f}",
+              "--permission-mode", job["mode"]]
+    if job.get("system_prompt"):
+        claude += ["--append-system-prompt-file", shlex.quote(job["system_prompt"])]
+    if job.get("json_schema"):
+        claude += ["--json-schema", '"$(cat ' + shlex.quote(job["json_schema"]) + ')"']
+    claude += ["--allowedTools", *[shlex.quote(t) for t in job["tools"]]]
+    inner = (f"cd {shlex.quote(remote)} && exec timeout {job['timeout_s']} "
+             + " ".join(claude) + " > out/result.json 2> out/stderr.log")
+    lines = [
+        "#!/bin/sh",
+        f"# generated by hee-pve-dispatch for job {jid} -- the record is the results dir on the dispatcher",
+        "set -eu",
+        'IFS= read -r ANTHROPIC_API_KEY || { echo "dispatch: no key on stdin" >&2; exit 2; }',
+        '[ -n "$ANTHROPIC_API_KEY" ] || { echo "dispatch: empty key on stdin" >&2; exit 2; }',
+        "export ANTHROPIC_API_KEY",
+        "export HOME=/home/agent",
+        "export USE_BUILTIN_RIPGREP=0",
+        f"cd {shlex.quote(remote)}",
+        "mkdir -p out",
+        f"chown -R agent:agent {shlex.quote(remote)}",
+        "rc=0",
+        f"su -p agent -c {shlex.quote(inner)} || rc=$?",
+        "unset ANTHROPIC_API_KEY",
+        'echo "$rc" > out/exit',
+        'echo "dispatch: claude exited $rc"',
+        "exit 0",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def make_tar(job, run_sh):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for rel in sorted(set(job["inputs"]) | {"job.yaml", job["prompt"]}
+                          | {x for x in (job.get("json_schema"), job.get("system_prompt")) if x}):
+            tar.add(os.path.join(job["dir"], rel), arcname=rel)
+        info = tarfile.TarInfo("run.sh")
+        data = run_sh.encode()
+        info.size = len(data); info.mode = 0o755; info.mtime = int(time.time())
+        tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def extract_results(tar_bytes, dest):
+    os.makedirs(dest, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r") as tar:
+        members = [m for m in tar.getmembers()
+                   if not os.path.isabs(m.name) and ".." not in m.name.split("/")]
+        try:
+            tar.extractall(dest, members=members, filter="data")
+        except TypeError:  # python < 3.12
+            tar.extractall(dest, members=members)
+
+
+def read_result(results_dir):
+    p = os.path.join(results_dir, "out", "result.json")
+    exit_p = os.path.join(results_dir, "out", "exit")
+    out = {"exit": None, "cost_usd": None, "num_turns": None, "session_id": None,
+           "is_error": None, "result": None, "models": None}
+    if os.path.isfile(exit_p):
+        try:
+            out["exit"] = int(open(exit_p).read().strip())
+        except ValueError:
+            pass
+    if os.path.isfile(p):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            if isinstance(doc, list):
+                doc = next((d for d in doc if d.get("type") == "result"), doc[-1] if doc else {})
+            out["cost_usd"] = doc.get("total_cost_usd", doc.get("cost_usd"))
+            out["num_turns"] = doc.get("num_turns")
+            out["session_id"] = doc.get("session_id")
+            out["is_error"] = doc.get("is_error")
+            out["result"] = doc.get("result") if isinstance(doc.get("result"), str) else None
+            mu = doc.get("modelUsage")
+            out["models"] = sorted(mu) if isinstance(mu, dict) else None
+        except (ValueError, OSError) as e:
+            out["result"] = f"(result.json unreadable: {e})"
+    return out
+
+
+def repo_root_of(path):
+    r = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+# ---- main -------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(prog="hee-pve-dispatch", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("agent", help="a role (ci-triage) or hostname from the allocation registry; must be kind: agent")
+    ap.add_argument("jobdir", help="directory holding job.yaml, the prompt and the inputs")
+    ap.add_argument("--cred", metavar="ACCOUNT",
+                    help="hee cred account holding the agent's Anthropic API key; this tool re-runs "
+                         "itself under `hee cred -pass ACCOUNT` so the key is never printed or on argv")
+    ap.add_argument("--cred-dir", metavar="DIR", help="passed to hee cred -dir (default: its own default)")
+    ap.add_argument("--key-env", metavar="VAR",
+                    help=f"read the key from this environment variable instead of --cred (what the "
+                         f"--cred re-exec uses: {KEY_ENV_DEFAULT}). Never pass a key on the command line.")
+    ap.add_argument("--ticket", metavar="ID", help="the hee ticket this dispatch works on; recorded, not enforced")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="resolve the agent, validate the job, print run.sh and the file list; ship and run nothing")
+    ap.add_argument("--host", default="10.0.0.153")
+    ap.add_argument("--allocations", default=DEFAULT_ALLOCATIONS)
+    if help_wanted(sys.argv[1:]):
+        note_ignored(sys.argv[1:])
+        ap.print_help()
+        return 0
+    args = ap.parse_args()
+
+    # Re-exec under hee cred: the key arrives in this process's environment and
+    # nowhere else. Done before anything else so a bad --cred fails fast.
+    if args.cred and not args.key_env and not args.dry_run:
+        hee_cred = str(_Path(__file__).resolve().parent / "hee-cred")
+        argv = [hee_cred, "-pass", args.cred] + (["-dir", args.cred_dir] if args.cred_dir else []) \
+            + ["-exec", sys.executable, os.path.abspath(__file__)] \
+            + [a for a in sys.argv[1:] if a not in ("--cred", args.cred)
+               and not (a == "--cred-dir" or a == args.cred_dir)] \
+            + ["--key-env", KEY_ENV_DEFAULT]
+        os.execv(hee_cred, argv)
+
+    job = plan_job(args.jobdir)
+    allocations = load_allocations(args.allocations)
+    role, hostname, reg_vmid = resolve_agent(args.agent, allocations)
+    vmid, state = live_vmid(args.host, hostname)
+    if vmid is None:
+        die(f"{hostname} ({role}) is not on the node -- deploy it first (hee pve deploy)")
+    if state != "running":
+        die(f"{hostname} is {state}, not running")
+    if reg_vmid not in (None, vmid):
+        die(f"registry says {role} is vmid {reg_vmid}, the node says {vmid} -- fix the registry first")
+    jid = job_id(job)
+    run_sh = render_run_sh(job, jid)
+    emit("OK", f"agent {role} -> {hostname} vmid {vmid}; job {jid}; budget ${job['budget_usd']:.2f}, "
+               f"timeout {job['timeout_s']}s, tools {' '.join(job['tools'])}, mode {job['mode']}")
+
+    if args.dry_run:
+        print("--- files shipped:")
+        for rel in sorted(set(job["inputs"]) | {"job.yaml", job["prompt"]}):
+            print(f"    {rel}")
+        print("--- run.sh (runs inside the container; the key is read from stdin, never shown):")
+        print("".join("    " + l + "\n" for l in run_sh.splitlines()), end="")
+        emit("OK", "DRY RUN complete -- nothing shipped, nothing run")
+        return 0
+
+    key = os.environ.get(args.key_env or "", "") if args.key_env else ""
+    if not key:
+        die("no key: pass --cred ACCOUNT (the only supported path) -- a dispatch without a "
+            "credential cannot run, and this tool will not take a key on the command line")
+
+    remote = f"{JOBS_ROOT}/{jid}"
+    tar_bytes = make_tar(job, run_sh)
+    r = ssh(args.host, pct(vmid, ["sh", "-c",
+            f"mkdir -p {shlex.quote(remote)} && tar -C {shlex.quote(remote)} -xf - && chown -R agent:agent {shlex.quote(remote)}"]),
+            data=tar_bytes, timeout=120)
+    if r.returncode != 0:
+        die(f"shipping the job failed:\n{r.stderr.decode('utf-8', 'replace')}")
+    emit("OK", f"shipped {len(tar_bytes)} bytes to {hostname}:{remote}")
+
+    started = _dt.datetime.now(_dt.timezone.utc)
+    emit("OK", f"running claude as agent in {hostname} (up to {job['timeout_s']}s) ...")
+    try:
+        r = ssh(args.host, pct(vmid, ["sh", f"{remote}/run.sh"]),
+                data=(key + "\n").encode(), timeout=job["timeout_s"] + 120)
+    except subprocess.TimeoutExpired:
+        die(f"the dispatch did not return within {job['timeout_s'] + 120}s; the container may still be "
+            f"running it -- inspect {hostname}:{remote}/out", code=1)
+    del key
+    ended = _dt.datetime.now(_dt.timezone.utc)
+    tail = r.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    emit("OK" if r.returncode == 0 else "WARNING", f"run.sh finished: {tail[0]}")
+
+    results_dir = os.path.join(job["dir"], "results", jid)
+    r = ssh(args.host, pct(vmid, ["tar", "-C", remote, "-cf", "-", *job["outputs"]]), timeout=300)
+    if r.returncode != 0:
+        emit("WARNING", f"collecting outputs failed:\n{r.stderr.decode('utf-8', 'replace')}")
+    else:
+        extract_results(r.stdout, results_dir)
+        emit("OK", f"outputs collected into {results_dir}")
+    res = read_result(results_dir)
+
+    root = repo_root_of(job["dir"]) or job["dir"]
+    rec_dir = os.path.join(root, ".hee", "dispatch")
+    os.makedirs(rec_dir, exist_ok=True)
+    record = {
+        "job": jid, "name": job["name"], "agent": role, "hostname": hostname, "vmid": vmid,
+        "ticket": args.ticket, "cred": args.cred,
+        "started_at": started.isoformat(timespec="seconds"), "ended_at": ended.isoformat(timespec="seconds"),
+        "budget_usd": job["budget_usd"], "timeout_s": job["timeout_s"], "tools": job["tools"], "mode": job["mode"],
+        "prompt_sha256": hashlib.sha256(open(os.path.join(job["dir"], job["prompt"]), "rb").read()).hexdigest(),
+        "run_sh_sha256": hashlib.sha256(run_sh.encode()).hexdigest(),
+        "exit": res["exit"], "cost_usd": res["cost_usd"], "num_turns": res["num_turns"],
+        "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
+        "results_dir": os.path.relpath(results_dir, root),
+        "remote_dir": f"{hostname}:{remote}",
+    }
+    with open(os.path.join(rec_dir, f"{jid}.yaml"), "w", encoding="utf-8") as fh:
+        yaml.safe_dump(record, fh, sort_keys=False)
+    status = "OK" if res["exit"] == 0 and not res["is_error"] else "WARNING"
+    emit(status, f"job {jid}: exit {res['exit']}, cost ${res['cost_usd']}, turns {res['num_turns']}, "
+                 f"record .hee/dispatch/{jid}.yaml")
+    if res["result"]:
+        print("--- result:")
+        print(res["result"][:4000])
+    return 0 if status == "OK" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
