@@ -21,6 +21,12 @@
  *   - re-evaluates once a minute, so a page left open turns stale on its own;
  *   - an empty or non-numeric epoch (a source not yet committed) is reported
  *     as "○ UNKNOWN · not committed" and gets data-tc-fresh="unknown".
+ *   - writes the epoch as a date in the READER's locale and zone: the pill's
+ *     title carries it, and if the element holds a <dl> (the build's freshness
+ *     card does) a "local" row is appended once. Operator, 2026-09-10 16:21,
+ *     feedback from the index page: "the dates in human readable form in the
+ *     user's locale". The build stamps UTC because a build must not depend on
+ *     where it ran; the reader's zone is only known in the reader's browser.
  *
  * Hue comes from the host page's own tokens when it has them
  * (--good/--warning/--muted and their -bg pairs, the same names view.css and
@@ -108,11 +114,36 @@
     if (first) { document.documentElement.setAttribute("data-tc-fresh", v.state); }
     var pill = pillFor(el);
     pill.setAttribute("data-tc-fresh", v.state);
-    pill.textContent = v.icon + " " + v.label + " · " + v.detail;
+    pill.textContent = v.icon + " " + v.label + " · " + v.detail + (v.state === "unknown" ? "" : " ago");
+    var local = localDate(el);
     pill.title = v.state === "unknown"
       ? "This page's source is not committed, so it has no freshness."
-      : "Source last changed " + v.detail.split(" · ")[0] + " ago. Stale after "
+      : "Source last changed " + v.detail.split(" · ")[0] + " ago (" + local + "). Stale after "
         + (parseFloat(el.getAttribute("data-tc-stale-hours")) || DEFAULT_STALE_HOURS) + "h.";
+    if (local) { localRow(el, local); }
+  }
+
+  function localDate(el) {
+    var raw = (el.getAttribute("data-tc-epoch") || "").trim();
+    if (!/^\d+$/.test(raw)) { return ""; }
+    var d = new Date(parseInt(raw, 10) * 1000);
+    try {
+      return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    } catch (e) {
+      return d.toLocaleString();
+    }
+  }
+
+  function localRow(el, text) {
+    var dl = el.querySelector("dl");
+    if (!dl) { return; }
+    var dd = dl.querySelector("dd.tc-fresh-local");
+    if (!dd) {
+      var dt = document.createElement("dt"); dt.textContent = "local";
+      dd = document.createElement("dd"); dd.className = "tc-fresh-local";
+      dl.appendChild(dt); dl.appendChild(dd);
+    }
+    if (dd.textContent !== text) { dd.textContent = text; }
   }
 
   function run() {
