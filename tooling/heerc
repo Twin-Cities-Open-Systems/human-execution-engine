@@ -36,6 +36,33 @@ if [ -r "${HOME}/git/human-execution-engine/library/bash/vis.status.shfn.bash" ]
   . "${HOME}/git/human-execution-engine/library/bash/vis.status.shfn.bash"
 fi
 
+# Sealed-credential runners (library/bash/cred.run.shfn.bash):
+#
+#   hee_cred_run <account> <cmd...>          run cmd with the secret in the
+#                                            variable derived from <account>
+#   hee_cred_run_as <VAR> <account> <cmd...> ... under an explicit name
+#   hee_cred_export <account> [VAR]          eval "$(...)" into THIS shell
+#
+# Same guarded-source pattern as vis.status above: absent repo, absent
+# function, no error.
+if [ -r "${HOME}/git/human-execution-engine/library/bash/cred.run.shfn.bash" ]; then
+  . "${HOME}/git/human-execution-engine/library/bash/cred.run.shfn.bash"
+fi
+
+# HEE_CRED_DIR is deliberately NOT set here.
+#
+# hee-cred's default store is `.hee/secrets` RELATIVE to the current
+# directory, which is what makes per-repo credential stores work --
+# `hee cred -run do-token` inside ~/git/fleet-ops finds that repo's store.
+# Exporting a single absolute default from this file would silently break
+# every one of those, because an env default beats a relative one everywhere
+# at once. So it stays per-invocation.
+#
+# Set it in your own rc only if you keep ONE store, e.g.
+#   export HEE_CRED_DIR="${HOME}/.hee/secrets"
+# or scope it to a single command, which is what a wrapper should do:
+#   HEE_CRED_DIR="${HOME}/.hee/secrets" hee_cred_run plex-token hee scrob -np
+
 # Real footgun, 2026-08-28: an agent session ran raw mutating git across
 # three repos before ever reading PROMPTING_RULES.md's rule #1 (all
 # never push directly to main; work on a branch, land via PR).
