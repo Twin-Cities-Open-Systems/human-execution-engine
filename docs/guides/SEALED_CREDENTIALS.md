@@ -87,7 +87,23 @@ that is a property of the local keyring, not of the file.
 To make a credential openable somewhere new, re-seal it **including the
 new key** on a host that can already open it, then copy the result:
 
-    hee cred -seal <account> -recipients <existing-key-id>,<new-key-id>
+Read the existing recipient list off the file rather than retyping key
+ids, then add the new one:
+
+    R=$(gpg --list-packets --list-only ~/.hee/secrets/plex-token.gpg \
+        | sed -n 's/.*keyid \([0-9A-F]*\).*/\1/p' | paste -sd,)
+
+    hee cred -seal plex-token -recipients "$R,<the new key id>" \
+      -dir ~/.hee/secrets
+
+`-recipients` is **required** — `hee cred -seal plex-token` on its own
+exits with `-recipients required`. And `-seal` reads the secret from an
+interactive terminal, never a pipe or a script.
+
+The ids that pipeline returns are encryption **subkey** ids, because that
+is what a sealed file records. They will not match the primary key ids
+`gpg --list-keys` prints, and that is expected — `-recipients` takes
+either.
 
 Keep the existing recipients unless you intend to revoke them. Dropping a
 recipient to "clean up" breaks whoever was using it, and the breakage
@@ -133,6 +149,17 @@ that one step. Prefer `hee_cred_run` regardless — see below.
 pinning the HOME store so trap 1 cannot bite:
 
     plexrun() { HEE_CRED_DIR="${HOME}/.hee/secrets" hee_cred_run plex-token "$@"; }
+
+That is the shipped definition, and it depends on `hee_cred_run` — a
+shell function `heerc` provides. Inside `~/.bash_aliases` that is safe,
+because the repo's `.bashrc` sources `heerc` first and the definition sits
+behind a `command -v hee_cred_run` guard. **Pasting that line into a shell
+whose `.bashrc` does not source `heerc` gives you a function that fails
+with `hee_cred_run: command not found`.** Measured on kiosk 2026-09-10 —
+and the wrapper is exactly what the operator reached for, so this is the
+likely paste. The form that needs nothing but `hee` on `PATH`:
+
+    plexrun() { HEE_CRED_DIR="${HOME}/.hee/secrets" hee cred -run plex-token -exec "$@"; }
 
 **It is a runner, not a printer.** It takes a command:
 

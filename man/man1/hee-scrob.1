@@ -125,13 +125,31 @@ default store is relative to the current directory:
 .RS
 .nf
 
-plexrun() { HEE_CRED_DIR="$HOME/.hee/secrets" hee_cred_run plex\-token "$@"; }
+plexrun() { HEE_CRED_DIR="$HOME/.hee/secrets" hee cred \-run plex\-token \-exec "$@"; }
 
 plexrun hee scrob
 np: Family Guy s17e09 \- Pawtucket Pete (2018) @ 00:05:48 (Chrome)
 
 .fi
 .RE
+.PP
+That calls
+.B hee
+directly, on purpose. The version shipped in
+.B ~/.bash_aliases
+calls the
+.B hee_cred_run
+shell function instead, which is sourced by
+.B tooling/heerc
+and therefore exists only in a shell that sources it \(em so pasting that
+form into a shell whose
+.B ~/.bashrc
+does not load heerc gives
+.BR "hee_cred_run: command not found" .
+The form above needs nothing but
+.B hee
+on
+.BR PATH .
 .PP
 It takes a command \(em bare
 .B plexrun
@@ -143,15 +161,36 @@ available to cron, to
 to CI, or to irssi's EXEC. That is why the plain form above exists and
 why it is the one to reach for.
 .PP
-Seal the two credentials once, on a host whose key can open them:
+Seal the two credentials once, on a host whose key can open them.
+.B \-recipients
+is required \(em
+.BR hee\-cred (1)
+exits with
+.B "\-recipients required"
+without it \(em and
+.B \-seal
+reads the secret from an interactive terminal, never a pipe. To seal a new
+credential to the same people who can already open an existing one, read
+the recipient list off that file rather than retyping key ids:
 .RS
 .nf
 
-hee cred \-seal plex\-token
-hee cred \-seal discord\-webhook\-scrob
+R=$(gpg \-\-list\-packets \-\-list\-only ~/.hee/secrets/plex\-token.gpg \\
+    | sed \-n 's/.*keyid \\([0\-9A\-F]*\\).*/\\1/p' | paste \-sd,)
+
+hee cred \-seal discord\-webhook\-scrob \-recipients "$R" \\
+  \-dir ~/.hee/secrets
 
 .fi
 .RE
+.PP
+Those ids are encryption
+.I subkey
+ids, which is what a sealed file records and what
+.B \-recipients
+accepts. They will not match the primary key ids that
+.B "gpg \-\-list\-keys"
+shows, and that is expected rather than a mismatch.
 .SH IRSSI INTEGRATION
 Designed to sit behind an alias:
 .PP
