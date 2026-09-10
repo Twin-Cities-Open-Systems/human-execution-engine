@@ -2,9 +2,11 @@
 # section: 8
 # System administration -- creates and configures Proxmox containers. man-pages(7) puts commands that
 # administer the system in 8, not 1.
-"""hee-pve-deploy: real, extensible Proxmox LXC deploy from a declarative
-manifest -- one YAML file per service, this tool creates it via the real
-Proxmox API (pvesh over SSH to the node), idempotent.
+"""hee-pve-deploy -- deploy and provision a Proxmox LXC from one declarative manifest.
+
+One YAML file per service; this tool creates the container via the real
+Proxmox API (pvesh over SSH to the node), idempotent by hostname, then
+applies the manifest's add-ons, files and provision scripts inside it.
 
 Real trigger (2026-08-24, Spencer): "build extensible deploy via api to
 pve strat" -- tiny, bare-minimum LXC per core service (bastion, qmail
@@ -24,15 +26,54 @@ Manifest format (pve/services/<name>.yaml):
   storage: ssd1
   bridge: vmbr0
   unprivileged: true
+  addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
+  agent: ci-triage                  # agent roster role, only for a container that runs an agent
+  files:                            # committed files pushed INTO the container
+    - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: "0644"}
+    - {generate: agent-roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
+  provision:                        # committed POSIX sh scripts run inside it
+    - pve/lab-dhcp/provision.sh
+
+`files:` and `provision:` paths are relative to the root of the repo the
+manifest lives in (git rev-parse --show-toplevel), never to the current
+directory and never absolute: a manifest names what it ships, and what it
+ships is under review beside it. Real trigger (2026-09-10): the only
+precedent for configuring what runs INSIDE a container was a README of
+`pct exec N -- sh -c "cat > /etc/..."` one-liners (fleet-ops
+pve/snmp-joe/README.md) -- the same imperative shape pve/network.yaml was
+written to remove for bridges. Order: create -> addons -> files ->
+provision. The manifest is fully resolved BEFORE the container is created,
+so a missing file fails closed rather than leaving a half-provisioned
+container behind. Every step is previewed under --dry-run, including
+addons, which the dry run used to skip.
+
+A `files:` entry names either `src` (a committed file) or `generate` (a
+file rendered at deploy time, never committed). The one generator today is
+`agent-roster-model`: it reads the org's agent roster (--agent-roster), refuses unless
+the agent roster is `status: ratified` AND its detached signature verifies with a
+key the agent roster's own ratification_evidence names, then renders the
+Claude Code managed-settings drop-in that pins the manifest's `agent:` to
+the model the agent roster assigns. Real trigger (2026-09-10): the first agent
+manifests shipped five hand-kept managed-settings.json copies, each
+restating a model the signed agent roster already names -- a second source that
+would leave every container on the old model after an agent roster change, with
+nothing to say so. Operator: "generate from roster at deploy is correct,
+footgun". The model is named in exactly one place, and the dry run prints
+the rendered file.
 
 Usage:
   hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
+                 [--anchors FILE] [--addons FILE] [--agent-roster FILE]
 """
 import os
 import argparse
+import json
+import re
 import shlex
 import subprocess
 import sys
+import textwrap
+import time
 
 # library/py lives in this tool's own repo -- derive it from this script's
 # own location, resolved through symlinks, never from the repo the tool
@@ -122,7 +163,8 @@ def _anchor_ok(spec, anchors_path):
     except ImportError:
         sys.exit("hee-pve-deploy: pyyaml unavailable, so the anchors registry cannot be "
                  "read and the pin cannot be confirmed. Refusing.")
-    doc = yaml.safe_load(open(anchors_path, encoding="utf-8")) or {}
+    with open(anchors_path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
     anchors = ((doc.get("spec") or {}).get("anchors") or {})
     if role not in anchors:
         sys.exit(
@@ -208,17 +250,33 @@ def main():
                      f"  List what exists: ssh root@{args.host} pvesm status")
         return v
 
-    ap = argparse.ArgumentParser(prog="hee-pve-deploy")
-    ap.add_argument("manifest")
+    # description=__doc__: the tool's --help IS its man page (rule 17), and
+    # until 2026-09-10 this parser carried no description at all, so the
+    # published page documented four flags and not one manifest key.
+    ap = argparse.ArgumentParser(
+        prog="hee-pve-deploy", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("manifest", help="pve/services/<name>.yaml -- see the manifest format above")
     ap.add_argument("--node", default="pve")
     ap.add_argument("--host", default="10.0.0.153")
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="resolve the manifest and print every command that would run "
+                         "-- create, add-ons, files, provision -- creating and changing "
+                         "nothing. Without it the deploy is applied.")
     ap.add_argument("--anchors",
                     default=os.path.expanduser(
                         "~/git/fleet-ops/hee/registries/network-anchors.registry.v1.yaml"),
                     help="registry of roles whose address may be pinned. A manifest that "
                          "declares address or hwaddr must name a role listed there; "
                          "anything else has its address allocated.")
+    ap.add_argument("--addons", default=DEFAULT_ADDONS,
+                    help="the org's container-addons registry, the only place an "
+                         "'addons:' name resolves. Unreadable means every add-on is "
+                         "refused, never silently skipped.")
+    ap.add_argument("--agent-roster", default=DEFAULT_AGENT_ROSTER,
+                    help="the org's signed agent roster, the only place a model is named. "
+                         "Read only by 'generate: agent-roster-model' files entries; it must be "
+                         "ratified and its .asc must verify, or nothing is rendered.")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -231,8 +289,18 @@ def main():
 
     args = ap.parse_args()
 
-    spec = yaml.safe_load(open(args.manifest))
+    with open(args.manifest, encoding="utf-8") as fh:
+        spec = yaml.safe_load(fh)
     hostname = spec["hostname"]
+
+    # Resolve everything the manifest ships BEFORE touching the node. A
+    # manifest whose files or scripts are missing fails here, with nothing
+    # created, rather than after `pvesh create` has left a container that
+    # is half of what was declared.
+    root = _manifest_root(args.manifest)
+    files = plan_files(spec, root, args.agent_roster)
+    scripts = plan_provision(spec, root)
+    addons = spec.get("addons", []) or []
 
     existing = existing_hostnames(args.host, args.node)
     if hostname in existing:
@@ -259,13 +327,24 @@ def main():
 
     if args.dry_run:
         print(f"hee-pve-deploy: DRY RUN, would run: pvesh {' '.join(create_args)}")
-        return
+    else:
+        print(f"hee-pve-deploy: creating '{hostname}' as vmid {vmid}...")
+        pvesh(args.host, create_args, capture=False)
+        print(f"hee-pve-deploy: '{hostname}' created and starting (vmid {vmid}).")
+        if addons or files or scripts:
+            # `-start 1` returns when the container is started, not when
+            # its network is up. apk and every provision script need a
+            # route out, and a DHCP-leased container can take a few seconds
+            # to hold one -- so the first apk of the first agent container
+            # would otherwise race the lease and fail on DNS.
+            _wait_for_network(args.host, vmid)
 
-    print(f"hee-pve-deploy: creating '{hostname}' as vmid {vmid}...")
-    pvesh(args.host, create_args, capture=False)
-    print(f"hee-pve-deploy: '{hostname}' created and starting (vmid {vmid}).")
+    apply_addons(args.host, vmid, addons, args.dry_run, args.addons)
+    apply_files(args.host, vmid, files, args.dry_run)
+    apply_provision(args.host, vmid, scripts, args.dry_run)
 
-    apply_addons(args.host, vmid, spec.get("addons", []), args.dry_run)
+    if args.dry_run:
+        print("hee-pve-deploy: DRY RUN complete -- nothing was created or changed.")
 
 
 # ---------------------------------------------------------------------------
@@ -276,24 +355,41 @@ def main():
 # anything baked into the template is the one cost a clone cannot avoid.
 # Everything else is named here instead, per manifest.
 #
-# Sets are resolved from hee/registries/container-addons.registry.v1.yaml
-# rather than written inline. A manifest saying `addons: [agent-tooling]`
-# is reviewable; a manifest carrying its own apk list is the same ad hoc
-# shell history the registry exists to replace, just committed.
+# Sets are resolved from the org's container-addons registry (--addons,
+# which defaults to fleet-ops's copy exactly as --anchors does) rather than
+# written inline. A manifest saying `addons: [agent-tooling]` is reviewable;
+# a manifest carrying its own apk list is the same ad hoc shell history the
+# registry exists to replace, just committed.
+#
+# The registry lived in this repo until 2026-09-10. It names real
+# containers (the one that proved each set) and the org's real runtime
+# choices, which is fleet state, not doctrine -- operator: "should be in
+# fleet-ops". This tool stays generic; the registry is the org's.
 # ---------------------------------------------------------------------------
 
-def load_addon_registry():
-    reg = (_Path(__file__).resolve().parent.parent.parent
-           / "hee" / "registries" / "container-addons.registry.v1.yaml")
-    if not reg.is_file():
-        sys.exit(f"hee-pve-deploy: addon registry not found at {reg}")
-    return yaml.safe_load(reg.read_text())["spec"]["addons"]
+DEFAULT_ADDONS = os.path.expanduser(
+    "~/git/fleet-ops/hee/registries/container-addons.registry.v1.yaml")
 
 
-def apply_addons(host, vmid, wanted, dry_run):
+def load_addon_registry(path):
+    """FAILS CLOSED: a registry that cannot be read refuses every add-on
+    rather than installing nothing and reporting success."""
+    if not os.path.isfile(path):
+        sys.exit(f"hee-pve-deploy: add-on registry not found at {path}.\n"
+                 f"  Point --addons at the org's container-addons registry, or drop "
+                 f"'addons:' from the manifest. Could-not-read is not 'no add-ons'.")
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    addons = ((doc.get("spec") or {}).get("addons") or {})
+    if not addons:
+        sys.exit(f"hee-pve-deploy: {path} declares no spec.addons -- refusing.")
+    return addons
+
+
+def apply_addons(host, vmid, wanted, dry_run, registry_path=DEFAULT_ADDONS):
     if not wanted:
         return
-    registry = load_addon_registry()
+    registry = load_addon_registry(registry_path)
     unknown = [a for a in wanted if a not in registry]
     if unknown:
         sys.exit(
@@ -326,6 +422,255 @@ def apply_addons(host, vmid, wanted, dry_run):
         if r.returncode != 0:
             sys.exit(f"hee-pve-deploy: add-on '{name}' failed:\n{r.stderr}")
         print(f"hee-pve-deploy: add-on '{name}' applied.")
+
+
+# ---------------------------------------------------------------------------
+# Files and provisioning.
+#
+# An add-on installs packages and nothing else -- the registry's own
+# invariant says a set "never edits config, never starts a service.
+# Anything that changes how a host behaves belongs in that host's own
+# manifest where it is reviewable." This is that place. `files:` pushes
+# committed files into the container; `provision:` runs committed POSIX sh
+# scripts inside it. Both resolve against the manifest's repo root, so the
+# thing that runs is the thing that was reviewed.
+#
+# One hop, no temp file on the node: ssh carries the bytes to the node on
+# stdin and `pct exec` carries them on into the container. The same shape
+# as the snmp-joe README's `ssh pve 'pct exec 113 -- sh -c "cat > ..."'`,
+# which is the precedent this replaces, made declarative.
+# ---------------------------------------------------------------------------
+
+def _manifest_root(manifest):
+    """The repo root the manifest lives in, so `files:` and `provision:`
+    resolve against what is committed beside it -- never against whatever
+    directory the tool happens to be invoked from."""
+    d = os.path.dirname(os.path.abspath(manifest))
+    r = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else d
+
+
+def _under(root, rel, what):
+    """Resolve a manifest-relative path. Refuses absolute paths, paths that
+    escape the root, and paths that do not exist -- a manifest names what
+    it ships, and could-not-find is not permission to ship nothing."""
+    rel = str(rel)
+    if os.path.isabs(rel) or rel.startswith("~"):
+        sys.exit(f"hee-pve-deploy: {what} '{rel}' must be relative to the manifest's "
+                 f"repo root ({root}), not absolute.")
+    real_root = os.path.realpath(root)
+    p = os.path.realpath(os.path.join(real_root, rel))
+    if not p.startswith(real_root + os.sep):
+        sys.exit(f"hee-pve-deploy: {what} '{rel}' escapes the manifest's repo root {root}.")
+    if not os.path.isfile(p):
+        sys.exit(f"hee-pve-deploy: {what} '{rel}' not found under {root}.")
+    return p
+
+
+# ---- generated files -------------------------------------------------------
+# See the docstring: a `files:` entry with `generate:` is rendered here at
+# deploy time from a source of truth, never copied from a committed file that
+# restates it. Every check fails closed, and fails at PLAN time -- before
+# `pvesh create` -- like a missing `src`.
+
+DEFAULT_AGENT_ROSTER = os.path.expanduser(
+    "~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml")
+
+
+def _agent_roster_signature_ok(path, doc):
+    """The agent roster's detached signature must verify, and the signing key must
+    be one its own ratification_evidence names. A locally edited, unsigned
+    agent roster would otherwise deploy a model nobody ratified. `status: ratified`
+    alone is a string anyone can type."""
+    asc = path + ".asc"
+    if not os.path.isfile(asc):
+        sys.exit(f"hee-pve-deploy: {asc} not found -- an unsigned agent roster names no model "
+                 f"a container may run.")
+    try:
+        v = subprocess.run(["gpg", "--batch", "--status-fd", "1", "--verify", asc, path],
+                           capture_output=True, text=True)
+    except FileNotFoundError:
+        sys.exit("hee-pve-deploy: gpg not found -- the agent roster's signature cannot be "
+                 "checked, so no model is rendered.")
+    fprs = set()
+    for line in v.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[:2] == ["[GNUPG:]", "VALIDSIG"]:
+            fprs.add(parts[2])           # the signing key
+            fprs.add(parts[-1])          # the primary key, when gpg reports it
+    if v.returncode != 0 or not fprs:
+        sys.exit(f"hee-pve-deploy: the agent roster's signature does not verify ({asc}):\n"
+                 f"{v.stderr.strip()}")
+    evidence = str((doc.get("spec") or {}).get("ratification_evidence") or "").replace(" ", "")
+    if not any(f in evidence for f in fprs):
+        sys.exit(f"hee-pve-deploy: the agent roster verifies, but with {sorted(fprs)[0]}, a key its "
+                 f"ratification_evidence does not name -- refusing.")
+
+
+def load_agent_roster(path):
+    if not os.path.isfile(path):
+        sys.exit(f"hee-pve-deploy: agent roster not found at {path}.\n"
+                 f"  Point --agent-roster at the org's signed agent roster. Could-not-read is "
+                 f"not 'no model'.")
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    status = (doc.get("spec") or {}).get("status")
+    if status != "ratified":
+        sys.exit(f"hee-pve-deploy: {path} is status '{status}', not ratified -- an "
+                 f"unratified agent roster names no model a container may run.")
+    _agent_roster_signature_ok(path, doc)
+    return doc
+
+
+def render_agent_roster_model(spec, agent_roster_path):
+    """Claude Code managed settings pinning this manifest's agent to its
+    agent roster model. Three keys, because each alone can be got around:
+    `model` is overridden by a --model flag or ANTHROPIC_MODEL;
+    `availableModels` + `enforceAvailableModels` refuse any other model;
+    env ANTHROPIC_MODEL sets it for every session. Rendered as a drop-in
+    (managed-settings.d/), which Claude Code merges over managed-settings.json,
+    so the shared base file carries nothing per-agent."""
+    agent = spec.get("agent")
+    if not agent:
+        sys.exit("hee-pve-deploy: 'generate: agent-roster-model' needs the manifest's 'agent:' "
+                 "key -- the agent roster role whose model this container runs.")
+    doc = load_agent_roster(agent_roster_path)
+    agents = (doc.get("spec") or {}).get("agents") or {}
+    entry = agents.get(agent)
+    if not isinstance(entry, dict):
+        sys.exit(f"hee-pve-deploy: agent '{agent}' is not in the agent roster ({agent_roster_path}). "
+                 f"Known: {', '.join(sorted(agents)) or '(none)'}.")
+    model = entry.get("model")
+    if not isinstance(model, str) or not model.strip():
+        sys.exit(f"hee-pve-deploy: agent roster agent '{agent}' names no model -- refusing to "
+                 f"render a pin for nothing.")
+    settings = {
+        "model": model,
+        "availableModels": [model],
+        "enforceAvailableModels": True,
+        "env": {"ANTHROPIC_MODEL": model},
+    }
+    return (json.dumps(settings, indent=2) + "\n").encode()
+
+
+GENERATORS = {"agent-roster-model": render_agent_roster_model}
+
+
+def plan_files(spec, root, agent_roster_path=DEFAULT_AGENT_ROSTER):
+    """`files:` entries, resolved and validated. Each is {src|generate, dst[, mode]}:
+    src relative to the manifest's repo root, or generate naming a renderer
+    in GENERATORS; dst absolute inside the container; mode octal (chmod'd
+    after the write; omitted = leave the container's default)."""
+    out = []
+    for i, f in enumerate(spec.get("files") or []):
+        if not isinstance(f, dict) or "dst" not in f or (("src" in f) == ("generate" in f)):
+            sys.exit(f"hee-pve-deploy: files[{i}] must be a mapping with 'dst' and exactly "
+                     f"one of 'src' or 'generate'.")
+        dst = str(f["dst"])
+        if not dst.startswith("/"):
+            sys.exit(f"hee-pve-deploy: files[{i}] dst '{dst}' must be an absolute path "
+                     f"inside the container.")
+        mode = f.get("mode")
+        if mode is not None and not re.fullmatch(r"0?[0-7]{3,4}", str(mode)):
+            sys.exit(f"hee-pve-deploy: files[{i}] mode '{mode}' is not octal -- write it "
+                     f"quoted, e.g. mode: \"0644\".")
+        mode = str(mode) if mode is not None else None
+        if "generate" in f:
+            gen = GENERATORS.get(f["generate"])
+            if gen is None:
+                sys.exit(f"hee-pve-deploy: files[{i}] generate '{f['generate']}' is not a "
+                         f"known generator ({', '.join(sorted(GENERATORS))}).")
+            out.append({"rel": f"generated {f['generate']} for agent '{spec.get('agent')}'",
+                        "src": None, "data": gen(spec, agent_roster_path), "dst": dst, "mode": mode})
+        else:
+            out.append({"rel": str(f["src"]), "src": _under(root, f["src"], f"files[{i}].src"),
+                        "data": None, "dst": dst, "mode": mode})
+    return out
+
+
+def plan_provision(spec, root):
+    """`provision:` entries, resolved and validated: committed scripts, run in
+    order inside the container as `sh -s` with the script on stdin. POSIX
+    sh, because the golden template is Alpine and bash is an add-on."""
+    out = []
+    for i, p in enumerate(spec.get("provision") or []):
+        if not isinstance(p, str):
+            sys.exit(f"hee-pve-deploy: provision[{i}] must be a path, got {p!r}.")
+        out.append({"rel": p, "path": _under(root, p, f"provision[{i}]")})
+    return out
+
+
+def _pct_exec_stdin(host, vmid, argv, data, what, capture=True):
+    """Run ARGV inside the container with DATA on its stdin. Fails loudly
+    with the container's own stderr; never interprets silence."""
+    cmd = ["pct", "exec", str(vmid), "--", *argv]
+    r = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", f"root@{host}",
+         " ".join(shlex.quote(c) for c in cmd)],
+        input=data, capture_output=capture)
+    if r.returncode != 0:
+        err = (r.stderr or b"").decode("utf-8", "replace") if capture else ""
+        sys.exit(f"hee-pve-deploy: {what} failed (exit {r.returncode}).\n{err}".rstrip())
+    return r.stdout
+
+
+def _wait_for_network(host, vmid, timeout=60):
+    """Block until eth0 inside the container holds an IPv4 address, or fail.
+    A container that never gets one is reported, not worked around."""
+    deadline = time.monotonic() + timeout
+    probe = ["sh", "-c", "ip -4 -o addr show dev eth0 2>/dev/null | grep -q ' inet '"]
+    while True:
+        r = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", f"root@{host}",
+             " ".join(shlex.quote(c) for c in ["pct", "exec", str(vmid), "--", *probe])],
+            capture_output=True)
+        if r.returncode == 0:
+            return
+        if time.monotonic() > deadline:
+            sys.exit(f"hee-pve-deploy: vmid {vmid} has no IPv4 address on eth0 after "
+                     f"{timeout}s -- not applying add-ons, files or provisioning to a "
+                     f"container with no network. Check the bridge, DHCP on it, and "
+                     f"`pct exec {vmid} -- ip addr`.")
+        time.sleep(2)
+
+
+def apply_files(host, vmid, files, dry_run):
+    for f in files:
+        parent = os.path.dirname(f["dst"]) or "/"
+        sh = f"mkdir -p {shlex.quote(parent)} && cat > {shlex.quote(f['dst'])}"
+        if f["mode"]:
+            sh += f" && chmod {f['mode']} {shlex.quote(f['dst'])}"
+        label = f"{f['rel']} -> {f['dst']}" + (f" (mode {f['mode']})" if f["mode"] else "")
+        if dry_run:
+            print(f"hee-pve-deploy: DRY RUN, would push {label} via: "
+                  f"pct exec {vmid} -- sh -c {shlex.quote(sh)}")
+            if f["data"] is not None:
+                print(textwrap.indent(f["data"].decode(), "    "), end="")
+            continue
+        print(f"hee-pve-deploy: pushing {label}")
+        if f["data"] is not None:
+            data = f["data"]
+        else:
+            with open(f["src"], "rb") as fh:
+                data = fh.read()
+        _pct_exec_stdin(host, vmid, ["sh", "-c", sh], data, f"files: {f['rel']}")
+
+
+def apply_provision(host, vmid, scripts, dry_run):
+    for s in scripts:
+        if dry_run:
+            print(f"hee-pve-deploy: DRY RUN, would run {s['rel']} via: "
+                  f"pct exec {vmid} -- sh -s < {s['rel']}")
+            continue
+        print(f"hee-pve-deploy: provisioning with {s['rel']} ...")
+        with open(s["path"], "rb") as fh:
+            # Not captured: a provision script's own output is the evidence
+            # of what it did, and it belongs in the operator's terminal
+            # as it happens, not summarized afterwards.
+            _pct_exec_stdin(host, vmid, ["sh", "-s"], fh.read(),
+                            f"provision: {s['rel']}", capture=False)
+        print(f"hee-pve-deploy: {s['rel']} finished.")
 
 
 if __name__ == "__main__":
