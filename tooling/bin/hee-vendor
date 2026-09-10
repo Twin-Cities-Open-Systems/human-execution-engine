@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
 # onto PATH from ~/.local/bin, where a bare dirname finds no library/.
-SELF="$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SELF="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"

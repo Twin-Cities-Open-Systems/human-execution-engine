@@ -104,6 +104,12 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
     footgun". The model is named in exactly one place, and the dry run prints
     the rendered file.
 
+    Every command run inside the container gets
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin. `pct exec`
+    otherwise passes PVE's own /sbin:/bin:/usr/sbin:/usr/bin, which has no
+    /usr/local/bin, so a provision script calling a tool it just linked there
+    exited 127 (measured 2026-09-10).
+
     `resolver:` declares the container's DNS: up to three IPv4 nameservers, in
     order; an optional search list; and ndots (default 1). The tool writes
     /etc/resolv.conf from it right after the network is up, before add-ons, and
