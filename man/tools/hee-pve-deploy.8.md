@@ -22,10 +22,13 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       --anchors ANCHORS  registry of roles whose address may be pinned. A manifest
                          that declares address or hwaddr must name a role listed
                          there; anything else has its address allocated.
+      --addons ADDONS    the org's container-addons registry, the only place an
+                         'addons:' name resolves. Unreadable means every add-on is
+                         refused, never silently skipped.
 
 # DESCRIPTION
 
-                          [--anchors ANCHORS]
+                          [--anchors ANCHORS] [--addons ADDONS]
                           manifest
 
     hee-pve-deploy -- deploy and provision a Proxmox LXC from one declarative manifest.
@@ -52,7 +55,7 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       storage: ssd1
       bridge: vmbr0
       unprivileged: true
-      addons: [agent-tooling]           # named apk sets, container-addons registry
+      addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
       files:                            # committed files pushed INTO the container
         - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: "0644"}
       provision:                        # committed POSIX sh scripts run inside it

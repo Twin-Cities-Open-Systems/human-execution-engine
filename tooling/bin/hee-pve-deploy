@@ -26,7 +26,7 @@ Manifest format (pve/services/<name>.yaml):
   storage: ssd1
   bridge: vmbr0
   unprivileged: true
-  addons: [agent-tooling]           # named apk sets, container-addons registry
+  addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
   files:                            # committed files pushed INTO the container
     - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: "0644"}
   provision:                        # committed POSIX sh scripts run inside it
@@ -250,6 +250,10 @@ def main():
                     help="registry of roles whose address may be pinned. A manifest that "
                          "declares address or hwaddr must name a role listed there; "
                          "anything else has its address allocated.")
+    ap.add_argument("--addons", default=DEFAULT_ADDONS,
+                    help="the org's container-addons registry, the only place an "
+                         "'addons:' name resolves. Unreadable means every add-on is "
+                         "refused, never silently skipped.")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -312,7 +316,7 @@ def main():
             # would otherwise race the lease and fail on DNS.
             _wait_for_network(args.host, vmid)
 
-    apply_addons(args.host, vmid, addons, args.dry_run)
+    apply_addons(args.host, vmid, addons, args.dry_run, args.addons)
     apply_files(args.host, vmid, files, args.dry_run)
     apply_provision(args.host, vmid, scripts, args.dry_run)
 
@@ -328,24 +332,41 @@ def main():
 # anything baked into the template is the one cost a clone cannot avoid.
 # Everything else is named here instead, per manifest.
 #
-# Sets are resolved from hee/registries/container-addons.registry.v1.yaml
-# rather than written inline. A manifest saying `addons: [agent-tooling]`
-# is reviewable; a manifest carrying its own apk list is the same ad hoc
-# shell history the registry exists to replace, just committed.
+# Sets are resolved from the org's container-addons registry (--addons,
+# which defaults to fleet-ops's copy exactly as --anchors does) rather than
+# written inline. A manifest saying `addons: [agent-tooling]` is reviewable;
+# a manifest carrying its own apk list is the same ad hoc shell history the
+# registry exists to replace, just committed.
+#
+# The registry lived in this repo until 2026-09-10. It names real
+# containers (the one that proved each set) and the org's real runtime
+# choices, which is fleet state, not doctrine -- operator: "should be in
+# fleet-ops". This tool stays generic; the registry is the org's.
 # ---------------------------------------------------------------------------
 
-def load_addon_registry():
-    reg = (_Path(__file__).resolve().parent.parent.parent
-           / "hee" / "registries" / "container-addons.registry.v1.yaml")
-    if not reg.is_file():
-        sys.exit(f"hee-pve-deploy: addon registry not found at {reg}")
-    return yaml.safe_load(reg.read_text())["spec"]["addons"]
+DEFAULT_ADDONS = os.path.expanduser(
+    "~/git/fleet-ops/hee/registries/container-addons.registry.v1.yaml")
 
 
-def apply_addons(host, vmid, wanted, dry_run):
+def load_addon_registry(path):
+    """FAILS CLOSED: a registry that cannot be read refuses every add-on
+    rather than installing nothing and reporting success."""
+    if not os.path.isfile(path):
+        sys.exit(f"hee-pve-deploy: add-on registry not found at {path}.\n"
+                 f"  Point --addons at the org's container-addons registry, or drop "
+                 f"'addons:' from the manifest. Could-not-read is not 'no add-ons'.")
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    addons = ((doc.get("spec") or {}).get("addons") or {})
+    if not addons:
+        sys.exit(f"hee-pve-deploy: {path} declares no spec.addons -- refusing.")
+    return addons
+
+
+def apply_addons(host, vmid, wanted, dry_run, registry_path=DEFAULT_ADDONS):
     if not wanted:
         return
-    registry = load_addon_registry()
+    registry = load_addon_registry(registry_path)
     unknown = [a for a in wanted if a not in registry]
     if unknown:
         sys.exit(

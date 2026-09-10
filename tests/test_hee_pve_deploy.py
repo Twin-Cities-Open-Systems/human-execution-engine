@@ -157,6 +157,34 @@ class TestFilesAndProvision(unittest.TestCase):
         self.assertIn("DRY RUN, would run pve/x/p.sh via: pct exec 999 -- sh -s", text)
 
 
+class TestAddonRegistry(unittest.TestCase):
+
+    def test_missing_registry_refuses_rather_than_skips(self):
+        with self.assertRaises(SystemExit):
+            deploy.load_addon_registry("/nonexistent/container-addons.registry.v1.yaml")
+
+    def test_registry_without_addons_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "r.yaml")
+            with open(p, "w") as fh:
+                fh.write("apiVersion: hee/v1\nkind: Registry\nspec: {}\n")
+            with self.assertRaises(SystemExit):
+                deploy.load_addon_registry(p)
+
+    def test_dry_run_resolves_sets_from_the_given_registry(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "r.yaml")
+            with open(p, "w") as fh:
+                fh.write("apiVersion: hee/v1\nkind: Registry\nspec:\n  addons:\n"
+                         "    demo:\n      packages: [curl, git]\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                deploy.apply_addons("invalid.", "999", ["demo"], True, p)
+            self.assertIn("apk add --no-cache curl git", out.getvalue())
+            with self.assertRaises(SystemExit):
+                deploy.apply_addons("invalid.", "999", ["not-a-set"], True, p)
+
+
 class TestManifestRoot(unittest.TestCase):
 
     def test_root_is_the_git_toplevel_when_inside_a_repo(self):
