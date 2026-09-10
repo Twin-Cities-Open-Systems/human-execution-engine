@@ -78,10 +78,17 @@ EXAMPLES
        ~/.bash_aliases   (dotfiles);   it   pins   the   HOME  store,  because
        hee-cred(1)'s default store is relative to the current directory:
 
-              plexrun() { HEE_CRED_DIR="$HOME/.hee/secrets" hee_cred_run plex-token "$@"; }
+              plexrun() { HEE_CRED_DIR="$HOME/.hee/secrets" hee cred -run plex-token -exec "$@"; }
 
               plexrun hee scrob
               np: Family Guy s17e09 - Pawtucket Pete (2018) @ 00:05:48 (Chrome)
+
+       That  calls  hee  directly,  on  purpose.  The   version   shipped   in
+       ~/.bash_aliases calls the hee_cred_run shell function instead, which is
+       sourced  by  tooling/heerc  and  therefore  exists only in a shell that
+       sources it — so pasting that form into a shell whose ~/.bashrc does not
+       load heerc gives hee_cred_run: command not found.  The form above needs
+       nothing but hee on PATH.
 
        It takes a command — bare plexrun has nothing to run and prints its us‐
        age. And being a shell function it exists only in an interactive  bash,
@@ -89,10 +96,23 @@ EXAMPLES
        EXEC. That is why the plain form above exists and why it is the one  to
        reach for.
 
-       Seal the two credentials once, on a host whose key can open them:
+       Seal the two credentials once, on a host whose key can open them.  -re‐
+       cipients  is  required  —  hee-cred(1)  exits with -recipients required
+       without it — and -seal reads the secret from an  interactive  terminal,
+       never  a  pipe. To seal a new credential to the same people who can al‐
+       ready open an existing one, read  the  recipient  list  off  that  file
+       rather than retyping key ids:
 
-              hee cred -seal plex-token
-              hee cred -seal discord-webhook-scrob
+              R=$(gpg --list-packets --list-only ~/.hee/secrets/plex-token.gpg \
+                  | sed -n 's/.*keyid \([0-9A-F]*\).*/\1/p' | paste -sd,)
+
+              hee cred -seal discord-webhook-scrob -recipients "$R" \
+                -dir ~/.hee/secrets
+
+       Those  ids  are  encryption  subkey  ids,  which  is what a sealed file
+       records and what -recipients accepts. They will not match  the  primary
+       key  ids that gpg --list-keys shows, and that is expected rather than a
+       mismatch.
 
 IRSSI INTEGRATION
        Designed to sit behind an alias:
@@ -102,16 +122,16 @@ IRSSI INTEGRATION
        then just /SCROB in a channel.
 
        EXEC is the reason the token file exists. irssi inherits only the envi‐
-       ronment  variables  present  when  irssi itself launched and sources no
+       ronment variables present when irssi itself  launched  and  sources  no
        profile, so a PLEX_TOKEN exported afterwards never reaches /SCROB with‐
        out a full client restart — and a shell function such as plexrun is not
        visible to it at all.
 
-       Step 2 of the resolution order usually covers this: the sealed  creden‐
-       tial  is opened by this tool, needing no wrapper. It needs gpg-agent to
-       already hold the key, though, because EXEC has no  terminal  to  prompt
+       Step  2 of the resolution order usually covers this: the sealed creden‐
+       tial is opened by this tool, needing no wrapper. It needs gpg-agent  to
+       already  hold  the  key, though, because EXEC has no terminal to prompt
        on. The unseal is bounded by a timeout so a cold agent falls through to
-       the  token  file rather than hanging the client. For a setup that works
+       the token file rather than hanging the client. For a setup  that  works
        from a cold start, write the file as well:
 
               umask 077
@@ -119,8 +139,8 @@ IRSSI INTEGRATION
               HEE_CRED_DIR="$HOME/.hee/secrets" hee cred -pass plex-token \
                 -exec sh -c 'printf %s "$HEE_CRED_PASS" > "$HOME/.config/hee/plex-token"'
 
-       That never prints the token and never places it in  shell  history.  It
-       does  put  it  in plaintext on disk at mode 0600, which is a real down‐
+       That  never  prints  the token and never places it in shell history. It
+       does put it in plaintext on disk at mode 0600, which is  a  real  down‐
        grade from sealed and a deliberate trade for a context where gpg cannot
        run.
 
@@ -132,7 +152,7 @@ SEE ALSO
        hee-cred(1) — seals and opens the credentials this tool reads.
 
        docs/guides/SEALED_CREDENTIALS.md in the human-execution-engine reposi‐
-       tory — the five traps in handing a secret to a command,  including  the
+       tory  —  the five traps in handing a secret to a command, including the
        cwd-relative store and the one-variable-two-credentials leak that -dis‐
        cord used to hit.
 
