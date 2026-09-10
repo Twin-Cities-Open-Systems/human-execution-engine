@@ -36,6 +36,20 @@ OPTIONS
               one required. Multiple recipients means any one of them can  in‐
               dependently decrypt.
 
+       -run ACCOUNT
+              Like  -pass  , but also exports the secret under a variable name
+              derived from ACCOUNT: non-alphanumerics become  underscores  and
+              the whole name is upper-cased, so plex-token arrives as PLEX_TO‐
+              KEN, cf-dns-token as CF_DNS_TOKEN.  This is the naming operators
+              were  already applying by hand in every -exec wrapper, so a con‐
+              sumer needs no sh -c shim to rename it.  HEE_CRED_PASS is  still
+              set as well, so existing wrappers keep working.
+
+       -as VAR
+              With  -run or -pass: use VAR as the variable name instead of the
+              derived one. For a tool whose expected variable does not  follow
+              from the credential's own name.
+
        -pass ACCOUNT
               Decrypt the named account's secret for one -exec call.
 
@@ -79,5 +93,14 @@ ORGANIZATION
 
 SEE ALSO
        hee-pwgen(1), hee-qr(1)
+
+ENVIRONMENT
+       HEE_CRED_DIR
+              Absolute path to the secrets store, overriding the relative  de‐
+              fault  .hee/secrets.   Set  it in heerc to pin one store per ma‐
+              chine; -dir still wins when given.
+
+       HEE_CRED_PASS
+              Set in the child's environment by -pass and -run.
 
 HEE                               2026-08-22                       HEE-CRED(1)

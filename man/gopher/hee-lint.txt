@@ -13,12 +13,21 @@ DESCRIPTION
               across a mixed repo.
 
               Checks: metadata present and parseable, metadata.annotations present,
-              metadata.annotations.inuid present, and a null inuid accompanied by
-              inuid_null_reason.
+              metadata.annotations.inuid present, a null inuid accompanied by
+              inuid_null_reason, and -- when the object declares
+              inuid_derivation: sha256(inuid_seed) -- that the recorded inuid actually
+              reproduces from its own seed. An identity hash that does not derive from
+              the seed it names is a determinism claim the object cannot support.
 
 OPTIONS
               --mode warn    report findings, exit 1 if any (default)
               --mode error   report findings, exit 2 if any
+
+ENVIRONMENT
+              HEE_LINT_SKIP  git pathspecs to exclude, space-separated, e.g.
+                             ':!viz-dashboard/public/*' -- a rendered surface holding
+                             copies of objects it does not own is derived, not a source,
+                             and declaring that is the repo's job.
 
 EXIT STATUS
               0  OK        clean, OR any findings under --mode warn
