@@ -16,6 +16,25 @@ otherwise.
 
 ## What to actually do
 
+0. **Read the outgoing shift's handoff first**:
+   <https://view.lab.tcos.us/handoff.html> (lab-only, no auth --
+   `curl -s https://view.lab.tcos.us/handoff.html`; don't open a browser).
+   Operator, 2026-09-10: "view/handoff.html is the new first spot to read
+   after your claude files and settings memory etc."
+
+   It is step 0 rather than step 1 because it is the only step whose
+   content is *current* -- the P0 the operator assigned, measured repo and
+   pve state, the traps that cost the last instance real time, that
+   instance's own errors and who caught them, and the decisions that are
+   the operator's rather than an agent's. The ceremony below orients you in
+   the corpus; this orients you in the week.
+
+   Source is `fleet-ops/view/src/handoff.html`. **Writing the next one is
+   part of shift close**, built from the same toolset as every other
+   view.lab page -- no new machinery. If the page is unreachable, say so
+   and continue; do not silently skip it, and do not treat its absence as
+   "nothing in flight".
+
 1. Run the ceremony in [`blueprints/shift-init-v1.yaml`](../blueprints/shift-init-v1.yaml)
    (`shift_open` -> `history_recap` -> `current_context` -> `future_projection`
    -> ... -> `shift_close`). It's `status: proposed`, not yet ratified --
