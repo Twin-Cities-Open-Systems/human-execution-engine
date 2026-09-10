@@ -26,16 +26,19 @@ timestamp, so "how many tickets are actually at each stage, and how
 long did each stage take" is a real, derivable count -- not asserted.
 
 Usage:
-  hee-ticket -new "description text"
-  hee-ticket -list
+  hee-ticket -new "description text" [--source WHERE] [--ref URL] [--tag T,T]
+  hee-ticket -list [--open | --closed]
   hee-ticket -advance ID     # idea -> footgun -> dogfood, one step at a time
-  hee-ticket -close SPEC     # mark one or more tickets closed
+  hee-ticket -close SPEC [--why TEXT]   # mark one or more tickets closed
+  hee-ticket -html [--workspace [DIR]] [--out FILE]   # the todo page body, from the records
                              #   SPEC: comma list (1,2,3), ranges (1-3,7),
                              #   or mixed (1-3,7,9) -- digits/commas/hyphens
                              #   only. Anything else is treated as a regex
                              #   matched against each ticket's description.
 """
 import argparse
+import html as _html
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -163,10 +166,11 @@ EXAMPLES
 HELP = """hee-ticket -- repo-local tickets, stored as real YAML in git
 
 SYNOPSIS
-  hee-ticket -new "DESCRIPTION"
-  hee-ticket -list
+  hee-ticket -new "DESCRIPTION" [--source WHERE] [--ref URL] [--tag T[,T...]]
+  hee-ticket -list [--open | --closed]
   hee-ticket -advance ID
-  hee-ticket -close SPEC
+  hee-ticket -close SPEC [--why TEXT]
+  hee-ticket -html [--workspace [DIR]] [--out FILE]
   hee-ticket [-ACTION] help
 
 DESCRIPTION
@@ -187,10 +191,24 @@ DESCRIPTION
   never asserted.
 
 ACTIONS
-  -new       open a ticket at stage idea
-  -list      print every ticket in this repo
+  -new       open a ticket at stage idea. --source records where it came
+             from (a page, a brain dump timestamp, a review); --ref a
+             GitHub issue or PR URL it tracks; --tag comma-separated tags.
+  -list      print every ticket in this repo; --open or --closed to filter
   -advance   move one ticket one stage forward
-  -close     close tickets by id, range, or description regex
+  -close     close tickets by id, range, or description regex; --why
+             records the evidence as closed_reason -- a closed ticket with
+             no reason is a claim, one with a reason is a record
+  -html      render the tickets as the body of a todo page: a stats strip
+             and two cards (open, done -- struck through), rows carrying
+             stage, repo, source and ref as pills, in the org's card markup
+             (data-tc-collapse, data-tc-arrange, data-tc-table) so the
+             shared library/js components work on it. --workspace renders
+             every repo under DIR (default ~/git) that has .hee/tickets,
+             which is what "one todo.html" means. Prints to stdout, or
+             --out FILE. Real trigger (2026-09-10, operator): "take all the
+             old todo's ... cross off all those that are done. let's use
+             our own hee ticket system for this. I just want one todo.html".
 
   Exactly one action runs per invocation. If several are passed they are
   tested in the order above and the first one present wins; the rest are
@@ -213,7 +231,12 @@ ENVIRONMENT
   directory must be inside a git repo, and pyyaml must be importable.
 
 FILES
-  .hee/tickets/<id>.yaml   one record per ticket, under the repo root
+  .hee/tickets/<id>.yaml   one record per ticket, under the repo root.
+                           Fields written by this tool: id, created_at,
+                           description, status, stage, stage_history, and
+                           when given source, ref, tags, closed_at,
+                           closed_reason. Anything else you add by hand is
+                           kept and, for -html, shown when it is a string.
 
 SEE ALSO
   hee-git-merge -- shares the same id/range/regex selector
@@ -289,7 +312,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def cmd_new(description: str):
+def cmd_new(description: str, source=None, ref=None, tags=None):
     d = tickets_dir()
     tid = next_id(d)
     ts = now_iso()
@@ -302,6 +325,12 @@ def cmd_new(description: str):
         "stage_history": [{"stage": STAGES[0], "at": ts}],
     }
     path = d / f"{tid}.yaml"
+    if source:
+        record["source"] = source
+    if ref:
+        record["ref"] = ref
+    if tags:
+        record["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
     with open(path, "w") as f:
         yaml.safe_dump(record, f, sort_keys=False)
     print(f"hee-ticket {tid}: {description}")
@@ -335,7 +364,7 @@ def die(msg):
     sys.exit(f"hee-ticket: {msg}")
 
 
-def cmd_close(spec: str):
+def cmd_close(spec: str, why=None):
     from hee_range import is_id_range_spec, parse_id_range
 
     d = tickets_dir()
@@ -363,6 +392,8 @@ def cmd_close(spec: str):
             continue
         rec["status"] = "closed"
         rec["closed_at"] = now_iso()
+        if why:
+            rec["closed_reason"] = why
         with open(d / f"{tid}.yaml", "w") as f:
             yaml.safe_dump(rec, f, sort_keys=False)
         ok.append(tid)
@@ -376,7 +407,7 @@ def cmd_close(spec: str):
         sys.exit(1)
 
 
-def cmd_list():
+def cmd_list(only=None):
     d = tickets_dir()
     tickets = sorted(d.glob("*.yaml"))
     if not tickets:
@@ -385,8 +416,141 @@ def cmd_list():
     for p in tickets:
         with open(p) as f:
             rec = yaml.safe_load(f)
+        if only and rec.get("status") != only:
+            continue
         stage = rec.get("stage", "?")
         print(f"{rec['id']}  [{rec['status']}]  ({stage})  {rec['description']}  ({rec['created_at']})")
+
+
+# ---- -html: the todo page body -------------------------------------------
+# Emits markup the shared browser components already understand (library/js:
+# collapse, arrange, table), so the page needs no script of its own. A
+# closed ticket is struck through and carries its reason, which is what
+# "cross off the done ones" means when the crossing-off must be checkable.
+
+def _load_tickets(d):
+    out = []
+    for p in sorted(d.glob("*.yaml")):
+        try:
+            with open(p) as f:
+                rec = yaml.safe_load(f) or {}
+        except Exception as e:  # a broken record is shown, not hidden
+            rec = {"id": p.stem, "description": f"UNREADABLE: {e}", "status": "open", "stage": "?"}
+        if isinstance(rec, dict):
+            out.append(rec)
+    return out
+
+
+def _workspace_ticket_sets(root):
+    """(repo name, path) for every repo under ROOT with .hee/tickets."""
+    root = Path(os.path.expanduser(root))
+    sets = []
+    if not root.is_dir():
+        return sets
+    for repo in sorted(root.iterdir()):
+        d = repo / ".hee" / "tickets"
+        if repo.is_dir() and d.is_dir() and not repo.name.endswith(".worktrees"):
+            sets.append((repo.name, d))
+    return sets
+
+
+def _pill(kind, text):
+    return f'<span class="chip {kind}">{_html.escape(text)}</span>'
+
+
+def _age(created):
+    try:
+        t = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+        days = (datetime.now(timezone.utc) - t).days
+        return f"{days}d"
+    except Exception:
+        return "?"
+
+
+def _row(rec, repo):
+    st = rec.get("status", "open")
+    stage = str(rec.get("stage", "?"))
+    desc = _html.escape(str(rec.get("description", "")))
+    if st == "closed":
+        desc = f"<s>{desc}</s>"
+    ref = rec.get("ref") or rec.get("github_issue")
+    refcell = ""
+    if isinstance(ref, str) and ref.startswith("http"):
+        label = ref.rsplit("/", 2)
+        label = f"{label[-3].split('/')[-1]}#{label[-1]}" if len(label) == 3 else ref
+        refcell = f'<a href="{_html.escape(ref)}" target="_blank" rel="noopener">{_html.escape(label)}</a>'
+    src = _html.escape(str(rec.get("source", "")))
+    why = _html.escape(str(rec.get("closed_reason", ""))) if st == "closed" else ""
+    tags = " ".join(_pill("neutral", t) for t in (rec.get("tags") or []) if isinstance(t, str))
+    stage_kind = {"idea": "neutral", "footgun": "warning", "dogfood": "good"}.get(stage, "neutral")
+    state = _pill("good", "✓ done") if st == "closed" else _pill("warning", "▲ open")
+    return ("<tr>"
+            f'<td class="mono">{_html.escape(repo)}</td>'
+            f'<td class="mono">{_html.escape(str(rec.get("id", "?")))}</td>'
+            f"<td>{state}</td>"
+            f"<td>{_pill(stage_kind, stage)}</td>"
+            f"<td>{desc}{(' ' + tags) if tags else ''}"
+            f"{('<div class=\"why\">' + why + '</div>') if why else ''}</td>"
+            f'<td class="mono">{src}</td>'
+            f"<td>{refcell}</td>"
+            f'<td class="mono">{_age(rec.get("created_at"))}</td>'
+            "</tr>")
+
+
+def render_html(ticket_sets):
+    rows_open, rows_done = [], []
+    stages = {"idea": 0, "footgun": 0, "dogfood": 0}
+    for repo, d in ticket_sets:
+        for rec in _load_tickets(d):
+            (rows_done if rec.get("status") == "closed" else rows_open).append(_row(rec, repo))
+            if rec.get("status") != "closed":
+                stages[rec.get("stage", "idea")] = stages.get(rec.get("stage", "idea"), 0) + 1
+    n_open, n_done = len(rows_open), len(rows_done)
+    head = ("<thead><tr><th>repo</th><th data-tc-sort=\"number\">id</th><th>state</th><th>stage</th>"
+            "<th>ticket</th><th>source</th><th>ref</th><th data-tc-sort=\"number\">age</th></tr></thead>")
+    def table(tid, rows, empty):
+        body = "\n".join(rows) if rows else f'<tr><td colspan="8" class="why">{empty}</td></tr>'
+        return (f'<div class="card-tools"><input type="search" data-tc-table-filter="#{tid}" '
+                f'placeholder="Search repo, stage, text, source, ref&hellip;" aria-label="Search tickets">'
+                f'<span class="count" data-tc-table-count="#{tid}"></span>'
+                f'<span class="hint">Words are ANDed.</span></div>'
+                f'<div class="body tbl"><table id="{tid}" data-tc-table>{head}<tbody>\n{body}\n</tbody></table></div>')
+    repos = ", ".join(r for r, _ in ticket_sets) or "none"
+    return f"""  <section class="stats" aria-label="Tickets at a glance">
+    <div class="stat is-critical"><b>{n_open}</b><span>open</span></div>
+    <div class="stat is-good"><b>{n_done}</b><span>done</span></div>
+    <div class="stat"><b>{stages.get('idea', 0)}</b><span>idea</span></div>
+    <div class="stat"><b>{stages.get('footgun', 0)}</b><span>footgun</span></div>
+    <div class="stat"><b>{stages.get('dogfood', 0)}</b><span>dogfood</span></div>
+  </section>
+  <section class="card is-critical" data-tc-arrange-item="tickets-open" data-tc-collapse="tickets-open">
+    <header><span class="grip" data-tc-arrange-handle title="Drag to reorder">&#10303;</span><h2 data-tc-collapse-toggle>Open</h2><span class="chip critical">&#10007; {n_open}</span><span class="count">from .hee/tickets in {_html.escape(repos)}</span></header>
+    <div data-tc-collapse-body>
+{table("t-tickets-open", rows_open, "Nothing open.")}
+    </div>
+  </section>
+  <section class="card is-good" data-tc-arrange-item="tickets-done" data-tc-collapse="tickets-done" data-tc-collapse-default="collapsed">
+    <header><span class="grip" data-tc-arrange-handle title="Drag to reorder">&#10303;</span><h2 data-tc-collapse-toggle>Done</h2><span class="chip good">&#9679; {n_done}</span><span class="count">struck through, with the reason each was closed</span></header>
+    <div data-tc-collapse-body>
+{table("t-tickets-done", rows_done, "Nothing closed yet.")}
+    </div>
+  </section>
+"""
+
+
+def cmd_html(workspace=None, out=None):
+    if workspace is not None:
+        sets = _workspace_ticket_sets(workspace)
+        if not sets:
+            sys.exit(f"hee-ticket -html: no repo under {workspace} has .hee/tickets")
+    else:
+        sets = [(repo_root().name, tickets_dir())]
+    page = render_html(sets)
+    if out:
+        Path(out).write_text(page, encoding="utf-8")
+        print(f"hee-ticket -html: wrote {out}")
+    else:
+        sys.stdout.write(page)
 
 
 def main():
@@ -395,16 +559,27 @@ def main():
     ap.add_argument("-list", action="store_true")
     ap.add_argument("-advance", dest="advance_id", metavar="ID")
     ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
+    ap.add_argument("-html", action="store_true")
+    ap.add_argument("--source", metavar="WHERE")
+    ap.add_argument("--ref", metavar="URL")
+    ap.add_argument("--tag", metavar="T[,T...]")
+    ap.add_argument("--why", metavar="TEXT")
+    ap.add_argument("--open", action="store_true")
+    ap.add_argument("--closed", action="store_true")
+    ap.add_argument("--workspace", nargs="?", const=os.path.join(os.path.expanduser("~"), "git"), metavar="DIR")
+    ap.add_argument("--out", metavar="FILE")
     args = ap.parse_args()
 
     if args.new_desc:
-        cmd_new(args.new_desc)
+        cmd_new(args.new_desc, source=args.source, ref=args.ref, tags=args.tag)
     elif args.list:
-        cmd_list()
+        cmd_list("open" if args.open else "closed" if args.closed else None)
     elif args.advance_id:
         cmd_advance(args.advance_id)
     elif args.close_ids:
-        cmd_close(args.close_ids)
+        cmd_close(args.close_ids, why=args.why)
+    elif args.html:
+        cmd_html(workspace=args.workspace, out=args.out)
     else:
         print(HELP, end="")
         sys.exit(1)
