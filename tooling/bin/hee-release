@@ -388,6 +388,12 @@ def run_surface(root, s, key, env):
 
 
 def cmd_lab(root, card):
+    # Build first, exactly as cut does. Measured 2026-09-10 on resume: -lab
+    # ran only the surfaces' lab commands, so media/bin/deploy.sh staged the
+    # tracked (stale) outputs, said OK, and the two posts merged an hour
+    # earlier were 404 on lab. The help always promised "build and push".
+    # The outputs stay in the tree for review; cut is what commits them.
+    build_surfaces(root, card)
     env = dict(os.environ)
     for s in card["spec"]["surfaces"]:
         run_surface(root, s, "lab", env)
