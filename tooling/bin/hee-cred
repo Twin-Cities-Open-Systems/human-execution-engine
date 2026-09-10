@@ -55,7 +55,6 @@ users via `ps`), never printed to stdout/stderr by this tool.
 """
 import argparse
 import getpass
-import re
 import json
 import os
 import re
