@@ -15,7 +15,7 @@ metadata:
     inuid_derivation: "sha256(inuid_seed)"
     author: spencerbutler
     transcriber: touchy-claude
-    updated-at: "2026-09-03T00:00:00Z"
+    updated-at: "2026-09-10T00:00:00Z"
 
 spec:
   status: proposed
@@ -45,6 +45,42 @@ spec:
         container can validate a MIB against net-snmp's own parser, which is
         a different parser from smilint and the one that actually matters."
       packages: [net-snmp, net-snmp-tools]
+
+    agent-runtime:
+      description: "What Claude Code needs at runtime on Alpine, per its own
+        setup documentation for musl-based distributions: bash and curl for
+        the installer, libgcc, libstdc++ and ripgrep at runtime (with
+        USE_BUILTIN_RIPGREP=0). The claude-code package itself is NOT here --
+        it comes from Anthropic's apk repository, which needs a key and a
+        repository line first, and a set only installs packages. That step
+        lives in the agent manifests' own provision script, where it is
+        reviewable."
+      packages: [bash, curl, libgcc, libstdc++, ripgrep]
+      proved_by: >
+        tcos-triage-herbert (ci-triage), the first agent container of the
+        2026-09-10 build. Recorded before the install rather than after:
+        the package list is the documented requirement, and the measured
+        size and count are written back here once the container exists.
+      note: >
+        git, python3, openssh-client and gnupg are agent-tooling, which every
+        agent manifest takes alongside this set. ripgrep is in Alpine's
+        community repository, which the golden template already enables.
+
+    dhcp-dns:
+      description: "dnsmasq -- DHCP and DNS in one process, for the lab
+        segment. The one service the 172.16 design needs before anything
+        else can get an address nobody chose (fleet-ops#434)."
+      packages: [dnsmasq]
+      proved_by: >
+        tcos-dhcp-bonnie, the lab DHCP/DNS container of the 2026-09-10
+        build. Same honesty as agent-runtime: named before the install, size
+        written back after.
+      note: >
+        Installing it is all this set does. Its configuration is a committed
+        file pushed by the container's own manifest, and enabling the
+        service is that manifest's provision step -- per
+        sets_are_additive_only.
+
     bastion-base:
       description: "An identity bastion that other hosts reach."
       packages: [openssh-server, openssh-keygen]

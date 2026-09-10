@@ -1,5 +1,17 @@
+adamwest:
+  allocated_at: '2026-09-10T06:47:44+00:00'
+  pool: family-guy
+  scope: pve-lxc
+bonnie:
+  allocated_at: '2026-09-10T06:47:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
 brian:
   allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+carter:
+  allocated_at: '2026-09-10T06:47:44+00:00'
   pool: family-guy
   scope: pve-lxc
 chris:
@@ -8,6 +20,10 @@ chris:
   scope: pve-lxc
 cleveland:
   allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+herbert:
+  allocated_at: '2026-09-10T06:47:43+00:00'
   pool: family-guy
   scope: pve-lxc
 joe:
@@ -22,6 +38,10 @@ meg:
   allocated_at: '2026-08-24T14:18:43+00:00'
   pool: family-guy
   scope: pve-lxc
+mort:
+  allocated_at: '2026-09-10T06:47:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
 peter:
   allocated_at: '2026-08-24T14:18:43+00:00'
   pool: family-guy
@@ -32,5 +52,9 @@ quagmire:
   scope: pve-lxc
 stewie:
   allocated_at: '2026-08-24T14:18:43+00:00'
+  pool: family-guy
+  scope: pve-lxc
+tombucket:
+  allocated_at: '2026-09-10T06:47:43+00:00'
   pool: family-guy
   scope: pve-lxc

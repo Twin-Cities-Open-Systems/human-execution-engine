@@ -18,12 +18,28 @@
 .hy
 .SH NAME
 .PP
-hee-pve-deploy - hee-pve-deploy command
+hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative
+manifest
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
 hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run]
+  hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
+
+positional arguments:
+  manifest           pve/services/<name>.yaml -- see the manifest format above
+
+options:
+  -h, --help         show this help message and exit
+  --node NODE
+  --host HOST
+  --dry-run          resolve the manifest and print every command that would
+                     run -- create, add-ons, files, provision -- creating and
+                     changing nothing. Without it the deploy is applied.
+  --anchors ANCHORS  registry of roles whose address may be pinned. A manifest
+                     that declares address or hwaddr must name a role listed
+                     there; anything else has its address allocated.
 \f[R]
 .fi
 .SH DESCRIPTION
@@ -33,16 +49,47 @@ hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run]
                       [--anchors ANCHORS]
                       manifest
 
-positional arguments:
-  manifest
+hee-pve-deploy -- deploy and provision a Proxmox LXC from one declarative manifest.
 
-options:
-  -h, --help         show this help message and exit
-  --node NODE
-  --host HOST
-  --dry-run
-  --anchors ANCHORS  registry of roles whose address may be pinned. A manifest
-                     that declares address or hwaddr must name a role listed
-                     there; anything else has its address allocated.
+One YAML file per service; this tool creates the container via the real
+Proxmox API (pvesh over SSH to the node), idempotent by hostname, then
+applies the manifest\[aq]s add-ons, files and provision scripts inside it.
+
+Real trigger (2026-08-24, Spencer): \[dq]build extensible deploy via api to
+pve strat\[dq] -- tiny, bare-minimum LXC per core service (bastion, qmail
+MTA, snmpd), matching docs/guides/PVE_CAPACITY_PLANNING_METHODOLOGY.md\[aq]s
+step 5 (\[dq]a new service is a new manifest entry, not new deploy code\[dq]).
+
+Never installs anything on the pve host itself -- pvesh is Proxmox\[aq]s
+own real API-wrapper CLI, already there on any real Proxmox node; this
+tool just calls it over SSH from wherever hee runs.
+
+Manifest format (pve/services/<name>.yaml):
+  hostname: bastion
+  template: alpine-3.23-default_20260116_amd64.tar.xz
+  cores: 1
+  memory_mb: 256
+  disk_gb: 4
+  storage: ssd1
+  bridge: vmbr0
+  unprivileged: true
+  addons: [agent-tooling]           # named apk sets, container-addons registry
+  files:                            # committed files pushed INTO the container
+    - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: \[dq]0644\[dq]}
+  provision:                        # committed POSIX sh scripts run inside it
+    - pve/lab-dhcp/provision.sh
+
+\[ga]files:\[ga] and \[ga]provision:\[ga] paths are relative to the root of the repo the
+manifest lives in (git rev-parse --show-toplevel), never to the current
+directory and never absolute: a manifest names what it ships, and what it
+ships is under review beside it. Real trigger (2026-09-10): the only
+precedent for configuring what runs INSIDE a container was a README of
+\[ga]pct exec N -- sh -c \[dq]cat > /etc/...\[dq]\[ga] one-liners (fleet-ops
+pve/snmp-joe/README.md) -- the same imperative shape pve/network.yaml was
+written to remove for bridges. Order: create -> addons -> files ->
+provision. The manifest is fully resolved BEFORE the container is created,
+so a missing file fails closed rather than leaving a half-provisioned
+container behind. Every step is previewed under --dry-run, including
+addons, which the dry run used to skip.
 \f[R]
 .fi
