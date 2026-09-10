@@ -76,7 +76,7 @@ REGEX OR GLOB -- WHICH, WHERE
       surfaces:
         - name: tcos-www
           build: \[dq]python3 generate-public-site.py\[dq]     # optional: run by cut, outputs go into the release commit
-          outputs: [\[dq]*.html\[dq]]                           # git pathspecs (glob) of tracked build outputs
+          outputs: [\[dq]*.html\[dq], \[dq]!*.template.html\[dq]]       # git pathspecs (glob); a leading ! excludes
           lab: \[dq]./deploy.sh lab\[dq]
           promote: \[dq]./deploy.sh promote\[dq]
 

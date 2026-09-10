@@ -22,5 +22,16 @@ class LabBuildsFirst(unittest.TestCase):
             self.assertEqual((repo / "lab.txt").read_text().strip(), "lab-saw-build", "lab ran before build")
 
 
+class OutputsPathspec(unittest.TestCase):
+    def test_bang_becomes_git_exclude(self):
+        src = TOOL.read_text()   # the tool has no importable module; lift just the helper
+        ns = {}
+        start = src.index("def _pathspec("); end = src.index("def build_surfaces(")
+        exec(src[start:end], ns)
+        self.assertEqual(ns["_pathspec"]("!*.template.html"), ":(exclude)*.template.html")
+        self.assertEqual(ns["_pathspec"]("*.html"), "*.html")
+        self.assertEqual(ns["_pathspec"](":!x"), ":!x")
+
+
 if __name__ == "__main__":
     unittest.main()

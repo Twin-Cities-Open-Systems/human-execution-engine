@@ -51,7 +51,7 @@ DESCRIPTION
       surfaces:
         - name: tcos-www
           build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
-          outputs: ["*.html"]                           # git pathspecs (glob) of tracked build outputs
+          outputs: ["*.html", "!*.template.html"]       # git pathspecs (glob); a leading ! excludes
           lab: "./deploy.sh lab"
           promote: "./deploy.sh promote"
 
@@ -400,6 +400,15 @@ def cmd_lab(root, card):
     say("OK", f"{len(card['spec']['surfaces'])} surface(s) on lab -- review, then hee release -cut"); return OK
 
 
+def _pathspec(o: str) -> str:
+    """A card writes exclusions the gitignore way, '!*.template.html'; git's
+    pathspec wants ':(exclude)*.template.html' (or ':!'). Measured
+    2026-09-10: tcos-www's cut died in git add with 'pathspec
+    !*.template.html did not match any files' and the release reported
+    WARNING with a traceback."""
+    return ":(exclude)" + o[1:] if o.startswith("!") else o
+
+
 def build_surfaces(root, card) -> list[str]:
     """A repo-level spec.build (one build renders every surface, as
     resume's convert.sh does) runs first; then each surface's own build."""
@@ -433,7 +442,7 @@ def cmd_cut(root, card, version=None, yes=False):
     branch = f"release/{version}"
     if git("branch", "--list", branch):
         say("CRITICAL", f"branch {branch} already exists here -- a cut in progress? delete it or finish it"); return CRITICAL
-    outputs = build_surfaces(root, card)
+    outputs = [_pathspec(o) for o in build_surfaces(root, card)]
     if outputs:
         sh("git", "add", "-u", "--", *outputs)   # tracked build outputs only; ignored paths (dist/) would make plain add fail
     built = git("diff", "--cached", "--stat")

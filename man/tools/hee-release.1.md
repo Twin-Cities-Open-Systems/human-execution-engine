@@ -57,7 +57,7 @@ hee-release - lab, cut, promote: releases for one repo, a list, or the org
           surfaces:
             - name: tcos-www
               build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
-              outputs: ["*.html"]                           # git pathspecs (glob) of tracked build outputs
+              outputs: ["*.html", "!*.template.html"]       # git pathspecs (glob); a leading ! excludes
               lab: "./deploy.sh lab"
               promote: "./deploy.sh promote"
 
