@@ -33,6 +33,10 @@ Manifest format (pve/services/<name>.yaml):
     - {generate: agent-roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
   provision:                        # committed POSIX sh scripts run inside it
     - pve/lab-dhcp/provision.sh
+  resolver:                         # the container's /etc/resolv.conf, and nothing overwrites it
+    nameservers: [10.0.0.194, 10.0.0.72]
+    search: [lab.tcos.us, tcos.us]
+    ndots: 2
 
 `files:` and `provision:` paths are relative to the root of the repo the
 manifest lives in (git rev-parse --show-toplevel), never to the current
@@ -61,12 +65,28 @@ nothing to say so. Operator: "generate from roster at deploy is correct,
 footgun". The model is named in exactly one place, and the dry run prints
 the rendered file.
 
+`resolver:` declares the container's DNS: up to three IPv4 nameservers, in
+order; an optional search list; and ndots (default 1). The tool writes
+/etc/resolv.conf from it right after the network is up, before add-ons, and
+makes it stick. Nothing else does, measured 2026-09-10: the golden template
+sets no resolver, pve rewrites /etc/resolv.conf from the HOST's file at every
+container start, and Alpine's udhcpc rewrites it from DHCP on every lease --
+ct113 was resolving through 10.0.0.72 and 1.1.1.1 handed out by the
+household router, and a public resolver answers NXDOMAIN for lab names. So
+it also writes /etc/.pve-ignore.resolv.conf (pve skips the file), and for a
+DHCP container /etc/udhcpc/udhcpc.conf with RESOLV_CONF="no". ndots matters
+on musl: the search list is used only when a name has FEWER dots than
+ndots, so `view.lab` (one dot) resolves as view.lab.tcos.us only with
+ndots 2. Operator: "proper search and ndot settings too (view.lab/foo should
+work)".
+
 Usage:
   hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
                  [--anchors FILE] [--addons FILE] [--agent-roster FILE]
 """
 import os
 import argparse
+import ipaddress
 import json
 import re
 import shlex
@@ -299,6 +319,7 @@ def main():
     # is half of what was declared.
     root = _manifest_root(args.manifest)
     files = plan_files(spec, root, args.agent_roster)
+    resolver_files = plan_resolver(spec)
     scripts = plan_provision(spec, root)
     addons = spec.get("addons", []) or []
 
@@ -331,7 +352,7 @@ def main():
         print(f"hee-pve-deploy: creating '{hostname}' as vmid {vmid}...")
         pvesh(args.host, create_args, capture=False)
         print(f"hee-pve-deploy: '{hostname}' created and starting (vmid {vmid}).")
-        if addons or files or scripts:
+        if addons or files or scripts or resolver_files:
             # `-start 1` returns when the container is started, not when
             # its network is up. apk and every provision script need a
             # route out, and a DHCP-leased container can take a few seconds
@@ -339,6 +360,10 @@ def main():
             # would otherwise race the lease and fail on DNS.
             _wait_for_network(args.host, vmid)
 
+    # Resolver first: every step after it -- apk, git clone, provision --
+    # resolves through what the manifest declared, not through whatever pve
+    # or DHCP wrote at start.
+    apply_files(args.host, vmid, resolver_files, args.dry_run)
     apply_addons(args.host, vmid, addons, args.dry_run, args.addons)
     apply_files(args.host, vmid, files, args.dry_run)
     apply_provision(args.host, vmid, scripts, args.dry_run)
@@ -555,6 +580,69 @@ def render_agent_roster_model(spec, agent_roster_path):
 
 
 GENERATORS = {"agent-roster-model": render_agent_roster_model}
+
+
+# ---- resolver ---------------------------------------------------------------
+# See the docstring. Rendered at plan time, like every other file, so a bad
+# resolver block fails before `pvesh create`.
+
+_RESOLVER_KEYS = {"nameservers", "search", "ndots"}
+_DOMAIN = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$")
+
+
+def plan_resolver(spec):
+    """Files entries that make the manifest's `resolver:` the container's
+    /etc/resolv.conf and keep it there. No block, no entries."""
+    r = spec.get("resolver")
+    if r is None:
+        return []
+    if not isinstance(r, dict):
+        sys.exit("hee-pve-deploy: 'resolver' must be a mapping of nameservers, search, ndots.")
+    unknown = set(r) - _RESOLVER_KEYS
+    if unknown:
+        sys.exit(f"hee-pve-deploy: resolver has unknown key(s) {sorted(unknown)} -- "
+                 f"known: {sorted(_RESOLVER_KEYS)}. resolv.conf options beyond ndots are "
+                 f"not rendered, so they are refused rather than dropped.")
+    ns = r.get("nameservers")
+    if not isinstance(ns, list) or not 1 <= len(ns) <= 3:
+        sys.exit("hee-pve-deploy: resolver.nameservers must list 1 to 3 addresses -- "
+                 "the resolver reads no more than three.")
+    for a in ns:
+        try:
+            ipaddress.IPv4Address(str(a))
+        except ValueError:
+            sys.exit(f"hee-pve-deploy: resolver nameserver '{a}' is not an IPv4 address.")
+    search = r.get("search") or []
+    if not isinstance(search, list) or len(search) > 6:
+        sys.exit("hee-pve-deploy: resolver.search must be a list of at most 6 domains.")
+    for d in search:
+        if not isinstance(d, str) or not _DOMAIN.match(d):
+            sys.exit(f"hee-pve-deploy: resolver search domain '{d}' is not a domain name.")
+    ndots = r.get("ndots", 1)
+    if isinstance(ndots, bool) or not isinstance(ndots, int) or not 1 <= ndots <= 15:
+        sys.exit(f"hee-pve-deploy: resolver.ndots '{ndots}' must be an integer from 1 to 15.")
+
+    lines = ["# Rendered by hee-pve-deploy from the manifest's resolver: block.",
+             "# Edit the manifest, not this file; pve and DHCP no longer rewrite it."]
+    if search:
+        lines.append("search " + " ".join(search))
+    lines += [f"nameserver {a}" for a in ns]
+    lines.append(f"options ndots:{ndots}")
+    resolv = ("\n".join(lines) + "\n").encode()
+
+    out = [{"rel": "resolver: pve skips resolv.conf", "src": None, "dst": "/etc/.pve-ignore.resolv.conf",
+            "mode": "0644",
+            "data": b"# hee-pve-deploy: /etc/resolv.conf comes from the manifest's resolver: block.\n"}]
+    if not spec.get("address"):
+        out.append({"rel": "resolver: udhcpc leaves resolv.conf alone", "src": None,
+                    "dst": "/etc/udhcpc/udhcpc.conf", "mode": "0644",
+                    "data": (b"# hee-pve-deploy: /etc/resolv.conf comes from the manifest's resolver: block,\n"
+                             b"# not from DHCP. See the manifest.\n"
+                             b"RESOLV_CONF=\"no\"\n")})
+    out.append({"rel": "resolver: /etc/resolv.conf", "src": None, "dst": "/etc/resolv.conf",
+                "mode": "0644", "data": resolv})
+    return out
 
 
 def plan_files(spec, root, agent_roster_path=DEFAULT_AGENT_ROSTER):

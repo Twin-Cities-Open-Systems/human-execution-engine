@@ -93,6 +93,10 @@ Manifest format (pve/services/<name>.yaml):
     - {generate: agent-roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: \[dq]0644\[dq]}
   provision:                        # committed POSIX sh scripts run inside it
     - pve/lab-dhcp/provision.sh
+  resolver:                         # the container\[aq]s /etc/resolv.conf, and nothing overwrites it
+    nameservers: [10.0.0.194, 10.0.0.72]
+    search: [lab.tcos.us, tcos.us]
+    ndots: 2
 
 \[ga]files:\[ga] and \[ga]provision:\[ga] paths are relative to the root of the repo the
 manifest lives in (git rev-parse --show-toplevel), never to the current
@@ -120,5 +124,20 @@ would leave every container on the old model after an agent roster change, with
 nothing to say so. Operator: \[dq]generate from roster at deploy is correct,
 footgun\[dq]. The model is named in exactly one place, and the dry run prints
 the rendered file.
+
+\[ga]resolver:\[ga] declares the container\[aq]s DNS: up to three IPv4 nameservers, in
+order; an optional search list; and ndots (default 1). The tool writes
+/etc/resolv.conf from it right after the network is up, before add-ons, and
+makes it stick. Nothing else does, measured 2026-09-10: the golden template
+sets no resolver, pve rewrites /etc/resolv.conf from the HOST\[aq]s file at every
+container start, and Alpine\[aq]s udhcpc rewrites it from DHCP on every lease --
+ct113 was resolving through 10.0.0.72 and 1.1.1.1 handed out by the
+household router, and a public resolver answers NXDOMAIN for lab names. So
+it also writes /etc/.pve-ignore.resolv.conf (pve skips the file), and for a
+DHCP container /etc/udhcpc/udhcpc.conf with RESOLV_CONF=\[dq]no\[dq]. ndots matters
+on musl: the search list is used only when a name has FEWER dots than
+ndots, so \[ga]view.lab\[ga] (one dot) resolves as view.lab.tcos.us only with
+ndots 2. Operator: \[dq]proper search and ndot settings too (view.lab/foo should
+work)\[dq].
 \f[R]
 .fi
