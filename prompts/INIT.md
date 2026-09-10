@@ -46,6 +46,17 @@ otherwise.
    https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/173 -- which
    was itself the strongest argument for retiring it rather than restating
    it a fourth time.)
+6. Read the brain dump at session start and often after: `hee view
+   --braindump` reports how many entries have landed since this account's
+   cursor. Fetch and act on each new one -- an entry that is work becomes a
+   ticket (`hee ticket -new "..." --source "braindump <timestamp>"`), one
+   that is a fact goes where facts go -- then `hee view --braindump
+   --mark-seen` moves the cursor. Operator, 2026-09-10: "agents should run
+   `hee view --braindump` often and at startup and see what need be done".
+   Measured the same day: five operator entries had sat unread for a shift
+   because nothing required the read. The cursor is per account and per
+   host (`~/.local/state/hee/view-braindump.cursor`), so marking seen speaks
+   only for the account that read.
 
 ## Authority Invariants
 
