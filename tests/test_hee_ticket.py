@@ -50,7 +50,9 @@ class TestFieldsAndRender(unittest.TestCase):
         run(self.a, "-new", "two")
         r = run(self.a, "-close", "1", "--why", "merged as #9")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("closed_reason: merged as #9", (self.a / ".hee/tickets/0001.yaml").read_text())
+        import yaml
+        rec = yaml.safe_load((self.a / ".hee/tickets/0001.yaml").read_text())
+        self.assertEqual(rec["closed_reason"], "merged as #9")   # YAML quotes ' #', so match the value, not the text
         self.assertNotIn("0001", run(self.a, "-list", "--open").stdout)
         self.assertIn("0002", run(self.a, "-list", "--open").stdout)
         self.assertIn("0001", run(self.a, "-list", "--closed").stdout)
