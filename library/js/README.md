@@ -11,7 +11,7 @@ by busybox httpd out of a directory, and there is nothing there to run a build.
 Every file also holds to the same four rules:
 
 - **It works alone.** No file needs any other file in this directory. Include
-  one, include all five, in any order.
+  one, include all six, in any order.
 - **It does nothing if its markup is absent.** A page that includes `table.js`
   but has no `[data-tc-table]` pays for one `querySelectorAll` and stops.
 - **Hover is never the only way in.** Anything that responds to a mouse
@@ -30,6 +30,33 @@ Every file also holds to the same four rules:
 | `library/js/arrange.js` | Drag cards into a new order, remembered | `[data-tc-arrange]` |
 | `library/js/table.js` | Sort any column, filter across every field as you type | `[data-tc-table]` |
 | `library/js/links.js` | External links open a new tab, safely | every `a[href]` |
+| `library/js/freshness.js` | How old a page's source is, as a pill and a hue; stale after 12h by default | `[data-tc-epoch]` |
+
+### freshness.js
+
+```html
+<script src="js/freshness.js" defer></script>
+```
+
+```html
+<section class="card" data-tc-epoch="1789024938" data-tc-stale-hours="12">
+  <header><h2>Freshness</h2></header>
+  ...
+</section>
+```
+
+`data-tc-epoch` is the source's commit time in unix seconds -- `view/build.sh`
+already writes it into every page's freshness card. The component sets
+`data-tc-fresh="ok|stale|unknown"` on the element (and on `<html>` for the
+page's first one), adds a pill to the element's header reading `● OK · 3h` or
+`▲ STALE · 2d 4h` (icon and label, never a color alone), colors the left
+border with the host page's `--good`/`--warning` tokens, and re-evaluates once
+a minute so a page left open turns stale by itself. `data-tc-stale-hours`
+overrides the 12-hour default per element. An empty epoch (a source not yet
+committed) reads `○ UNKNOWN · not committed`.
+
+Operator brief, 2026-09-10: "standardize on a freshness that works, changes
+color (hue) when stale (12h is stale, default)".
 
 ### hovercard.js
 

@@ -149,6 +149,13 @@
   </section>
 
   <section class="panel">
+    <h2>freshness.js</h2>
+    <p>Two cards with an epoch: one from a minute ago, one from three days ago. The pill and the left border say which is which; the second turns <code>▲ STALE</code> because 72h &gt; 12h. A third with an empty epoch reads <code>○ UNKNOWN</code>.</p>
+    <section class="card" data-tc-epoch="EPOCH_FRESH" style="border-left:4px solid #888;padding:.5rem 1rem"><header><h3>fresh</h3></header><div>source committed a minute ago</div></section>
+    <section class="card" data-tc-epoch="EPOCH_STALE" style="border-left:4px solid #888;padding:.5rem 1rem"><header><h3>stale</h3></header><div>source committed three days ago</div></section>
+    <section class="card" data-tc-epoch="" style="border-left:4px solid #888;padding:.5rem 1rem"><header><h3>unknown</h3></header><div>source not committed</div></section>
+    <script>(function(){var n=Math.floor(Date.now()/1000);document.querySelectorAll('[data-tc-epoch="EPOCH_FRESH"]').forEach(function(e){e.setAttribute('data-tc-epoch',String(n-60))});document.querySelectorAll('[data-tc-epoch="EPOCH_STALE"]').forEach(function(e){e.setAttribute('data-tc-epoch',String(n-3*86400))});})();</script>
+
     <h2>collapse.js + arrange.js</h2>
     <p class="hint">
       Click a card heading to collapse it. Drag a card by its <span class="mono">⠿</span> grip to
@@ -248,6 +255,7 @@
 <script src="hovercard.js"></script>
 <script src="collapse.js"></script>
 <script src="arrange.js"></script>
+<script src="freshness.js"></script>
 <script src="table.js"></script>
 <script>
 /* Self-checks. Real assertions against the live DOM after the components have
