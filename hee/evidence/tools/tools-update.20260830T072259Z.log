@@ -1,0 +1,8 @@
+### hee-tools-update
+manifest: --help
+out: hee/evidence/tools/tools-update.20260830T072259Z.log
+
+### hee-tools-update
+manifest: -h
+out: hee/evidence/tools/tools-update.20260830T072259Z.log
+
