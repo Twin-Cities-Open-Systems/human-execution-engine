@@ -4,10 +4,11 @@ NAME
        hee-ticket - repo-local tickets, stored as real YAML in git
 
 SYNOPSIS
-              hee-ticket -new "DESCRIPTION"
-              hee-ticket -list
+              hee-ticket -new "DESCRIPTION" [--source WHERE] [--ref URL] [--tag T[,T...]]
+              hee-ticket -list [--open | --closed]
               hee-ticket -advance ID
-              hee-ticket -close SPEC
+              hee-ticket -close SPEC [--why TEXT]
+              hee-ticket -html [--workspace [DIR]] [--out FILE]
               hee-ticket [-ACTION] help
 
 DESCRIPTION
@@ -32,7 +33,12 @@ ENVIRONMENT
               directory must be inside a git repo, and pyyaml must be importable.
 
 FILES
-              .hee/tickets/<id>.yaml   one record per ticket, under the repo root
+              .hee/tickets/<id>.yaml   one record per ticket, under the repo root.
+                                       Fields written by this tool: id, created_at,
+                                       description, status, stage, stage_history, and
+                                       when given source, ref, tags, closed_at,
+                                       closed_reason. Anything else you add by hand is
+                                       kept and, for -html, shown when it is a string.
 
 EXIT STATUS
               Nagios plugin convention.
@@ -48,10 +54,24 @@ SEE ALSO
               (library/py/hee_range)
 
 ACTIONS
-              -new       open a ticket at stage idea
-              -list      print every ticket in this repo
+              -new       open a ticket at stage idea. --source records where it came
+                         from (a page, a brain dump timestamp, a review); --ref a
+                         GitHub issue or PR URL it tracks; --tag comma-separated tags.
+              -list      print every ticket in this repo; --open or --closed to filter
               -advance   move one ticket one stage forward
-              -close     close tickets by id, range, or description regex
+              -close     close tickets by id, range, or description regex; --why
+                         records the evidence as closed_reason -- a closed ticket with
+                         no reason is a claim, one with a reason is a record
+              -html      render the tickets as the body of a todo page: a stats strip
+                         and two cards (open, done -- struck through), rows carrying
+                         stage, repo, source and ref as pills, in the org's card markup
+                         (data-tc-collapse, data-tc-arrange, data-tc-table) so the
+                         shared library/js components work on it. --workspace renders
+                         every repo under DIR (default ~/git) that has .hee/tickets,
+                         which is what "one todo.html" means. Prints to stdout, or
+                         --out FILE. Real trigger (2026-09-10, operator): "take all the
+                         old todo's ... cross off all those that are done. let's use
+                         our own hee ticket system for this. I just want one todo.html".
 
               Exactly one action runs per invocation. If several are passed they are
               tested in the order above and the first one present wins; the rest are
