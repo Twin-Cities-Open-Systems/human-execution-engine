@@ -121,6 +121,76 @@ like a failed unseal.
 `hee_cred_export` in `library/bash/cred.run.shfn.bash` forces bash for
 that one step. Prefer `hee_cred_run` regardless — see below.
 
+## Trap 5 — one variable, two credentials
+
+`hee cred -pass` injects **every** sealed credential under the same fixed
+name, `$HEE_CRED_PASS`. That is fine until a single tool needs two of
+them, and then it is a credential leak rather than a confusion.
+
+`hee-scrob` needs a Plex token to read now-playing, and a Discord webhook
+URL to post it. Both invocations were documented; both set the same
+variable:
+
+    hee cred -pass plex-token           -exec hee scrob
+    hee cred -pass discord-webhook-scrob -exec hee-scrob -discord
+
+`read_token()` read `$HEE_CRED_PASS`, so under the second invocation it
+returned the **webhook URL** and sent it to the Plex server as the token.
+Measured, same inputs, before and after the fix:
+
+    BEFORE: read_token() -> 'https://discord.example.invalid/webhook-proof'
+    AFTER:  read_token() -> 'plex-tok-proof'
+
+Plex takes its token in the **query string**, so the leak landed in an
+access log:
+
+    /status/sessions?X-Plex-Token=<the discord webhook>
+
+Nothing warned about this. Both halves were individually correct.
+
+**The rule:** read `$HEE_CRED_PASS` only where exactly one credential can
+possibly be in it. If a tool handles more than one, give each a name of
+its own — `-run <account>` derives one (`plex-token` -> `$PLEX_TOKEN`), or
+`-run <account> -as VAR` sets one explicitly. Better still, have the tool
+open what it needs itself; see below.
+
+## Prefer a tool that opens its own credential
+
+Every trap above is a caller problem, and each one was found because a
+caller got it wrong. The way out is to stop asking callers.
+
+A tool that needs a specific credential already knows which one. Having it
+unseal that credential itself removes the whole class:
+
+    hee scrob                      # opens plex-token itself
+    hee scrob -discord             # opens discord-webhook-scrob itself
+
+versus what it replaced, which had to be right about the store, the
+variable name, and the existence of a wrapper:
+
+    HEE_CRED_DIR="$HOME/.hee/secrets" hee cred -run plex-token -exec hee scrob
+
+Two implementation notes worth copying, both found by measurement:
+
+**Resolve the `hee-cred` binary next to your own file, before `PATH`.**
+`PATH` is a property of the calling shell, and the interesting callers —
+cron, `ssh host cmd`, irssi's `EXEC` — source no profile. The first cut of
+this in `hee-scrob` returned nothing on a host where the credential opened
+perfectly by hand, purely because neither `hee-cred` nor `hee` was on
+`PATH` there. A hee tool's siblings are in its own directory by
+construction, so `Path(__file__).parent / "hee-cred"` needs no `PATH` and
+bakes in no absolute path.
+
+**Name the store absolutely, and put a timeout on the unseal.** Falling
+through to the cwd-relative default is trap 1 all over again. And gpg can
+block on an agent prompt with no terminal to prompt on, so a hung unseal
+would hang the IRC client — a timeout that falls through to the token file
+is better than a spinner nobody can interrupt.
+
+Keep the environment variable as the first thing checked. An explicit
+wrapper should still win, for the operator who wants to pass a different
+token for one run.
+
 ## Shell wrappers, and their one hard limit
 
 `tooling/heerc` sources `library/bash/cred.run.shfn.bash`, which provides:
@@ -130,7 +200,9 @@ that one step. Prefer `hee_cred_run` regardless — see below.
     hee_cred_export <account> [VAR]            # prints VAR=... for eval
 
 `~/.bash_aliases` in `dotfiles` builds a per-credential wrapper on top,
-pinning the HOME store so trap 1 cannot bite:
+pinning the HOME store so trap 1 cannot bite. **This is a convenience for
+interactive use, not the design** — if you find yourself writing a wrapper
+so a tool can find its own credential, fix the tool instead:
 
     plexrun() { HEE_CRED_DIR="${HOME}/.hee/secrets" hee_cred_run plex-token "$@"; }
 
@@ -208,3 +280,6 @@ something, say where it is openable in the same change.
   — the shell functions, with the dash trap documented at the source
 - [`tooling/heerc`](../../tooling/heerc) — what a shell gets for free, and
   why `HEE_CRED_DIR` is not among it
+- [`tooling/bin/hee-scrob`](../../tooling/bin/hee-scrob) — the worked
+  example of a tool that opens its own credential, including the sibling
+  resolution and the unseal timeout
