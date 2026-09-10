@@ -8,6 +8,7 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
 
     hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run]
       hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
+                     [--anchors FILE] [--addons FILE] [--roster FILE]
 
     positional arguments:
       manifest           pve/services/<name>.yaml -- see the manifest format above
@@ -25,10 +26,14 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       --addons ADDONS    the org's container-addons registry, the only place an
                          'addons:' name resolves. Unreadable means every add-on is
                          refused, never silently skipped.
+      --roster ROSTER    the org's signed agent roster, the only place a model is
+                         named. Read only by 'generate: roster-model' files
+                         entries; it must be ratified and its .asc must verify, or
+                         nothing is rendered.
 
 # DESCRIPTION
 
-                          [--anchors ANCHORS] [--addons ADDONS]
+                          [--anchors ANCHORS] [--addons ADDONS] [--roster ROSTER]
                           manifest
 
     hee-pve-deploy -- deploy and provision a Proxmox LXC from one declarative manifest.
@@ -56,8 +61,10 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       bridge: vmbr0
       unprivileged: true
       addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
+      agent: ci-triage                  # roster role, only for a container that runs an agent
       files:                            # committed files pushed INTO the container
         - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: "0644"}
+        - {generate: roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
       provision:                        # committed POSIX sh scripts run inside it
         - pve/lab-dhcp/provision.sh
 
@@ -73,3 +80,17 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
     so a missing file fails closed rather than leaving a half-provisioned
     container behind. Every step is previewed under --dry-run, including
     addons, which the dry run used to skip.
+
+    A `files:` entry names either `src` (a committed file) or `generate` (a
+    file rendered at deploy time, never committed). The one generator today is
+    `roster-model`: it reads the org's agent roster (--roster), refuses unless
+    the roster is `status: ratified` AND its detached signature verifies with a
+    key the roster's own ratification_evidence names, then renders the
+    Claude Code managed-settings drop-in that pins the manifest's `agent:` to
+    the model the roster assigns. Real trigger (2026-09-10): the first agent
+    manifests shipped five hand-kept managed-settings.json copies, each
+    restating a model the signed roster already names -- a second source that
+    would leave every container on the old model after a roster change, with
+    nothing to say so. Operator: "generate from roster at deploy is correct,
+    footgun". The model is named in exactly one place, and the dry run prints
+    the rendered file.
