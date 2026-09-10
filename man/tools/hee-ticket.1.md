@@ -22,11 +22,15 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     GitHub Issues and does not sync with them -- nothing here reaches the
     network at all.
 
-    Storage is one file per ticket at .hee/tickets/<id>.yaml under the
-    repo root of the CURRENT directory, so which repo you are standing in
-    decides which ticket set you are looking at. The files are ordinary
-    tracked YAML: commit them like anything else, and read or edit them by
-    hand when this tool cannot express what you need.
+    Storage is one file per ticket at .hee/tickets/<id>.yaml under a repo
+    root. Which repo: --repo NAME (a repo under ~/git), else the repo the
+    current directory is inside. From any other directory -- like every hee
+    tool, this one runs from anywhere (operator, 2026-09-10) -- the reading
+    actions (-list, -html) show every repo under ~/git, one per origin, and
+    the writing ones (-new, -advance, -close) ask for --repo rather than
+    guess. The files are ordinary tracked YAML: commit them like anything
+    else, and read or edit them by hand when this tool cannot express what
+    you need.
 
     Every ticket carries the real idea -> footgun -> dogfood pipeline as a
     structural `stage` field plus a `stage_history` of timestamped
@@ -71,7 +75,8 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     -new       open a ticket at stage idea. --source records where it came
                from (a page, a brain dump timestamp, a review); --ref a
                GitHub issue or PR URL it tracks; --tag comma-separated tags.
-    -list      print every ticket in this repo; --open or --closed to filter
+    -list      print every ticket in this repo (--workspace, or outside any
+               repo: every repo under ~/git, repo first); --open/--closed filter
     -advance   move one ticket one stage forward
     -close     close tickets by id, range, or description regex; --why
                records the evidence as closed_reason -- a closed ticket with

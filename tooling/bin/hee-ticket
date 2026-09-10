@@ -179,11 +179,15 @@ DESCRIPTION
   GitHub Issues and does not sync with them -- nothing here reaches the
   network at all.
 
-  Storage is one file per ticket at .hee/tickets/<id>.yaml under the
-  repo root of the CURRENT directory, so which repo you are standing in
-  decides which ticket set you are looking at. The files are ordinary
-  tracked YAML: commit them like anything else, and read or edit them by
-  hand when this tool cannot express what you need.
+  Storage is one file per ticket at .hee/tickets/<id>.yaml under a repo
+  root. Which repo: --repo NAME (a repo under ~/git), else the repo the
+  current directory is inside. From any other directory -- like every hee
+  tool, this one runs from anywhere (operator, 2026-09-10) -- the reading
+  actions (-list, -html) show every repo under ~/git, one per origin, and
+  the writing ones (-new, -advance, -close) ask for --repo rather than
+  guess. The files are ordinary tracked YAML: commit them like anything
+  else, and read or edit them by hand when this tool cannot express what
+  you need.
 
   Every ticket carries the real idea -> footgun -> dogfood pipeline as a
   structural `stage` field plus a `stage_history` of timestamped
@@ -194,7 +198,8 @@ ACTIONS
   -new       open a ticket at stage idea. --source records where it came
              from (a page, a brain dump timestamp, a review); --ref a
              GitHub issue or PR URL it tracks; --tag comma-separated tags.
-  -list      print every ticket in this repo; --open or --closed to filter
+  -list      print every ticket in this repo (--workspace, or outside any
+             repo: every repo under ~/git, repo first); --open/--closed filter
   -advance   move one ticket one stage forward
   -close     close tickets by id, range, or description regex; --why
              records the evidence as closed_reason -- a closed ticket with
@@ -289,15 +294,35 @@ except ImportError:
 from hee_range import resolve_spec  # noqa: E402
 
 
-def repo_root() -> Path:
+WORKSPACE_ROOT = os.path.join(os.path.expanduser("~"), "git")
+_REPO_OVERRIDE = None   # --repo NAME: a repo under WORKSPACE_ROOT, from any directory
+
+
+def repo_root():
+    """The repo whose tickets this run reads or writes: --repo NAME under
+    ~/git, else the git repo the current directory is inside, else None.
+    None is a real answer, not an error: like every hee tool this one runs
+    from any directory (operator, 2026-09-10), and outside a repo the reading
+    actions fall back to the workspace while the writing ones ask for --repo."""
+    if _REPO_OVERRIDE:
+        p = Path(WORKSPACE_ROOT) / _REPO_OVERRIDE
+        if not p.is_dir():
+            sys.exit(f"hee-ticket: --repo {_REPO_OVERRIDE}: no {p}")
+        return p
     out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    if out.returncode != 0:
-        sys.exit("hee-ticket: not inside a git repo")
-    return Path(out.stdout.strip())
+    return Path(out.stdout.strip()) if out.returncode == 0 else None
 
 
-def tickets_dir() -> Path:
-    d = repo_root() / ".hee" / "tickets"
+def require_repo(action: str) -> Path:
+    root = repo_root()
+    if root is None:
+        sys.exit(f"hee-ticket {action}: not inside a git repo -- pass --repo NAME "
+                 f"(a repo under {WORKSPACE_ROOT}) to say which ticket set, or cd into one")
+    return root
+
+
+def tickets_dir(action: str = "") -> Path:
+    d = require_repo(action) / ".hee" / "tickets"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -313,7 +338,7 @@ def now_iso() -> str:
 
 
 def cmd_new(description: str, source=None, ref=None, tags=None):
-    d = tickets_dir()
+    d = tickets_dir("-new")
     tid = next_id(d)
     ts = now_iso()
     record = {
@@ -340,7 +365,7 @@ def cmd_new(description: str, source=None, ref=None, tags=None):
 
 def cmd_advance(tid: str):
     tid = tid.zfill(4)
-    path = tickets_dir() / f"{tid}.yaml"
+    path = tickets_dir("-advance") / f"{tid}.yaml"
     if not path.exists():
         sys.exit(f"hee-ticket: no ticket {tid}")
     with open(path) as f:
@@ -367,7 +392,7 @@ def die(msg):
 def cmd_close(spec: str, why=None):
     from hee_range import is_id_range_spec, parse_id_range
 
-    d = tickets_dir()
+    d = tickets_dir("-close")
     all_ids = sorted(p.stem for p in d.glob("*.yaml") if p.stem.isdigit())
     records = []
     for tid in all_ids:
@@ -407,9 +432,24 @@ def cmd_close(spec: str, why=None):
         sys.exit(1)
 
 
-def cmd_list(only=None):
-    d = tickets_dir()
-    tickets = sorted(d.glob("*.yaml"))
+def cmd_list(only=None, workspace=None):
+    root = repo_root()
+    if workspace is not None or root is None:
+        # Outside a repo (or asked for): every repo under the workspace, one
+        # line per ticket, the repo first so the id is not ambiguous.
+        sets = _workspace_ticket_sets(workspace or WORKSPACE_ROOT)
+        if not sets:
+            print(f"No tickets under {workspace or WORKSPACE_ROOT}.")
+            return
+        for repo, d in sets:
+            for rec in _load_tickets(d):
+                if only and rec.get("status") != only:
+                    continue
+                print(f"{repo}  {rec.get('id', '?')}  [{rec.get('status', '?')}]  ({rec.get('stage', '?')})  "
+                      f"{rec.get('description', '')}  ({rec.get('created_at', '?')})")
+        return
+    d = root / ".hee" / "tickets"
+    tickets = sorted(d.glob("*.yaml")) if d.is_dir() else []
     if not tickets:
         print("No tickets yet.")
         return
@@ -554,12 +594,14 @@ def render_html(ticket_sets):
 
 
 def cmd_html(workspace=None, out=None):
-    if workspace is not None:
+    root = repo_root()
+    if workspace is not None or root is None:
+        workspace = workspace or WORKSPACE_ROOT
         sets = _workspace_ticket_sets(workspace)
         if not sets:
             sys.exit(f"hee-ticket -html: no repo under {workspace} has .hee/tickets")
     else:
-        sets = [(repo_root().name, tickets_dir())]
+        sets = [(root.name, root / ".hee" / "tickets")]
     page = render_html(sets)
     if out:
         Path(out).write_text(page, encoding="utf-8")
@@ -581,14 +623,17 @@ def main():
     ap.add_argument("--why", metavar="TEXT")
     ap.add_argument("--open", action="store_true")
     ap.add_argument("--closed", action="store_true")
-    ap.add_argument("--workspace", nargs="?", const=os.path.join(os.path.expanduser("~"), "git"), metavar="DIR")
+    ap.add_argument("--workspace", nargs="?", const=WORKSPACE_ROOT, metavar="DIR")
     ap.add_argument("--out", metavar="FILE")
+    ap.add_argument("--repo", metavar="NAME", help="a repo under ~/git whose tickets to read or write, from any directory")
     args = ap.parse_args()
+    global _REPO_OVERRIDE
+    _REPO_OVERRIDE = args.repo
 
     if args.new_desc:
         cmd_new(args.new_desc, source=args.source, ref=args.ref, tags=args.tag)
     elif args.list:
-        cmd_list("open" if args.open else "closed" if args.closed else None)
+        cmd_list("open" if args.open else "closed" if args.closed else None, workspace=args.workspace)
     elif args.advance_id:
         cmd_advance(args.advance_id)
     elif args.close_ids:
