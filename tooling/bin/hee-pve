@@ -75,9 +75,22 @@ FAMILY = ("deploy", "health", "users")
 def _ssh(host, script):
     """One ssh, one script, captured. BatchMode so a missing host key fails
     loudly instead of hanging on a prompt nobody is there to answer."""
+    # bash, not sh, and this is load-bearing rather than a preference.
+    #
+    # /bin/sh on pve is dash, and dash has NO ERR trap. _apply arms a
+    # `trap ... ERR` to restore /etc/network/interfaces on failure -- under
+    # dash that line does not merely fail to arm, it errors:
+    #
+    #   $ ssh root@pve sh -c 'trap true ERR'
+    #   trap: ERR: bad trap        (rc=1)
+    #
+    # Measured 2026-09-09 on the live host. So the rollback that #664 added
+    # and described as "the actual restore" was never armed on this host, and
+    # once the trap became reachable it took the whole apply down with it.
+    # bash is present on pve and every other Debian host in this fleet.
     p = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-         f"root@{host}", "sh", "-s"],
+         f"root@{host}", "bash", "-s"],
         input=script, capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
 
@@ -96,6 +109,10 @@ def _measure(host):
         grep -c '^auto vmbr1' /etc/network/interfaces || true
         echo "@@acl"
         pveum acl list 2>/dev/null | grep -c 'vmbr1' || true
+        echo "@@nat"
+        iptables -t nat -S POSTROUTING 2>/dev/null | grep -c 'MASQUERADE' || true
+        echo "@@natunit"
+        systemctl is-enabled hee-lab-nat.service 2>/dev/null || echo absent
     """)
     if rc != 0:
         return None, (err or "ssh failed with no message").strip()
@@ -121,7 +138,7 @@ def _load(path):
     return yaml.safe_load(open(path, encoding="utf-8"))["spec"]
 
 
-def _plan(spec, m):
+def _plan(spec, m, spec_dir=None):
     """Declared minus measured. Every entry carries the reason from the yaml,
     so the plan explains itself without the reader opening the file."""
     have_br = set(m["bridges"])
@@ -137,6 +154,33 @@ def _plan(spec, m):
         if m["forward"] and str(s["value"]) != m["forward"][0]:
             steps.append({"kind": "sysctl", "name": key, "value": s["value"],
                           "persist": s.get("persist"), "why": s.get("why", "")})
+    # NAT is planned on the UNIT being enabled, not on the rule being
+    # present. A live rule with no unit behind it disappears at the next
+    # reboot and takes the lab's outbound path with it, so "rule exists" is
+    # not the condition that matters. Measured 2026-09-09: rule count 0 and
+    # unit absent, which is the state this closes.
+    unit_state = (m.get("natunit") or ["absent"])[0]
+    for name, n in (spec.get("nat") or {}).items():
+        if unit_state in ("enabled", "enabled-runtime"):
+            continue
+        body = None
+        if spec_dir:
+            up = os.path.join(spec_dir, "systemd", n["unit"])
+            if os.path.isfile(up):
+                body = open(up, encoding="utf-8").read()
+        if body is None:
+            # Refuse rather than synthesize. The unit is a reviewed file in
+            # fleet-ops; generating an approximation of it here is how the
+            # thing that runs stops matching the thing that was read.
+            emit(Status.UNKNOWN,
+                 f"hee-pve network: nat '{name}' declares unit {n['unit']}, "
+                 f"not found beside the spec at {spec_dir}/systemd/. Refusing "
+                 f"to synthesize one.")
+            sys.exit(Status.UNKNOWN.value)
+        steps.append({"kind": "nat", "name": name, "unit": n["unit"],
+                      "unit_body": body, "source": n["source"],
+                      "out": n["out_interface"], "mode": n.get("mode", "masquerade"),
+                      "unit_state": unit_state, "why": n.get("why", "")})
     if int(m["acl"][0] or 0) == 0:
         for a in spec.get("acl") or []:
             steps.append({"kind": "acl", "name": a["path"], "role": a["role"],
@@ -151,6 +195,9 @@ def _render(steps, m, applied=False):
         if s["kind"] == "bridge":
             ports = ", ".join(s["ports"]) or "none (internal, no physical port)"
             print(f"  + bridge {s['name']}  {s['address']}  ports: {ports}")
+        elif s["kind"] == "nat":
+            print(f"  + nat {s['name']}  {s['source']} -> {s['out']} "
+                  f"({s['mode']})  via {s['unit']} [currently {s['unit_state']}]")
         elif s["kind"] == "sysctl":
             print(f"  ~ sysctl {s['name']} -> {s['value']}  (persist {s['persist']})")
         else:
@@ -232,6 +279,29 @@ def _apply(host, steps):
         elif s["kind"] == "sysctl":
             sh += [f'printf "{s["name"]} = {s["value"]}\\n" > {s["persist"]}',
                    f'sysctl -q -p {s["persist"]}']
+        elif s["kind"] == "nat":
+            # The unit is a reviewed file in fleet-ops/pve/systemd/, shipped
+            # verbatim -- same reason bridges come from the yaml rather than
+            # from flags. Temp-then-move so an interrupted apply cannot leave
+            # systemd a half-written unit to parse.
+            #
+            # NOT covered by the /etc/network/interfaces rollback above, and
+            # the spec says so out loud. Reversal is
+            # `systemctl disable --now <unit>`, whose ExecStop drops the rule.
+            u = s["unit"]
+            sh += [
+                f'test -f /etc/systemd/system/{u} && '
+                f'{{ echo "{u} already installed -- refusing to overwrite" >&2; exit 1; }}',
+                f"cat > /etc/systemd/system/.{u}.tmp <<'HEEUNIT'\n"
+                + s["unit_body"].rstrip("\n") + "\nHEEUNIT",
+                f'mv /etc/systemd/system/.{u}.tmp /etc/systemd/system/{u}',
+                'systemctl daemon-reload',
+                f'systemctl enable --now {u}',
+                f'systemctl is-active --quiet {u} || '
+                f'{{ echo "{u} did not become active" >&2; exit 1; }}',
+                f'iptables -t nat -C POSTROUTING -s {s["source"]} -o {s["out"]} '
+                f'-j MASQUERADE || {{ echo "unit ran but the rule is absent" >&2; exit 1; }}',
+            ]
         else:
             g = s["grantee"]
             flag = "--groups" if g["type"] == "group" else "--tokens"
@@ -246,7 +316,7 @@ def cmd_network(args):
     if m is None:
         emit(Status.UNKNOWN, f"hee-pve network: cannot read {args.host} -- {why}")
         return Status.UNKNOWN
-    steps = _plan(spec, m)
+    steps = _plan(spec, m, os.path.dirname(os.path.abspath(args.spec)))
     if args.json:
         print(json.dumps({"steps": steps, "measured": m}, indent=1))
         return Status.OK if not steps else Status.WARNING
@@ -268,7 +338,7 @@ def cmd_network(args):
     if m2 is None:
         emit(Status.UNKNOWN, f"hee-pve network: applied but cannot re-read host -- {why2}")
         return Status.UNKNOWN
-    left = _plan(spec, m2)
+    left = _plan(spec, m2, os.path.dirname(os.path.abspath(args.spec)))
     if left:
         _render(left, m2)
         emit(Status.CRITICAL, f"hee-pve network: {len(left)} change(s) still missing after apply")
