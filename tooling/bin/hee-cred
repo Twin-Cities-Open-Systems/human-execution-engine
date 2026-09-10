@@ -217,16 +217,44 @@ def recipient_keyids(path: Path):
 def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
                     var_name: str = None):
     in_path = secrets_dir / f"{account}.gpg"
-    if not in_path.exists():
+    # exists() STATS the path, and stat raises rather than returning False when
+    # the parent directory denies traversal -- which is the normal case now
+    # that secret stores are 0700/0750. Unhandled, that surfaced as a Python
+    # traceback instead of a diagnosis. A credential this account cannot even
+    # look at is the same answer as one that is not there: it cannot be used
+    # from here. Say which, and say whose it is.
+    try:
+        present = in_path.exists()
+    except OSError as e:
+        owner = ""
+        try:
+            import pwd
+            st = os.stat(secrets_dir)
+            owner = f" (owned by {pwd.getpwuid(st.st_uid).pw_name})"
+        except (OSError, KeyError, ImportError):
+            pass
+        sys.exit(f"hee-cred: cannot read {in_path}: {e.strerror}\n"
+                 f"  {secrets_dir}{owner} does not permit this account to look"
+                 f" inside it. Run as the owning account, or re-seal the"
+                 f" credential into a store this one can read.")
+    if not present:
         # Name the resolved directory and list what is actually in it. A bare
         # "no sealed credential at .hee/secrets/x.gpg" hides the real cause,
         # which is almost always that the RELATIVE default resolved against
         # an unexpected cwd.
         msg = [f"hee-cred: no sealed credential at {in_path.resolve()}"]
-        if secrets_dir.is_dir():
-            found = sorted(q.stem for q in secrets_dir.glob("*.gpg"))
-            msg.append(f"  {secrets_dir.resolve()} holds: "
-                       + (", ".join(found) if found else "(no .gpg files)"))
+        try:
+            listable = secrets_dir.is_dir()
+        except OSError:
+            listable = False
+        if listable:
+            try:
+                found = sorted(q.stem for q in secrets_dir.glob("*.gpg"))
+                msg.append(f"  {secrets_dir.resolve()} holds: "
+                           + (", ".join(found) if found else "(no .gpg files)"))
+            except OSError as e:
+                msg.append(f"  {secrets_dir} is not listable by this account:"
+                           f" {e.strerror}")
         else:
             msg.append(f"  {secrets_dir.resolve()} is not a directory.")
         msg.append("  The default store is RELATIVE to the current directory."
