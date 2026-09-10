@@ -52,7 +52,10 @@ page's first one), adds a pill to the element's header reading `● OK · 3h` or
 `▲ STALE · 2d 4h` (icon and label, never a color alone), colors the left
 border with the host page's `--good`/`--warning` tokens, and re-evaluates once
 a minute so a page left open turns stale by itself. `data-tc-stale-hours`
-overrides the 12-hour default per element. An empty epoch (a source not yet
+overrides the 12-hour default per element. The epoch is also written as a date
+in the reader's own locale and zone: in the pill's title, and as a `local` row
+appended to the element's `<dl>` when it has one (the build stamps UTC; the
+reader's zone is only known in the reader's browser). An empty epoch (a source not yet
 committed) reads `○ UNKNOWN · not committed`.
 
 Operator brief, 2026-09-10: "standardize on a freshness that works, changes
