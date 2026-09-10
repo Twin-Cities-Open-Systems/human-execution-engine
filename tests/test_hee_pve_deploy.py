@@ -188,7 +188,7 @@ class TestAddonRegistry(unittest.TestCase):
                 deploy.apply_addons("invalid.", "999", ["not-a-set"], True, p)
 
 
-ROSTER = """\
+AGENT_ROSTER = """\
 apiVersion: hee/v1
 kind: Registry
 spec:
@@ -211,24 +211,24 @@ def _gpg(returncode=0, fpr=FPR):
                                  stderr="" if returncode == 0 else "BAD signature")
 
 
-class TestRosterModel(unittest.TestCase):
+class TestAgentRosterModel(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.roster = os.path.join(self.tmp.name, "agent-roster.registry.v1.yaml")
+        self.agent_roster = os.path.join(self.tmp.name, "agent-roster.registry.v1.yaml")
         self._write("ratified")
-        open(self.roster + ".asc", "w").close()
+        open(self.agent_roster + ".asc", "w").close()
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def _write(self, status):
-        with open(self.roster, "w") as fh:
-            fh.write(ROSTER.format(status=status))
+        with open(self.agent_roster, "w") as fh:
+            fh.write(AGENT_ROSTER.format(status=status))
 
-    def test_renders_the_three_key_pin_from_the_roster(self):
+    def test_renders_the_three_key_pin_from_the_agent_roster(self):
         with mock.patch.object(deploy.subprocess, "run", return_value=_gpg()):
-            data = deploy.render_roster_model({"agent": "groomer"}, self.roster)
+            data = deploy.render_agent_roster_model({"agent": "groomer"}, self.agent_roster)
         self.assertEqual(json.loads(data), {
             "model": "claude-haiku-4-5-20251001",
             "availableModels": ["claude-haiku-4-5-20251001"],
@@ -238,63 +238,63 @@ class TestRosterModel(unittest.TestCase):
 
     def test_manifest_without_agent_refuses(self):
         with self.assertRaises(SystemExit):
-            deploy.render_roster_model({}, self.roster)
+            deploy.render_agent_roster_model({}, self.agent_roster)
 
     def test_unknown_agent_and_modelless_agent_refuse(self):
         with mock.patch.object(deploy.subprocess, "run", return_value=_gpg()):
             with self.assertRaises(SystemExit):
-                deploy.render_roster_model({"agent": "nobody"}, self.roster)
+                deploy.render_agent_roster_model({"agent": "nobody"}, self.agent_roster)
             with self.assertRaises(SystemExit):
-                deploy.render_roster_model({"agent": "silent"}, self.roster)
+                deploy.render_agent_roster_model({"agent": "silent"}, self.agent_roster)
 
-    def test_unratified_roster_refuses_before_any_signature_check(self):
+    def test_unratified_agent_roster_refuses_before_any_signature_check(self):
         self._write("proposed")
         with mock.patch.object(deploy.subprocess, "run") as run:
             with self.assertRaises(SystemExit):
-                deploy.render_roster_model({"agent": "groomer"}, self.roster)
+                deploy.render_agent_roster_model({"agent": "groomer"}, self.agent_roster)
             run.assert_not_called()
 
-    def test_missing_roster_or_signature_refuses(self):
+    def test_missing_agent_roster_or_signature_refuses(self):
         with self.assertRaises(SystemExit):
-            deploy.load_roster(os.path.join(self.tmp.name, "absent.yaml"))
-        os.remove(self.roster + ".asc")
+            deploy.load_agent_roster(os.path.join(self.tmp.name, "absent.yaml"))
+        os.remove(self.agent_roster + ".asc")
         with self.assertRaises(SystemExit):
-            deploy.load_roster(self.roster)
+            deploy.load_agent_roster(self.agent_roster)
 
     def test_bad_signature_refuses(self):
         with mock.patch.object(deploy.subprocess, "run", return_value=_gpg(returncode=1)):
             with self.assertRaises(SystemExit):
-                deploy.load_roster(self.roster)
+                deploy.load_agent_roster(self.agent_roster)
 
     def test_good_signature_from_a_key_the_evidence_does_not_name_refuses(self):
         other = "0" * 40
         with mock.patch.object(deploy.subprocess, "run", return_value=_gpg(fpr=other)):
             with self.assertRaises(SystemExit):
-                deploy.load_roster(self.roster)
+                deploy.load_agent_roster(self.agent_roster)
 
     def test_files_entry_needs_exactly_one_of_src_or_generate(self):
         with self.assertRaises(SystemExit):
-            deploy.plan_files({"files": [{"dst": "/x"}]}, self.tmp.name, self.roster)
+            deploy.plan_files({"files": [{"dst": "/x"}]}, self.tmp.name, self.agent_roster)
         with self.assertRaises(SystemExit):
-            deploy.plan_files({"files": [{"src": "a", "generate": "roster-model", "dst": "/x"}]},
-                              self.tmp.name, self.roster)
+            deploy.plan_files({"files": [{"src": "a", "generate": "agent-roster-model", "dst": "/x"}]},
+                              self.tmp.name, self.agent_roster)
 
     def test_unknown_generator_refuses(self):
         with self.assertRaises(SystemExit):
             deploy.plan_files({"files": [{"generate": "nope", "dst": "/x"}]},
-                              self.tmp.name, self.roster)
+                              self.tmp.name, self.agent_roster)
 
     def test_dry_run_prints_the_rendered_file_and_never_connects(self):
         spec = {"agent": "groomer", "files": [
-            {"generate": "roster-model", "dst": "/etc/claude-code/managed-settings.d/50-model.json",
+            {"generate": "agent-roster-model", "dst": "/etc/claude-code/managed-settings.d/50-model.json",
              "mode": "0644"}]}
         with mock.patch.object(deploy.subprocess, "run", return_value=_gpg()):
-            plan = deploy.plan_files(spec, self.tmp.name, self.roster)
+            plan = deploy.plan_files(spec, self.tmp.name, self.agent_roster)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             deploy.apply_files("invalid.", "999", plan, dry_run=True)
         text = out.getvalue()
-        self.assertIn("generated roster-model for agent 'groomer' -> "
+        self.assertIn("generated agent-roster-model for agent 'groomer' -> "
                       "/etc/claude-code/managed-settings.d/50-model.json (mode 0644)", text)
         self.assertIn('"model": "claude-haiku-4-5-20251001"', text)
 

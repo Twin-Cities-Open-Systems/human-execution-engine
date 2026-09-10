@@ -27,10 +27,10 @@ Manifest format (pve/services/<name>.yaml):
   bridge: vmbr0
   unprivileged: true
   addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
-  agent: ci-triage                  # roster role, only for a container that runs an agent
+  agent: ci-triage                  # agent roster role, only for a container that runs an agent
   files:                            # committed files pushed INTO the container
     - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: "0644"}
-    - {generate: roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
+    - {generate: agent-roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
   provision:                        # committed POSIX sh scripts run inside it
     - pve/lab-dhcp/provision.sh
 
@@ -49,21 +49,21 @@ addons, which the dry run used to skip.
 
 A `files:` entry names either `src` (a committed file) or `generate` (a
 file rendered at deploy time, never committed). The one generator today is
-`roster-model`: it reads the org's agent roster (--roster), refuses unless
-the roster is `status: ratified` AND its detached signature verifies with a
-key the roster's own ratification_evidence names, then renders the
+`agent-roster-model`: it reads the org's agent roster (--agent-roster), refuses unless
+the agent roster is `status: ratified` AND its detached signature verifies with a
+key the agent roster's own ratification_evidence names, then renders the
 Claude Code managed-settings drop-in that pins the manifest's `agent:` to
-the model the roster assigns. Real trigger (2026-09-10): the first agent
+the model the agent roster assigns. Real trigger (2026-09-10): the first agent
 manifests shipped five hand-kept managed-settings.json copies, each
-restating a model the signed roster already names -- a second source that
-would leave every container on the old model after a roster change, with
+restating a model the signed agent roster already names -- a second source that
+would leave every container on the old model after an agent roster change, with
 nothing to say so. Operator: "generate from roster at deploy is correct,
 footgun". The model is named in exactly one place, and the dry run prints
 the rendered file.
 
 Usage:
   hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
-                 [--anchors FILE] [--addons FILE] [--roster FILE]
+                 [--anchors FILE] [--addons FILE] [--agent-roster FILE]
 """
 import os
 import argparse
@@ -273,9 +273,9 @@ def main():
                     help="the org's container-addons registry, the only place an "
                          "'addons:' name resolves. Unreadable means every add-on is "
                          "refused, never silently skipped.")
-    ap.add_argument("--roster", default=DEFAULT_ROSTER,
+    ap.add_argument("--agent-roster", default=DEFAULT_AGENT_ROSTER,
                     help="the org's signed agent roster, the only place a model is named. "
-                         "Read only by 'generate: roster-model' files entries; it must be "
+                         "Read only by 'generate: agent-roster-model' files entries; it must be "
                          "ratified and its .asc must verify, or nothing is rendered.")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
@@ -298,7 +298,7 @@ def main():
     # created, rather than after `pvesh create` has left a container that
     # is half of what was declared.
     root = _manifest_root(args.manifest)
-    files = plan_files(spec, root, args.roster)
+    files = plan_files(spec, root, args.agent_roster)
     scripts = plan_provision(spec, root)
     addons = spec.get("addons", []) or []
 
@@ -474,24 +474,24 @@ def _under(root, rel, what):
 # restates it. Every check fails closed, and fails at PLAN time -- before
 # `pvesh create` -- like a missing `src`.
 
-DEFAULT_ROSTER = os.path.expanduser(
+DEFAULT_AGENT_ROSTER = os.path.expanduser(
     "~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml")
 
 
-def _roster_signature_ok(path, doc):
-    """The roster's detached signature must verify, and the signing key must
+def _agent_roster_signature_ok(path, doc):
+    """The agent roster's detached signature must verify, and the signing key must
     be one its own ratification_evidence names. A locally edited, unsigned
-    roster would otherwise deploy a model nobody ratified. `status: ratified`
+    agent roster would otherwise deploy a model nobody ratified. `status: ratified`
     alone is a string anyone can type."""
     asc = path + ".asc"
     if not os.path.isfile(asc):
-        sys.exit(f"hee-pve-deploy: {asc} not found -- an unsigned roster names no model "
+        sys.exit(f"hee-pve-deploy: {asc} not found -- an unsigned agent roster names no model "
                  f"a container may run.")
     try:
         v = subprocess.run(["gpg", "--batch", "--status-fd", "1", "--verify", asc, path],
                            capture_output=True, text=True)
     except FileNotFoundError:
-        sys.exit("hee-pve-deploy: gpg not found -- the roster's signature cannot be "
+        sys.exit("hee-pve-deploy: gpg not found -- the agent roster's signature cannot be "
                  "checked, so no model is rendered.")
     fprs = set()
     for line in v.stdout.splitlines():
@@ -500,32 +500,32 @@ def _roster_signature_ok(path, doc):
             fprs.add(parts[2])           # the signing key
             fprs.add(parts[-1])          # the primary key, when gpg reports it
     if v.returncode != 0 or not fprs:
-        sys.exit(f"hee-pve-deploy: the roster's signature does not verify ({asc}):\n"
+        sys.exit(f"hee-pve-deploy: the agent roster's signature does not verify ({asc}):\n"
                  f"{v.stderr.strip()}")
     evidence = str((doc.get("spec") or {}).get("ratification_evidence") or "").replace(" ", "")
     if not any(f in evidence for f in fprs):
-        sys.exit(f"hee-pve-deploy: the roster verifies, but with {sorted(fprs)[0]}, a key its "
+        sys.exit(f"hee-pve-deploy: the agent roster verifies, but with {sorted(fprs)[0]}, a key its "
                  f"ratification_evidence does not name -- refusing.")
 
 
-def load_roster(path):
+def load_agent_roster(path):
     if not os.path.isfile(path):
         sys.exit(f"hee-pve-deploy: agent roster not found at {path}.\n"
-                 f"  Point --roster at the org's signed agent roster. Could-not-read is "
+                 f"  Point --agent-roster at the org's signed agent roster. Could-not-read is "
                  f"not 'no model'.")
     with open(path, encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
     status = (doc.get("spec") or {}).get("status")
     if status != "ratified":
         sys.exit(f"hee-pve-deploy: {path} is status '{status}', not ratified -- an "
-                 f"unratified roster names no model a container may run.")
-    _roster_signature_ok(path, doc)
+                 f"unratified agent roster names no model a container may run.")
+    _agent_roster_signature_ok(path, doc)
     return doc
 
 
-def render_roster_model(spec, roster_path):
+def render_agent_roster_model(spec, agent_roster_path):
     """Claude Code managed settings pinning this manifest's agent to its
-    roster model. Three keys, because each alone can be got around:
+    agent roster model. Three keys, because each alone can be got around:
     `model` is overridden by a --model flag or ANTHROPIC_MODEL;
     `availableModels` + `enforceAvailableModels` refuse any other model;
     env ANTHROPIC_MODEL sets it for every session. Rendered as a drop-in
@@ -533,17 +533,17 @@ def render_roster_model(spec, roster_path):
     so the shared base file carries nothing per-agent."""
     agent = spec.get("agent")
     if not agent:
-        sys.exit("hee-pve-deploy: 'generate: roster-model' needs the manifest's 'agent:' "
-                 "key -- the roster role whose model this container runs.")
-    doc = load_roster(roster_path)
+        sys.exit("hee-pve-deploy: 'generate: agent-roster-model' needs the manifest's 'agent:' "
+                 "key -- the agent roster role whose model this container runs.")
+    doc = load_agent_roster(agent_roster_path)
     agents = (doc.get("spec") or {}).get("agents") or {}
     entry = agents.get(agent)
     if not isinstance(entry, dict):
-        sys.exit(f"hee-pve-deploy: agent '{agent}' is not in the roster ({roster_path}). "
+        sys.exit(f"hee-pve-deploy: agent '{agent}' is not in the agent roster ({agent_roster_path}). "
                  f"Known: {', '.join(sorted(agents)) or '(none)'}.")
     model = entry.get("model")
     if not isinstance(model, str) or not model.strip():
-        sys.exit(f"hee-pve-deploy: roster agent '{agent}' names no model -- refusing to "
+        sys.exit(f"hee-pve-deploy: agent roster agent '{agent}' names no model -- refusing to "
                  f"render a pin for nothing.")
     settings = {
         "model": model,
@@ -554,10 +554,10 @@ def render_roster_model(spec, roster_path):
     return (json.dumps(settings, indent=2) + "\n").encode()
 
 
-GENERATORS = {"roster-model": render_roster_model}
+GENERATORS = {"agent-roster-model": render_agent_roster_model}
 
 
-def plan_files(spec, root, roster_path=DEFAULT_ROSTER):
+def plan_files(spec, root, agent_roster_path=DEFAULT_AGENT_ROSTER):
     """`files:` entries, resolved and validated. Each is {src|generate, dst[, mode]}:
     src relative to the manifest's repo root, or generate naming a renderer
     in GENERATORS; dst absolute inside the container; mode octal (chmod'd
@@ -582,7 +582,7 @@ def plan_files(spec, root, roster_path=DEFAULT_ROSTER):
                 sys.exit(f"hee-pve-deploy: files[{i}] generate '{f['generate']}' is not a "
                          f"known generator ({', '.join(sorted(GENERATORS))}).")
             out.append({"rel": f"generated {f['generate']} for agent '{spec.get('agent')}'",
-                        "src": None, "data": gen(spec, roster_path), "dst": dst, "mode": mode})
+                        "src": None, "data": gen(spec, agent_roster_path), "dst": dst, "mode": mode})
         else:
             out.append({"rel": str(f["src"]), "src": _under(root, f["src"], f"files[{i}].src"),
                         "data": None, "dst": dst, "mode": mode})
