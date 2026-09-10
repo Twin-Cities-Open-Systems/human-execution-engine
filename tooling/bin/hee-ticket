@@ -441,17 +441,32 @@ def _load_tickets(d):
     return out
 
 
+def _origin(repo):
+    r = subprocess.run(["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
+                       capture_output=True, text=True)
+    url = r.stdout.strip() if r.returncode == 0 else ""
+    return url.rstrip("/").removesuffix(".git").lower()
+
+
 def _workspace_ticket_sets(root):
-    """(repo name, path) for every repo under ROOT with .hee/tickets."""
+    """(repo name, path) for every repo under ROOT with .hee/tickets -- ONE per
+    origin. A workspace holds sibling clones and worktrees of the same repo
+    (fleet-ops-viewjs, fleet-ops-braindump, ...); each carries the same
+    tickets, and counting them again would triple the todo. The clone whose
+    directory name matches the origin's repo name wins; otherwise the first."""
     root = Path(os.path.expanduser(root))
-    sets = []
+    sets = {}
     if not root.is_dir():
-        return sets
+        return []
     for repo in sorted(root.iterdir()):
         d = repo / ".hee" / "tickets"
-        if repo.is_dir() and d.is_dir() and not repo.name.endswith(".worktrees"):
-            sets.append((repo.name, d))
-    return sets
+        if not (repo.is_dir() and d.is_dir()) or repo.name.endswith(".worktrees"):
+            continue
+        origin = _origin(repo) or f"local:{repo.name}"
+        canonical = origin.rsplit("/", 1)[-1] == repo.name
+        if origin not in sets or (canonical and not sets[origin][2]):
+            sets[origin] = (repo.name, d, canonical)
+    return [(name, d) for name, d, _ in sorted(sets.values(), key=lambda t: t[0])]
 
 
 def _pill(kind, text):

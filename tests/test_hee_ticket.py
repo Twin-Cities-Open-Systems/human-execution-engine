@@ -75,6 +75,20 @@ class TestFieldsAndRender(unittest.TestCase):
         self.assertIn("<b>2</b><span>open</span>", h)
         self.assertIn("<b>1</b><span>done</span>", h)
 
+    def test_html_workspace_counts_each_origin_once(self):
+        # alpha and a sibling clone of it share tickets; the workspace must list alpha once
+        run(self.a, "-new", "shared ticket")
+        subprocess.run(["git", "-C", str(self.a), "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.a), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "t"], check=True, capture_output=True)
+        subprocess.run(["git", "clone", "-q", str(self.a), str(self.ws / "alpha-viewjs")], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.a), "remote", "add", "origin", "https://example.org/o/alpha.git"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.ws / "alpha-viewjs"), "remote", "set-url", "origin", "https://example.org/o/alpha"], check=True, capture_output=True)
+        r = run(self.a, "-html", "--workspace", str(self.ws))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.count("shared ticket"), 1)
+        self.assertIn("from .hee/tickets in alpha", r.stdout)
+        self.assertNotIn("alpha-viewjs", r.stdout)
+
     def test_html_single_repo_and_out_file(self):
         run(self.a, "-new", "only here")
         out = self.ws / "todo-body.html"
