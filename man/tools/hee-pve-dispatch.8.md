@@ -1,0 +1,79 @@
+% HEE-PVE-DISPATCH(8) | HEE Tools
+
+# NAME
+
+hee-pve-dispatch - hand one bounded job to one agent container and collect the result
+
+# SYNOPSIS
+
+    hee-pve-dispatch [-h] [--cred ACCOUNT] [--cred-dir DIR] [--key-env VAR]
+      hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
+      hee-pve-dispatch AGENT JOBDIR --dry-run
+
+    positional arguments:
+      agent                 a role (ci-triage) or hostname from the allocation
+                            registry; must be kind: agent
+      jobdir                directory holding job.yaml, the prompt and the inputs
+
+    options:
+      -h, --help            show this help message and exit
+      --cred ACCOUNT        hee cred account holding the agent's Anthropic API
+                            key; this tool re-runs itself under `hee cred -pass
+                            ACCOUNT` so the key is never printed or on argv
+      --cred-dir DIR        passed to hee cred -dir (default: its own default)
+      --key-env VAR         read the key from this environment variable instead of
+                            --cred (what the --cred re-exec uses: HEE_CRED_PASS).
+                            Never pass a key on the command line.
+      --ticket ID           the hee ticket this dispatch works on; recorded, not
+                            enforced
+      --dry-run             resolve the agent, validate the job, print run.sh and
+                            the file list; ship and run nothing
+      --host HOST
+      --allocations ALLOCATIONS
+
+# DESCRIPTION
+
+                            [--ticket ID] [--dry-run] [--host HOST]
+                            [--allocations ALLOCATIONS]
+                            agent jobdir
+
+    hee-pve-dispatch -- hand one bounded job to one agent container and collect the result.
+
+    The first dispatch mechanism for the pve agent containers (fleet-ops#387):
+    until the GitHub App, the factory's per-job token and tick-task exist, this
+    is how work reaches an agent. Operator, 2026-09-10: "this jobs go to the new
+    agents", "do not run these on kiosk", "let's see if we can utilize hee cred
+    to provide the anthropic auth needed", "hee ticket and tick-task will be
+    merging soon".
+
+    What a dispatch is:
+      1. AGENT names a role in the fleet allocation registry (ci-triage,
+         docs-keeper, ...). The registry gives its hostname and says it is an
+         agent; the live node gives its vmid. A non-agent container is refused.
+      2. JOBDIR holds job.yaml, a prompt file, the inputs the job may read, and
+         (after the run) results/. Everything the agent sees is in that
+         directory, so a job is reviewable before it runs and reproducible after.
+      3. The job's files are shipped INTO the container over pct exec (no repo
+         credential in the container), claude runs there as the `agent` user in
+         -p mode with a dollar budget and a wall-clock timeout, and the outputs
+         come back the same way into JOBDIR/results/<job id>/.
+      4. The Anthropic key never touches the container's disk or any command
+         line. With --cred, this tool re-runs itself under `hee cred -pass`, so
+         the key exists only in this process's environment and is written to the
+         job's stdin, where the generated run.sh reads it into the environment of
+         the one claude process. `hee cred -seal` is the only way a key gets into
+         the store, and it accepts input only from a real terminal.
+      5. A record of every dispatch is written to <repo>/.hee/dispatch/<job id>.yaml
+         (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
+
+    job.yaml:
+      name: convert-legacy-page           # short, becomes part of the job id
+      prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
+      inputs: [in/, rules.md]             # shipped; default: everything but results/
+      outputs: [out/]                     # collected; default: out/
+      budget_usd: 2.00                    # required -- claude --max-budget-usd
+      timeout_s: 1800                     # default 1800 -- `timeout` around claude
+      permission_mode: acceptEdits        # default; claude --permission-mode
+      allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed
+      json_schema: schema.json            # optional; claude --json-schema
+      system_prompt: system.md            # optional; claude --append-system-prompt-file

@@ -18,7 +18,7 @@ So: `pve/network.yaml` declares the host's bridges, and this reconciles.
 
   hee pve network              dry run -- report declared vs measured
   hee pve network --apply      apply the difference (additive only)
-  hee pve deploy|health|users  the existing tools, unchanged
+  hee pve deploy|health|users|dispatch  the existing tools, unchanged
 
 DRY RUN IS THE DEFAULT, the same contract hee-gen-manpages and hee-release
 already keep. A tool that mutates a hypervisor on a bare invocation is how an
@@ -69,7 +69,7 @@ from hee_cli import help_wanted, note_ignored  # noqa: E402
 
 DEFAULT_SPEC = os.path.expanduser("~/git/fleet-ops/pve/network.yaml")
 DEFAULT_HOST = "10.0.0.153"
-FAMILY = ("deploy", "health", "users")
+FAMILY = ("deploy", "health", "users", "dispatch")
 
 
 def _ssh(host, script):
