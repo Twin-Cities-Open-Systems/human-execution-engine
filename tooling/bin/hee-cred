@@ -55,6 +55,7 @@ users via `ps`), never printed to stdout/stderr by this tool.
 """
 import argparse
 import getpass
+import re
 import json
 import os
 import re
@@ -70,7 +71,12 @@ from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
 
-DEFAULT_DIR = ".hee/secrets"
+# Relative, so it resolves against the CURRENT directory -- which is a real
+# footgun: the same command works in one checkout and reports "no sealed
+# credential" in another, with nothing saying why. HEE_CRED_DIR (heerc) lets
+# an operator pin one absolute store per machine, so `hee cred -run X` works
+# from anywhere. -dir still wins when given.
+DEFAULT_DIR = os.environ.get("HEE_CRED_DIR") or ".hee/secrets"
 ENV_VAR = "HEE_CRED_PASS"
 DEFAULT_CORPUS_ROOT = "/var/local/hee-corpus"
 WORD_RE = re.compile(r"[A-Za-z']{3,}")
@@ -180,20 +186,84 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
     print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
 
 
-def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path):
+def derive_var(account: str) -> str:
+    """Credential name -> environment variable name.
+
+    plex-token -> PLEX_TOKEN, cf-dns-token -> CF_DNS_TOKEN, do-token ->
+    DO_TOKEN. This is not a new convention; it is the one operators were
+    already applying by hand in every -exec wrapper, so deriving it removes
+    a step rather than adding a rule. -as overrides when a tool wants a name
+    that does not follow from the credential's own.
+    """
+    out = "".join(c if c.isalnum() else "_" for c in account).upper()
+    if out and out[0].isdigit():
+        out = "_" + out          # an identifier may not start with a digit
+    return out
+
+
+def recipient_keyids(path: Path):
+    """Key ids a sealed file is addressed to, for diagnostics only.
+
+    --list-only never decrypts, so this is safe to call on a file this host
+    cannot open -- which is exactly when it is needed.
+    """
+    proc = subprocess.run(
+        ["gpg", "--list-packets", "--list-only", str(path)],
+        capture_output=True)
+    text = (proc.stdout + proc.stderr).decode(errors="replace")
+    return re.findall(r"keyid ([0-9A-Fa-f]{8,40})", text)
+
+
+def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
+                    var_name: str = None):
     in_path = secrets_dir / f"{account}.gpg"
     if not in_path.exists():
-        sys.exit(f"hee-cred: no sealed credential at {in_path}")
+        # Name the resolved directory and list what is actually in it. A bare
+        # "no sealed credential at .hee/secrets/x.gpg" hides the real cause,
+        # which is almost always that the RELATIVE default resolved against
+        # an unexpected cwd.
+        msg = [f"hee-cred: no sealed credential at {in_path.resolve()}"]
+        if secrets_dir.is_dir():
+            found = sorted(q.stem for q in secrets_dir.glob("*.gpg"))
+            msg.append(f"  {secrets_dir.resolve()} holds: "
+                       + (", ".join(found) if found else "(no .gpg files)"))
+        else:
+            msg.append(f"  {secrets_dir.resolve()} is not a directory.")
+        msg.append("  The default store is RELATIVE to the current directory."
+                   " Set HEE_CRED_DIR in heerc to pin one, or pass -dir.")
+        sys.exit("\n".join(msg))
     if not exec_cmd:
         sys.exit("hee-cred: -exec <command...> required -- hee-cred never prints a decrypted secret directly")
 
     proc = subprocess.run(["gpg", "--decrypt", "--quiet", str(in_path)], capture_output=True)
     if proc.returncode != 0:
-        sys.exit(f"hee-cred: gpg decrypt failed: {proc.stderr.decode(errors='replace')}")
+        # "No secret key" alone sends the reader to `gpg --list-keys`, which
+        # answers a DIFFERENT question -- the public keyring -- and reassures
+        # them wrongly. Measured 2026-09-09: that exact detour cost a real
+        # debugging session. So name the keys the file is actually addressed
+        # to, and say plainly that a public key is not enough.
+        err = proc.stderr.decode(errors="replace").strip()
+        msg = [f"hee-cred: gpg decrypt failed: {err}"]
+        ids = recipient_keyids(in_path)
+        if ids:
+            msg.append(f"  {in_path.name} is sealed to: {', '.join(ids)}")
+            msg.append("  This host holds no SECRET key for any of them. Note that")
+            msg.append("  `gpg --list-keys` lists PUBLIC keys and will happily show")
+            msg.append("  these -- use `gpg --list-secret-keys` to see what can")
+            msg.append("  actually decrypt. Re-seal to a key this host holds, on a")
+            msg.append("  host that can already open it, then copy the file here:")
+            msg.append("  the recipients live in the FILE, so re-sealing elsewhere")
+            msg.append("  changes nothing until the new file arrives.")
+        sys.exit("\n".join(msg))
     secret = proc.stdout.decode()
 
     child_env = os.environ.copy()
     child_env[ENV_VAR] = secret
+    # ENV_VAR stays for backward compatibility -- every existing wrapper in
+    # the fleet reads $HEE_CRED_PASS and must keep working.
+    target = var_name or derive_var(account)
+    if target != ENV_VAR:
+        child_env[target] = secret
     result = subprocess.run(exec_cmd, env=child_env, shell=False)
     sys.exit(result.returncode)
 
@@ -203,6 +273,12 @@ def main():
     ap.add_argument("-seal", dest="seal_account", metavar="ACCOUNT")
     ap.add_argument("-recipients", default="", metavar="GPGID1,GPGID2,...")
     ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")
+    ap.add_argument("-run", dest="run_account", metavar="ACCOUNT",
+                    help="like -pass, but also exports the secret under a variable name "
+                         "derived from ACCOUNT (plex-token -> PLEX_TOKEN), so a tool needs "
+                         "no sh -c wrapper to rename it")
+    ap.add_argument("-as", dest="var_name", metavar="VAR",
+                    help="with -run/-pass: use this variable name instead of the derived one")
     ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD")
     ap.add_argument("-dir", default=DEFAULT_DIR, metavar="PATH")
     ap.add_argument("-genfrom", dest="genfrom_term", metavar="TERM")
@@ -224,8 +300,15 @@ def main():
 
     if args.seal_account:
         seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root)
+    elif args.run_account:
+        unseal_and_exec(args.run_account, args.exec_cmd or [], secrets_dir,
+                        args.var_name)
     elif args.pass_account:
-        unseal_and_exec(args.pass_account, args.exec_cmd or [], secrets_dir)
+        # -pass keeps its original contract: HEE_CRED_PASS only, unless -as
+        # is given. Adding a derived variable here would change what existing
+        # callers see in their environment.
+        unseal_and_exec(args.pass_account, args.exec_cmd or [], secrets_dir,
+                        args.var_name or ENV_VAR)
     else:
         print(__doc__)
         sys.exit(1)

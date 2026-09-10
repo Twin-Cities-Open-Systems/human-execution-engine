@@ -60,6 +60,36 @@ Comma\-separated GPG key IDs or emails to encrypt to. At least one
 required. Multiple recipients means any one of them can independently
 decrypt.
 .TP
+.BI \-run " ACCOUNT"
+Like
+.B \-pass
+, but also exports the secret under a variable name derived from
+.IR ACCOUNT :
+non-alphanumerics become underscores and the whole name is upper-cased, so
+.I plex\-token
+arrives as
+.BR PLEX_TOKEN ,
+.I cf\-dns\-token
+as
+.BR CF_DNS_TOKEN .
+This is the naming operators were already applying by hand in every
+.B \-exec
+wrapper, so a consumer needs no
+.B sh \-c
+shim to rename it.
+.B HEE_CRED_PASS
+is still set as well, so existing wrappers keep working.
+.TP
+.BI \-as " VAR"
+With
+.B \-run
+or
+.BR \-pass :
+use
+.I VAR
+as the variable name instead of the derived one. For a tool whose expected
+variable does not follow from the credential's own name.
+.TP
 .BI \-pass " ACCOUNT"
 Decrypt the named account's secret for one \fB\-exec\fR call.
 .TP
@@ -108,3 +138,19 @@ IANA Private Enterprise Number: 1.3.6.1.4.1.66550
 .SH SEE ALSO
 .BR hee-pwgen (1),
 .BR hee-qr (1)
+.SH ENVIRONMENT
+.TP
+.B HEE_CRED_DIR
+Absolute path to the secrets store, overriding the relative default
+.IR .hee/secrets .
+Set it in
+.I heerc
+to pin one store per machine;
+.B \-dir
+still wins when given.
+.TP
+.B HEE_CRED_PASS
+Set in the child's environment by
+.B \-pass
+and
+.BR \-run .
