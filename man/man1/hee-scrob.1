@@ -35,13 +35,60 @@ Plex server base URL (default \fBhttps://plex.crooked.tcos.us\fR).
 .B \-current\-only
 Skip the \(+-5s subtitle context, print only the exact\-moment line.
 .SH AUTHENTICATION
-Reads
-.B PLEX_TOKEN
-from the environment, or from
-.B ~/.config/hee/plex\-token
-if unset (irssi's EXEC doesn't inherit env vars set after irssi
-launched, so the file is the reliable path for that case). Never
-hardcoded, never printed.
+Never hardcoded, never printed. The token is resolved in this order and
+the first hit wins, so the plain
+.B hee scrob
+needs no wrapper:
+.TP
+.B 1.
+.BR PLEX_TOKEN ,
+which is what
+.B hee cred \-run plex\-token \-exec
+injects, and which is unambiguous because it is named for this
+credential.
+.B HEE_CRED_PASS
+is
+.I not
+read as the token:
+.BR hee\-cred (1)
+injects every sealed credential under that one fixed name and this tool
+needs two of them, so the documented
+.B \-discord
+invocation set it to the webhook URL and the old code sent that URL to
+the Plex server in an
+.B X\-Plex\-Token
+header.
+.B \-discord
+still reads it, where it is unambiguous by construction.
+.TP
+.B 2.
+the sealed
+.B plex\-token
+credential, opened by this tool itself via
+.BR hee\-cred (1).
+The store is
+.BR HEE_CRED_DIR ,
+defaulting to the HOME store
+.BR ~/.hee/secrets .
+.TP
+.B 3.
+.BR ~/.config/hee/plex\-token ,
+a real file for contexts where gpg cannot run at all. irssi's EXEC
+inherits only the env vars present when irssi launched and does not
+source a profile, so this needs no agent, no tty and no restart.
+.PP
+Step 2 exists because requiring a wrapper put two things on the caller
+that are easy to get silently wrong: WHICH store \(em
+.BR hee\-cred (1)'s
+default is relative to the current directory, so a wrapper without an
+explicit one works from
+.B ~
+and dies one
+.B cd
+later \(em and THAT A WRAPPER EXISTS AT ALL, since a bash alias is
+invisible to cron, to
+.BR "ssh host cmd" ,
+to CI, and to irssi's EXEC, which is this tool's whole point.
 .SH EXAMPLES
 .RS
 .nf

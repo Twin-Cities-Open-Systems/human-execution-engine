@@ -31,14 +31,28 @@ Designed to be wired as an irssi alias that pipes stdout into a channel:
   SCROB = "EXEC -o ~/.local/bin/hee-scrob"
 then just `/scrob` in the channel.
 
-Auth: reads PLEX_TOKEN from the environment -- never hardcoded, never
-printed. Real, sealed path via hee-cred (HEE#279), generic through the
-`hee` dispatcher so no absolute repo path is baked into an alias:
-  hee cred -pass plex-token -exec hee scrob
-hee-cred injects the decrypted value into $HEE_CRED_PASS (never
-$PLEX_TOKEN itself -- that's always the fixed env var name hee-cred
-uses, regardless of the sealed account's name), so read_token() checks
-that var too, not just $PLEX_TOKEN.
+Auth: never hardcoded, never printed. This tool opens its own sealed
+credential, so the plain invocation is the whole thing:
+  hee scrob
+The token is resolved in this order, and the first hit wins:
+  1. $PLEX_TOKEN -- what `hee cred -run plex-token -exec` injects.
+  2. the sealed `plex-token` credential, opened by this tool via
+     hee-cred (HEE#279) against $HEE_CRED_DIR, defaulting to the HOME
+     store ~/.hee/secrets.
+  3. ~/.config/hee/plex-token, a real file for contexts where gpg
+     cannot run at all.
+$HEE_CRED_PASS is NOT read as the token. hee-cred injects every sealed
+credential under that one name and this tool needs two -- the Discord
+invocation sets it to the WEBHOOK URL, which the old code then sent to
+Plex as an X-Plex-Token header. -discord still reads it, where it is
+unambiguous by construction.
+Step 2 exists because requiring a wrapper put two things on the caller
+that are easy to get silently wrong: WHICH store (hee-cred's default is
+relative to the current directory, so a wrapper without an explicit one
+works from ~ and dies one `cd` later) and THAT A WRAPPER EXISTS (a
+bash alias is invisible to cron, to `ssh host cmd`, to CI, and to
+irssi's EXEC -- which is this tool's whole point). hee-scrob already
+knows which account it needs; holding that here is the fix.
 
 Usage:
   hee-scrob [-server URL]
@@ -57,7 +71,9 @@ import argparse
 import json
 import os
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -72,18 +88,125 @@ from hee_cli import help_wanted, note_ignored  # noqa: E402
 
 DEFAULT_SERVER = "https://plex.crooked.tcos.us"
 DEFAULT_TOKEN_FILE = Path.home() / ".config" / "hee" / "plex-token"
+# The sealed accounts this tool needs, held here so no caller has to know
+# them. Two DIFFERENT credentials, which is the whole reason $HEE_CRED_PASS
+# can no longer be trusted to hold either one -- see read_token().
+CRED_ACCOUNT = "plex-token"
+DISCORD_ACCOUNT = "discord-webhook-scrob"
 DEVICE_NAMES_FILE = Path.home() / ".config" / "hee" / "device-names.txt"
 
 
+def unseal(account: str) -> str:
+    """Open the sealed `plex-token` credential ourselves.
+
+    WHY THIS EXISTS. The documented invocation used to be a wrapper the
+    caller had to supply:
+
+        hee cred -run plex-token -exec hee scrob
+
+    That is correct and it kept failing, three times in one session, in
+    three different ways -- because it pushes two pieces of knowledge onto
+    every caller, and both are easy to get wrong silently:
+
+      1. WHICH STORE. `hee cred`'s default store is `.hee/secrets`
+         RELATIVE TO THE CURRENT DIRECTORY. A wrapper without an explicit
+         store works from ~ and dies one `cd` later:
+             ~ $ plexrun hee scrob                       -> np: ...
+             ~/git/fleet-ops/view $ plexrun hee scrob
+             hee-cred: no sealed credential at
+               .../git/fleet-ops/view/.hee/secrets/plex-token.gpg
+         Nothing broke. The relative default is deliberate -- a repo
+         carries its own store -- which is exactly why a HOME-store
+         credential has to name HEE_CRED_DIR, and why a hand-rolled
+         wrapper is the wrong place to remember that.
+
+      2. THAT A WRAPPER EXISTS AT ALL. `plexrun` lives in
+         ~/.bash_aliases, and an alias exists ONLY in an interactive
+         bash. It is invisible to cron, to `ssh host cmd`, to CI, and --
+         the case that matters most here -- to irssi's EXEC, which is the
+         whole point of this tool. Measured 2026-09-10: on two hosts the
+         wrapper did not exist at all, because their ~/.bashrc predates
+         both the heerc source line and the alias-file block.
+
+    hee-scrob already knows the account name it needs. Asking the caller
+    to supply it, from the right directory, in a shell that happens to be
+    wired for it, is knowledge this tool should hold itself.
+
+    Never printed and never written to disk -- the value crosses one pipe
+    into this process and stays here.
+    """
+    # SIBLING FIRST, and that is not a micro-optimization. hee-scrob IS a
+    # hee tool, so hee-cred is by construction the file next to it -- while
+    # PATH is a property of the calling shell, and the calling shell here is
+    # irssi's EXEC, or cron, or a non-login `ssh host cmd`, none of which
+    # source a profile. Measured 2026-09-10: this function returned nothing
+    # on a host where the credential opened perfectly by hand, purely
+    # because neither `hee-cred` nor `hee` was on PATH in that context.
+    # Resolving next to __file__ needs no PATH and bakes in no absolute
+    # path, so it holds wherever the checkout lives.
+    sibling = Path(__file__).resolve().parent / "hee-cred"
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        argv = [str(sibling)]
+    elif shutil.which("hee-cred"):
+        argv = ["hee-cred"]
+    elif shutil.which("hee"):
+        argv = ["hee", "cred"]
+    else:
+        return ""
+    argv += ["-pass", account, "-exec", "sh", "-c", 'printf %s "$HEE_CRED_PASS"']
+
+    env = dict(os.environ)
+    # The store is named EXPLICITLY and absolutely. Falling through to the
+    # cwd-relative default is the bug this function exists to remove, so it
+    # is not an option here -- an operator who has pinned HEE_CRED_DIR
+    # deliberately still wins.
+    env.setdefault("HEE_CRED_DIR", str(Path.home() / ".hee" / "secrets"))
+
+    try:
+        # A timeout, because gpg can block on an agent prompt and this runs
+        # from irssi's EXEC where there is no terminal to prompt on. Better
+        # to fall through to the token file than to hang a client.
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=15, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def read_token() -> str:
-    """Real fallback for EXEC-spawned shells: irssi's EXEC only inherits
-    env vars present when irssi itself launched, and doesn't source
-    .profile -- so PLEX_TOKEN set after the fact never reaches /SCROB
-    without a full session restart. A real file, checked second, avoids
-    needing one."""
-    env_token = os.environ.get("PLEX_TOKEN") or os.environ.get("HEE_CRED_PASS")
+    """Resolve the token, cheapest and most explicit first.
+
+    1. $PLEX_TOKEN -- what `hee cred -run plex-token -exec` injects, and
+       unambiguous because it is named for this credential.
+    2. the sealed `plex-token` credential, opened by this tool (see unseal).
+    3. ~/.config/hee/plex-token -- the real escape hatch for a context
+       where gpg cannot run at all. irssi's EXEC inherits only the env
+       vars present when irssi itself launched and does not source
+       .profile, so a PLEX_TOKEN exported afterwards never reaches /SCROB
+       without a full session restart. A file needs no agent, no tty and
+       no restart.
+
+    $HEE_CRED_PASS IS DELIBERATELY NOT READ HERE ANY MORE, and dropping it
+    fixes a real collision rather than tidying up. hee-cred injects EVERY
+    sealed credential under that one fixed name, and this tool needs TWO
+    different ones. The documented Discord invocation is
+
+        hee cred -pass discord-webhook-scrob -exec hee-scrob -discord
+
+    which sets $HEE_CRED_PASS to the WEBHOOK URL. The old code read that
+    same variable as the Plex token, so `-discord` sent the webhook URL to
+    the Plex server in an X-Plex-Token header -- leaking one credential to
+    a third party and failing the scrobble with 401 on the way.
+
+    Nothing regresses by removing it: the previously documented
+    `hee cred -pass plex-token -exec hee scrob` still works, because step 2
+    now opens that same credential without being told to.
+    """
+    env_token = os.environ.get("PLEX_TOKEN")
     if env_token:
         return env_token
+    sealed = unseal(CRED_ACCOUNT)
+    if sealed:
+        return sealed
     if DEFAULT_TOKEN_FILE.exists():
         return DEFAULT_TOKEN_FILE.read_text().strip()
     return ""
@@ -260,10 +383,19 @@ def format_line(r):
 
 
 def post_discord(text):
-    webhook_url = os.environ.get("HEE_CRED_PASS")
+    # $HEE_CRED_PASS is still honored here, and here it is unambiguous:
+    # the documented Discord invocation wraps exactly this credential, so
+    # whatever hee-cred injected is the webhook by construction. If nothing
+    # wrapped us, open the sealed account ourselves -- same as the token, so
+    # `hee scrob -discord` needs no wrapper either.
+    webhook_url = os.environ.get("HEE_CRED_PASS") or unseal(DISCORD_ACCOUNT)
     if not webhook_url:
-        sys.exit("hee-scrob: -discord needs the webhook URL in $HEE_CRED_PASS -- "
-                  "run via: hee cred -pass <sealed-name> -exec hee-scrob -discord")
+        sys.exit(
+            f"hee-scrob: -discord has no webhook. Tried $HEE_CRED_PASS, then the\n"
+            f"sealed '{DISCORD_ACCOUNT}' credential. Seal it once:\n"
+            f"  hee cred -seal {DISCORD_ACCOUNT}\n"
+            f"or wrap explicitly: hee cred -pass {DISCORD_ACCOUNT} -exec hee scrob -discord"
+        )
     body = json.dumps({"content": text}).encode("utf-8")
     req = urllib.request.Request(
         webhook_url, data=body, method="POST",
@@ -296,7 +428,17 @@ def main():
 
     token = read_token()
     if not token:
-        sys.exit(f"hee-scrob: no token -- set $PLEX_TOKEN or write one to {DEFAULT_TOKEN_FILE}")
+        _store = os.environ.get("HEE_CRED_DIR") or str(Path.home() / ".hee" / "secrets")
+        sys.exit(
+            "hee-scrob: no token. Tried, in order:\n"
+            "  1. $PLEX_TOKEN -- unset\n"
+            f"  2. sealed '{CRED_ACCOUNT}' in {_store} -- did not open\n"
+            f"  3. {DEFAULT_TOKEN_FILE} -- not present\n"
+            f"Seal it once and this tool needs no wrapper afterwards:\n"
+            f"  hee cred -seal {CRED_ACCOUNT}\n"
+            "If it IS sealed there, this host may hold no secret key for its\n"
+            "recipients -- `hee cred -pass " + CRED_ACCOUNT + " -exec true` says which."
+        )
 
     device_names = read_device_names()
 
