@@ -72,6 +72,10 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
         - {generate: agent-roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
       provision:                        # committed POSIX sh scripts run inside it
         - pve/lab-dhcp/provision.sh
+      resolver:                         # the container's /etc/resolv.conf, and nothing overwrites it
+        nameservers: [10.0.0.194, 10.0.0.72]
+        search: [lab.tcos.us, tcos.us]
+        ndots: 2
 
     `files:` and `provision:` paths are relative to the root of the repo the
     manifest lives in (git rev-parse --show-toplevel), never to the current
@@ -99,3 +103,18 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
     nothing to say so. Operator: "generate from roster at deploy is correct,
     footgun". The model is named in exactly one place, and the dry run prints
     the rendered file.
+
+    `resolver:` declares the container's DNS: up to three IPv4 nameservers, in
+    order; an optional search list; and ndots (default 1). The tool writes
+    /etc/resolv.conf from it right after the network is up, before add-ons, and
+    makes it stick. Nothing else does, measured 2026-09-10: the golden template
+    sets no resolver, pve rewrites /etc/resolv.conf from the HOST's file at every
+    container start, and Alpine's udhcpc rewrites it from DHCP on every lease --
+    ct113 was resolving through 10.0.0.72 and 1.1.1.1 handed out by the
+    household router, and a public resolver answers NXDOMAIN for lab names. So
+    it also writes /etc/.pve-ignore.resolv.conf (pve skips the file), and for a
+    DHCP container /etc/udhcpc/udhcpc.conf with RESOLV_CONF="no". ndots matters
+    on musl: the search list is used only when a name has FEWER dots than
+    ndots, so `view.lab` (one dot) resolves as view.lab.tcos.us only with
+    ndots 2. Operator: "proper search and ndot settings too (view.lab/foo should
+    work)".

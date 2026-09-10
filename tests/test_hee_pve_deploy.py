@@ -299,6 +299,62 @@ class TestAgentRosterModel(unittest.TestCase):
         self.assertIn('"model": "claude-haiku-4-5-20251001"', text)
 
 
+class TestResolver(unittest.TestCase):
+
+    BLOCK = {"nameservers": ["10.0.0.194", "10.0.0.72"], "search": ["lab.tcos.us", "tcos.us"], "ndots": 2}
+
+    def _data(self, plan, dst):
+        return next(f["data"] for f in plan if f["dst"] == dst).decode()
+
+    def test_no_block_no_files(self):
+        self.assertEqual(deploy.plan_resolver({}), [])
+
+    def test_renders_search_nameservers_in_order_and_ndots(self):
+        plan = deploy.plan_resolver({"resolver": self.BLOCK})
+        body = [l for l in self._data(plan, "/etc/resolv.conf").splitlines() if not l.startswith("#")]
+        self.assertEqual(body, ["search lab.tcos.us tcos.us", "nameserver 10.0.0.194",
+                                "nameserver 10.0.0.72", "options ndots:2"])
+
+    def test_dhcp_container_stops_udhcpc_and_pve_rewriting(self):
+        dsts = [f["dst"] for f in deploy.plan_resolver({"resolver": self.BLOCK})]
+        self.assertEqual(dsts, ["/etc/.pve-ignore.resolv.conf", "/etc/udhcpc/udhcpc.conf", "/etc/resolv.conf"])
+        plan = deploy.plan_resolver({"resolver": self.BLOCK})
+        self.assertIn('RESOLV_CONF="no"', self._data(plan, "/etc/udhcpc/udhcpc.conf"))
+
+    def test_static_container_has_no_udhcpc_file(self):
+        dsts = [f["dst"] for f in deploy.plan_resolver({"resolver": self.BLOCK, "address": "172.16.0.10/24"})]
+        self.assertNotIn("/etc/udhcpc/udhcpc.conf", dsts)
+        self.assertIn("/etc/.pve-ignore.resolv.conf", dsts)
+
+    def test_ndots_defaults_to_one(self):
+        plan = deploy.plan_resolver({"resolver": {"nameservers": ["10.0.0.194"]}})
+        self.assertIn("options ndots:1", self._data(plan, "/etc/resolv.conf"))
+
+    def test_refusals(self):
+        bad = [
+            "not a mapping",
+            {"nameservers": []},
+            {"nameservers": ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]},
+            {"nameservers": ["ns1.lab.tcos.us"]},
+            {"nameservers": ["10.0.0.194"], "search": ["not a domain"]},
+            {"nameservers": ["10.0.0.194"], "search": "lab.tcos.us"},
+            {"nameservers": ["10.0.0.194"], "ndots": 0},
+            {"nameservers": ["10.0.0.194"], "ndots": 16},
+            {"nameservers": ["10.0.0.194"], "ndots": "2"},
+            {"nameservers": ["10.0.0.194"], "ndots": True},
+            {"nameservers": ["10.0.0.194"], "options": ["rotate"]},
+        ]
+        for b in bad:
+            with self.subTest(block=b), self.assertRaises(SystemExit):
+                deploy.plan_resolver({"resolver": b})
+
+    def test_dry_run_prints_the_rendered_resolv_conf(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            deploy.apply_files("invalid.", "999", deploy.plan_resolver({"resolver": self.BLOCK}), dry_run=True)
+        self.assertIn("resolver: /etc/resolv.conf -> /etc/resolv.conf (mode 0644)", out.getvalue())
+
+
 class TestManifestRoot(unittest.TestCase):
 
     def test_root_is_the_git_toplevel_when_inside_a_repo(self):
