@@ -33,14 +33,66 @@ OPTIONS
               Skip the ±5s subtitle context, print only the exact-moment line.
 
 AUTHENTICATION
-       Reads PLEX_TOKEN from the environment, or from ~/.config/hee/plex-token
-       if  unset  (irssi's  EXEC  doesn't  inherit  env  vars  set after irssi
-       launched, so the file is the reliable path for that case). Never  hard‐
-       coded, never printed.
+       Never hardcoded, never printed. The token is resolved in this order and
+       the first hit wins, so the plain hee scrob needs no wrapper:
+
+       1.     PLEX_TOKEN,  which  is  what  hee cred -run plex-token -exec in‐
+              jects, and which is unambiguous because it  is  named  for  this
+              credential.  HEE_CRED_PASS is not read as the token: hee-cred(1)
+              injects  every  sealed  credential under that one fixed name and
+              this tool needs two of them, so the documented -discord  invoca‐
+              tion set it to the webhook URL and the old code sent that URL to
+              the Plex server in an X-Plex-Token header.  -discord still reads
+              it, where it is unambiguous by construction.
+
+       2.     the sealed plex-token credential, opened by this tool itself via
+              hee-cred(1).   The store is HEE_CRED_DIR, defaulting to the HOME
+              store ~/.hee/secrets.
+
+       3.     ~/.config/hee/plex-token, a real file  for  contexts  where  gpg
+              cannot  run  at  all.  irssi's  EXEC  inherits only the env vars
+              present when irssi launched and does not source  a  profile,  so
+              this needs no agent, no tty and no restart.
+
+       Step  2 exists because requiring a wrapper put two things on the caller
+       that are easy to get silently wrong: WHICH store  —  hee-cred(1)'s  de‐
+       fault is relative to the current directory, so a wrapper without an ex‐
+       plicit  one works from ~ and dies one cd later — and THAT A WRAPPER EX‐
+       ISTS AT ALL, since a bash alias is invisible to cron, to ssh host  cmd,
+       to CI, and to irssi's EXEC, which is this tool's whole point.
 
 EXAMPLES
+       The  plain  form.  No wrapper, no environment: the sealed plex-token is
+       opened by this tool.
+
               hee scrob
               np: Family Guy s20e01 - LASIK Instinct (2021) @ 00:10:40 (Dad TV)
+
+       Post the same line to Discord instead of stdout. The webhook is  opened
+       the same way, from the sealed discord-webhook-scrob account.
+
+              hee scrob -discord
+
+       An  explicit  wrapper  still wins, which is the way to pass a different
+       token for one run.  plexrun is the interactive convenience  defined  in
+       ~/.bash_aliases   (dotfiles);   it   pins   the   HOME  store,  because
+       hee-cred(1)'s default store is relative to the current directory:
+
+              plexrun() { HEE_CRED_DIR="$HOME/.hee/secrets" hee_cred_run plex-token "$@"; }
+
+              plexrun hee scrob
+              np: Family Guy s17e09 - Pawtucket Pete (2018) @ 00:05:48 (Chrome)
+
+       It takes a command — bare plexrun has nothing to run and prints its us‐
+       age. And being a shell function it exists only in an interactive  bash,
+       so  it  is not available to cron, to ssh host cmd, to CI, or to irssi's
+       EXEC. That is why the plain form above exists and why it is the one  to
+       reach for.
+
+       Seal the two credentials once, on a host whose key can open them:
+
+              hee cred -seal plex-token
+              hee cred -seal discord-webhook-scrob
 
 IRSSI INTEGRATION
        Designed to sit behind an alias:
@@ -49,11 +101,41 @@ IRSSI INTEGRATION
 
        then just /SCROB in a channel.
 
+       EXEC is the reason the token file exists. irssi inherits only the envi‐
+       ronment  variables  present  when  irssi itself launched and sources no
+       profile, so a PLEX_TOKEN exported afterwards never reaches /SCROB with‐
+       out a full client restart — and a shell function such as plexrun is not
+       visible to it at all.
+
+       Step 2 of the resolution order usually covers this: the sealed  creden‐
+       tial  is opened by this tool, needing no wrapper. It needs gpg-agent to
+       already hold the key, though, because EXEC has no  terminal  to  prompt
+       on. The unseal is bounded by a timeout so a cold agent falls through to
+       the  token  file rather than hanging the client. For a setup that works
+       from a cold start, write the file as well:
+
+              umask 077
+              mkdir -p ~/.config/hee
+              HEE_CRED_DIR="$HOME/.hee/secrets" hee cred -pass plex-token \
+                -exec sh -c 'printf %s "$HEE_CRED_PASS" > "$HOME/.config/hee/plex-token"'
+
+       That never prints the token and never places it in  shell  history.  It
+       does  put  it  in plaintext on disk at mode 0600, which is a real down‐
+       grade from sealed and a deliberate trade for a context where gpg cannot
+       run.
+
 ORGANIZATION
        Twin Cities Open Systems - Operations LLC
        IANA Private Enterprise Number: 1.3.6.1.4.1.66550
 
 SEE ALSO
+       hee-cred(1) — seals and opens the credentials this tool reads.
+
+       docs/guides/SEALED_CREDENTIALS.md in the human-execution-engine reposi‐
+       tory — the five traps in handing a secret to a command,  including  the
+       cwd-relative store and the one-variable-two-credentials leak that -dis‐
+       cord used to hit.
+
        hee-qdb(1), hee-net(1)
 
 HEE                               2026-08-22                      HEE-SCROB(1)

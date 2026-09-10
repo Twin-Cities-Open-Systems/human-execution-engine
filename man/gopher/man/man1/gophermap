@@ -5,6 +5,7 @@ i		man.tcos.us	70
 0hee-board(1)	/man/man1/hee-board.txt	man.tcos.us	70
 0hee-check-og(1)	/man/man1/hee-check-og.txt	man.tcos.us	70
 0hee-check(1)	/man/man1/hee-check.txt	man.tcos.us	70
+0hee-completion(1)	/man/man1/hee-completion.txt	man.tcos.us	70
 0hee-con(1)	/man/man1/hee-con.txt	man.tcos.us	70
 0hee-contract-review(1)	/man/man1/hee-contract-review.txt	man.tcos.us	70
 0hee-cred(1)	/man/man1/hee-cred.txt	man.tcos.us	70
@@ -16,6 +17,7 @@ i		man.tcos.us	70
 0hee-gen-manpages(1)	/man/man1/hee-gen-manpages.txt	man.tcos.us	70
 0hee-gen-skills(1)	/man/man1/hee-gen-skills.txt	man.tcos.us	70
 0hee-git-merge(1)	/man/man1/hee-git-merge.txt	man.tcos.us	70
+0hee-git-tag(1)	/man/man1/hee-git-tag.txt	man.tcos.us	70
 0hee-hg(1)	/man/man1/hee-hg.txt	man.tcos.us	70
 0hee-hooks-install(1)	/man/man1/hee-hooks-install.txt	man.tcos.us	70
 0hee-index(1)	/man/man1/hee-index.txt	man.tcos.us	70
@@ -33,6 +35,7 @@ i		man.tcos.us	70
 0hee-qdb(1)	/man/man1/hee-qdb.txt	man.tcos.us	70
 0hee-qr(1)	/man/man1/hee-qr.txt	man.tcos.us	70
 0hee-quota(1)	/man/man1/hee-quota.txt	man.tcos.us	70
+0hee-release(1)	/man/man1/hee-release.txt	man.tcos.us	70
 0hee-repo-refresh(1)	/man/man1/hee-repo-refresh.txt	man.tcos.us	70
 0hee-scan(1)	/man/man1/hee-scan.txt	man.tcos.us	70
 0hee-scrob(1)	/man/man1/hee-scrob.txt	man.tcos.us	70
