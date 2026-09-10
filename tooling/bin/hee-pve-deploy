@@ -65,6 +65,12 @@ nothing to say so. Operator: "generate from roster at deploy is correct,
 footgun". The model is named in exactly one place, and the dry run prints
 the rendered file.
 
+Every command run inside the container gets
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin. `pct exec`
+otherwise passes PVE's own /sbin:/bin:/usr/sbin:/usr/bin, which has no
+/usr/local/bin, so a provision script calling a tool it just linked there
+exited 127 (measured 2026-09-10).
+
 `resolver:` declares the container's DNS: up to three IPv4 nameservers, in
 order; an optional search list; and ndots (default 1). The tool writes
 /etc/resolv.conf from it right after the network is up, before add-ons, and
@@ -112,7 +118,10 @@ def pvesh(host, args, capture=True):
     cmd = ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pvesh", *args]
     proc = subprocess.run(cmd, capture_output=capture, text=True)
     if proc.returncode != 0:
-        sys.exit(f"hee-pve-deploy: pvesh {' '.join(args)} failed:\n{proc.stderr}")
+        # With capture=False pvesh wrote straight to the terminal, so there is
+        # no stderr to show -- say so rather than printing "None".
+        detail = proc.stderr if capture else "(pvesh's own output is above; it was not captured)"
+        sys.exit(f"hee-pve-deploy: pvesh {' '.join(args)} failed (exit {proc.returncode}):\n{detail}")
     return proc.stdout if capture else None
 
 
@@ -322,10 +331,16 @@ def main():
     resolver_files = plan_resolver(spec)
     scripts = plan_provision(spec, root)
     addons = spec.get("addons", []) or []
+    # Add-on names resolve at plan time too. They used to be checked only
+    # inside apply_addons, AFTER `pvesh create`, so a misspelled set left a
+    # running container holding nothing but its resolver files.
+    plan_addons(addons, args.addons)
 
     existing = existing_hostnames(args.host, args.node)
     if hostname in existing:
         print(f"hee-pve-deploy: '{hostname}' already exists (vmid {existing[hostname]}) -- skipping, idempotent.")
+        print("hee-pve-deploy: nothing was applied. A container an earlier run left half-provisioned is NOT "
+              "repaired by re-running: destroy it and deploy again, or run its provision script by hand.")
         return
 
     template_storage = spec.get("template_storage", "local")
@@ -411,9 +426,12 @@ def load_addon_registry(path):
     return addons
 
 
-def apply_addons(host, vmid, wanted, dry_run, registry_path=DEFAULT_ADDONS):
+def plan_addons(wanted, registry_path=DEFAULT_ADDONS):
+    """The registry, with every wanted set name confirmed in it. No sets, no
+    registry read. Refuses unknown names -- at plan time, before anything is
+    created."""
     if not wanted:
-        return
+        return {}
     registry = load_addon_registry(registry_path)
     unknown = [a for a in wanted if a not in registry]
     if unknown:
@@ -424,6 +442,13 @@ def apply_addons(host, vmid, wanted, dry_run, registry_path=DEFAULT_ADDONS):
             f"  needed -- evidence_before_entry -- rather than inlining\n"
             f"  packages here."
         )
+    return registry
+
+
+def apply_addons(host, vmid, wanted, dry_run, registry_path=DEFAULT_ADDONS):
+    if not wanted:
+        return
+    registry = plan_addons(wanted, registry_path)
     for name in wanted:
         entry = registry[name]
         if entry.get("blocked_by"):
@@ -434,10 +459,11 @@ def apply_addons(host, vmid, wanted, dry_run, registry_path=DEFAULT_ADDONS):
             continue
         # Alpine. A set for another base would need its own installer; this
         # says so rather than silently running apk on a Debian container.
-        cmd = ["pct", "exec", str(vmid), "--",
-               "sh", "-c", "apk add --no-cache " + " ".join(pkgs)]
+        cmd = _pct(vmid, ["sh", "-c", "apk add --no-cache " + " ".join(pkgs)])
         if dry_run:
-            print(f"hee-pve-deploy: DRY RUN, would run: {' '.join(cmd)}")
+            # Quoted exactly as it is sent: the unquoted preview pasted as
+            # `sh -c apk` with the package names as positional parameters.
+            print(f"hee-pve-deploy: DRY RUN, would run: {' '.join(shlex.quote(c) for c in cmd)}")
             continue
         print(f"hee-pve-deploy: applying add-on '{name}': {' '.join(pkgs)}")
         r = subprocess.run(
@@ -555,7 +581,12 @@ def render_agent_roster_model(spec, agent_roster_path):
     `availableModels` + `enforceAvailableModels` refuse any other model;
     env ANTHROPIC_MODEL sets it for every session. Rendered as a drop-in
     (managed-settings.d/), which Claude Code merges over managed-settings.json,
-    so the shared base file carries nothing per-agent."""
+    so the shared base file carries nothing per-agent.
+
+    Precedence: file-based managed settings apply only while Claude Code
+    selects the file source. Under its default first-wins rule, server-managed
+    settings from a claude.ai organization login are ranked higher and replace
+    them -- `model` and `availableModels` included -- without a warning."""
     agent = spec.get("agent")
     if not agent:
         sys.exit("hee-pve-deploy: 'generate: agent-roster-model' needs the manifest's 'agent:' "
@@ -689,10 +720,24 @@ def plan_provision(spec, root):
     return out
 
 
+# Every command this tool runs inside a container gets this PATH. `pct exec`
+# runs lxc-attach with PVE's own CLI PATH, /sbin:/bin:/usr/sbin:/usr/bin
+# (PVE/CLIHandler.pm), which has no /usr/local/bin -- so a provision script
+# that links a tool there and then calls it exits 127 with the container
+# already created. Measured 2026-09-10 on ct113. This is the PATH Alpine and
+# Debian give a login shell.
+CONTAINER_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def _pct(vmid, argv):
+    """argv for `pct exec VMID -- ARGV`, with CONTAINER_PATH set."""
+    return ["pct", "exec", str(vmid), "--", "env", f"PATH={CONTAINER_PATH}", *argv]
+
+
 def _pct_exec_stdin(host, vmid, argv, data, what, capture=True):
     """Run ARGV inside the container with DATA on its stdin. Fails loudly
     with the container's own stderr; never interprets silence."""
-    cmd = ["pct", "exec", str(vmid), "--", *argv]
+    cmd = _pct(vmid, argv)
     r = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", f"root@{host}",
          " ".join(shlex.quote(c) for c in cmd)],
@@ -711,7 +756,7 @@ def _wait_for_network(host, vmid, timeout=60):
     while True:
         r = subprocess.run(
             ["ssh", "-o", "BatchMode=yes", f"root@{host}",
-             " ".join(shlex.quote(c) for c in ["pct", "exec", str(vmid), "--", *probe])],
+             " ".join(shlex.quote(c) for c in _pct(vmid, probe))],
             capture_output=True)
         if r.returncode == 0:
             return
@@ -732,7 +777,7 @@ def apply_files(host, vmid, files, dry_run):
         label = f"{f['rel']} -> {f['dst']}" + (f" (mode {f['mode']})" if f["mode"] else "")
         if dry_run:
             print(f"hee-pve-deploy: DRY RUN, would push {label} via: "
-                  f"pct exec {vmid} -- sh -c {shlex.quote(sh)}")
+                  f"pct exec {vmid} -- env PATH={CONTAINER_PATH} sh -c {shlex.quote(sh)}")
             if f["data"] is not None:
                 print(textwrap.indent(f["data"].decode(), "    "), end="")
             continue
@@ -749,7 +794,7 @@ def apply_provision(host, vmid, scripts, dry_run):
     for s in scripts:
         if dry_run:
             print(f"hee-pve-deploy: DRY RUN, would run {s['rel']} via: "
-                  f"pct exec {vmid} -- sh -s < {s['rel']}")
+                  f"pct exec {vmid} -- env PATH={CONTAINER_PATH} sh -s < {s['rel']}")
             continue
         print(f"hee-pve-deploy: provisioning with {s['rel']} ...")
         with open(s["path"], "rb") as fh:

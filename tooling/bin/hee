@@ -171,8 +171,14 @@ esac
 # independently, on two branches -- same root cause). realpath/readlink -f
 # over a hand-rolled loop, per the GNU Tools Preference Policy
 # (HEE_POLICY.md #16).
+# No `--` after realpath. BusyBox realpath (Alpine, so every pve container)
+# takes no options and treats `--` as a second FILE: `realpath -- X` printed
+# X's target AND failed, `|| echo` appended the unresolved path, and
+# TOOL_ROOT resolved to / -- so `hee list` found no tools and still exited 0.
+# Measured 2026-09-10 on ct113 (BusyBox v1.37.0). GNU realpath needs no `--`
+# for a path that does not begin with `-`, and $0 here never does.
 if command -v realpath >/dev/null 2>&1; then
-  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+  SELF="$(realpath "$SELF" 2>/dev/null || echo "$SELF")"
 elif command -v readlink >/dev/null 2>&1; then
   SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
 fi

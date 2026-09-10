@@ -16,7 +16,7 @@ set -uo pipefail
 # help contract and the status vocabulary silently fail to load.
 HEE_SELF="$0"
 if command -v realpath >/dev/null 2>&1; then
-  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+  HEE_SELF="$(realpath "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
 elif command -v readlink >/dev/null 2>&1; then
   HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
 fi

@@ -12,7 +12,7 @@ set -eu
 # idiom the `hee` dispatcher uses, per the GNU Tools Preference Policy.
 SELF="$0"
 if command -v realpath >/dev/null 2>&1; then
-  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+  SELF="$(realpath "$SELF" 2>/dev/null || echo "$SELF")"
 elif command -v readlink >/dev/null 2>&1; then
   SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
 fi

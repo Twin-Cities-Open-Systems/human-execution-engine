@@ -12,7 +12,7 @@
 # onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
 SELF="$0"
 if command -v realpath >/dev/null 2>&1; then
-  SELF="$(realpath -- "$SELF" 2>/dev/null || echo "$SELF")"
+  SELF="$(realpath "$SELF" 2>/dev/null || echo "$SELF")"
 elif command -v readlink >/dev/null 2>&1; then
   SELF="$(readlink -f -- "$SELF" 2>/dev/null || echo "$SELF")"
 fi

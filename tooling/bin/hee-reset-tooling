@@ -32,7 +32,7 @@ set -eu
 # onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
 HEE_SELF="$0"
 if command -v realpath >/dev/null 2>&1; then
-  HEE_SELF="$(realpath -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+  HEE_SELF="$(realpath "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
 elif command -v readlink >/dev/null 2>&1; then
   HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
 fi

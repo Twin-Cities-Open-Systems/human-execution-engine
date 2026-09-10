@@ -157,7 +157,8 @@ class TestFilesAndProvision(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("DRY RUN, would push pve/x/a.conf -> /etc/a.conf (mode 0644)", text)
         self.assertIn("chmod 0644", text)
-        self.assertIn("DRY RUN, would run pve/x/p.sh via: pct exec 999 -- sh -s", text)
+        self.assertIn("DRY RUN, would run pve/x/p.sh via: pct exec 999 -- env PATH="
+                      "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -s", text)
 
 
 class TestAddonRegistry(unittest.TestCase):
@@ -353,6 +354,68 @@ class TestResolver(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             deploy.apply_files("invalid.", "999", deploy.plan_resolver({"resolver": self.BLOCK}), dry_run=True)
         self.assertIn("resolver: /etc/resolv.conf -> /etc/resolv.conf (mode 0644)", out.getvalue())
+
+
+class TestContainerPath(unittest.TestCase):
+    """pct exec hands containers PVE's PATH, which has no /usr/local/bin."""
+
+    PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    def test_pct_argv_sets_the_login_path(self):
+        self.assertEqual(deploy._pct(114, ["hee", "list"]),
+                         ["pct", "exec", "114", "--", "env", self.PATH, "hee", "list"])
+
+    def test_addon_dry_run_sets_path_and_is_paste_safe(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "r.yaml")
+            with open(p, "w") as fh:
+                fh.write("apiVersion: hee/v1\nkind: Registry\nspec:\n  addons:\n"
+                         "    demo:\n      packages: [curl, git]\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                deploy.apply_addons("invalid.", "999", ["demo"], True, p)
+        text = out.getvalue()
+        self.assertIn("env " + self.PATH, text)
+        self.assertIn("sh -c 'apk add --no-cache curl git'", text)
+
+    def test_files_dry_run_sets_path(self):
+        files = [{"rel": "x", "src": None, "data": b"y", "dst": "/etc/x", "mode": None}]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            deploy.apply_files("invalid.", "999", files, dry_run=True)
+        self.assertIn("pct exec 999 -- env " + self.PATH + " sh -c", out.getvalue())
+
+    def test_plan_addons_refuses_unknown_and_reads_nothing_for_no_sets(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "r.yaml")
+            with open(p, "w") as fh:
+                fh.write("apiVersion: hee/v1\nkind: Registry\nspec:\n  addons:\n"
+                         "    demo:\n      packages: [curl]\n")
+            with self.assertRaises(SystemExit):
+                deploy.plan_addons(["demo", "nope"], p)
+            self.assertIn("demo", deploy.plan_addons(["demo"], p))
+        self.assertEqual(deploy.plan_addons([], "/nonexistent/registry.yaml"), {})
+
+
+class TestBusyboxRealpath(unittest.TestCase):
+    """BusyBox realpath takes no options: `realpath -- X` resolves X, then fails
+    on `--`, and the `|| echo` fallback appends the unresolved path. hee's
+    TOOL_ROOT became / on every Alpine container."""
+
+    def test_no_tool_passes_double_dash_to_realpath(self):
+        import re
+        offenders = []
+        for f in sorted((ROOT / "tooling" / "bin").iterdir()):
+            if not f.is_file():
+                continue
+            try:
+                text = f.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                if re.search(r"\brealpath\s+--(\s|$)", line) and not line.lstrip().startswith("#"):
+                    offenders.append(f"{f.name}:{n}")
+        self.assertEqual(offenders, [], "realpath -- breaks under BusyBox")
 
 
 class TestManifestRoot(unittest.TestCase):
