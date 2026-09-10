@@ -89,6 +89,24 @@ class TestFieldsAndRender(unittest.TestCase):
         self.assertIn("from .hee/tickets in alpha", r.stdout)
         self.assertNotIn("alpha-viewjs", r.stdout)
 
+    def test_runs_from_any_directory(self):
+        run(self.a, "-new", "alpha thing")
+        outside = self.ws / "not-a-repo"; outside.mkdir()
+        env = dict(os.environ, HOME=str(self.ws))          # ~/git -> self.ws/git
+        (self.ws / "git").symlink_to(self.ws)
+        r = subprocess.run([sys.executable, str(TOOL), "-list"], cwd=outside, capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("alpha  0001  [open]", r.stdout)         # repo first, from outside any repo
+        r = subprocess.run([sys.executable, str(TOOL), "-new", "x"], cwd=outside, capture_output=True, text=True, env=env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--repo", r.stderr)
+        r = subprocess.run([sys.executable, str(TOOL), "-new", "from outside", "--repo", "alpha"], cwd=outside, capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.a / ".hee/tickets/0002.yaml").exists())
+        r = subprocess.run([sys.executable, str(TOOL), "-html"], cwd=outside, capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("from outside", r.stdout)
+
     def test_html_single_repo_and_out_file(self):
         run(self.a, "-new", "only here")
         out = self.ws / "todo-body.html"
