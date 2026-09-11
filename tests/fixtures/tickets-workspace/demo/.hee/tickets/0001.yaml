@@ -1,0 +1,10 @@
+id: '0001'
+created_at: '2026-09-01T00:00:00Z'
+description: an idea nobody has stress-tested yet
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-01T00:00:00Z'
+tags:
+- needs-spencer

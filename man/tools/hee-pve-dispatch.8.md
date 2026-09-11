@@ -52,6 +52,9 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
       inputs: [in/, rules.md]             # shipped; default: everything but results/
       outputs: [out/]                     # collected; default: out/
+      agent: docs-keeper                  # optional: a dispatch that resolves to any other role is refused
+      ticket: fleet-ops/0100              # optional: recorded when --ticket is not given
+      blocked_by: [fleet-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
       budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
       budget_reason: "five doc pages to read and cite"   # required when budget_usd > 1.00
       timeout_s: 1800                     # default 1800 -- `timeout` around claude

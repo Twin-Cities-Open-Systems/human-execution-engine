@@ -269,3 +269,31 @@ class ResultJson(unittest.TestCase):
             open(os.path.join(d, "out", "stream.jsonl"), "w").write('{"type":"result","num_turns":9}\n')
             self.assertTrue(self.m.ensure_result_json(d))
             self.assertIn('"num_turns":1', open(os.path.join(d, "out", "result.json")).read())
+
+
+class JobFields(unittest.TestCase):
+    """agent, ticket and blocked_by in job.yaml (operator, 2026-09-11: jobs go
+    "through the agent roster, correctly per our dogfood plans")."""
+
+    def setUp(self):
+        self.m = _load()
+
+    def _job(self, extra):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "prompt.md"), "w").write("do it\n")
+        open(os.path.join(d, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 0.5\n" + extra)
+        return d
+
+    def test_fields_parse_and_blocked_by_must_be_keys(self):
+        job = self.m.plan_job(self._job("agent: docs-keeper\nticket: fleet-ops/0100\nblocked_by: [fleet-ops/0080]\n"))
+        self.assertEqual((job["agent"], job["ticket"], job["blocked_by"]), ("docs-keeper", "fleet-ops/0100", ["fleet-ops/0080"]))
+        with self.assertRaises(SystemExit):
+            self.m.plan_job(self._job("blocked_by: fleet-ops/0080\n"))
+
+    def test_open_blockers_reads_ticket_state_and_fails_closed(self):
+        ws = os.path.join(ROOT, "tests", "fixtures", "tickets-workspace")
+        with mock.patch.dict(os.environ, {"HEE_TICKET_WORKSPACE": ws}):
+            got = self.m.open_blockers({"blocked_by": ["demo/0001", "demo/0010", "demo/9999"]})
+        self.assertEqual(len(got), 2, got)
+        self.assertTrue(got[0].startswith("demo/0001 (idea"))
+        self.assertIn("no such ticket", got[1])

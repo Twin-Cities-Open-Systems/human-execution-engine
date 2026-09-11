@@ -19,7 +19,7 @@ that, not a new convention invented from nothing).
 
 Real trigger for the `stage` field specifically (2026-08-21): Spencer's
 own pseudocode, `idea:{1,}->footgun:{1,}->dogfood:{1,}` -- the real
-idea->footgun->dogfood pipeline named as a heeism much earlier the same
+idea->footgun<->dogfood cycle named as a heeism much earlier the same
 session, now made structural rather than staying prose-only. Real,
 not aspirational: `stage_history` records every transition with a
 timestamp, so "how many tickets are actually at each stage, and how
@@ -28,7 +28,7 @@ long did each stage take" is a real, derivable count -- not asserted.
 Usage:
   hee-ticket -new "description text" [--source WHERE] [--ref URL] [--tag T,T]
   hee-ticket -list [--open | --closed]
-  hee-ticket -advance ID     # idea -> footgun -> dogfood, one step at a time
+  hee-ticket -advance ID     # one legal step forward in idea->footgun<->dogfood
   hee-ticket -close SPEC [--why TEXT]   # mark one or more tickets closed
   hee-ticket -html [--workspace [DIR]] [--out FILE]   # the todo page body, from the records
                              #   SPEC: comma list (1,2,3), ranges (1-3,7),
@@ -38,6 +38,7 @@ Usage:
 """
 import argparse
 import html as _html
+import json
 import os
 import subprocess
 import sys
@@ -45,6 +46,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 STAGES = ["idea", "footgun", "dogfood"]
+# idea->footgun<->dogfood (docs/guides/HEE_EXPLAINED.md; the .github
+# glossary's Thesis / Duople entry). An idea moves to footgun: name what could
+# go wrong. A footgun moves to dogfood: prove it with real use. Real use that
+# finds a problem sends dogfood back to footgun. Nothing returns to idea.
+# Operator, 2026-09-11: "let's make sure they get correctly processesed
+# through idea->footgun<->dogfood" -- until then this tool only went forward.
+TRANSITIONS = {"idea": ("footgun",), "footgun": ("dogfood",), "dogfood": ("footgun",)}
 
 # Help is contextual: `help` as the LAST argument prints help for wherever
 # you are in the command (issue:462@human-execution-engine).
@@ -94,32 +102,82 @@ DESCRIPTION
   directory is empty.
 
 EXIT STATUS
+  2 CRITICAL  a ticket file does not parse; it is still listed, marked UNREADABLE
   0 OK   listing printed, including the empty case
   1      not inside a git repo, or pyyaml is not installed
 """
 
-HELP_ADVANCE = """hee-ticket -advance -- move a ticket one stage forward
+HELP_ADVANCE = """hee-ticket -advance -- move a ticket one legal step forward
 
 SYNOPSIS
-  hee-ticket -advance ID
+  hee-ticket -advance ID [--why TEXT]
 
 DESCRIPTION
-  Advances exactly one stage along the real idea -> footgun -> dogfood
-  pipeline, never more, and never backwards. There is no way to skip a
-  stage or to reverse one with this tool.
+  The cycle is idea->footgun<->dogfood. An idea moves to footgun: name
+  what could go wrong. A footgun moves to dogfood: prove it with real use.
+  Nothing returns to idea. From dogfood the only move is back to footgun,
+  which is -back, because real use found something.
+
+  --why records the evidence for the move in its stage_history entry: the
+  footgun named, or the dogfood run that proved it. A move without one is
+  kept, and hee check tickets reports it as a WARNING: a move with no
+  evidence is a claim.
 
   ID is zero-padded to four digits for you, so 7 and 0007 are the same
-  ticket. Every transition appends {stage, at} to the ticket's
-  stage_history with a UTC timestamp, which is what makes "how long did
-  each stage take" a derivable number rather than an assertion.
+  ticket. Every move appends {stage, at, why} to stage_history with a UTC
+  timestamp, which is what makes "how long did each stage take" a
+  derivable number rather than an assertion.
 
-  A ticket already at dogfood prints a "nothing to advance to" line and
-  succeeds -- advancing is idempotent at the end of the pipeline.
+  A ticket at dogfood prints its legal moves (-back, -close) and succeeds.
 
 EXIT STATUS
-  0 OK   advanced, or already at the final stage
+  0 OK   moved, or already at dogfood
   1      no such ticket, the ticket carries an unrecognized stage, not
          inside a git repo, or pyyaml is not installed
+"""
+
+HELP_BACK = """hee-ticket -back -- send a dogfood ticket back to footgun
+
+SYNOPSIS
+  hee-ticket -back ID --why TEXT
+
+DESCRIPTION
+  footgun<->dogfood is a cycle: using the thing for real finds what can
+  go wrong with it, and that sends it back to footgun. -back is that move
+  and only that move. It refuses a ticket not at dogfood, and it refuses
+  without --why, because the footgun real use found IS the evidence.
+  Nothing ever goes back to idea.
+
+EXIT STATUS
+  0 OK   moved to footgun
+  1      no such ticket, not at dogfood, no --why, not inside a git repo,
+         or pyyaml is not installed
+"""
+
+HELP_JSON = """hee-ticket -json -- every ticket as JSON, with its flow judged
+
+SYNOPSIS
+  hee-ticket -json [--workspace [DIR]]
+
+DESCRIPTION
+  Prints one JSON document: generated_at, the stages and their legal moves,
+  the repos read (name, path, HEAD), and every ticket with its own fields
+  plus repo, key (repo/id) and flow, a list of findings {severity, what}:
+
+    CRITICAL  unreadable YAML, an unknown stage, an illegal move in
+              stage_history, or a stage field that disagrees with it
+    WARNING   a move with no why, or a closed ticket with no closed_reason
+
+  The id is the file name (0010), never the YAML value: an unquoted 0010
+  is the octal number 8 to a YAML reader.
+
+  Same repo selection as -list: this repo, or with --workspace (or from
+  outside any repo) every repo under DIR, one per origin. hee check tickets
+  and hee view --tickets read it.
+
+EXIT STATUS
+  0 OK   printed, whatever the findings say -- judging them is hee check's job
+  1      not inside a git repo and no workspace, or pyyaml is not installed
 """
 
 HELP_CLOSE = """hee-ticket -close -- close one or more tickets
@@ -168,9 +226,11 @@ HELP = """hee-ticket -- repo-local tickets, stored as real YAML in git
 SYNOPSIS
   hee-ticket -new "DESCRIPTION" [--source WHERE] [--ref URL] [--tag T[,T...]]
   hee-ticket -list [--open | --closed]
-  hee-ticket -advance ID
+  hee-ticket -advance ID [--why TEXT]
+  hee-ticket -back ID --why TEXT
   hee-ticket -close SPEC [--why TEXT]
   hee-ticket -html [--workspace [DIR]] [--out FILE]
+  hee-ticket -json [--workspace [DIR]]
   hee-ticket [-ACTION] help
 
 DESCRIPTION
@@ -189,7 +249,7 @@ DESCRIPTION
   else, and read or edit them by hand when this tool cannot express what
   you need.
 
-  Every ticket carries the real idea -> footgun -> dogfood pipeline as a
+  Every ticket carries the real idea->footgun<->dogfood cycle as a
   structural `stage` field plus a `stage_history` of timestamped
   transitions -- so stage counts and durations are derived from record,
   never asserted.
@@ -197,6 +257,7 @@ DESCRIPTION
 EXAMPLES
   $ hee ticket -list                                       # ci
   $ hee ticket -list --open                                # ci
+  $ hee ticket -json --workspace tests/fixtures/tickets-workspace   # ci
   $ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under ~/git; not run in CI
 
 ACTIONS
@@ -205,7 +266,12 @@ ACTIONS
              GitHub issue or PR URL it tracks; --tag comma-separated tags.
   -list      print every ticket in this repo (--workspace, or outside any
              repo: every repo under ~/git, repo first); --open/--closed filter
-  -advance   move one ticket one stage forward
+  -advance   move one ticket one legal step forward in idea->footgun<->dogfood:
+             idea to footgun, footgun to dogfood.
+             --why records the evidence (the footgun named, the dogfood
+             run) in stage_history
+  -back      dogfood back to footgun, the other half of footgun<->dogfood:
+             real use found something. --why is required
   -close     close tickets by id, range, or description regex; --why
              records the evidence as closed_reason -- a closed ticket with
              no reason is a claim, one with a reason is a record
@@ -219,6 +285,10 @@ ACTIONS
              --out FILE. Real trigger (2026-09-10, operator): "take all the
              old todo's ... cross off all those that are done. let's use
              our own hee ticket system for this. I just want one todo.html".
+  -json      every ticket as one JSON document, each with its flow judged
+             (CRITICAL: unreadable, unknown stage, illegal move; WARNING:
+             a move with no why, a close with no reason). --workspace as
+             for -list. What hee check tickets and hee view --tickets read.
 
   Exactly one action runs per invocation. If several are passed they are
   tested in the order above and the first one present wins; the rest are
@@ -257,6 +327,8 @@ _ACTION_HELP = {
     "-new": HELP_NEW,
     "-list": HELP_LIST,
     "-advance": HELP_ADVANCE,
+    "-back": HELP_BACK,
+    "-json": HELP_JSON,
     "-close": HELP_CLOSE,
 }
 
@@ -368,26 +440,48 @@ def cmd_new(description: str, source=None, ref=None, tags=None):
     print(f"  {path.relative_to(repo_root())}")
 
 
-def cmd_advance(tid: str):
-    tid = tid.zfill(4)
-    path = tickets_dir("-advance") / f"{tid}.yaml"
+def _read_ticket(tid, action):
+    tid = str(tid).zfill(4)
+    path = tickets_dir(action) / f"{tid}.yaml"
     if not path.exists():
         sys.exit(f"hee-ticket: no ticket {tid}")
     with open(path) as f:
         rec = yaml.safe_load(f)
+    rec["id"] = tid   # the file name is the id; an unquoted 0010 reads as 8
     cur = rec.get("stage", STAGES[0])
     if cur not in STAGES:
-        sys.exit(f"hee-ticket: unknown stage '{cur}' on ticket {tid} -- can't advance")
-    idx = STAGES.index(cur)
-    if idx == len(STAGES) - 1:
-        print(f"hee-ticket {tid}: already at final stage ({cur}), nothing to advance to")
-        return
-    new_stage = STAGES[idx + 1]
+        sys.exit(f"hee-ticket: unknown stage '{cur}' on ticket {tid} -- can't move it")
+    return tid, path, rec, cur
+
+
+def _move(path, rec, new_stage, why):
     rec["stage"] = new_stage
-    rec.setdefault("stage_history", []).append({"stage": new_stage, "at": now_iso()})
+    entry = {"stage": new_stage, "at": now_iso()}
+    if why and why.strip():
+        entry["why"] = why.strip()
+    rec.setdefault("stage_history", []).append(entry)
     with open(path, "w") as f:
         yaml.safe_dump(rec, f, sort_keys=False)
-    print(f"hee-ticket {tid}: {cur} -> {new_stage}")
+
+
+def cmd_advance(tid: str, why=None):
+    tid, path, rec, cur = _read_ticket(tid, "-advance")
+    if cur == "dogfood":
+        print(f"hee-ticket {tid}: at dogfood -- its moves are -back (real use found a footgun) or -close, each with --why")
+        return
+    new_stage = TRANSITIONS[cur][0]
+    _move(path, rec, new_stage, why)
+    print(f"hee-ticket {tid}: {cur} -> {new_stage}" + ("" if why else "  (no --why: recorded without evidence)"))
+
+
+def cmd_back(tid: str, why=None):
+    tid, path, rec, cur = _read_ticket(tid, "-back")
+    if not (why and why.strip()):
+        sys.exit("hee-ticket -back: --why is required -- the footgun real use found is the evidence")
+    if cur != "dogfood":
+        sys.exit(f"hee-ticket -back: {tid} is at {cur}; only a dogfood ticket goes back to footgun, and nothing goes back to idea")
+    _move(path, rec, "footgun", why)
+    print(f"hee-ticket {tid}: dogfood -> footgun")
 
 
 def die(msg):
@@ -446,25 +540,29 @@ def cmd_list(only=None, workspace=None):
         if not sets:
             print(f"No tickets under {workspace or WORKSPACE_ROOT}.")
             return
-        for repo, d in sets:
-            for rec in _load_tickets(d):
-                if only and rec.get("status") != only:
-                    continue
-                print(f"{repo}  {rec.get('id', '?')}  [{rec.get('status', '?')}]  ({rec.get('stage', '?')})  "
-                      f"{rec.get('description', '')}  ({rec.get('created_at', '?')})")
-        return
-    d = root / ".hee" / "tickets"
-    tickets = sorted(d.glob("*.yaml")) if d.is_dir() else []
-    if not tickets:
-        print("No tickets yet.")
-        return
-    for p in tickets:
-        with open(p) as f:
-            rec = yaml.safe_load(f)
-        if only and rec.get("status") != only:
-            continue
-        stage = rec.get("stage", "?")
-        print(f"{rec['id']}  [{rec['status']}]  ({stage})  {rec['description']}  ({rec['created_at']})")
+        prefixed = True
+    else:
+        d = root / ".hee" / "tickets"
+        sets = [("", d)] if d.is_dir() and any(d.glob("*.yaml")) else []
+        if not sets:
+            print("No tickets yet.")
+            return
+        prefixed = False
+    unreadable = []
+    for repo, d in sets:
+        for rec in _load_tickets(d):
+            if rec.get("unreadable"):
+                unreadable.append(f"{repo}/{rec.get('id')}" if prefixed else str(rec.get("id")))
+            if only and rec.get("status") != only:
+                continue
+            head = f"{repo}  " if prefixed else ""
+            print(f"{head}{rec.get('id', '?')}  [{rec.get('status', '?')}]  ({rec.get('stage', '?')})  "
+                  f"{rec.get('description', '')}  ({rec.get('created_at', '?')})")
+    if unreadable:
+        # A broken record used to be listed as an ordinary open ticket and
+        # exit 0 -- fleet-ops 0096 sat unreadable on main that way, 2026-09-11.
+        print(f"❌ CRITICAL hee-ticket -list: {len(unreadable)} unreadable ticket(s): {', '.join(unreadable)}", file=sys.stderr)
+        sys.exit(2)
 
 
 # ---- -html: the todo page body -------------------------------------------
@@ -480,8 +578,10 @@ def _load_tickets(d):
             with open(p) as f:
                 rec = yaml.safe_load(f) or {}
         except Exception as e:  # a broken record is shown, not hidden
-            rec = {"id": p.stem, "description": f"UNREADABLE: {e}", "status": "open", "stage": "?"}
+            rec = {"id": p.stem, "description": f"UNREADABLE: {e}", "status": "open", "stage": "?", "unreadable": True}
         if isinstance(rec, dict):
+            if p.stem.isdigit():
+                rec["id"] = p.stem   # the file name is the id; an unquoted 0010 reads as the octal 8
             out.append(rec)
     return out
 
@@ -615,13 +715,65 @@ def cmd_html(workspace=None, out=None):
         sys.stdout.write(page)
 
 
+def flow_findings(rec):
+    """What is wrong with a ticket's path through idea->footgun<->dogfood,
+    CRITICAL first. CRITICAL is a record that cannot be trusted at all;
+    WARNING is a move or a close that carries no evidence."""
+    out = []
+    if rec.get("unreadable"):
+        return [{"severity": "CRITICAL", "what": str(rec.get("description", ""))[:240]}]
+    stage = rec.get("stage")
+    hist = rec.get("stage_history") or []
+    if stage not in STAGES:
+        out.append({"severity": "CRITICAL", "what": f"unknown stage {stage!r}"})
+    if hist and hist[0].get("stage") != STAGES[0]:
+        out.append({"severity": "CRITICAL", "what": f"stage_history starts at {hist[0].get('stage')!r}, not idea"})
+    for a, b in zip(hist, hist[1:]):
+        if b.get("stage") not in TRANSITIONS.get(a.get("stage"), ()):
+            out.append({"severity": "CRITICAL", "what": f"illegal move {a.get('stage')} -> {b.get('stage')} at {b.get('at')}"})
+    if hist and stage in STAGES and hist[-1].get("stage") != stage:
+        out.append({"severity": "CRITICAL", "what": f"stage is {stage}, stage_history ends at {hist[-1].get('stage')}"})
+    for b in hist[1:]:
+        if not str(b.get("why") or "").strip():
+            out.append({"severity": "WARNING", "what": f"move to {b.get('stage')} at {b.get('at')} records no why"})
+    if rec.get("status") == "closed" and not str(rec.get("closed_reason") or "").strip():
+        out.append({"severity": "WARNING", "what": "closed with no closed_reason"})
+    return out
+
+
+def cmd_json(workspace=None):
+    root = repo_root()
+    if workspace is not None or root is None:
+        sets = _workspace_ticket_sets(workspace or WORKSPACE_ROOT)
+    else:
+        origin = _origin(root)
+        sets = [(origin.rsplit("/", 1)[-1] if origin else root.name, root / ".hee" / "tickets")]
+    doc = {"generated_at": now_iso(), "stages": STAGES,
+           "transitions": {k: list(v) for k, v in TRANSITIONS.items()}, "repos": [], "tickets": []}
+    for repo, d in sets:
+        checkout = d.parent.parent
+        h = subprocess.run(["git", "-C", str(checkout), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+        doc["repos"].append({"repo": repo, "path": str(checkout), "head": h.stdout.strip() if h.returncode == 0 else None})
+        for rec in (_load_tickets(d) if d.is_dir() else []):
+            t = dict(rec)
+            t["id"] = str(rec.get("id", ""))
+            t["repo"] = repo
+            t["key"] = f"{repo}/{t['id']}"
+            t["flow"] = flow_findings(rec)
+            doc["tickets"].append(t)
+    json.dump(doc, sys.stdout, default=str, indent=1)
+    sys.stdout.write("\n")
+
+
 def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("-new", dest="new_desc", metavar="DESCRIPTION")
     ap.add_argument("-list", action="store_true")
     ap.add_argument("-advance", dest="advance_id", metavar="ID")
+    ap.add_argument("-back", dest="back_id", metavar="ID")
     ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
     ap.add_argument("-html", action="store_true")
+    ap.add_argument("-json", action="store_true")
     ap.add_argument("--source", metavar="WHERE")
     ap.add_argument("--ref", metavar="URL")
     ap.add_argument("--tag", metavar="T[,T...]")
@@ -640,11 +792,15 @@ def main():
     elif args.list:
         cmd_list("open" if args.open else "closed" if args.closed else None, workspace=args.workspace)
     elif args.advance_id:
-        cmd_advance(args.advance_id)
+        cmd_advance(args.advance_id, why=args.why)
+    elif args.back_id:
+        cmd_back(args.back_id, why=args.why)
     elif args.close_ids:
         cmd_close(args.close_ids, why=args.why)
     elif args.html:
         cmd_html(workspace=args.workspace, out=args.out)
+    elif args.json:
+        cmd_json(workspace=args.workspace)
     else:
         print(HELP, end="")
         sys.exit(1)

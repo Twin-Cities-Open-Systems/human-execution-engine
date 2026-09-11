@@ -186,7 +186,9 @@ SUBCOMMANDS
   gitignore  secret paths excluded, no negation re-including one, no duplicates
   signatures every detached .asc verifies against the file it signs,
              and can re-sign the ones that drifted
-  all        boundary + refs + locale + signatures
+  tickets    every .hee/tickets record parses and moves legally through
+             idea->footgun<->dogfood
+  all        boundary + refs + locale + signatures + tickets
 
   Add `help` after any subcommand for its own page:
       hee-check refs help
@@ -1006,6 +1008,70 @@ check_locale() {
   HEE_TOOL_ROOT="$TOOL_ROOT" python3 "$TOOL_ROOT/library/py/hee_locale/_cli.py" "$root"
 }
 
+# check_tickets ROOT -- every .hee/tickets record parses and moves through
+# idea->footgun<->dogfood legally. hee-ticket -json does the judging, so
+# the rules live in one place. CRITICAL: unreadable, unknown stage, illegal
+# move, stage disagreeing with its history. WARNING: a move with no why, a
+# close with no reason -- advisory in `all`, because on the day this landed
+# 20 old moves and 2 closes carried none (measured 2026-09-11) and a check
+# that is red on day one trains people to ignore red (rule 16).
+# Real trigger: fleet-ops ticket 0096 sat unreadable on main, listed by
+# hee-ticket as an ordinary open ticket, and nothing noticed.
+check_tickets() {
+  root="${1:-.}"
+  if [ ! -d "$root/.hee/tickets" ]; then hee_status OK "hee-check tickets: no .hee/tickets in $root"; return 0; fi
+  command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; return 3; }
+  _t_err="$(mktemp)"
+  _t_json="$(cd "$root" && "$TOOL_ROOT/tooling/bin/hee-ticket" -json 2>"$_t_err")"; _t_rc=$?
+  if [ "$_t_rc" -ne 0 ] || [ -z "$_t_json" ]; then
+    hee_status UNKNOWN "hee-check tickets: hee-ticket -json exited $_t_rc in $root: $(tail -n 1 "$_t_err")"; rm -f "$_t_err"; return 3
+  fi
+  rm -f "$_t_err"
+  printf '%s' "$_t_json" | PYTHONPATH="$TOOL_ROOT/library/py:${PYTHONPATH:-}" python3 -c '
+import json, sys
+import hee_status
+doc = json.load(sys.stdin)
+tickets = doc.get("tickets", [])
+crit, nowhy, noreason = [], 0, 0
+for t in tickets:
+    for f in t.get("flow", []):
+        what = f.get("what", "")
+        if f.get("severity") == "CRITICAL":
+            crit.append((t.get("key"), what))
+        elif "no why" in what:
+            nowhy += 1
+        else:
+            noreason += 1
+for key, what in crit:
+    hee_status.emit("CRITICAL", "ticket " + str(key) + ": " + what)
+if nowhy or noreason:
+    hee_status.emit("WARNING", "hee-check tickets: %d move(s) record no why, %d closed ticket(s) carry no reason (hee ticket -json lists each)" % (nowhy, noreason))
+if crit:
+    hee_status.emit("CRITICAL", "hee-check tickets: %d finding(s) across %d ticket(s)" % (len(crit), len(tickets)))
+    sys.exit(2)
+label = "WARNING" if (nowhy or noreason) else "OK"
+hee_status.emit(label, "hee-check tickets: %d ticket(s), every move legal through idea->footgun<->dogfood" % len(tickets))
+sys.exit(1 if label == "WARNING" else 0)
+'
+}
+
+usage_tickets() {
+  cat <<'EOF'
+hee-check tickets [ROOT] -- ticket records parse and move legally
+
+  Reads ROOT/.hee/tickets through hee-ticket -json and reports:
+    CRITICAL  a record that is not valid YAML, an unknown stage, an illegal
+              move in stage_history (the cycle is idea->footgun<->dogfood;
+              nothing returns to idea), or a stage field that disagrees with
+              its history
+    WARNING   a move with no why, or a closed ticket with no closed_reason
+  In `all`, only CRITICAL fails the run.
+
+  Real trigger, 2026-09-11: a ticket sat unreadable on a main branch, listed
+  as an ordinary open ticket, and nothing noticed.
+EOF
+}
+
 cmd="${1:-boundary}"
 
 # check_roster ROOT -- the roster's claims match measured reality.
@@ -1276,6 +1342,9 @@ case "$cmd" in
     done
     check_signatures "$_s_root" "$_s_resign" "$_s_key" ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
+  tickets)  shift 2>/dev/null || true
+            if [ "${1:-}" = "help" ]; then usage_tickets; exit 0; fi
+            check_tickets "${1:-.}" ;;
   examples) shift 2>/dev/null || true
             if [ "${1:-}" = "help" ]; then usage_examples; exit 0; fi
             check_examples "${1:-$TOOL_ROOT}" ;;
@@ -1292,6 +1361,7 @@ case "$cmd" in
             check_refs "${1:-.}"; b=$?
             check_locale "${1:-.}"; c=$?
             check_signatures "${1:-.}" 0 ""; d=$?
+            check_tickets "${1:-.}"; f=$?
             # The man-page examples run only where the tools live: the hee repo itself.
             e=0
             if [ -x "${1:-.}/tooling/bin/hee" ]; then check_examples "${1:-.}"; e=$?; fi
@@ -1300,8 +1370,9 @@ case "$cmd" in
             [ "$b" -gt "$_worst" ] && _worst=$b
             [ "$c" -gt "$_worst" ] && _worst=$c
             [ "$d" -gt "$_worst" ] && _worst=$d
+            [ "$f" -gt "$_worst" ] && _worst=$f
             _crit=0
-            for _r in "$a" "$b" "$c" "$d"; do [ "$_r" -eq 2 ] && _crit=1; done
+            for _r in "$a" "$b" "$c" "$d" "$f"; do [ "$_r" -eq 2 ] && _crit=1; done
             if [ "$_crit" -eq 1 ]; then
               echo "❌ CRITICAL hee-check all: at least one check is CRITICAL"; exit 2
             fi

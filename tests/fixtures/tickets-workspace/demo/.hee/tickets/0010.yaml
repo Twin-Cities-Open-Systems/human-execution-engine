@@ -1,0 +1,16 @@
+id: 0010
+created_at: '2026-09-01T00:00:00Z'
+description: closed after dogfood, with its evidence
+status: closed
+stage: dogfood
+stage_history:
+- stage: idea
+  at: '2026-09-01T00:00:00Z'
+- stage: footgun
+  at: '2026-09-02T00:00:00Z'
+  why: named the footgun
+- stage: dogfood
+  at: '2026-09-03T00:00:00Z'
+  why: used for real
+closed_at: '2026-09-04T00:00:00Z'
+closed_reason: measured in use

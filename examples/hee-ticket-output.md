@@ -3,7 +3,7 @@
 Real trigger, 2026-08-21: "we need a workflow for that... internal
 system" — `./hee ticket -new 'perm change for oper/agent@host:/foo/bar'`.
 Dogfooded with that exact example, not a synthetic one — including a
-real footgun found along the way (see below), same idea->footgun->dogfood
+real footgun found along the way (see below), same idea->footgun<->dogfood
 pipeline this tool's own `stage` field now tracks.
 
 ```

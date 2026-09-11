@@ -1,0 +1,6 @@
+name: demo-blocked
+agent: docs-keeper
+ticket: demo/0002
+blocked_by: [demo/0001]
+prompt: prompt.md
+budget_usd: 0.50

@@ -36,6 +36,9 @@ job.yaml:
   prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
   inputs: [in/, rules.md]             # shipped; default: everything but results/
   outputs: [out/]                     # collected; default: out/
+  agent: docs-keeper                  # optional: a dispatch that resolves to any other role is refused
+  ticket: fleet-ops/0100              # optional: recorded when --ticket is not given
+  blocked_by: [fleet-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
   budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
   budget_reason: "five doc pages to read and cite"   # required when budget_usd > 1.00
   timeout_s: 1800                     # default 1800 -- `timeout` around claude
@@ -271,12 +274,42 @@ def plan_job(jobdir):
         v = spec.get(key)
         if v and not os.path.isfile(os.path.join(jobdir, str(v))):
             die(f"job.yaml: {key} file '{v}' not found")
+    blocked_by = spec.get("blocked_by") or []
+    if not isinstance(blocked_by, list) or not all(isinstance(b, str) and b.strip() for b in blocked_by):
+        die("job.yaml: blocked_by must be a list of ticket keys, repo/id -- e.g. [fleet-ops/0080]")
     return {
+        "agent": spec.get("agent"), "ticket": str(spec["ticket"]) if spec.get("ticket") else None,
+        "blocked_by": [b.strip() for b in blocked_by],
         "dir": jobdir, "name": name, "prompt": prompt, "budget_usd": budget,
         "timeout_s": timeout_s, "tools": [str(t) for t in tools], "mode": mode,
         "inputs": [str(i) for i in inputs], "outputs": [str(o).rstrip("/") for o in outputs],
         "json_schema": spec.get("json_schema"), "system_prompt": spec.get("system_prompt"),
     }
+
+
+def open_blockers(job):
+    """The ticket keys in job.yaml's blocked_by that are not closed. A key no
+    repo under the workspace has counts as open: a blocker nobody can find has
+    not been cleared. Operator, 2026-09-11: jobs go "through the agent roster,
+    correctly per our dogfood plans" -- eight jobs sat committed for a day
+    while the scope amendment they needed was unsigned, with nothing saying so."""
+    if not job.get("blocked_by"):
+        return []
+    tool = str(_Path(__file__).resolve().parent / "hee-ticket")
+    ws = os.environ.get("HEE_TICKET_WORKSPACE", os.path.expanduser("~/git"))
+    r = subprocess.run([sys.executable, tool, "-json", "--workspace", ws], capture_output=True, text=True)
+    try:
+        tickets = {t["key"]: t for t in json.loads(r.stdout)["tickets"]}
+    except (ValueError, KeyError):
+        return [f"{k} (tickets unreadable: hee-ticket -json exit {r.returncode})" for k in job["blocked_by"]]
+    out = []
+    for k in job["blocked_by"]:
+        t = tickets.get(k)
+        if t is None:
+            out.append(f"{k} (no such ticket under {ws})")
+        elif t.get("status") != "closed":
+            out.append(f"{k} ({t.get('stage')}: {str(t.get('description', ''))[:80]})")
+    return out
 
 
 def job_id(job, when=None):
@@ -413,7 +446,7 @@ def collect_only(args, job, role, hostname, vmid, wif, allocations):
     rec_dir = os.path.join(root, ".hee", "dispatch"); os.makedirs(rec_dir, exist_ok=True)
     record = {
         "job": jid, "name": job["name"], "agent": role, "hostname": hostname, "vmid": vmid,
-        "ticket": args.ticket, "cred": args.cred, "auth": "wif" if wif else "key",
+        "ticket": args.ticket or job.get("ticket"), "cred": args.cred, "auth": "wif" if wif else "key",
         "federation_rule_id": wif["federation_rule_id"] if wif else None, "jwt_jti": None,
         "started_at": started.isoformat(timespec="seconds"), "ended_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "collected_late": True,
@@ -576,6 +609,15 @@ def main():
     job = plan_job(args.jobdir)
     allocations = load_allocations(args.allocations)
     role, hostname, reg_vmid = resolve_agent(args.agent, allocations)
+    if job.get("agent") and job["agent"] not in (role, hostname):
+        die(f"job.yaml names agent {job['agent']}; this dispatch resolves to {role} ({hostname}) -- fix one of them")
+    blockers = open_blockers(job)
+    if blockers:
+        why = "open blocker(s): " + "; ".join(blockers)
+        if args.dry_run or args.collect:
+            emit("WARNING", why + " -- a real dispatch refuses")
+        else:
+            die(why + " -- a blocked job does not ship; clear the ticket (hee ticket -close --why) first")
     wif = console_block(allocations[role], role) if args.wif else None
     if args.offline:
         if not args.dry_run:
@@ -668,7 +710,7 @@ def main():
     os.makedirs(rec_dir, exist_ok=True)
     record = {
         "job": jid, "name": job["name"], "agent": role, "hostname": hostname, "vmid": vmid,
-        "ticket": args.ticket, "cred": args.cred, "auth": "wif" if wif else "key",
+        "ticket": args.ticket or job.get("ticket"), "cred": args.cred, "auth": "wif" if wif else "key",
         "federation_rule_id": wif["federation_rule_id"] if wif else None,
         "jwt_jti": jwt_claims["jti"] if jwt_claims else None,
         "started_at": started.isoformat(timespec="seconds"), "ended_at": ended.isoformat(timespec="seconds"),

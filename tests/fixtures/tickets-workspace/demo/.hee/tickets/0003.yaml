@@ -1,0 +1,10 @@
+id: '0003'
+description: waits on another ticket
+status: open
+stage: idea
+created_at: '2026-09-01T00:00:00Z'
+stage_history:
+- stage: idea
+  at: '2026-09-01T00:00:00Z'
+blocked_by:
+- demo/0001

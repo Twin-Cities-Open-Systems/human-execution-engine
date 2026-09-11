@@ -27,6 +27,8 @@ EXAMPLES
   $ hee view --job demo-2026 --root tests/fixtures/dispatch             # ci
   $ hee view --braindump                                                # reads view.lab; not run in CI
   $ hee view --jobs --live --publish 107:/www/data/jobs.json            # what the kiosk timer runs; needs the lab
+  $ hee view --tickets --offline --root tests/fixtures/dispatch --workspace tests/fixtures/tickets-workspace   # ci
+  $ hee view --tickets --publish 107:/www/data/tickets.json             # every repo's tickets, jobs, blockers, open PRs; needs gh and the lab
 """
 import argparse
 import shlex
@@ -917,6 +919,171 @@ def jobs_live(pve_host, recorded=()):
     return running, unrecorded
 
 
+# ---- --tickets: every ticket, every agent job and what blocks it, open PRs ----
+#
+# One feed for view.lab/tickets.html. Tickets come from hee-ticket -json
+# (every repo under --workspace, flow judged there); jobs are every
+# pve/agents/jobs/*/job.yaml under the jobs root, dispatched or not, joined to
+# their dispatch records and to the tickets their blocked_by names; PRs are the
+# org's open pull requests with whether an approval sits on the head commit.
+# Operator, 2026-09-11: "need view/tickets.html to track all of this,
+# interactive" -- after eight committed jobs sat undispatched for a day with
+# nothing on any page saying so.
+
+GH_OWNER = os.environ.get("HEE_GH_OWNER", "Twin-Cities-Open-Systems")
+
+
+def _gh_json(argv, errors):
+    try:
+        r = subprocess.run(["gh", *argv], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        errors.append(f"gh {argv[0]} {argv[1] if len(argv) > 1 else ''}: {e}")
+        return None
+    if r.returncode != 0:
+        errors.append(f"gh {' '.join(argv[:3])}: exit {r.returncode}: {r.stderr.strip()[:160]}")
+        return None
+    try:
+        return json.loads(r.stdout or "null")
+    except ValueError:
+        return r.stdout.strip()
+
+
+def open_prs(errors):
+    import shutil
+    if not shutil.which("gh"):
+        errors.append("gh is not on PATH: no pull requests read")
+        return []
+    found = _gh_json(["search", "prs", "--owner", GH_OWNER, "--state", "open", "--limit", "50",
+                      "--json", "repository,number,title,author,isDraft,updatedAt,url"], errors) or []
+    out = []
+    for p in found:
+        repo = (p.get("repository") or {}).get("nameWithOwner") or f"{GH_OWNER}/{(p.get('repository') or {}).get('name')}"
+        num = str(p.get("number"))
+        v = _gh_json(["pr", "view", num, "--repo", repo, "--json", "reviewDecision,headRefOid,statusCheckRollup"], errors) or {}
+        approved = _gh_json(["api", f"repos/{repo}/pulls/{num}/reviews", "--jq",
+                             '[.[] | select(.state == "APPROVED")] | last | .commit_id // ""'], errors)
+        checks = v.get("statusCheckRollup") or [] if isinstance(v, dict) else []
+        head = v.get("headRefOid") if isinstance(v, dict) else None
+        out.append({
+            "repo": repo.split("/", 1)[-1], "number": p.get("number"), "title": p.get("title"),
+            "author": (p.get("author") or {}).get("login"), "draft": p.get("isDraft"), "url": p.get("url"),
+            "updated_at": p.get("updatedAt"), "review_decision": v.get("reviewDecision") if isinstance(v, dict) else None,
+            "head": head, "approved_on_head": bool(head) and approved == head,
+            "checks_failed": sorted({c.get("name") or c.get("context") for c in checks
+                                     if (c.get("conclusion") or c.get("state")) in ("FAILURE", "ERROR", "TIMED_OUT")}),
+            "checks_pending": sum(1 for c in checks if c.get("status") not in (None, "COMPLETED")),
+        })
+    return out
+
+
+def build_tickets_feed(args):
+    import glob
+    import datetime as _dt
+    import yaml
+    errors = []
+    ws = os.path.abspath(os.path.expanduser(args.workspace or "~/git"))
+    tool = str(_Path(__file__).resolve().parent / "hee-ticket")
+    r = subprocess.run([sys.executable, tool, "-json", "--workspace", ws], capture_output=True, text=True)
+    try:
+        tdoc = json.loads(r.stdout)
+    except ValueError:
+        tdoc = {"tickets": [], "repos": [], "stages": [], "transitions": {}}
+        errors.append(f"hee-ticket -json --workspace {ws}: exit {r.returncode}: {r.stderr.strip()[:200]}")
+    tickets = tdoc.get("tickets", [])
+    by_key = {t["key"]: t for t in tickets}
+
+    root = JOB_ROOT_OVERRIDE or os.path.expanduser("~/git/fleet-ops")
+    records = {}
+    for f in sorted(glob.glob(os.path.join(root, ".hee", "dispatch", "*.yaml"))):
+        try:
+            with open(f) as fh:
+                d = yaml.safe_load(fh) or {}
+        except Exception as e:  # noqa: BLE001 -- a broken record is reported, not skipped silently
+            errors.append(f"dispatch record {os.path.basename(f)}: {e}")
+            continue
+        records.setdefault(d.get("name"), []).append(d)
+    jobs = []
+    for spec_path in sorted(glob.glob(os.path.join(root, "pve", "agents", "jobs", "*", "job.yaml"))):
+        try:
+            with open(spec_path) as fh:
+                spec = yaml.safe_load(fh) or {}
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{os.path.relpath(spec_path, root)}: {e}")
+            continue
+        name = spec.get("name") or os.path.basename(os.path.dirname(spec_path))
+        runs = sorted(records.get(name, []), key=lambda d: str(d.get("started_at") or ""))
+        last = runs[-1] if runs else {}
+        blockers = []
+        for ref in spec.get("blocked_by") or []:
+            t = by_key.get(str(ref))
+            # a blocker nobody can find has not been cleared
+            blockers.append({"ref": str(ref), "known": t is not None, "open": t is None or t.get("status") != "closed",
+                             "stage": t.get("stage") if t else None, "description": t.get("description") if t else None})
+        open_blockers = [b["ref"] for b in blockers if b["open"]]
+        state = "dispatched" if runs else ("blocked" if open_blockers else "ready")
+        review = last.get("review") or {}
+        jobs.append({
+            "name": name, "path": os.path.relpath(os.path.dirname(spec_path), root),
+            "agent": spec.get("agent") or last.get("agent"), "ticket": spec.get("ticket") or last.get("ticket"),
+            "blocked_by": blockers, "open_blockers": open_blockers, "state": state,
+            "budget_usd": spec.get("budget_usd"), "runs": len(runs),
+            "cost_usd": round(sum(float(d.get("cost_usd") or 0) for d in runs), 4),
+            "last": {k: last.get(k) for k in ("job", "started_at", "exit", "is_error", "subtype", "cost_usd", "num_turns")} if runs else None,
+            "last_review": {"accepted": review.get("accepted"), "corrections": review.get("corrections"),
+                            "mistakes": len(review.get("mistakes") or []), "merged_pr": review.get("merged_pr")} if runs else None,
+        })
+        for b in blockers:
+            if b["ref"] in by_key:
+                by_key[b["ref"]].setdefault("blocks", []).append(name)
+    for t in tickets:
+        refs = t.get("blocked_by") or []
+        if not isinstance(refs, list):
+            errors.append(f"ticket {t.get('key')}: blocked_by is not a list")
+            continue
+        t["open_blockers"] = [str(ref) for ref in refs if str(ref) not in by_key or by_key[str(ref)].get("status") != "closed"]
+        for ref in refs:
+            if str(ref) in by_key:
+                by_key[str(ref)].setdefault("blocks", []).append("ticket:" + t["key"])
+    h = subprocess.run(["git", "-C", root, "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+    return {
+        "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "workspace": ws, "jobs_root": root, "jobs_root_head": h.stdout.strip() if h.returncode == 0 else None,
+        "stages": tdoc.get("stages", []), "transitions": tdoc.get("transitions", {}), "repos": tdoc.get("repos", []),
+        "tickets": tickets, "jobs": jobs, "prs": [] if args.offline else open_prs(errors),
+        "offline": bool(args.offline), "errors": errors,
+    }
+
+
+def tickets_section(args):
+    doc = build_tickets_feed(args)
+    out = json.dumps(doc, default=str, indent=1)
+    if args.publish:
+        publish_json(args.publish, out)
+    elif args.json:
+        print(out)
+        return 0
+    t, j = doc["tickets"], doc["jobs"]
+    open_t = [x for x in t if x.get("status") != "closed"]
+    stages = {s: sum(1 for x in open_t if x.get("stage") == s) for s in doc["stages"]}
+    crit = sum(1 for x in t for f in x.get("flow", []) if f.get("severity") == "CRITICAL")
+    warn = sum(1 for x in t for f in x.get("flow", []) if f.get("severity") == "WARNING")
+    js = {s: sum(1 for x in j if x["state"] == s) for s in ("dispatched", "ready", "blocked")}
+    if not args.publish:
+        print(f"  tickets  {len(t)} in {len(doc['repos'])} repo(s): open {len(open_t)} "
+              + " ".join(f"{k} {v}" for k, v in stages.items()) + f"; flow {crit} CRITICAL, {warn} WARNING")
+        print(f"  jobs     {len(j)}: dispatched {js['dispatched']}, never dispatched {js['ready']}, blocked {js['blocked']}")
+        for x in j:
+            if x["state"] == "blocked":
+                print(f"           blocked  {x['name']} ({x['agent']}) by {', '.join(x['open_blockers'])}")
+        print(f"  prs      " + ("not read (--offline)" if doc["offline"] else f"{len(doc['prs'])} open"))
+        for e in doc["errors"]:
+            print(f"  error    {e}")
+    label = "WARNING" if (crit or doc["errors"]) else "OK"
+    hee_status.emit(label, f"hee-view: tickets feed -- {len(t)} ticket(s), {len(j)} job(s) ({js['blocked']} blocked), "
+                           f"{crit} CRITICAL flow finding(s), {len(doc['errors'])} error(s)")
+    return 0 if label == "OK" else 1
+
+
 def publish_json(target, text):
     """TARGET is VMID:/path on the pve host (the view container's docroot):
     written through pct exec so nothing new listens anywhere."""
@@ -1048,6 +1215,11 @@ def main():
                          "finished; while running, the container's cgroup, the claude process and out/ read from the pve host")
     ap.add_argument("--json", action="store_true", help="with --job: also print the raw record or probe as JSON")
     ap.add_argument("--root", metavar="DIR", help="with --job/--jobs: the checkout whose .hee/dispatch to read (default: this repo, then ~/git/fleet-ops)")
+    ap.add_argument("--tickets", "-tickets", action="store_true",
+                    help="every repo's tickets with their flow judged, every agent job and what blocks it, and the org's open PRs; "
+                         "--json prints the feed, --publish VMID:PATH writes it for view.lab/tickets.html")
+    ap.add_argument("--workspace", metavar="DIR", help="with --tickets: where the repos live (default ~/git)")
+    ap.add_argument("--offline", action="store_true", help="with --tickets: read no pull requests (no gh, no network)")
     ap.add_argument("--jobs", "-jobs", action="store_true",
                     help="every dispatch record (current repo, then ~/git/fleet-ops): one row per job and a per-agent scorecard")
     ap.add_argument("--md", action="store_true", help="with --jobs: Markdown tables, for committing as pve/agents/SCORECARD.md")
@@ -1092,6 +1264,8 @@ def main():
     global JOB_ROOT_OVERRIDE
     if args.root:
         JOB_ROOT_OVERRIDE = os.path.abspath(args.root)
+    if args.tickets:
+        return tickets_section(args)
     if args.job:
         return job_section(args)
     if args.jobs:

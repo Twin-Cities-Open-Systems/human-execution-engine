@@ -41,7 +41,9 @@ hee-check - repo boundary and integrity checks
     gitignore  secret paths excluded, no negation re-including one, no duplicates
     signatures every detached .asc verifies against the file it signs,
                and can re-sign the ones that drifted
-    all        boundary + refs + locale + signatures
+    tickets    every .hee/tickets record parses and moves legally through
+               idea->footgun<->dogfood
+    all        boundary + refs + locale + signatures + tickets
 
     Add `help` after any subcommand for its own page:
         hee-check refs help

@@ -15,9 +15,10 @@ hee-view - hee-view: one command, the whole real picture -- pve node, every
 
                     [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
                     [--via [USER@]HOST] [--crawl] [--braindump] [--job JID]
-                    [--json] [--root DIR] [--jobs] [--md] [--live]
-                    [--publish VMID:PATH] [--mark-seen] [--braindump-url URL]
-                    [--sites-only] [--network {lab,public,all}]
+                    [--json] [--root DIR] [--tickets] [--workspace DIR]
+                    [--offline] [--jobs] [--md] [--live] [--publish VMID:PATH]
+                    [--mark-seen] [--braindump-url URL] [--sites-only]
+                    [--network {lab,public,all}]
 
     hee-view: one command, the whole real picture -- pve node, every
     container, HAProxy backend health, DNS. Same "only view to see them
@@ -44,6 +45,8 @@ hee-view - hee-view: one command, the whole real picture -- pve node, every
       $ hee view --job demo-2026 --root tests/fixtures/dispatch             # ci
       $ hee view --braindump                                                # reads view.lab; not run in CI
       $ hee view --jobs --live --publish 107:/www/data/jobs.json            # what the kiosk timer runs; needs the lab
+      $ hee view --tickets --offline --root tests/fixtures/dispatch --workspace tests/fixtures/tickets-workspace   # ci
+      $ hee view --tickets --publish 107:/www/data/tickets.json             # every repo's tickets, jobs, blockers, open PRs; needs gh and the lab
 
     options:
       -h, --help            show this help message and exit
@@ -80,6 +83,13 @@ hee-view - hee-view: one command, the whole real picture -- pve node, every
       --json                with --job: also print the raw record or probe as JSON
       --root DIR            with --job/--jobs: the checkout whose .hee/dispatch to
                             read (default: this repo, then ~/git/fleet-ops)
+      --tickets, -tickets   every repo's tickets with their flow judged, every
+                            agent job and what blocks it, and the org's open PRs;
+                            --json prints the feed, --publish VMID:PATH writes it
+                            for view.lab/tickets.html
+      --workspace DIR       with --tickets: where the repos live (default ~/git)
+      --offline             with --tickets: read no pull requests (no gh, no
+                            network)
       --jobs, -jobs         every dispatch record (current repo, then ~/git/fleet-
                             ops): one row per job and a per-agent scorecard
       --md                  with --jobs: Markdown tables, for committing as

@@ -113,7 +113,7 @@ spec:
       definition: "a work item is tracked by a real, external
         git-hosting issue system (GitHub Issues, on this repo or any
         other real repo) -- distinct from hee-ticket, HEE's own
-        internal, local, git-tracked idea->footgun->dogfood pipeline
+        internal, local, git-tracked idea->footgun<->dogfood cycle
         under .hee/tickets/."
       note: "Spencer's direct disambiguation, 2026-08-25: 'issued'
         specifically means gitserver-tracked, not hee-ticket-tracked.
