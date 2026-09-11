@@ -10,12 +10,14 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
       hee-pve-dispatch AGENT JOBDIR --wif --cred ISSUER-KEY-ACCOUNT [--ticket ID]
       hee-pve-dispatch AGENT JOBDIR --collect JID [--ticket ID]     # a job whose dispatcher died: outputs, evidence, record
+      hee-pve-dispatch AGENT JOBDIR --resume JID --budget USD --why TEXT   # a job that stopped at its ceiling: same session, same files
 
 
 # DESCRIPTION
 
                             [--wif] [--ticket ID] [--offline] [--collect JID]
-                            [--dry-run] [--host HOST] [--allocations ALLOCATIONS]
+                            [--resume JID] [--budget USD] [--why TEXT] [--dry-run]
+                            [--host HOST] [--allocations ALLOCATIONS]
                             agent jobdir
 
     hee-pve-dispatch -- hand one bounded job to one agent container and collect the result.
@@ -110,6 +112,14 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
                             without shipping or running anything. For a dispatcher
                             that died mid-job (kiosk killed one on low memory,
                             2026-09-11).
+      --resume JID          continue a job that stopped (its budget ceiling,
+                            usually) in the same container directory and the same
+                            Claude session, instead of starting over; needs
+                            --budget and --why. Recorded as a new record that
+                            resumes JID.
+      --budget USD          with --resume: the new ceiling for this continuation
+      --why TEXT            with --resume: what the extra money buys (recorded as
+                            resume_reason)
       --dry-run             resolve the agent, validate the job, print run.sh and
                             the file list; ship and run nothing
       --host HOST
