@@ -10,48 +10,11 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
       hee-pve-dispatch AGENT JOBDIR --wif --cred ISSUER-KEY-ACCOUNT [--ticket ID]
 
-      --wif: workload identity federation instead of a static key. --cred names
-         the hee cred account holding the lab issuer's ES256 private key (made by
-         `hee cred -seal ... -genkey es256`). This tool mints ONE JWT for the job
-         (iss/sub/aud from the allocation registry's console: block, unique jti,
-         exp = the job timeout + 2 min), ships it on stdin exactly as a key would
-         be, and the generated run.sh exchanges it once at the Claude Console
-         (POST /v1/oauth/token, jwt-bearer) for a short-lived token bound to the
-         role's service account, then runs claude with ANTHROPIC_AUTH_TOKEN. No
-         static API key exists anywhere for the agent. The registry entry needs
-         console.organization_id, workspace_id, service_account_id,
-         federation_rule_id, issuer and subject.
-      hee-pve-dispatch AGENT JOBDIR --dry-run
-
-    positional arguments:
-      agent                 a role (ci-triage) or hostname from the allocation
-                            registry; must be kind: agent
-      jobdir                directory holding job.yaml, the prompt and the inputs
-
-    options:
-      -h, --help            show this help message and exit
-      --cred ACCOUNT        hee cred account holding the agent's Anthropic API
-                            key; this tool re-runs itself under `hee cred -pass
-                            ACCOUNT` so the key is never printed or on argv
-      --cred-dir DIR        passed to hee cred -dir (default: its own default)
-      --key-env VAR         read the key from this environment variable instead of
-                            --cred (what the --cred re-exec uses: HEE_CRED_PASS).
-                            Never pass a key on the command line.
-      --wif                 federate instead of a static key: --cred is the lab
-                            issuer's signing key; the registry's console: block
-                            for the role supplies rule, org, service account,
-                            workspace, issuer, subject
-      --ticket ID           the hee ticket this dispatch works on; recorded, not
-                            enforced
-      --dry-run             resolve the agent, validate the job, print run.sh and
-                            the file list; ship and run nothing
-      --host HOST
-      --allocations ALLOCATIONS
 
 # DESCRIPTION
 
-                            [--wif] [--ticket ID] [--dry-run] [--host HOST]
-                            [--allocations ALLOCATIONS]
+                            [--wif] [--ticket ID] [--offline] [--dry-run]
+                            [--host HOST] [--allocations ALLOCATIONS]
                             agent jobdir
 
     hee-pve-dispatch -- hand one bounded job to one agent container and collect the result.
@@ -95,3 +58,50 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed
       json_schema: schema.json            # optional; claude --json-schema
       system_prompt: system.md            # optional; claude --append-system-prompt-file
+
+
+# EXAMPLES
+
+      $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
+      $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --wif --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
+      $ hee pve dispatch ci-triage pve/agents/jobs/wif-prep-readonly --wif --cred wif-issuer-lab --ticket 0090     # the real thing; needs the lab
+
+      --wif: workload identity federation instead of a static key. --cred names
+         the hee cred account holding the lab issuer's ES256 private key (made by
+         `hee cred -seal ... -genkey es256`). This tool mints ONE JWT for the job
+         (iss/sub/aud from the allocation registry's console: block, unique jti,
+         exp = the job timeout + 2 min), ships it on stdin exactly as a key would
+         be, and the generated run.sh exchanges it once at the Claude Console
+         (POST /v1/oauth/token, jwt-bearer) for a short-lived token bound to the
+         role's service account, then runs claude with ANTHROPIC_AUTH_TOKEN. No
+         static API key exists anywhere for the agent. The registry entry needs
+         console.organization_id, workspace_id, service_account_id,
+         federation_rule_id, issuer and subject.
+      hee-pve-dispatch AGENT JOBDIR --dry-run
+
+    positional arguments:
+      agent                 a role (ci-triage) or hostname from the allocation
+                            registry; must be kind: agent
+      jobdir                directory holding job.yaml, the prompt and the inputs
+
+    options:
+      -h, --help            show this help message and exit
+      --cred ACCOUNT        hee cred account holding the agent's Anthropic API
+                            key; this tool re-runs itself under `hee cred -pass
+                            ACCOUNT` so the key is never printed or on argv
+      --cred-dir DIR        passed to hee cred -dir (default: its own default)
+      --key-env VAR         read the key from this environment variable instead of
+                            --cred (what the --cred re-exec uses: HEE_CRED_PASS).
+                            Never pass a key on the command line.
+      --wif                 federate instead of a static key: --cred is the lab
+                            issuer's signing key; the registry's console: block
+                            for the role supplies rule, org, service account,
+                            workspace, issuer, subject
+      --ticket ID           the hee ticket this dispatch works on; recorded, not
+                            enforced
+      --offline             with --dry-run: do not ask the pve node for the
+                            container; take the registry's vmid (fixtures, CI)
+      --dry-run             resolve the agent, validate the job, print run.sh and
+                            the file list; ship and run nothing
+      --host HOST
+      --allocations ALLOCATIONS

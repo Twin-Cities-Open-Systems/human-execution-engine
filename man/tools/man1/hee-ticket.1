@@ -89,6 +89,15 @@ Nagios plugin convention.
             exits 1 today and is documented as-is, not changed here.
 \f[R]
 .fi
+.SH EXAMPLES
+.IP
+.nf
+\f[C]
+$ hee ticket -list                                       # ci
+$ hee ticket -list --open                                # ci
+$ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under \[ti]/git; not run in CI
+\f[R]
+.fi
 .SH SEE ALSO
 .IP
 .nf

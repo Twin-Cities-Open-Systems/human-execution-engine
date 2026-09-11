@@ -48,6 +48,11 @@ Usage:
   hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
   hee-pve-dispatch AGENT JOBDIR --wif --cred ISSUER-KEY-ACCOUNT [--ticket ID]
 
+EXAMPLES
+  $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
+  $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --wif --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
+  $ hee pve dispatch ci-triage pve/agents/jobs/wif-prep-readonly --wif --cred wif-issuer-lab --ticket 0090     # the real thing; needs the lab
+
   --wif: workload identity federation instead of a static key. --cred names
      the hee cred account holding the lab issuer's ES256 private key (made by
      `hee cred -seal ... -genkey es256`). This tool mints ONE JWT for the job
@@ -450,6 +455,8 @@ def main():
                     help="federate instead of a static key: --cred is the lab issuer's signing key; the registry's "
                          "console: block for the role supplies rule, org, service account, workspace, issuer, subject")
     ap.add_argument("--ticket", metavar="ID", help="the hee ticket this dispatch works on; recorded, not enforced")
+    ap.add_argument("--offline", action="store_true",
+                    help="with --dry-run: do not ask the pve node for the container; take the registry's vmid (fixtures, CI)")
     ap.add_argument("--dry-run", action="store_true",
                     help="resolve the agent, validate the job, print run.sh and the file list; ship and run nothing")
     ap.add_argument("--host", default="10.0.0.153")
@@ -475,7 +482,12 @@ def main():
     allocations = load_allocations(args.allocations)
     role, hostname, reg_vmid = resolve_agent(args.agent, allocations)
     wif = console_block(allocations[role], role) if args.wif else None
-    vmid, state = live_vmid(args.host, hostname)
+    if args.offline:
+        if not args.dry_run:
+            die("--offline only makes sense with --dry-run")
+        vmid, state = reg_vmid, "running"
+    else:
+        vmid, state = live_vmid(args.host, hostname)
     if vmid is None:
         die(f"{hostname} ({role}) is not on the node -- deploy it first (hee pve deploy)")
     if state != "running":

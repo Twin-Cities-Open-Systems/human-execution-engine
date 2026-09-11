@@ -65,6 +65,13 @@ hee-ticket - repo-local tickets, stored as real YAML in git
                 exits 1 today and is documented as-is, not changed here.
 
 
+# EXAMPLES
+
+    $ hee ticket -list                                       # ci
+    $ hee ticket -list --open                                # ci
+    $ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under ~/git; not run in CI
+
+
 # SEE ALSO
 
     hee-git-merge -- shares the same id/range/regex selector

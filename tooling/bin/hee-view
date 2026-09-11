@@ -21,6 +21,12 @@ main branch -- pass --sitemap to check a local copy instead.
 Usage:
   hee-view [--pve-host IP] [--haproxy-host IP] [--dns-host IP]
   hee-view --sites [--sitemap URL_OR_PATH] [--network lab|public|all] [--nerd]
+
+EXAMPLES
+  $ hee view --jobs --md --root tests/fixtures/dispatch                 # ci
+  $ hee view --job demo-2026 --root tests/fixtures/dispatch             # ci
+  $ hee view --braindump                                                # reads view.lab; not run in CI
+  $ hee view --jobs --live --publish 107:/www/data/jobs.json            # what the kiosk timer runs; needs the lab
 """
 import argparse
 import shlex
@@ -666,11 +672,15 @@ def _repo_root(start):
     return None
 
 
+JOB_ROOT_OVERRIDE = None   # --root DIR: where .hee/dispatch lives (fixtures, another checkout)
+
+
 def job_find_record(jid):
-    """(record, path, root) for a finished job, searching the current repo then
-    ~/git/fleet-ops. A prefix of the job id is accepted when it is unique."""
+    """(record, path, root) for a finished job, searching --root, else the
+    current repo then ~/git/fleet-ops. A prefix of the job id is accepted
+    when it is unique."""
     import glob
-    roots = [r for r in [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")] if r]
+    roots = [JOB_ROOT_OVERRIDE] if JOB_ROOT_OVERRIDE else [r for r in [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")] if r]
     for root in roots:
         hits = sorted(glob.glob(os.path.join(root, ".hee", "dispatch", jid + "*.yaml")))
         if len(hits) > 1:
@@ -801,7 +811,7 @@ def jobs_section(args):
     Markdown table for committing (pve/agents/SCORECARD.md)."""
     import glob, yaml
     roots = []
-    for r in [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")]:
+    for r in ([JOB_ROOT_OVERRIDE] if JOB_ROOT_OVERRIDE else [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")]):
         if r and r not in roots:
             roots.append(r)
     recs = []
@@ -993,7 +1003,7 @@ def lab_section(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-view")
+    ap = argparse.ArgumentParser(prog="hee-view", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pve-host", default="10.0.0.153")
     ap.add_argument("--haproxy-host", default="10.0.0.160")
     ap.add_argument("--dns-host", default="10.0.0.194")
@@ -1023,6 +1033,7 @@ def main():
                     help="one dispatched agent job, by id or unique prefix: the dispatch record and results when "
                          "finished; while running, the container's cgroup, the claude process and out/ read from the pve host")
     ap.add_argument("--json", action="store_true", help="with --job: also print the raw record or probe as JSON")
+    ap.add_argument("--root", metavar="DIR", help="with --job/--jobs: the checkout whose .hee/dispatch to read (default: this repo, then ~/git/fleet-ops)")
     ap.add_argument("--jobs", "-jobs", action="store_true",
                     help="every dispatch record (current repo, then ~/git/fleet-ops): one row per job and a per-agent scorecard")
     ap.add_argument("--md", action="store_true", help="with --jobs: Markdown tables, for committing as pve/agents/SCORECARD.md")
@@ -1064,6 +1075,9 @@ def main():
         return 3
     if args.braindump:
         return braindump_section(args)
+    global JOB_ROOT_OVERRIDE
+    if args.root:
+        JOB_ROOT_OVERRIDE = os.path.abspath(args.root)
     if args.job:
         return job_section(args)
     if args.jobs:

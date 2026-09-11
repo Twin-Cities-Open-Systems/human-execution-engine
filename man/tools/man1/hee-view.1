@@ -18,12 +18,15 @@
 .hy
 .SH NAME
 .PP
-hee-view - hee-view command
+hee-view - hee-view: one command, the whole real picture -- pve node,
+every
 .SH SYNOPSIS
 .IP
 .nf
 \f[C]
 hee-view [-h] [--pve-host PVE_HOST] [--haproxy-host HAPROXY_HOST]
+  hee-view [--pve-host IP] [--haproxy-host IP] [--dns-host IP]
+  hee-view --sites [--sitemap URL_OR_PATH] [--network lab|public|all] [--nerd]
 \f[R]
 .fi
 .SH DESCRIPTION
@@ -32,9 +35,37 @@ hee-view [-h] [--pve-host PVE_HOST] [--haproxy-host HAPROXY_HOST]
 \f[C]
                 [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
                 [--via [USER\[at]]HOST] [--crawl] [--braindump] [--job JID]
-                [--json] [--jobs] [--md] [--live] [--publish VMID:PATH]
-                [--mark-seen] [--braindump-url URL] [--sites-only]
-                [--network {lab,public,all}]
+                [--json] [--root DIR] [--jobs] [--md] [--live]
+                [--publish VMID:PATH] [--mark-seen] [--braindump-url URL]
+                [--sites-only] [--network {lab,public,all}]
+
+hee-view: one command, the whole real picture -- pve node, every
+container, HAProxy backend health, DNS. Same \[dq]only view to see them
+all\[dq] intent as view.lab.tcos.us, as a real CLI, no do-this-do-that.
+
+Real trigger (2026-08-24, Spencer): \[dq]not going to all this do this do
+that. slick hee view for all.\[dq] Reuses hee-pve-health\[aq]s real data
+(shells out to it --json, doesn\[aq]t reimplement pvesh calls) and adds
+HAProxy + DNS checks in one terse report.
+
+Real trigger for --sites (2026-08-28, Spencer): \[dq]first thing may be to
+build a complete site map, setup monitor (simple) with hee view -sites
+(or similar) to make sure we get 200\[aq]s everywhere, condense view
+(adding -nerd to that will be verbose as fuck)\[dq] -- reuses the real,
+already-established --nerd split (condensed by default, full per-URL
+detail only with --nerd) rather than inventing new verbosity flags.
+Default source is the real, live profile/SITEMAP.yaml on .github\[aq]s
+main branch -- pass --sitemap to check a local copy instead.
+\f[R]
+.fi
+.SH EXAMPLES
+.IP
+.nf
+\f[C]
+  $ hee view --jobs --md --root tests/fixtures/dispatch                 # ci
+  $ hee view --job demo-2026 --root tests/fixtures/dispatch             # ci
+  $ hee view --braindump                                                # reads view.lab; not run in CI
+  $ hee view --jobs --live --publish 107:/www/data/jobs.json            # what the kiosk timer runs; needs the lab
 
 options:
   -h, --help            show this help message and exit
@@ -69,6 +100,8 @@ options:
                         running, the container\[aq]s cgroup, the claude process
                         and out/ read from the pve host
   --json                with --job: also print the raw record or probe as JSON
+  --root DIR            with --job/--jobs: the checkout whose .hee/dispatch to
+                        read (default: this repo, then \[ti]/git/fleet-ops)
   --jobs, -jobs         every dispatch record (current repo, then \[ti]/git/fleet-
                         ops): one row per job and a per-agent scorecard
   --md                  with --jobs: Markdown tables, for committing as

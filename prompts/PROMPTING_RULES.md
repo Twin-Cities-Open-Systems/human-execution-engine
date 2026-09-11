@@ -252,6 +252,16 @@ loaded, read this file directly rather than assume it did.
       change and writes nothing, because a documentation generator that
       mutates the tree on a bare invocation once installed a pre-commit hook
       as a side effect (issue 464).
+    - **Examples are tests.** Every tool's `--help` carries an `EXAMPLES`
+      section; an example line that ends in `# ci` is run by `hee check
+      examples` (part of `hee check all` in this repo) from the repo root,
+      against fixtures under `tests/fixtures/`, and fails CI on a non-zero
+      exit. Unmarked examples are shown and never run -- they need the lab, a
+      keyring, or a human. Prefer a `--dry-run`/`--offline`/fixture form that
+      can be marked over a real one that cannot. Spencer, direct,
+      2026-09-11: "make sure all the man pages are updated with working
+      examples where possible. ci must use the man pages to ensure they work,
+      unit tests builtin."
     - **Never hand-edit a generated page.** Fix the tool's help, or the
       generator. Hand-editing is how `man/hee.1` came to document six <!-- hee-check:refs-ok  that page was removed by #484; repointing this path would make the example describe a file that never had the problem -->
       subcommands that no longer exist.

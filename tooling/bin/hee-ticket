@@ -194,6 +194,11 @@ DESCRIPTION
   transitions -- so stage counts and durations are derived from record,
   never asserted.
 
+EXAMPLES
+  $ hee ticket -list                                       # ci
+  $ hee ticket -list --open                                # ci
+  $ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under ~/git; not run in CI
+
 ACTIONS
   -new       open a ticket at stage idea. --source records where it came
              from (a page, a brain dump timestamp, a review); --ref a
