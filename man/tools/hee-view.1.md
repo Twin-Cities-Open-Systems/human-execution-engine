@@ -11,8 +11,9 @@ hee-view - hee-view command
 # DESCRIPTION
 
                     [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
-                    [--via [USER@]HOST] [--crawl] [--braindump] [--mark-seen]
-                    [--braindump-url URL] [--sites-only]
+                    [--via [USER@]HOST] [--crawl] [--braindump] [--job JID]
+                    [--json] [--jobs] [--md] [--live] [--publish VMID:PATH]
+                    [--mark-seen] [--braindump-url URL] [--sites-only]
                     [--network {lab,public,all}]
 
     options:
@@ -43,6 +44,21 @@ hee-view - hee-view command
                             reports the difference. WARNING exit (1) when there is
                             something unread, so it drives a watch or a status
                             line.
+      --job JID, -job JID   one dispatched agent job, by id or unique prefix: the
+                            dispatch record and results when finished; while
+                            running, the container's cgroup, the claude process
+                            and out/ read from the pve host
+      --json                with --job: also print the raw record or probe as JSON
+      --jobs, -jobs         every dispatch record (current repo, then ~/git/fleet-
+                            ops): one row per job and a per-agent scorecard
+      --md                  with --jobs: Markdown tables, for committing as
+                            pve/agents/SCORECARD.md
+      --live                with --jobs: also probe every running job on the pve
+                            host (cgroup, process, out/)
+      --publish VMID:PATH   with --jobs: write the JSON to that path inside a
+                            container on the pve host (view.lab:
+                            107:/www/data/jobs.json) instead of printing it --
+                            what the 30 s timer on kiosk runs
       --mark-seen           with --braindump: remember the newest entry, so the
                             next run reports only what arrives after it. Separate
                             from reading on purpose -- a run that scrolled past

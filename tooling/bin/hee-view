@@ -23,6 +23,7 @@ Usage:
   hee-view --sites [--sitemap URL_OR_PATH] [--network lab|public|all] [--nerd]
 """
 import argparse
+import shlex
 import json
 import os
 import re
@@ -631,6 +632,280 @@ def braindump_section(args):
     return 0
 
 
+# ---- --job: one dispatched agent job, live or finished ------------------------
+#
+# The same three sources every time: the dispatch record (.hee/dispatch/<jid>.yaml,
+# written when the job finished), the collected results dir, and -- while the
+# job is still running -- the pve host's cgroup for the container plus /proc
+# inside it. Operator, 2026-09-10: "need to closely measure token usage and
+# productivity and mistakes ... need something like ./hee view -job <jid>".
+# SNMP (joe) takes over the live half later; the first dogfood reads the host.
+
+JOBS_ROOT = "/home/agent/jobs"
+CONTAINER_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# What runs INSIDE the container, as one sh -c string (pct exec passes it
+# through). Single-quoted for sh; nothing here interpolates a secret.
+_JOB_INNER = r"""
+p=$(pgrep -f "^claude -p" | head -1)
+if [ -n "$p" ]; then echo "pid=$p"; awk '/^(VmRSS|VmHWM|Threads)/{gsub(/[ \t]+/," ");print}' /proc/$p/status; awk '/^(rchar|wchar)/{print}' /proc/$p/io; echo "fds=$(ls /proc/$p/fd | wc -l)"; fi
+cd JOBDIR 2>/dev/null || exit 0
+echo "--out"; ls -l out | awk 'NR>1{print $5, $9}'
+echo "--auth"; tail -n 2 out/auth.log 2>/dev/null
+echo "--stream"; if [ -s out/stream.jsonl ]; then echo "turns=$(grep -c '"type":"assistant"' out/stream.jsonl)"; grep -o '"name":"[A-Za-z_]*"' out/stream.jsonl | tail -1; fi
+echo "--result"; if [ -s out/result.json ]; then python3 -c "import json;d=json.load(open('out/result.json'));print('cost=%s turns=%s is_error=%s subtype=%s'%(d.get('total_cost_usd'),d.get('num_turns'),d.get('is_error'),d.get('subtype')))"; fi
+"""
+
+
+def _repo_root(start):
+    p = os.path.abspath(start)
+    while p != "/":
+        if os.path.exists(os.path.join(p, ".git")):
+            return p
+        p = os.path.dirname(p)
+    return None
+
+
+def job_find_record(jid):
+    """(record, path, root) for a finished job, searching the current repo then
+    ~/git/fleet-ops. A prefix of the job id is accepted when it is unique."""
+    import glob
+    roots = [r for r in [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")] if r]
+    for root in roots:
+        hits = sorted(glob.glob(os.path.join(root, ".hee", "dispatch", jid + "*.yaml")))
+        if len(hits) > 1:
+            hee_status.emit("UNKNOWN", f"hee-view: {jid} matches {len(hits)} records: "
+                            + ", ".join(os.path.basename(h)[:-5] for h in hits))
+            sys.exit(3)
+        if hits:
+            import yaml
+            with open(hits[0]) as fh:
+                return yaml.safe_load(fh), hits[0], root
+    return None, None, (roots[0] if roots else None)
+
+
+def job_live_probe(pve_host, jid, vmid=None):
+    """Two ssh round trips at most: find the container holding the job, then
+    read its cgroup, the claude process and out/. Every number is measured on
+    the host or in /proc; nothing is asked of the agent."""
+    if not vmid:
+        find = ("for v in $(pct list | awk 'NR>1 && $2==\"running\"{print $1}'); do "
+                f"pct exec $v -- test -d {JOBS_ROOT}/{jid} 2>/dev/null && {{ echo vmid=$v; break; }}; done")
+        _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", find])
+        for line in (_out or "").splitlines():
+            if line.startswith("vmid=") and line[5:].strip():
+                vmid = line[5:].strip()
+    if not vmid:
+        return None
+    inner = _JOB_INNER.replace("JOBDIR", f"{JOBS_ROOT}/{jid}")
+    host_script = (
+        f"C=/sys/fs/cgroup/lxc/{vmid}\n"
+        f"echo mem_mb=$(( $(cat $C/memory.current)/1048576 )) peak_mb=$(( $(cat $C/memory.peak 2>/dev/null || echo 0)/1048576 )) "
+        f"pids=$(cat $C/pids.current) cpu_s=$(( $(awk '/^usage_usec/{{print $2}}' $C/cpu.stat)/1000000 ))\n"
+        f"echo net_in_mb=$(( $(cat /sys/class/net/veth{vmid}i0/statistics/tx_bytes)/1048576 )) "
+        f"net_out_mb=$(( $(cat /sys/class/net/veth{vmid}i0/statistics/rx_bytes)/1048576 ))\n"
+        f"echo hostname=$(pct exec {vmid} -- hostname)\n"
+        f"pct exec {vmid} -- env PATH={CONTAINER_PATH} sh -c {shlex.quote(inner)}\n"
+    )
+    _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", host_script])
+    facts = {"vmid": int(vmid), "running": False, "out": [], "auth": [], "stream": [], "result": None}
+    section = None
+    for line in (_out or "").splitlines():
+        if line in ("--out", "--auth", "--stream", "--result"):
+            section = line[2:]
+            continue
+        if section == "out" and line.strip():
+            size, name = line.split(None, 1)
+            facts["out"].append((name, int(size)))
+        elif section == "auth" and line.strip():
+            facts["auth"].append(line.strip())
+        elif section == "stream" and line.strip():
+            facts["stream"].append(line.strip())
+        elif section == "result" and line.strip():
+            facts["result"] = line.strip()
+        elif section is None:
+            for tok in line.split():
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    facts[k.lower()] = v
+                    if k == "pid":
+                        facts["running"] = True
+            if ":" in line and "=" not in line:
+                k, v = line.split(":", 1)
+                facts[k.strip().lower()] = v.strip()
+    return facts
+
+
+def job_section(args):
+    jid = args.job
+    record, rec_path, root = job_find_record(jid)
+    if record:
+        jid = record["job"]
+    print(f"== job {jid}")
+    if record:
+        r = record
+        ok = r.get("exit") == 0 and not r.get("is_error")
+        print(f"  agent      {r.get('agent')} ({r.get('hostname')}, vmid {r.get('vmid')})  auth {r.get('auth', 'key')}"
+              + (f"  rule {r.get('federation_rule_id')}" if r.get("federation_rule_id") else ""))
+        print(f"  ticket     {r.get('ticket')}   record {os.path.relpath(rec_path, root)}")
+        print(f"  ran        {r.get('started_at')} -> {r.get('ended_at')}  timeout {r.get('timeout_s')}s  budget ${r.get('budget_usd')}")
+        print(f"  verdict    exit {r.get('exit')}  is_error {r.get('is_error')}  cost ${r.get('cost_usd')}  "
+              f"turns {r.get('num_turns')}  models {r.get('models')}")
+        if r.get("usage"):
+            u = r["usage"]
+            print(f"  tokens     in {u.get('input_tokens')}  out {u.get('output_tokens')}  "
+                  f"cache_read {u.get('cache_read_input_tokens')}  cache_create {u.get('cache_creation_input_tokens')}")
+        if r.get("cgroup"):
+            c = r["cgroup"]
+            print(f"  container  peak {c.get('peak_mb')} MB  cpu {c.get('cpu_s')} s  net in {c.get('net_in_mb')} MB out {c.get('net_out_mb')} MB")
+        if r.get("review"):
+            v = r["review"]
+            print(f"  review     accepted {v.get('accepted')}  corrections {v.get('corrections')}  mistakes {v.get('mistakes')}")
+        res = os.path.join(root, r.get("results_dir", ""))
+        if os.path.isdir(res):
+            outs = []
+            for dp, _, fs in os.walk(res):
+                for f in fs:
+                    fp = os.path.join(dp, f)
+                    outs.append((os.path.relpath(fp, res), os.path.getsize(fp)))
+            print("  outputs    " + ", ".join(f"{n} ({s} B)" for n, s in sorted(outs)))
+        if args.json:
+            print(json.dumps(record, default=str, indent=2))
+        hee_status.emit("OK" if ok else "WARNING", f"hee-view: job {jid} finished, exit {r.get('exit')}, cost ${r.get('cost_usd')}")
+        return 0 if ok else 1
+    facts = job_live_probe(args.pve_host, jid)
+    if not facts:
+        hee_status.emit("UNKNOWN", f"hee-view: no record for {jid} and no running container holds {JOBS_ROOT}/{jid}")
+        return 3
+    state = "RUNNING" if facts["running"] else "finished on the container, not collected yet"
+    print(f"  container  {facts.get('hostname')} vmid {facts['vmid']}  {state}")
+    print(f"  cgroup     mem {facts.get('mem_mb')} MB (peak {facts.get('peak_mb')})  cpu {facts.get('cpu_s')} s  "
+          f"pids {facts.get('pids')}  net in {facts.get('net_in_mb')} MB out {facts.get('net_out_mb')} MB")
+    if facts["running"]:
+        print(f"  claude     pid {facts.get('pid')}  rss {facts.get('vmrss')}  hwm {facts.get('vmhwm')}  threads {facts.get('threads')}  "
+              f"fds {facts.get('fds')}  read {facts.get('rchar')} B  written {facts.get('wchar')} B")
+    print("  auth       " + (" | ".join(facts["auth"]) or "no auth.log (static-key job)"))
+    print("  progress   " + (" ".join(facts["stream"]) or "no stream.jsonl (json mode buffers until exit)"))
+    print("  out/       " + (", ".join(f"{n} ({s} B)" for n, s in facts["out"]) or "empty"))
+    if facts["result"]:
+        print("  result     " + facts["result"])
+    if args.json:
+        print(json.dumps(facts, indent=2))
+    hee_status.emit("OK" if facts["running"] else "WARNING", f"hee-view: job {jid} {state.lower()} on vmid {facts['vmid']}")
+    return 0
+
+
+def jobs_section(args):
+    """Every dispatch record in the current repo (then ~/git/fleet-ops), one
+    row each, plus a per-agent rollup: the scorecard. --md prints it as a
+    Markdown table for committing (pve/agents/SCORECARD.md)."""
+    import glob, yaml
+    roots = []
+    for r in [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")]:
+        if r and r not in roots:
+            roots.append(r)
+    recs = []
+    seen = set()
+    for root in roots:
+        for f in sorted(glob.glob(os.path.join(root, ".hee", "dispatch", "*.yaml"))):
+            with open(f) as fh:
+                d = yaml.safe_load(fh) or {}
+            if d.get("job") in seen:
+                continue
+            seen.add(d.get("job")); recs.append(d)
+    if not recs:
+        hee_status.emit("UNKNOWN", "hee-view: no dispatch records under " + ", ".join(roots))
+        return 3
+    recs.sort(key=lambda d: d.get("started_at") or "")
+    def n(x): return "" if x is None else x
+    rows = []
+    for d in recs:
+        u = d.get("usage") or {}; v = d.get("review") or {}
+        secs = (d.get("duration_ms") or 0) // 1000
+        rows.append([d.get("job", "")[:40], d.get("agent", ""), (d.get("started_at") or "")[:16], d.get("auth", "key"),
+                     f"{d.get('cost_usd') or 0:.3f}", n(d.get("num_turns")), f"{secs // 60}m{secs % 60:02d}s",
+                     n(u.get("input_tokens")), n(u.get("output_tokens")), n(u.get("cache_read_input_tokens")),
+                     n(d.get("permission_denials")), n(d.get("exit")), n(v.get("accepted")), n(v.get("corrections")), len(v.get("mistakes") or [])])
+    head = ["job", "agent", "started", "auth", "cost $", "turns", "wall", "in", "out", "cache_read", "denials", "exit", "accepted", "corr", "mistakes"]
+    agents = {}
+    for d in recs:
+        a = agents.setdefault(d.get("agent"), {"jobs": 0, "cost": 0.0, "turns": 0, "out": 0, "mistakes": 0, "corrections": 0, "denials": 0, "failed": 0})
+        v = d.get("review") or {}; u = d.get("usage") or {}
+        a["jobs"] += 1; a["cost"] += d.get("cost_usd") or 0; a["turns"] += d.get("num_turns") or 0; a["out"] += u.get("output_tokens") or 0
+        a["mistakes"] += len(v.get("mistakes") or []); a["corrections"] += v.get("corrections") or 0; a["denials"] += d.get("permission_denials") or 0
+        a["failed"] += 1 if (d.get("exit") not in (0, None) or d.get("is_error")) else 0
+    if args.json or args.publish:
+        pass   # machine output below; no table on stdout
+    elif args.md:
+        print("| " + " | ".join(head) + " |"); print("|" + "---|" * len(head))
+        for r in rows: print("| " + " | ".join(str(x) for x in r) + " |")
+        print("\n| agent | jobs | failed | cost $ | turns | output tokens | denials | corrections | mistakes | mistakes/job |\n|---|---|---|---|---|---|---|---|---|---|")
+        for a, t in sorted(agents.items()):
+            print(f"| {a} | {t['jobs']} | {t['failed']} | {t['cost']:.3f} | {t['turns']} | {t['out']} | {t['denials']} | {t['corrections']} | {t['mistakes']} | {t['mistakes'] / t['jobs']:.2f} |")
+    else:
+        w = [max(len(str(x)) for x in col) for col in zip(head, *rows)]
+        print("  ".join(h.ljust(w[i]) for i, h in enumerate(head)))
+        for r in rows: print("  ".join(str(x).ljust(w[i]) for i, x in enumerate(r)))
+        print()
+        for a, t in sorted(agents.items()):
+            print(f"  {a:16} jobs {t['jobs']}  failed {t['failed']}  cost ${t['cost']:.3f}  turns {t['turns']}  out {t['out']}  denials {t['denials']}  corrections {t['corrections']}  mistakes {t['mistakes']} ({t['mistakes'] / t['jobs']:.2f}/job)")
+    total = sum(d.get("cost_usd") or 0 for d in recs)
+    if args.json or args.publish:
+        import datetime as _dt
+        today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+        doc = {"generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+               "daily_cap_usd": float(os.environ.get("HEE_DISPATCH_DAILY_CAP_USD", "10.00")),
+               "spent_today_usd": round(sum(d.get("cost_usd") or 0 for d in recs if str(d.get("started_at", "")).startswith(today)), 4),
+               "total_usd": round(total, 4), "agents": agents,
+               "jobs": [{k: d.get(k) for k in ("job", "name", "agent", "hostname", "vmid", "ticket", "auth", "started_at", "ended_at",
+                                                "budget_usd", "cost_usd", "num_turns", "duration_ms", "exit", "is_error", "subtype",
+                                                "permission_denials", "denied_tools", "usage", "models", "review")} for d in recs],
+               "running": []}
+        if args.live:
+            doc["running"] = jobs_live(args.pve_host)
+        out = json.dumps(doc, default=str, indent=1)
+        if args.publish:
+            publish_json(args.publish, out)
+        elif args.json:
+            print(out)
+    if not args.json:   # a JSON consumer gets JSON and nothing else on stdout
+        hee_status.emit("OK", f"hee-view: {len(recs)} dispatch record(s), {len(agents)} agent(s), ${total:.2f} total")
+    return 0
+
+
+def jobs_live(pve_host):
+    """Every job dir under JOBS_ROOT on every running agent container that has
+    a claude process: the same cgroup/proc probe --job uses, one ssh per
+    container. Cheap enough for a 30 s timer; SNMP takes this over later."""
+    find = ("for v in $(pct list | awk 'NR>1 && $2==\"running\"{print $1}'); do "
+            f"j=$(pct exec $v -- sh -c 'pgrep -f \"^claude -p\" >/dev/null && ls -t {JOBS_ROOT} 2>/dev/null | head -n 1'); "
+            "[ -n \"$j\" ] && echo \"$v $j\"; done")
+    _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", find])
+    out = []
+    for line in (_out or "").splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        vm, jid = parts
+        facts = job_live_probe(pve_host, jid, vm) or {}
+        facts["job"] = jid
+        out.append(facts)
+    return out
+
+
+def publish_json(target, text):
+    """TARGET is VMID:/path on the pve host (the view container's docroot):
+    written through pct exec so nothing new listens anywhere."""
+    import shlex
+    vm, path = target.split(":", 1)
+    cmd = f"pct exec {vm} -- sh -c 'mkdir -p $(dirname {shlex.quote(path)}) && cat > {shlex.quote(path)}.tmp && mv {shlex.quote(path)}.tmp {shlex.quote(path)}'"
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "root@10.0.0.153", cmd], input=text.encode(), capture_output=True)
+    if r.returncode != 0:
+        hee_status.emit("CRITICAL", f"hee-view: publish to {target} failed: {r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+        sys.exit(2)
+    print(f"published {len(text)} bytes -> {target}")
+
+
 def inbound_status():
     import shutil
     if not shutil.which("gh"):
@@ -744,6 +1019,17 @@ def main():
                          "Append-only file, so the only question is what is NEW -- this keeps a "
                          "cursor and reports the difference. WARNING exit (1) when there is "
                          "something unread, so it drives a watch or a status line.")
+    ap.add_argument("--job", "-job", metavar="JID",
+                    help="one dispatched agent job, by id or unique prefix: the dispatch record and results when "
+                         "finished; while running, the container's cgroup, the claude process and out/ read from the pve host")
+    ap.add_argument("--json", action="store_true", help="with --job: also print the raw record or probe as JSON")
+    ap.add_argument("--jobs", "-jobs", action="store_true",
+                    help="every dispatch record (current repo, then ~/git/fleet-ops): one row per job and a per-agent scorecard")
+    ap.add_argument("--md", action="store_true", help="with --jobs: Markdown tables, for committing as pve/agents/SCORECARD.md")
+    ap.add_argument("--live", action="store_true", help="with --jobs: also probe every running job on the pve host (cgroup, process, out/)")
+    ap.add_argument("--publish", metavar="VMID:PATH",
+                    help="with --jobs: write the JSON to that path inside a container on the pve host (view.lab: 107:/www/data/jobs.json) "
+                         "instead of printing it -- what the 30 s timer on kiosk runs")
     ap.add_argument("--mark-seen", action="store_true",
                     help="with --braindump: remember the newest entry, so the next run reports "
                          "only what arrives after it. Separate from reading on purpose -- a run "
@@ -778,6 +1064,10 @@ def main():
         return 3
     if args.braindump:
         return braindump_section(args)
+    if args.job:
+        return job_section(args)
+    if args.jobs:
+        return jobs_section(args)
 
     if args.via:
         if "://" in args.via or "/" in args.via:
