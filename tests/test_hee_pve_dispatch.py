@@ -90,7 +90,7 @@ class TestJob(unittest.TestCase):
             d.plan_job(self.job)
 
     def test_defaults_and_run_sh(self):
-        self._write("name: convert\nbudget_usd: 1.5\n")
+        self._write("name: convert\nbudget_usd: 1.5\nbudget_reason: test\n")
         job = d.plan_job(self.job)
         self.assertEqual(job["tools"], d.DEFAULT_TOOLS)
         self.assertEqual(job["mode"], "acceptEdits")

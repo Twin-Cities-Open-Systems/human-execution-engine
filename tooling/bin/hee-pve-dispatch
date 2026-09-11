@@ -353,6 +353,7 @@ def spent_today(root):
     """Sum of cost_usd over this repo's dispatch records started today (UTC).
     The records are the ledger; there is no second one."""
     import glob
+    root = os.fsdecode(root)   # repo_root_of hands back git's bytes
     today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
     total = 0.0
     for f in glob.glob(os.path.join(root, ".hee", "dispatch", "*.yaml")):
@@ -482,10 +483,6 @@ def main():
     if reg_vmid not in (None, vmid):
         die(f"registry says {role} is vmid {reg_vmid}, the node says {vmid} -- fix the registry first")
     jid = job_id(job)
-    spent = spent_today(repo_root_of(job["dir"]) or job["dir"])
-    if spent + job["budget_usd"] > DAILY_CAP_USD and not args.dry_run:
-        die(f"today's dispatch spend is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
-            f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
     run_sh = render_run_sh(job, jid, wif)
     emit("OK", f"agent {role} -> {hostname} vmid {vmid}; job {jid}; budget ${job['budget_usd']:.2f}, "
                f"timeout {job['timeout_s']}s, tools {' '.join(job['tools'])}, mode {job['mode']}")
@@ -503,6 +500,11 @@ def main():
     if not key:
         die("no key: pass --cred ACCOUNT (the only supported path) -- a dispatch without a "
             "credential cannot run, and this tool will not take a key on the command line")
+
+    spent = spent_today(repo_root_of(job["dir"]) or job["dir"])
+    if spent + job["budget_usd"] > DAILY_CAP_USD:
+        die(f"today's dispatch spend is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
+            f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
 
     jwt_claims = None
     if wif:
