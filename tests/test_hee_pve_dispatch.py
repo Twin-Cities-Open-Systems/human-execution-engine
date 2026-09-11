@@ -158,6 +158,19 @@ class TestJob(unittest.TestCase):
 
 
 
+class Friction(unittest.TestCase):
+    def test_write_implies_edit_and_stream_json(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as t:
+            j = os.path.join(t, "job"); os.makedirs(j)
+            open(os.path.join(j, "prompt.md"), "w").write("x")
+            open(os.path.join(j, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 1\nallowed_tools: [Read, Write]\n")
+            job = d.plan_job(j)
+            self.assertIn("Edit", job["tools"])
+            sh = d.render_run_sh(job, "t-1")
+            self.assertIn("--output-format stream-json", sh); self.assertIn("out/result.json", sh)
+
+
 class Wif(unittest.TestCase):
     CON = {"organization_id": "org-1", "workspace_id": "wrkspc_1", "service_account_id": "svac_1",
            "federation_rule_id": "fdrl_1", "issuer": "https://issuer.lab.tcos.us", "subject": "pve:ci-triage"}
