@@ -94,6 +94,9 @@ DEFAULT_TOKEN_FILE = Path.home() / ".config" / "hee" / "plex-token"
 CRED_ACCOUNT = "plex-token"
 DISCORD_ACCOUNT = "discord-webhook-scrob"
 DEVICE_NAMES_FILE = Path.home() / ".config" / "hee" / "device-names.txt"
+# HEE#670: Plex's `file` attribute is a path as the CONTAINER sees it, not
+# this host. Per-oper in heerc, e.g. HEE_SCROB_PATH_MAP="/data=/srv/media".
+PATH_MAP_VAR = "HEE_SCROB_PATH_MAP"
 
 
 def unseal(account: str) -> str:
@@ -300,6 +303,57 @@ def find_srt(media_file: str):
     return None
 
 
+def parse_path_map(raw: str):
+    """Parse HEE_SCROB_PATH_MAP ("/data=/srv/media,/tv=/srv/tv") into
+    (container, local) pairs, longest container prefix first so the most
+    specific mapping always wins in map_local_path. A pair missing '=' or
+    with either side empty is skipped -- one malformed pair should not
+    break the rest of the map."""
+    pairs = []
+    for chunk in (raw or "").split(","):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        container, _, local = chunk.partition("=")
+        container = container.strip().rstrip("/")
+        local = local.strip().rstrip("/")
+        if not container or not local:
+            continue
+        pairs.append((container, local))
+    pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
+    return pairs
+
+
+def map_local_path(path: str, mappings):
+    """Rewrite the leading container-path component of `path` using the
+    longest-matching prefix in `mappings`. A prefix matches only on a
+    path-component boundary -- '/data' must not match '/database'."""
+    for container, local in mappings:
+        if path == container or path.startswith(container + "/"):
+            return local + path[len(container):]
+    return path
+
+
+def resolve_media_file(media_file: str, mappings):
+    """Apply the path map and report whether the result exists on this
+    filesystem. No Plex involved -- a test calls this with a bare string
+    and a temp dir."""
+    local_file = map_local_path(media_file, mappings)
+    return local_file, Path(local_file).exists()
+
+
+def warn_unresolved(media_file: str, mappings):
+    """HEE#670's distinguishable message: an unmapped/unresolvable path
+    must never look like outcome (2), a genuinely missing sidecar .srt.
+    Always stderr -- stdout is piped straight into an IRC/Discord channel."""
+    tried = ", ".join(f"{c}={l}" for c, l in mappings) if mappings else "none configured"
+    print(
+        f"hee-scrob: media path not found locally: {media_file}\n"
+        f"hee-scrob: {PATH_MAP_VAR} mappings tried: {tried}",
+        file=sys.stderr,
+    )
+
+
 def now_playing(server: str, token: str, device_names: dict, current_only: bool = False):
     url = f"{server}/status/sessions?X-Plex-Token={token}"
     req = urllib.request.Request(url, headers={"Accept": "application/xml"})
@@ -342,9 +396,14 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
         if part is not None:
             media_file = part.get("file")
             if media_file:
-                srt_path = find_srt(media_file)
-                if srt_path:
-                    srt_text = srt_context(srt_path, offset, current_only)
+                mappings = parse_path_map(os.environ.get(PATH_MAP_VAR, ""))
+                local_file, exists = resolve_media_file(media_file, mappings)
+                if exists:
+                    srt_path = find_srt(local_file)
+                    if srt_path:
+                        srt_text = srt_context(srt_path, offset, current_only)
+                else:
+                    warn_unresolved(media_file, mappings)
 
         if video.get("type") == "episode":
             show = video.get("grandparentTitle") or "?"
@@ -410,7 +469,16 @@ def post_discord(text):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-scrob")
+    ap = argparse.ArgumentParser(
+        prog="hee-scrob",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            f"{PATH_MAP_VAR}: per-oper container->local path map, set in heerc,\n"
+            "for when nothing is mounted at Plex's own container path.\n"
+            "Comma-separated container=local pairs; longest container prefix wins.\n"
+            f'  export {PATH_MAP_VAR}="/data=/srv/media"\n'
+        ),
+    )
     ap.add_argument("-server", default=DEFAULT_SERVER)
     ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
     ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
