@@ -109,7 +109,8 @@ job.yaml:
   prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
   inputs: [in/, rules.md]             # shipped; default: everything but results/
   outputs: [out/]                     # collected; default: out/
-  budget_usd: 2.00                    # required -- claude --max-budget-usd
+  budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
+  budget_reason: \[dq]five doc pages to read and cite\[dq]   # required when budget_usd > 1.00
   timeout_s: 1800                     # default 1800 -- \[ga]timeout\[ga] around claude
   permission_mode: acceptEdits        # default; claude --permission-mode
   allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed

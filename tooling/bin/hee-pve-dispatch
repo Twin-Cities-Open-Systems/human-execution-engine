@@ -36,7 +36,8 @@ job.yaml:
   prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
   inputs: [in/, rules.md]             # shipped; default: everything but results/
   outputs: [out/]                     # collected; default: out/
-  budget_usd: 2.00                    # required -- claude --max-budget-usd
+  budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
+  budget_reason: "five doc pages to read and cite"   # required when budget_usd > 1.00
   timeout_s: 1800                     # default 1800 -- `timeout` around claude
   permission_mode: acceptEdits        # default; claude --permission-mode
   allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed
@@ -100,6 +101,11 @@ OUT_NOTE = ("\n\n## Files the dispatcher itself writes into out/ (not inputs, no
             "out/auth.log (token exchange status), out/exit, out/result.json, out/stderr.log, out/stream.jsonl. "
             "Ignore them. Everything you produce goes under out/ beside them.\n")
 KEY_ENV_DEFAULT = "HEE_CRED_PASS"
+# Money discipline. Operator, 2026-09-11: "in=cheap, out=expensive. and we
+# have 0 investors and the agents are not yet earning their keep." A job
+# above the routine ceiling must say why; a day's spend has a lid.
+ROUTINE_BUDGET_USD = 1.00       # above this, job.yaml needs budget_reason
+DAILY_CAP_USD = float(os.environ.get("HEE_DISPATCH_DAILY_CAP_USD", "10.00"))
 
 
 def emit(status, msg):
@@ -225,6 +231,9 @@ def plan_job(jobdir):
             "ceiling is not a job")
     if not 0 < budget <= 50:
         die(f"job.yaml: budget_usd {budget} is outside 0 < budget <= 50")
+    if budget > ROUTINE_BUDGET_USD and not str(spec.get("budget_reason") or "").strip():
+        die(f"job.yaml: budget_usd {budget} is above the routine ceiling ${ROUTINE_BUDGET_USD:.2f} -- add budget_reason: "
+            f"saying what the extra buys (output tokens are the expensive kind; a shorter deliverable is usually the answer)")
     timeout_s = int(spec.get("timeout_s", 1800))
     if not 30 <= timeout_s <= 6 * 3600:
         die("job.yaml: timeout_s must be between 30 and 21600")
@@ -338,6 +347,23 @@ def render_run_sh(job, jid, wif=None):
         "exit 0",
     ]
     return "\n".join(lines) + "\n"
+
+
+def spent_today(root):
+    """Sum of cost_usd over this repo's dispatch records started today (UTC).
+    The records are the ledger; there is no second one."""
+    import glob
+    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+    total = 0.0
+    for f in glob.glob(os.path.join(root, ".hee", "dispatch", "*.yaml")):
+        try:
+            with open(f) as fh:
+                d = yaml.safe_load(fh) or {}
+        except Exception:  # noqa: BLE001 -- a bad record must not block the ledger
+            continue
+        if str(d.get("started_at", "")).startswith(today):
+            total += float(d.get("cost_usd") or 0)
+    return total
 
 
 def make_tar(job, run_sh):
@@ -456,6 +482,10 @@ def main():
     if reg_vmid not in (None, vmid):
         die(f"registry says {role} is vmid {reg_vmid}, the node says {vmid} -- fix the registry first")
     jid = job_id(job)
+    spent = spent_today(repo_root_of(job["dir"]) or job["dir"])
+    if spent + job["budget_usd"] > DAILY_CAP_USD and not args.dry_run:
+        die(f"today's dispatch spend is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
+            f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
     run_sh = render_run_sh(job, jid, wif)
     emit("OK", f"agent {role} -> {hostname} vmid {vmid}; job {jid}; budget ${job['budget_usd']:.2f}, "
                f"timeout {job['timeout_s']}s, tools {' '.join(job['tools'])}, mode {job['mode']}")

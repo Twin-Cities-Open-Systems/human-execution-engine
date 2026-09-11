@@ -171,6 +171,27 @@ class Friction(unittest.TestCase):
             self.assertIn("--output-format stream-json", sh); self.assertIn("out/result.json", sh)
 
 
+class Money(unittest.TestCase):
+    def test_above_routine_ceiling_needs_a_reason(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as t:
+            j = os.path.join(t, "job"); os.makedirs(j); open(os.path.join(j, "prompt.md"), "w").write("x")
+            open(os.path.join(j, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 3\n")
+            with self.assertRaises(SystemExit):
+                d.plan_job(j)
+            open(os.path.join(j, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 3\nbudget_reason: five pages to cite\n")
+            self.assertEqual(d.plan_job(j)["budget_usd"], 3.0)
+
+    def test_spent_today_sums_todays_records(self):
+        import tempfile, os, datetime
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(os.path.join(t, ".hee", "dispatch"))
+            today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+            open(os.path.join(t, ".hee", "dispatch", "a.yaml"), "w").write(f"job: a\nstarted_at: '{today}T01:00:00+00:00'\ncost_usd: 2.31\n")
+            open(os.path.join(t, ".hee", "dispatch", "b.yaml"), "w").write("job: b\nstarted_at: '2020-01-01T01:00:00+00:00'\ncost_usd: 9\n")
+            self.assertAlmostEqual(d.spent_today(t), 2.31)
+
+
 class Wif(unittest.TestCase):
     CON = {"organization_id": "org-1", "workspace_id": "wrkspc_1", "service_account_id": "svac_1",
            "federation_rule_id": "fdrl_1", "issuer": "https://issuer.lab.tcos.us", "subject": "pve:ci-triage"}
