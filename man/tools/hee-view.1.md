@@ -11,8 +11,8 @@ hee-view - hee-view command
 # DESCRIPTION
 
                     [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
-                    [--via [USER@]HOST] [--crawl] [--braindump] [--mark-seen]
-                    [--braindump-url URL] [--sites-only]
+                    [--via [USER@]HOST] [--crawl] [--braindump] [--job JID]
+                    [--json] [--mark-seen] [--braindump-url URL] [--sites-only]
                     [--network {lab,public,all}]
 
     options:
@@ -43,6 +43,11 @@ hee-view - hee-view command
                             reports the difference. WARNING exit (1) when there is
                             something unread, so it drives a watch or a status
                             line.
+      --job JID, -job JID   one dispatched agent job, by id or unique prefix: the
+                            dispatch record and results when finished; while
+                            running, the container's cgroup, the claude process
+                            and out/ read from the pve host
+      --json                with --job: also print the raw record or probe as JSON
       --mark-seen           with --braindump: remember the newest entry, so the
                             next run reports only what arrives after it. Separate
                             from reading on purpose -- a run that scrolled past
