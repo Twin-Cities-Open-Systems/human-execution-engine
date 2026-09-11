@@ -463,11 +463,24 @@ def render_run_sh(job, jid, wif=None, resume=None):
         f"cd {shlex.quote(remote)}",
         "mkdir -p out",
     ] + ([f"mkdir -p out/before-r{resume['n']}",
-          f"for f in stream.jsonl result.json exit stderr.log; do [ ! -e out/$f ] || mv out/$f out/before-r{resume['n']}/$f; done"]
+          f"for f in stream.jsonl result.json exit stderr.log resources.json; do [ ! -e out/$f ] || mv out/$f out/before-r{resume['n']}/$f; done"]
          if resume else []) + [
         f"chown -R agent:agent {shlex.quote(remote)}",
+        "# The meta supporting this job: the container's own cgroup and eth0 counters,",
+        '# read at start and end; memory and process peaks sampled every 2 s, because',
+        "# kernel 6.5 cannot reset memory.peak and the container's peak would otherwise",
+        '# be its whole uptime (measured on ct117, 2026-09-11). Nothing runs between jobs.',
+        'C=/sys/fs/cgroup',
+        'hee_cpu() { awk \'/^usage_usec/{print $2}\' "$C/cpu.stat" 2>/dev/null || echo 0; }',
+        "hee_net() { sed -n 's/^ *eth0: */eth0 /p' /proc/net/dev | awk '{print $2, $10}'; }",
+        't0=$(date +%s); cpu0=$(hee_cpu); set -- $(hee_net) 0 0; rx0=$1; tx0=$2',
+        '( mx=0; px=0; while :; do m=$(cat "$C/memory.current" 2>/dev/null || echo 0); p=$(cat "$C/pids.current" 2>/dev/null || echo 0); [ "$m" -gt "$mx" ] && mx=$m; [ "$p" -gt "$px" ] && px=$p; echo "$mx $px" > out/.resources.peak; sleep 2; done ) & hee_sampler=$!',
         "rc=0",
         f"su -p agent -c {shlex.quote(inner)} || rc=$?",
+        'kill "$hee_sampler" 2>/dev/null || true; wait "$hee_sampler" 2>/dev/null || true',
+        't1=$(date +%s); cpu1=$(hee_cpu); set -- $(hee_net) 0 0; rx1=$1; tx1=$2; set -- $(cat out/.resources.peak 2>/dev/null) 0 0; mx=$1; px=$2',
+        'awk -v w=$((t1 - t0)) -v c0="$cpu0" -v c1="$cpu1" -v m="$mx" -v p="$px" -v r0="$rx0" -v r1="$rx1" -v x0="$tx0" -v x1="$tx1" \'BEGIN{printf "{\\"wall_s\\": %d, \\"cpu_s\\": %.1f, \\"mem_peak_mb\\": %.1f, \\"pids_peak\\": %d, \\"net_in_mb\\": %.2f, \\"net_out_mb\\": %.2f, \\"sampled_every_s\\": 2}\\n", w, (c1 - c0) / 1e6, m / 1048576, p, (r1 - r0) / 1048576, (x1 - x0) / 1048576}\' > out/resources.json || true',
+        'rm -f out/.resources.peak',
         "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN",
         'echo "$rc" > out/exit',
         'echo "dispatch: claude exited $rc"',
@@ -544,6 +557,7 @@ def collect_only(args, job, role, hostname, vmid, wif, allocations):
         "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
         "subtype": res["subtype"], "usage": res["usage"], "duration_ms": res["duration_ms"], "duration_api_ms": res["duration_api_ms"],
         "permission_denials": res["permission_denials"], "denied_tools": res["denied_tools"], "model_usage": res["model_usage"],
+        "resources": read_resources(results_dir),
         "review": {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None},
         "results_dir": os.path.relpath(results_dir, root),
         "evidence": os.path.relpath(evidence, root) if evidence else None,
@@ -642,6 +656,19 @@ def read_result(results_dir):
         except (ValueError, OSError) as e:
             out["result"] = f"(result.json unreadable: {e})"
     return out
+
+
+def read_resources(results_dir):
+    """out/resources.json, written by run.sh around the claude run: wall_s,
+    cpu_s, mem_peak_mb, pids_peak, net_in_mb, net_out_mb, sampled_every_s.
+    None for a run whose run.sh predates it or did not finish."""
+    p = os.path.join(results_dir, "out", "resources.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        return doc if isinstance(doc, dict) else None
+    except (OSError, ValueError):
+        return None
 
 
 def repo_root_of(path):
@@ -838,6 +865,7 @@ def main():
         "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
         "subtype": res["subtype"], "usage": res["usage"], "duration_ms": res["duration_ms"], "duration_api_ms": res["duration_api_ms"],
         "permission_denials": res["permission_denials"], "denied_tools": res["denied_tools"], "model_usage": res["model_usage"],
+        "resources": read_resources(results_dir),
         "review": {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None},
         "results_dir": os.path.relpath(results_dir, root),
         "evidence": os.path.relpath(evidence, root) if evidence else None,
