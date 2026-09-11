@@ -864,10 +864,13 @@ def jobs_section(args):
     total = sum(d.get("cost_usd") or 0 for d in recs)
     if args.json or args.publish:
         import datetime as _dt
-        today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+        from hee_day import day_window, in_day
+        window = day_window(roots[0] if roots else None)   # glossary: Day -- a calendar day in the ledger's zone
         doc = {"generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
                "daily_cap_usd": float(os.environ.get("HEE_DISPATCH_DAILY_CAP_USD", "10.00")),
-               "spent_today_usd": round(sum(d.get("cost_usd") or 0 for d in recs if str(d.get("started_at", "")).startswith(today)), 4),
+               "day": {"tz": window["tz"], "date": window["date"], "start": window["start"].isoformat(),
+                       "end": window["end"].isoformat(), "label": window["label"]},
+               "spent_today_usd": round(sum(d.get("cost_usd") or 0 for d in recs if in_day(d.get("started_at"), window)), 4),
                "total_usd": round(total, 4), "agents": agents,
                "jobs": [{k: d.get(k) for k in ("job", "name", "agent", "hostname", "vmid", "ticket", "auth", "started_at", "ended_at",
                                                 "budget_usd", "cost_usd", "num_turns", "duration_ms", "exit", "is_error", "subtype",
