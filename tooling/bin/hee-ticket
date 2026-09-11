@@ -40,6 +40,7 @@ import argparse
 import html as _html
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -86,25 +87,30 @@ EXIT STATUS
   1      not inside a git repo, or pyyaml is not installed
 """
 
-HELP_LIST = """hee-ticket -list -- every ticket in this repo
+HELP_LIST = """hee-ticket -list -- every ticket, or the whole record of the ones you name
 
 SYNOPSIS
-  hee-ticket -list
+  hee-ticket -list [SPEC] [--open | --closed] [--workspace [DIR]]
 
 DESCRIPTION
-  Prints one line per ticket:
+  Without SPEC, prints one line per ticket:
 
       <id>  [<status>]  (<stage>)  <description>  (<created_at>)
 
   Ordered by filename, which for zero-padded numeric ids is creation
-  order. Closed tickets are listed alongside open ones -- there is no
-  filter, and no count summary. Prints "No tickets yet." when the
+  order. --open or --closed filters. Prints "No tickets yet." when the
   directory is empty.
 
+  With SPEC -- an id (0102 or 102), a range (99-103), a list (99,102), or
+  anything else as a regex over descriptions, the same selector -close
+  takes -- prints each matching ticket's whole record: every stage move
+  with the why that moved it, the close reason, and every other field.
+  In a workspace, prefix a repo to pick one: fleet-ops/0102.
+
 EXIT STATUS
+  0 OK   printed, including the empty case
+  1      no ticket matched SPEC, not inside a git repo, or pyyaml is not installed
   2 CRITICAL  a ticket file does not parse; it is still listed, marked UNREADABLE
-  0 OK   listing printed, including the empty case
-  1      not inside a git repo, or pyyaml is not installed
 """
 
 HELP_ADVANCE = """hee-ticket -advance -- move a ticket one legal step forward
@@ -225,7 +231,7 @@ HELP = """hee-ticket -- repo-local tickets, stored as real YAML in git
 
 SYNOPSIS
   hee-ticket -new "DESCRIPTION" [--source WHERE] [--ref URL] [--tag T[,T...]]
-  hee-ticket -list [--open | --closed]
+  hee-ticket -list [SPEC] [--open | --closed]
   hee-ticket -advance ID [--why TEXT]
   hee-ticket -back ID --why TEXT
   hee-ticket -close SPEC [--why TEXT]
@@ -257,6 +263,7 @@ DESCRIPTION
 EXAMPLES
   $ hee ticket -list                                       # ci
   $ hee ticket -list --open                                # ci
+  $ hee ticket -list demo/0002 --workspace tests/fixtures/tickets-workspace   # ci
   $ hee ticket -json --workspace tests/fixtures/tickets-workspace   # ci
   $ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under ~/git; not run in CI
 
@@ -264,7 +271,8 @@ ACTIONS
   -new       open a ticket at stage idea. --source records where it came
              from (a page, a brain dump timestamp, a review); --ref a
              GitHub issue or PR URL it tracks; --tag comma-separated tags.
-  -list      print every ticket in this repo (--workspace, or outside any
+  -list      print every ticket in this repo, or with SPEC (an id, range,
+             list or description regex) each matching ticket's whole record (--workspace, or outside any
              repo: every repo under ~/git, repo first); --open/--closed filter
   -advance   move one ticket one legal step forward in idea->footgun<->dogfood:
              idea to footgun, footgun to dogfood.
@@ -531,6 +539,33 @@ def cmd_close(spec: str, why=None):
         sys.exit(1)
 
 
+def cmd_show(spec, workspace=None):
+    """-list SPEC: the whole record of each matching ticket, stage moves and
+    their whys included. Operator, 2026-09-11: `hee ticket -list 0102` was an
+    argparse error; the only way to read one ticket was its YAML file."""
+    root = repo_root()
+    repo_filter = None
+    if "/" in spec and re.fullmatch(r"[A-Za-z0-9._-]+/[0-9,-]+", spec):
+        repo_filter, spec = spec.split("/", 1)
+    if workspace is not None or root is None:
+        sets = _workspace_ticket_sets(workspace or WORKSPACE_ROOT)
+    else:
+        origin = _origin(root)
+        sets = [(origin.rsplit("/", 1)[-1] if origin else root.name, root / ".hee" / "tickets")]
+    shown = 0
+    for repo, d in sets:
+        if repo_filter and repo != repo_filter:
+            continue
+        records = _load_tickets(d) if d.is_dir() else []
+        for rec in resolve_spec(spec, records, lambda r: str(r.get("id")), lambda r: r.get("description")):
+            print(f"# {repo}/{rec.get('id')}")
+            print(yaml.safe_dump(rec, sort_keys=False, allow_unicode=True, width=100), end="")
+            print()
+            shown += 1
+    if not shown:
+        sys.exit(f"hee-ticket -list: no ticket matched '{spec}'" + (f" in {repo_filter}" if repo_filter else ""))
+
+
 def cmd_list(only=None, workspace=None):
     root = repo_root()
     if workspace is not None or root is None:
@@ -768,7 +803,7 @@ def cmd_json(workspace=None):
 def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("-new", dest="new_desc", metavar="DESCRIPTION")
-    ap.add_argument("-list", action="store_true")
+    ap.add_argument("-list", nargs="?", const="", default=None, metavar="SPEC")
     ap.add_argument("-advance", dest="advance_id", metavar="ID")
     ap.add_argument("-back", dest="back_id", metavar="ID")
     ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
@@ -789,8 +824,11 @@ def main():
 
     if args.new_desc:
         cmd_new(args.new_desc, source=args.source, ref=args.ref, tags=args.tag)
-    elif args.list:
-        cmd_list("open" if args.open else "closed" if args.closed else None, workspace=args.workspace)
+    elif args.list is not None:
+        if args.list:
+            cmd_show(args.list, workspace=args.workspace)
+        else:
+            cmd_list("open" if args.open else "closed" if args.closed else None, workspace=args.workspace)
     elif args.advance_id:
         cmd_advance(args.advance_id, why=args.why)
     elif args.back_id:
