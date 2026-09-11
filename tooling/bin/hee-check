@@ -190,7 +190,7 @@ SUBCOMMANDS
              and can re-sign the ones that drifted
   tickets    every .hee/tickets record parses and moves legally through
              idea->footgun<->dogfood
-  all        boundary + refs + locale + signatures + tickets
+  all        boundary + refs + locale + signatures + tickets + gitignore
 
   Add `help` after any subcommand for its own page:
       hee-check refs help
@@ -1212,15 +1212,25 @@ check_gitignore() {
   _gi="$root/.gitignore"
   _name="$(basename "$(cd "$root" && pwd)")"
 
-  # visibility: gh when it can answer, else public
+  # visibility: gh when it can answer; else, inside GitHub Actions, the event
+  # payload, trusted only when it names the repository being checked; else
+  # public. CI jobs give gh no token, so without the payload every private
+  # repo read as public there, and fleet-ops' deliberate sealed-ciphertext
+  # re-include would have failed its own CI as CRITICAL the day gitignore
+  # joined `all` (measured 2026-09-11).
   _vis="public"
-  if command -v gh >/dev/null 2>&1; then
-    _slug="$(git -C "$root" remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
-    if [ -n "$_slug" ]; then
-      _v="$(gh repo view "$_slug" --json visibility --jq .visibility 2>/dev/null)"
-      [ -n "$_v" ] && _vis="$(printf '%s' "$_v" | tr '[:upper:]' '[:lower:]')"
-    fi
+  _slug="$(git -C "$root" remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+  _v=""
+  if [ -n "$_slug" ] && command -v gh >/dev/null 2>&1; then
+    _v="$(gh repo view "$_slug" --json visibility --jq .visibility 2>/dev/null)"
   fi
+  if [ -z "$_v" ] && [ -n "$_slug" ] && [ -r "${GITHUB_EVENT_PATH:-}" ] && command -v python3 >/dev/null 2>&1; then
+    _v="$(python3 -c 'import json, sys
+r = json.load(open(sys.argv[1])).get("repository") or {}
+if str(r.get("full_name", "")).lower() == sys.argv[2].lower():
+    print(r.get("visibility") or ("private" if r.get("private") else "public"))' "$GITHUB_EVENT_PATH" "$_slug" 2>/dev/null)"
+  fi
+  [ -n "$_v" ] && _vis="$(printf '%s' "$_v" | tr '[:upper:]' '[:lower:]')"
 
   _crit=0; _warn=0
   if [ ! -f "$_gi" ]; then
@@ -1410,6 +1420,7 @@ case "$cmd" in
             check_locale "${1:-.}"; c=$?
             check_signatures "${1:-.}" 0 ""; d=$?
             check_tickets "${1:-.}"; f=$?
+            check_gitignore "${1:-.}" 0; g=$?
             # The man-page examples run only where the tools live: the hee repo itself.
             e=0
             if [ -x "${1:-.}/tooling/bin/hee" ]; then check_examples "${1:-.}"; e=$?; fi
@@ -1419,8 +1430,9 @@ case "$cmd" in
             [ "$c" -gt "$_worst" ] && _worst=$c
             [ "$d" -gt "$_worst" ] && _worst=$d
             [ "$f" -gt "$_worst" ] && _worst=$f
+            [ "$g" -gt "$_worst" ] && _worst=$g
             _crit=0
-            for _r in "$a" "$b" "$c" "$d" "$f"; do [ "$_r" -eq 2 ] && _crit=1; done
+            for _r in "$a" "$b" "$c" "$d" "$f" "$g"; do [ "$_r" -eq 2 ] && _crit=1; done
             if [ "$_crit" -eq 1 ]; then
               echo "❌ CRITICAL hee-check all: at least one check is CRITICAL"; exit 2
             fi

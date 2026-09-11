@@ -137,6 +137,10 @@ jobs:
       - name: hee-check all ${{ matrix.repo }}
         working-directory: ${{ matrix.repo }}
         env:
+          # gh reads a private consumer's visibility with this token. Without it
+          # hee-check gitignore reads the repo as public, and fleet-ops' deliberate
+          # sealed-ciphertext re-include turns CRITICAL here.
+          GH_TOKEN: ${{ secrets.TCOS_AUDIT_TOKEN }}
           HEE_HOME_PATH_SKIP: ${{ matrix.home_skip }}
           HEE_LINT_SKIP: ${{ matrix.lint_skip }}
           HEE_REFS_SKIP: ${{ matrix.refs_skip }}
