@@ -598,7 +598,7 @@ def cmd_list(scope: str, prefix: str) -> None:
         if dur:
             print("# DURABLE -- permanent, one per role, carries A + PTR")
             for role in sorted(dur):
-                print(f"    {prefix}{role}   {dur[role].get('allocated_at')}")
+                print(f"    {prefix}{role}   {_local_dates([dur[role].get('allocated_at')])[0]}")
         insts = {k: v for k, v in records.items() if k != DURABLE_KEY}
         if insts and dur:
             print("# EPHEMERAL -- pool-allocated, no record, free to destroy")
@@ -610,10 +610,24 @@ def cmd_list(scope: str, prefix: str) -> None:
             print(f"{inst}  [pool={insts[inst].get('pool')}]")
             for role in sorted(occ):
                 mark = "  (cohabiting)" if occ[role].get("cohabit") else ""
-                print(f"    {prefix}{inst}-{role}   {occ[role].get('allocated_at')}{mark}")
+                print(f"    {prefix}{inst}-{role}   {_local_dates([occ[role].get('allocated_at')])[0]}{mark}")
         return
     for k in sorted(records):
-        print(f"{k}  {records[k].get('allocated_at')}")
+        print(f"{k}  {_local_dates([records[k].get('allocated_at')])[0]}")
+
+
+def _local_dates(stamps):
+    """Stamps as the current user's `date` prints them (library/py/hee_day).
+    Operator, 2026-09-11: every hee tool reports time in the user's own format."""
+    import os as _os, sys as _sys
+    lib = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "..", "library", "py")
+    if lib not in _sys.path:
+        _sys.path.insert(0, lib)
+    try:
+        from hee_day import local_dates
+    except ImportError:
+        return list(stamps)
+    return local_dates(stamps)
 
 
 def main():

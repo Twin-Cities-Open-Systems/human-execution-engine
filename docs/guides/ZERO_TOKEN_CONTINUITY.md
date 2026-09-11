@@ -142,6 +142,14 @@ icons are shape-distinct rather than hue-only. Set `HEE_STATUS_STYLE` to
 `icon` (default), `ascii` or `plain` in your `heerc`; preview with
 `hee_status_demo`.
 
+Time shown to a person prints the way that person's own `date` command
+prints it, read at the moment of printing, so a change to `TZ` or `LC_TIME`
+shows on the next run. Set `HEE_DATE_FORMAT` in your `heerc` to a `date`
+format, such as `%F %T %Z`, to pick one shape for every hee tool. Stored time
+stays ISO-8601 UTC: records, cursors, JSON, logs and committed files. The
+helpers are `hee_date` in `library/bash/vis.date.shfn.bash` and `local_dates`
+in `library/py/hee_day`.
+
 ## Man page freshness
 
 Measured 2026-08-31 against the live site, by fetching each page and

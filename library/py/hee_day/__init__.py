@@ -69,3 +69,77 @@ def in_day(iso_ts, window):
     if t.tzinfo is None:
         t = t.replace(tzinfo=_dt.timezone.utc)
     return window["start"] <= t < window["end"]
+
+
+def _epoch(ts):
+    """Seconds since the epoch for an ISO-8601 stamp, or None if it is not one."""
+    import datetime as _dt
+    import re
+    t = str(ts if ts is not None else "").strip()
+    if re.fullmatch(r"@\d+", t):
+        return int(t[1:])
+    # A date with no time of day is not a moment; it prints unchanged, as in
+    # vis.date.shfn.bash.
+    if not re.match(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", t):
+        return None
+    try:
+        d = _dt.datetime.fromisoformat(t.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=_dt.timezone.utc)
+    return int(d.timestamp())
+
+
+def local_dates(stamps):
+    """Each ISO-8601 stamp as this machine's default `date` prints it.
+
+    Operator, 2026-09-11: "format it exactly like the default date command on
+    the local system". So `date` does the formatting: one `date -f -` call
+    reads every stamp as @epoch, and the result carries the caller's TZ,
+    LC_TIME, LC_ALL and LANG exactly as `date` would. Only for display in a
+    terminal. Cursors, JSON and committed files stay ISO-8601 UTC, because a
+    locale-shaped stamp would make the same file differ from machine to machine.
+
+    On demand: nothing is cached, so a change to the operator's TZ or LC_TIME
+    shows on the next call. $HEE_DATE_FORMAT, set in heerc, overrides the
+    shape for every hee tool at once, as a `date` format such as %F %T %Z.
+    Operator, 2026-09-11: "if I change my settings to default to another iso
+    type, our tools (all) should report time in the same format as the
+    current user".
+
+    A stamp that does not parse comes back unchanged. When `date -f` is not
+    available, busybox for one, Python prints the same shape in the C locale.
+    """
+    import datetime as _dt
+    import subprocess
+    stamps = list(stamps)
+    epochs = [_epoch(s) for s in stamps]
+    todo = [e for e in epochs if e is not None]
+    shown = {}
+    if todo:
+        try:
+            fmt = os.environ.get("HEE_DATE_FORMAT", "").strip()
+            cmd = ["date", "-f", "-"] + (["+" + fmt.lstrip("+")] if fmt else [])
+            r = subprocess.run(cmd, input="".join(f"@{e}\n" for e in todo),
+                               capture_output=True, text=True, timeout=5)
+            lines = r.stdout.splitlines()
+            if r.returncode == 0 and len(lines) == len(todo):
+                shown = dict(zip(todo, lines))
+        except (OSError, subprocess.SubprocessError):
+            pass
+    out = []
+    for s, e in zip(stamps, epochs):
+        if e is None:
+            out.append(s)
+        elif e in shown:
+            out.append(shown[e])
+        else:
+            out.append(_dt.datetime.fromtimestamp(e).astimezone().strftime("%a %b %e %I:%M:%S %p %Z %Y"))
+    return out
+
+
+def local_date(ts):
+    """One stamp as this machine's default `date` prints it. See local_dates."""
+    return local_dates([ts])[0]
+
