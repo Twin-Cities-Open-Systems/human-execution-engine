@@ -476,12 +476,15 @@ def render_run_sh(job, jid, wif=None, resume=None):
     return "\n".join(lines) + "\n"
 
 
-def spent_today(root):
-    """Sum of cost_usd over this repo's dispatch records started today (UTC).
-    The records are the ledger; there is no second one."""
+def spent_today(root, window=None):
+    """Sum of cost_usd over this repo's dispatch records started today, where
+    today is hee_day's window for the ledger (glossary: Day) -- a calendar day
+    in the ledger's zone, not the UTC date. The records are the ledger; there
+    is no second one."""
     import glob
+    from hee_day import day_window, in_day
     root = os.fsdecode(root)   # repo_root_of hands back git's bytes
-    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+    window = window or day_window(root)
     total = 0.0
     for f in glob.glob(os.path.join(root, ".hee", "dispatch", "*.yaml")):
         try:
@@ -489,7 +492,7 @@ def spent_today(root):
                 d = yaml.safe_load(fh) or {}
         except Exception:  # noqa: BLE001 -- a bad record must not block the ledger
             continue
-        if str(d.get("started_at", "")).startswith(today):
+        if in_day(d.get("started_at"), window):
             total += float(d.get("cost_usd") or 0)
     return total
 
@@ -751,9 +754,14 @@ def main():
         die("no key: pass --cred ACCOUNT (the only supported path) -- a dispatch without a "
             "credential cannot run, and this tool will not take a key on the command line")
 
-    spent = spent_today(repo_root_of(job["dir"]) or job["dir"])
+    from hee_day import day_window
+    try:
+        window = day_window(repo_root_of(job["dir"]) or job["dir"])
+    except ValueError as e:
+        die(str(e))
+    spent = spent_today(repo_root_of(job["dir"]) or job["dir"], window)
     if spent + job["budget_usd"] > DAILY_CAP_USD:
-        die(f"today's dispatch spend is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
+        die(f"dispatch spend for {window['label']} is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
             f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
 
     jwt_claims = None

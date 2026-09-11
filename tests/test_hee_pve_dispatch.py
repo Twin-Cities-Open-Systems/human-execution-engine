@@ -186,10 +186,11 @@ class Money(unittest.TestCase):
         import tempfile, os, datetime
         with tempfile.TemporaryDirectory() as t:
             os.makedirs(os.path.join(t, ".hee", "dispatch"))
-            today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-            open(os.path.join(t, ".hee", "dispatch", "a.yaml"), "w").write(f"job: a\nstarted_at: '{today}T01:00:00+00:00'\ncost_usd: 2.31\n")
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+            open(os.path.join(t, ".hee", "dispatch", "a.yaml"), "w").write(f"job: a\nstarted_at: '{now}'\ncost_usd: 2.31\n")
             open(os.path.join(t, ".hee", "dispatch", "b.yaml"), "w").write("job: b\nstarted_at: '2020-01-01T01:00:00+00:00'\ncost_usd: 9\n")
-            self.assertAlmostEqual(d.spent_today(t), 2.31)
+            with mock.patch.dict(os.environ, {"HEE_DAY_TZ": ""}):
+                self.assertAlmostEqual(d.spent_today(t), 2.31)
 
 
 class Wif(unittest.TestCase):
