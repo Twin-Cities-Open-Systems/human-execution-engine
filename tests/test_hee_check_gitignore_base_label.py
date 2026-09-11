@@ -1,6 +1,6 @@
 """hee check gitignore --fix names its base without an absolute path.
 
-Real trigger, 2026-09-11: the managed block wrote `# Base: /home/claude/git/.github/gitignore/base.gitignore`
+Real trigger, 2026-09-11: the managed block wrote `# Base: /home/<user>/git/.github/gitignore/base.gitignore`
 into this repo's .gitignore and into 17 org repos' PRs. A local home path in a
 shared file is exactly what rule 10 forbids, and it tells every reader how one
 machine is laid out."""
