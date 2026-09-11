@@ -47,6 +47,7 @@ job.yaml:
 Usage:
   hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
   hee-pve-dispatch AGENT JOBDIR --wif --cred ISSUER-KEY-ACCOUNT [--ticket ID]
+  hee-pve-dispatch AGENT JOBDIR --collect JID [--ticket ID]     # a job whose dispatcher died: outputs, evidence, record
 
 EXAMPLES
   $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
@@ -372,6 +373,58 @@ def spent_today(root):
     return total
 
 
+def collect_only(args, job, role, hostname, vmid, wif):
+    """The back half of a dispatch on its own: pull out/ from the container,
+    keep the evidence, write the record. Refuses while claude is still
+    running there, so a half-written result is never recorded."""
+    jid = args.collect
+    remote = f"{JOBS_ROOT}/{jid}"
+    r = ssh(args.host, pct(vmid, ["sh", "-c", f"test -d {shlex.quote(remote)} && (pgrep -f '^claude -p' >/dev/null && echo running || echo done)"]), timeout=60)
+    state = r.stdout.decode("utf-8", "replace").strip()
+    if r.returncode != 0 or state not in ("running", "done"):
+        die(f"{hostname}:{remote} is not there")
+    if state == "running":
+        die(f"claude is still running in {hostname} -- collect again when it has exited (hee view --job {jid})", code=1)
+    results_dir = os.path.join(job["dir"], "results", jid)
+    r = ssh(args.host, pct(vmid, ["tar", "-C", remote, "-cf", "-", *job["outputs"]]), timeout=300)
+    if r.returncode != 0:
+        die(f"collecting outputs failed:\n{r.stderr.decode('utf-8', 'replace')}")
+    extract_results(r.stdout, results_dir)
+    emit("OK", f"outputs collected into {results_dir}")
+    res = read_result(results_dir)
+    src = os.path.join(results_dir, "out", "result.json")
+    evidence = None
+    started = _dt.datetime.strptime(jid.rsplit("-", 1)[-1], "%Y%m%dT%H%M%SZ").replace(tzinfo=_dt.timezone.utc)
+    if os.path.isfile(src) and os.path.getsize(src) > 0:
+        ev_dir = os.path.join(job["dir"], "evidence"); os.makedirs(ev_dir, exist_ok=True)
+        evidence = os.path.join(ev_dir, f"result.json-{int(started.timestamp())}"); shutil.copyfile(src, evidence)
+    root = repo_root_of(job["dir"]) or job["dir"]
+    rec_dir = os.path.join(root, ".hee", "dispatch"); os.makedirs(rec_dir, exist_ok=True)
+    record = {
+        "job": jid, "name": job["name"], "agent": role, "hostname": hostname, "vmid": vmid,
+        "ticket": args.ticket, "cred": args.cred, "auth": "wif" if wif else "key",
+        "federation_rule_id": wif["federation_rule_id"] if wif else None, "jwt_jti": None,
+        "started_at": started.isoformat(timespec="seconds"), "ended_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "collected_late": True,
+        "budget_usd": job["budget_usd"], "timeout_s": job["timeout_s"], "tools": job["tools"], "mode": job["mode"],
+        "prompt_sha256": hashlib.sha256(open(os.path.join(job["dir"], job["prompt"]), "rb").read()).hexdigest(),
+        "run_sh_sha256": None,
+        "exit": res["exit"], "cost_usd": res["cost_usd"], "num_turns": res["num_turns"],
+        "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
+        "subtype": res["subtype"], "usage": res["usage"], "duration_ms": res["duration_ms"], "duration_api_ms": res["duration_api_ms"],
+        "permission_denials": res["permission_denials"], "denied_tools": res["denied_tools"], "model_usage": res["model_usage"],
+        "review": {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None},
+        "results_dir": os.path.relpath(results_dir, root),
+        "evidence": os.path.relpath(evidence, root) if evidence else None,
+        "remote_dir": f"{hostname}:{remote}",
+    }
+    with open(os.path.join(rec_dir, f"{jid}.yaml"), "w", encoding="utf-8") as fh:
+        yaml.safe_dump(record, fh, sort_keys=False)
+    status = "OK" if res["exit"] == 0 and not res["is_error"] and not res.get("permission_denials") else "WARNING"
+    emit(status, f"job {jid} collected late: exit {res['exit']}, cost ${res['cost_usd']}, turns {res['num_turns']}, record .hee/dispatch/{jid}.yaml")
+    return 0 if status == "OK" else 1
+
+
 def make_tar(job, run_sh):
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
@@ -457,6 +510,9 @@ def main():
     ap.add_argument("--ticket", metavar="ID", help="the hee ticket this dispatch works on; recorded, not enforced")
     ap.add_argument("--offline", action="store_true",
                     help="with --dry-run: do not ask the pve node for the container; take the registry's vmid (fixtures, CI)")
+    ap.add_argument("--collect", metavar="JID",
+                    help="collect a job that already ran (or is still running) in the container -- outputs, evidence, record -- "
+                         "without shipping or running anything. For a dispatcher that died mid-job (kiosk killed one on low memory, 2026-09-11).")
     ap.add_argument("--dry-run", action="store_true",
                     help="resolve the agent, validate the job, print run.sh and the file list; ship and run nothing")
     ap.add_argument("--host", default="10.0.0.153")
@@ -494,6 +550,8 @@ def main():
         die(f"{hostname} is {state}, not running")
     if reg_vmid not in (None, vmid):
         die(f"registry says {role} is vmid {reg_vmid}, the node says {vmid} -- fix the registry first")
+    if args.collect:
+        return collect_only(args, job, role, hostname, vmid, wif)
     jid = job_id(job)
     run_sh = render_run_sh(job, jid, wif)
     emit("OK", f"agent {role} -> {hostname} vmid {vmid}; job {jid}; budget ${job['budget_usd']:.2f}, "

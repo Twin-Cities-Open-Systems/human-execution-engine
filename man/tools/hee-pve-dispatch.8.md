@@ -9,12 +9,13 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
     hee-pve-dispatch [-h] [--cred ACCOUNT] [--cred-dir DIR] [--key-env VAR]
       hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
       hee-pve-dispatch AGENT JOBDIR --wif --cred ISSUER-KEY-ACCOUNT [--ticket ID]
+      hee-pve-dispatch AGENT JOBDIR --collect JID [--ticket ID]     # a job whose dispatcher died: outputs, evidence, record
 
 
 # DESCRIPTION
 
-                            [--wif] [--ticket ID] [--offline] [--dry-run]
-                            [--host HOST] [--allocations ALLOCATIONS]
+                            [--wif] [--ticket ID] [--offline] [--collect JID]
+                            [--dry-run] [--host HOST] [--allocations ALLOCATIONS]
                             agent jobdir
 
     hee-pve-dispatch -- hand one bounded job to one agent container and collect the result.
@@ -101,6 +102,11 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
                             enforced
       --offline             with --dry-run: do not ask the pve node for the
                             container; take the registry's vmid (fixtures, CI)
+      --collect JID         collect a job that already ran (or is still running)
+                            in the container -- outputs, evidence, record --
+                            without shipping or running anything. For a dispatcher
+                            that died mid-job (kiosk killed one on low memory,
+                            2026-09-11).
       --dry-run             resolve the agent, validate the job, print run.sh and
                             the file list; ship and run nothing
       --host HOST
