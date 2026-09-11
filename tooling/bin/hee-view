@@ -846,12 +846,49 @@ def jobs_section(args):
         a["jobs"] += 1; a["cost"] += d.get("cost_usd") or 0; a["turns"] += d.get("num_turns") or 0; a["out"] += u.get("output_tokens") or 0
         a["mistakes"] += len(v.get("mistakes") or []); a["corrections"] += v.get("corrections") or 0; a["denials"] += d.get("permission_denials") or 0
         a["failed"] += 1 if (d.get("exit") not in (0, None) or d.get("is_error")) else 0
+    # How each node performs next to the others: the same records, grouped by the
+    # container that ran them (operator, 2026-09-11: "how is this node performing
+    # in relation to the others ... a different view of the same data, we do not
+    # need to duplicate data on disk"). Resource figures come from each record's
+    # resources block; older records without one count in jobs and cost only.
+    nodes = {}
+    for d in recs:
+        key = d.get("hostname") or str(d.get("agent"))
+        n = nodes.setdefault(key, {"vmid": d.get("vmid"), "role": d.get("agent"), "jobs": 0, "with_resources": 0, "cost": 0.0,
+                                   "wall_s": 0.0, "cpu_s": 0.0, "mem_peak_mb": 0.0, "out_tokens": 0, "res_out_tokens": 0,
+                                   "mistakes": 0, "denials": 0})
+        u = d.get("usage") or {}; v = d.get("review") or {}; r = d.get("resources") or {}
+        n["jobs"] += 1; n["cost"] += float(d.get("cost_usd") or 0); n["out_tokens"] += u.get("output_tokens") or 0
+        n["mistakes"] += len(v.get("mistakes") or []); n["denials"] += d.get("permission_denials") or 0
+        n["wall_s"] += float(r.get("wall_s") if r.get("wall_s") is not None else (d.get("duration_ms") or 0) / 1000)
+        if r:
+            n["with_resources"] += 1; n["cpu_s"] += float(r.get("cpu_s") or 0)
+            n["mem_peak_mb"] = max(n["mem_peak_mb"], float(r.get("mem_peak_mb") or 0)); n["res_out_tokens"] += u.get("output_tokens") or 0
+    for n in nodes.values():
+        j, jr = n["jobs"], n["with_resources"]
+        n["cost_per_job"] = round(n["cost"] / j, 4)
+        n["wall_s_per_job"] = round(n["wall_s"] / j, 1)
+        n["cpu_s_per_job"] = round(n["cpu_s"] / jr, 1) if jr else None
+        n["out_tokens_per_cpu_s"] = round(n["res_out_tokens"] / n["cpu_s"], 1) if jr and n["cpu_s"] else None
+        n["mistakes_per_job"] = round(n["mistakes"] / j, 2)
+        n["mem_peak_mb"] = round(n["mem_peak_mb"], 1) if jr else None
+    def _median(xs):
+        xs = sorted(x for x in xs if x is not None)
+        return xs[len(xs) // 2] if xs else None
+    fleet = {k: _median([n[k] for n in nodes.values()]) for k in ("cost_per_job", "wall_s_per_job", "cpu_s_per_job")}
+    for n in nodes.values():
+        for k, m in fleet.items():
+            n[k + "_vs_fleet"] = round(n[k] / m, 2) if n[k] is not None and m else None
     if args.json or args.publish:
         pass   # machine output below; no table on stdout
     elif args.md:
         print("| " + " | ".join(head) + " |"); print("|" + "---|" * len(head))
         for r in rows: print("| " + " | ".join(str(x) for x in r) + " |")
         print("\n| agent | jobs | failed | cost $ | turns | output tokens | denials | corrections | mistakes | mistakes/job |\n|---|---|---|---|---|---|---|---|---|---|")
+        print("\n| node | role | jobs | with resources | $/job | vs fleet | wall s/job | cpu s/job | peak MB | out tokens/cpu-s | mistakes/job |\n|---|---|---|---|---|---|---|---|---|---|---|")
+        dash = lambda x: "-" if x is None else x
+        for h, n in sorted(nodes.items()):
+            print(f"| {h} | {n['role']} | {n['jobs']} | {n['with_resources']} | {n['cost_per_job']:.3f} | {dash(n['cost_per_job_vs_fleet'])}x | {n['wall_s_per_job']} | {dash(n['cpu_s_per_job'])} | {dash(n['mem_peak_mb'])} | {dash(n['out_tokens_per_cpu_s'])} | {n['mistakes_per_job']} |")
         for a, t in sorted(agents.items()):
             print(f"| {a} | {t['jobs']} | {t['failed']} | {t['cost']:.3f} | {t['turns']} | {t['out']} | {t['denials']} | {t['corrections']} | {t['mistakes']} | {t['mistakes'] / t['jobs']:.2f} |")
     else:
@@ -861,6 +898,10 @@ def jobs_section(args):
         print()
         for a, t in sorted(agents.items()):
             print(f"  {a:16} jobs {t['jobs']}  failed {t['failed']}  cost ${t['cost']:.3f}  turns {t['turns']}  out {t['out']}  denials {t['denials']}  corrections {t['corrections']}  mistakes {t['mistakes']} ({t['mistakes'] / t['jobs']:.2f}/job)")
+        print()
+        for h, n in sorted(nodes.items()):
+            print(f"  {h:22} jobs {n['jobs']} ({n['with_resources']} with resources)  ${n['cost_per_job']:.3f}/job ({n['cost_per_job_vs_fleet']}x fleet)  "
+                  f"wall {n['wall_s_per_job']} s/job  cpu {n['cpu_s_per_job']} s/job  peak {n['mem_peak_mb']} MB  mistakes {n['mistakes_per_job']}/job")
     total = sum(d.get("cost_usd") or 0 for d in recs)
     if args.json or args.publish:
         import datetime as _dt
@@ -871,7 +912,7 @@ def jobs_section(args):
                "day": {"tz": window["tz"], "date": window["date"], "start": window["start"].isoformat(),
                        "end": window["end"].isoformat(), "label": window["label"]},
                "spent_today_usd": round(sum(d.get("cost_usd") or 0 for d in recs if in_day(d.get("started_at"), window)), 4),
-               "total_usd": round(total, 4), "agents": agents,
+               "total_usd": round(total, 4), "agents": agents, "nodes": nodes, "fleet_medians": fleet,
                "jobs": [{k: d.get(k) for k in ("job", "name", "agent", "hostname", "vmid", "ticket", "auth", "started_at", "ended_at",
                                                 "budget_usd", "cost_usd", "num_turns", "duration_ms", "exit", "is_error", "subtype",
                                                 "permission_denials", "denied_tools", "usage", "models", "review")} for d in recs],

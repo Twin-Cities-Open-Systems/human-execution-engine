@@ -349,3 +349,28 @@ class Resume(unittest.TestCase):
         h = self.m.role_history(self.root, "ci-triage")
         self.assertEqual((h["runs"], h["hits"], h["max"]), (1, 1, 1.03))
         self.assertIsNone(self.m.role_history(self.root, "docs-keeper"))
+
+
+class Resources(unittest.TestCase):
+    """The meta supporting a job: run.sh samples the container around the run
+    and the record carries it (operator, 2026-09-11)."""
+
+    def setUp(self):
+        self.m = _load()
+
+    def test_run_sh_samples_around_the_claude_run(self):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "prompt.md"), "w").write("do it\n")
+        open(os.path.join(d, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 0.5\n")
+        sh = self.m.render_run_sh(self.m.plan_job(d), "t-20260911T000000Z", None)
+        i_sampler, i_su, i_json = sh.index("hee_sampler=$!"), sh.index("su -p agent -c"), sh.index("> out/resources.json")
+        self.assertLess(i_sampler, i_su)
+        self.assertLess(i_su, i_json)
+        self.assertIn("memory.current", sh)
+        self.assertIn("usage_usec", sh)
+
+    def test_read_resources(self):
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "out"))
+        self.assertIsNone(self.m.read_resources(d))
+        open(os.path.join(d, "out", "resources.json"), "w").write('{"wall_s": 95, "cpu_s": 41.2, "mem_peak_mb": 391.5, "pids_peak": 22, "net_in_mb": 3.1, "net_out_mb": 0.4, "sampled_every_s": 2}')
+        self.assertEqual(self.m.read_resources(d)["cpu_s"], 41.2)
