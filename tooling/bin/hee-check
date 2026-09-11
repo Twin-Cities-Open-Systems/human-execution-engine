@@ -183,7 +183,9 @@ SUBCOMMANDS
   cli        every hee tool's own help obeys the CLI contract
   regex      shared regex patterns behave identically in every engine
   roster     roster.json's claims match real accounts and org membership
-  gitignore  secret paths excluded, no negation re-including one, no duplicates
+  gitignore  a fresh clone ignores every baseline secret path (git check-ignore on
+             sample paths, not a text match), no negation re-including one,
+             no duplicates
   signatures every detached .asc verifies against the file it signs,
              and can re-sign the ones that drifted
   tickets    every .hee/tickets record parses and moves legally through
@@ -1170,6 +1172,21 @@ for t in d.get("tiers",[]):
 #
 # Visibility decides severity, and an unknown visibility is treated as public.
 # Guessing "probably private" is how this check would learn to be ignored.
+# _gitignore_samples PATTERN -- paths PATTERN must ignore, one per line: the
+# pattern's own path, and the same one directory down when the pattern has no
+# inner slash, because git matches those at any depth. A trailing / names a
+# directory, so a file inside it is the sample, and a * becomes a real name.
+_gitignore_samples() {
+  _gs_dir=0
+  _gs_p="$1"
+  case "$_gs_p" in */) _gs_dir=1; _gs_p="${_gs_p%/}" ;; esac
+  _gs_p="$(printf '%s' "$_gs_p" | sed 's/\*\*/deep/g; s/\*/sample/g; s/?/q/g')"
+  _gs_p="${_gs_p#/}"
+  if [ "$_gs_dir" -eq 1 ]; then _gs_leaf="$_gs_p/k"; else _gs_leaf="$_gs_p"; fi
+  printf '%s\n' "$_gs_leaf"
+  case "${1%/}" in /*|*/*) ;; *) printf 'deep/%s\n' "$_gs_leaf" ;; esac
+}
+
 check_gitignore() {
   root="${1:-.}"
   _fix="${2:-0}"
@@ -1258,16 +1275,41 @@ check_gitignore() {
     fi
   fi
 
-  # 2. missing baseline entries
+  # 2. baseline secret paths a fresh clone would NOT ignore. Measured by
+  # effect, not by text: git check-ignore on sample paths, against the
+  # committed root .gitignore alone, in a scratch repo. So an equivalent
+  # pattern counts as covered, a present line that a later rule overrides does
+  # not, and neither a local .git/info/exclude (hee-attach writes .hee/ there)
+  # nor a global excludes file can hide a gap CI's clone would have.
+  # Real trigger 2026-09-11: the exact-line match could not see an overridden
+  # line, and 18 local clones hid .hee/secrets/ behind info/exclude.
   _missing=""
+  _detail=""
+  _scratch="$(mktemp -d "${TMPDIR:-/tmp}/hee-gitignore.XXXXXX")"
+  git init -q "$_scratch" >/dev/null 2>&1
+  if [ -f "$_gi" ]; then cp "$_gi" "$_scratch/.gitignore"; fi
   while IFS= read -r _pat; do
     case "$_pat" in ""|\#*) continue ;; esac
-    grep -qxF "$_pat" "$_gi" 2>/dev/null || _missing="$_missing$_pat
+    _open=""
+    while IFS= read -r _sample; do
+      [ -n "$_sample" ] || continue
+      git -C "$_scratch" -c core.excludesFile=/dev/null check-ignore -q --no-index "$_sample" 2>/dev/null \
+        || { _open="$_sample"; break; }
+    done <<EOF_SAMPLES
+$(_gitignore_samples "$_pat")
+EOF_SAMPLES
+    if [ -n "$_open" ]; then
+      _missing="$_missing$_pat
 "
+      _detail="$_detail    not ignored: $_pat  (a fresh clone would stage $_open)
+"
+    fi
   done < "$_base"
+  rm -rf "$_scratch"
   if [ -n "$_missing" ]; then
     _n="$(printf '%s' "$_missing" | grep -c .)"
     printf '  🟡 %-24s %-8s %s baseline secret path(s) not excluded\n' "$_name" "$_vis" "$_n"
+    printf '%s' "$_detail"
     _warn=1
     if [ "$_fix" -eq 1 ]; then
       # A managed block between markers, so a second run replaces rather than

@@ -38,7 +38,9 @@ hee-check - repo boundary and integrity checks
     cli        every hee tool's own help obeys the CLI contract
     regex      shared regex patterns behave identically in every engine
     roster     roster.json's claims match real accounts and org membership
-    gitignore  secret paths excluded, no negation re-including one, no duplicates
+    gitignore  a fresh clone ignores every baseline secret path (git check-ignore on
+               sample paths, not a text match), no negation re-including one,
+               no duplicates
     signatures every detached .asc verifies against the file it signs,
                and can re-sign the ones that drifted
     tickets    every .hee/tickets record parses and moves legally through
