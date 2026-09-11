@@ -548,7 +548,7 @@ not a link.
 
 **Naming, corrected 2026-08-25**: this notation originally used `tick:` for
 GitHub issues. Spencer caught a real clash: `hee-ticket` is a separate,
-already-real system (a local, git-tracked, idea→footgun→dogfood work
+already-real system (a local, git-tracked, idea->footgun<->dogfood work
 pipeline under `.hee/tickets/`) — "tick" as a root belongs exclusively to
 that system, not to a GitHub-issue shorthand. Renamed `tick:` → `issue:`
 everywhere (this doc and the 2 real files that had used it,

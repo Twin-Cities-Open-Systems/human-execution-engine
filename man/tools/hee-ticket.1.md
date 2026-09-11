@@ -8,9 +8,11 @@ hee-ticket - repo-local tickets, stored as real YAML in git
 
     hee-ticket -new "DESCRIPTION" [--source WHERE] [--ref URL] [--tag T[,T...]]
     hee-ticket -list [--open | --closed]
-    hee-ticket -advance ID
+    hee-ticket -advance ID [--why TEXT]
+    hee-ticket -back ID --why TEXT
     hee-ticket -close SPEC [--why TEXT]
     hee-ticket -html [--workspace [DIR]] [--out FILE]
+    hee-ticket -json [--workspace [DIR]]
     hee-ticket [-ACTION] help
 
 
@@ -32,7 +34,7 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     else, and read or edit them by hand when this tool cannot express what
     you need.
 
-    Every ticket carries the real idea -> footgun -> dogfood pipeline as a
+    Every ticket carries the real idea->footgun<->dogfood cycle as a
     structural `stage` field plus a `stage_history` of timestamped
     transitions -- so stage counts and durations are derived from record,
     never asserted.
@@ -69,6 +71,7 @@ hee-ticket - repo-local tickets, stored as real YAML in git
 
     $ hee ticket -list                                       # ci
     $ hee ticket -list --open                                # ci
+    $ hee ticket -json --workspace tests/fixtures/tickets-workspace   # ci
     $ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under ~/git; not run in CI
 
 
@@ -84,7 +87,12 @@ hee-ticket - repo-local tickets, stored as real YAML in git
                GitHub issue or PR URL it tracks; --tag comma-separated tags.
     -list      print every ticket in this repo (--workspace, or outside any
                repo: every repo under ~/git, repo first); --open/--closed filter
-    -advance   move one ticket one stage forward
+    -advance   move one ticket one legal step forward in idea->footgun<->dogfood:
+               idea to footgun, footgun to dogfood.
+               --why records the evidence (the footgun named, the dogfood
+               run) in stage_history
+    -back      dogfood back to footgun, the other half of footgun<->dogfood:
+               real use found something. --why is required
     -close     close tickets by id, range, or description regex; --why
                records the evidence as closed_reason -- a closed ticket with
                no reason is a claim, one with a reason is a record
@@ -98,6 +106,10 @@ hee-ticket - repo-local tickets, stored as real YAML in git
                --out FILE. Real trigger (2026-09-10, operator): "take all the
                old todo's ... cross off all those that are done. let's use
                our own hee ticket system for this. I just want one todo.html".
+    -json      every ticket as one JSON document, each with its flow judged
+               (CRITICAL: unreadable, unknown stage, illegal move; WARNING:
+               a move with no why, a close with no reason). --workspace as
+               for -list. What hee check tickets and hee view --tickets read.
 
     Exactly one action runs per invocation. If several are passed they are
     tested in the order above and the first one present wins; the rest are

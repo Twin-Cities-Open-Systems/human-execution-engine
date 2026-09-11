@@ -1,0 +1,5 @@
+name: demo
+agent: ci-triage
+ticket: demo/0010
+prompt: prompt.md
+budget_usd: 0.50

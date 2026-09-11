@@ -1,0 +1,16 @@
+id: '0002'
+created_at: '2026-09-01T00:00:00Z'
+description: a tool proven by use, then sent back by what use found
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-09-01T00:00:00Z'
+- stage: footgun
+  at: '2026-09-02T00:00:00Z'
+  why: it silently drops records it cannot parse
+- stage: dogfood
+  at: '2026-09-03T00:00:00Z'
+  why: ran against every repo for a day
+- stage: footgun
+  at: '2026-09-04T00:00:00Z'

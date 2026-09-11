@@ -269,3 +269,82 @@ class ResultJson(unittest.TestCase):
             open(os.path.join(d, "out", "stream.jsonl"), "w").write('{"type":"result","num_turns":9}\n')
             self.assertTrue(self.m.ensure_result_json(d))
             self.assertIn('"num_turns":1', open(os.path.join(d, "out", "result.json")).read())
+
+
+class JobFields(unittest.TestCase):
+    """agent, ticket and blocked_by in job.yaml (operator, 2026-09-11: jobs go
+    "through the agent roster, correctly per our dogfood plans")."""
+
+    def setUp(self):
+        self.m = _load()
+
+    def _job(self, extra):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "prompt.md"), "w").write("do it\n")
+        open(os.path.join(d, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 0.5\n" + extra)
+        return d
+
+    def test_fields_parse_and_blocked_by_must_be_keys(self):
+        job = self.m.plan_job(self._job("agent: docs-keeper\nticket: fleet-ops/0100\nblocked_by: [fleet-ops/0080]\n"))
+        self.assertEqual((job["agent"], job["ticket"], job["blocked_by"]), ("docs-keeper", "fleet-ops/0100", ["fleet-ops/0080"]))
+        with self.assertRaises(SystemExit):
+            self.m.plan_job(self._job("blocked_by: fleet-ops/0080\n"))
+
+    def test_open_blockers_reads_ticket_state_and_fails_closed(self):
+        ws = os.path.join(ROOT, "tests", "fixtures", "tickets-workspace")
+        with mock.patch.dict(os.environ, {"HEE_TICKET_WORKSPACE": ws}):
+            got = self.m.open_blockers({"blocked_by": ["demo/0001", "demo/0010", "demo/9999"]})
+        self.assertEqual(len(got), 2, got)
+        self.assertTrue(got[0].startswith("demo/0001 (idea"))
+        self.assertIn("no such ticket", got[1])
+
+
+class Resume(unittest.TestCase):
+    """--resume: a job stopped at its ceiling continues in the same session and
+    directory. Operator, 2026-09-11: "how do we resume after max budget
+    reached? must save the work and learn to bugdget better"."""
+
+    def setUp(self):
+        self.m = _load()
+        self.root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.root, ".git"))
+        os.makedirs(os.path.join(self.root, ".hee", "dispatch"))
+        self.jobdir = os.path.join(self.root, "job")
+        os.makedirs(self.jobdir)
+        open(os.path.join(self.jobdir, "prompt.md"), "w").write("do it\n")
+        open(os.path.join(self.jobdir, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 1.0\n")
+        open(os.path.join(self.root, ".hee", "dispatch", "t-20260911T000000Z.yaml"), "w").write(
+            "job: t-20260911T000000Z\nname: t\nagent: ci-triage\nsession_id: abc-123\nsubtype: error_max_budget_usd\ncost_usd: 1.03\nbudget_hit: true\n")
+        self.job = self.m.plan_job(self.jobdir)
+
+    def args(self, **kw):
+        a = mock.Mock(resume="t-20260911T000000Z", budget=0.5, why="finish PR.md")
+        for k, v in kw.items():
+            setattr(a, k, v)
+        return a
+
+    def test_resume_needs_budget_and_why(self):
+        if True:
+            with self.assertRaises(SystemExit):
+                self.m.load_resume(self.args(budget=None), self.job)
+            with self.assertRaises(SystemExit):
+                self.m.load_resume(self.args(why=""), self.job)
+            r = self.m.load_resume(self.args(), self.job)
+        self.assertEqual((r["of"], r["jid"], r["n"], r["session_id"]), ("t-20260911T000000Z", "t-20260911T000000Z-r1", 1, "abc-123"))
+
+    def test_run_sh_resumes_the_session_and_keeps_the_last_run(self):
+        self.job["budget_usd"] = 0.5
+        sh = self.m.render_run_sh(self.job, "t-20260911T000000Z", None, resume={"session_id": "abc-123", "n": 1})
+        self.assertIn("--resume abc-123", sh)
+        self.assertIn("mv out/$f out/before-r1/$f", sh)
+        self.assertIn("--max-budget-usd 0.50", sh)
+        self.assertNotIn("cat prompt.md", sh)
+
+    def test_every_prompt_carries_its_ceiling(self):
+        sh = self.m.render_run_sh(self.job, "t-20260911T000000Z", None)
+        self.assertIn("stops, without warning, once it has spent $1.00", sh)
+
+    def test_role_history_counts_ceiling_hits(self):
+        h = self.m.role_history(self.root, "ci-triage")
+        self.assertEqual((h["runs"], h["hits"], h["max"]), (1, 1, 1.03))
+        self.assertIsNone(self.m.role_history(self.root, "docs-keeper"))
