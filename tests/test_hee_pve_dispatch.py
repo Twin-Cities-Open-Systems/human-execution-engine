@@ -102,7 +102,8 @@ class TestJob(unittest.TestCase):
         self.assertIn("--permission-mode acceptEdits", sh)
         self.assertIn("--allowedTools Read Write Edit Glob Grep", sh)
         self.assertIn("timeout 1800", sh)
-        self.assertIn('"$(cat prompt.md)"', sh)      # the prompt text itself is never in the script
+        self.assertIn('"$(cat prompt.md; printf %s ', sh)      # the prompt text itself is never in the script; the out/ note is appended at run time
+        self.assertIn("Files the dispatcher itself writes into out/", sh)
         self.assertNotIn("quotes", sh)
         self.assertNotIn("bypassPermissions", sh)
 
