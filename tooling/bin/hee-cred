@@ -37,6 +37,7 @@ call as a typed one, never echoed anywhere.
 Usage:
   hee-cred -seal <account> -recipients "<gpg-id>[,<gpg-id>...]" [-dir PATH]
   hee-cred -seal <account> -recipients "..." -genfrom TERM [-blocks N] [-root PATH]
+  hee-cred -seal <account> -recipients "..." -genkey es256      # prints the public JWKS
   hee-cred -pass <account> -exec CMD [ARGS...] [-dir PATH]
 
 -seal (typed) reads the secret from an interactive prompt (hidden
@@ -48,6 +49,14 @@ and end up recorded somewhere it shouldn't.
 dialogue matching TERM (ripgrep against /var/local/hee-corpus by
 default), joins -blocks of them (default 4) into a real passphrase --
 still never printed, same as the typed path.
+
+-seal -genkey es256 (generated) makes a fresh EC P-256 private key with
+openssl, seals the PEM exactly like a typed secret, and prints ONLY the
+public half as a JWKS document (kid = first 16 hex of sha256 over the
+raw point) -- the shape a workload-identity issuer registration wants.
+The private key exists nowhere but the sealed file: it is generated in
+memory and never written in the clear. Added 2026-09-10 for the lab's
+own OIDC issuer (pve agents federating to the Claude Console).
 
 -pass decrypts and injects the secret into the HEE_CRED_PASS environment
 variable of the -exec child process only -- never argv (visible to other
@@ -118,12 +127,34 @@ def genfrom(term: str, blocks: int, root: str) -> str:
     return "-".join(chosen)
 
 
-def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT):
+def genkey_es256():
+    """A fresh P-256 private key (PEM) and its public JWKS. The PEM is the
+    secret; the JWKS is the only thing that leaves this function unsealed."""
+    import base64, hashlib, json
+    key = subprocess.run(["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout"], capture_output=True, check=True).stdout
+    pub = subprocess.run(["openssl", "ec", "-pubout", "-text", "-noout"], input=key, capture_output=True, check=True).stdout.decode()
+    hexs = "".join(l.strip() for l in pub.split("pub:")[1].split("ASN1 OID")[0].splitlines()).replace(":", "")
+    raw = bytes.fromhex(hexs)
+    if raw[0] != 4 or len(raw) != 65:
+        sys.exit("hee-cred: -genkey: unexpected EC point from openssl")
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+    kid = hashlib.sha256(raw).hexdigest()[:16]
+    jwks = {"keys": [{"kty": "EC", "crv": "P-256", "x": b64(raw[1:33]), "y": b64(raw[33:65]), "kid": kid, "use": "sig", "alg": "ES256"}]}
+    return key.decode(), json.dumps(jwks, indent=2)
+
+
+def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT, genkey: str = None):
     recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
     if not recipient_list:
         sys.exit("hee-cred: -recipients required, at least one real GPG key id/email")
 
-    if genfrom_term:
+    jwks = None
+    if genkey:
+        if genkey.lower() != "es256":
+            sys.exit("hee-cred: -genkey supports es256 only")
+        secret, jwks = genkey_es256()
+        print("hee-cred: generated an EC P-256 signing key (private half sealed, not shown)")
+    elif genfrom_term:
         # Generated, not typed -- doesn't need the interactive-terminal
         # guard (nothing is being piped in from outside), but stays
         # unprinted the same as the typed path.
@@ -183,6 +214,8 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
     if proc.returncode != 0:
         sys.exit(f"hee-cred: gpg encrypt failed: {proc.stderr.decode(errors='replace')}")
     print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
+    if jwks:
+        print(jwks)   # the PUBLIC half only -- what an issuer registration takes
 
 
 def derive_var(account: str) -> str:
@@ -309,6 +342,7 @@ def main():
     ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD")
     ap.add_argument("-dir", default=DEFAULT_DIR, metavar="PATH")
     ap.add_argument("-genfrom", dest="genfrom_term", metavar="TERM")
+    ap.add_argument("-genkey", dest="genkey", metavar="ALG", help="es256: generate a signing key, seal the private half, print the public JWKS")
     ap.add_argument("-blocks", type=int, default=4, metavar="N")
     ap.add_argument("-root", default=DEFAULT_CORPUS_ROOT, metavar="PATH")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
@@ -326,7 +360,7 @@ def main():
     secrets_dir = Path(args.dir)
 
     if args.seal_account:
-        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root)
+        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey)
     elif args.run_account:
         unseal_and_exec(args.run_account, args.exec_cmd or [], secrets_dir,
                         args.var_name)
