@@ -89,6 +89,34 @@ later \(em and THAT A WRAPPER EXISTS AT ALL, since a bash alias is
 invisible to cron, to
 .BR "ssh host cmd" ,
 to CI, and to irssi's EXEC, which is this tool's whole point.
+.SH ENVIRONMENT
+.TP
+.B HEE_SCROB_PATH_MAP
+Where Plex's media paths live on this host. Plex reports a file as its own
+container sees it (for example
+.BR /data/... ),
+and that path means nothing on a host without the same mount. Set
+comma\-separated
+.I container=local
+pairs, per oper, in heerc:
+.RS
+.nf
+export HEE_SCROB_PATH_MAP="/data=/srv/media"
+.fi
+.RE
+.IP
+The longest container prefix wins, and a prefix matches only on a path
+component boundary, so
+.B /data
+never matches
+.BR /database .
+A malformed pair is skipped. When a path neither exists locally nor maps to
+something that does,
+.B hee scrob
+says so on stderr, naming the path and the mappings it tried; stdout stays
+the scrobble line. A path that resolves but has no sidecar
+.B .srt
+stays quiet. human\-execution\-engine#670.
 .SH EXAMPLES
 The plain form. No wrapper, no environment: the sealed
 .B plex\-token
