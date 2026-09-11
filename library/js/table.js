@@ -29,13 +29,31 @@
  *                                    cell's text -- the way to sort "3 days
  *                                    ago" or a status icon correctly
  *
+ * Every table.tc-table is bound as if it carried data-tc-table. A table
+ * styled as the org's table is a sortable table, so no page can ship one that
+ * forgets the attribute. Operator, 2026-09-11: "make sure all columns are
+ * sortable, the scorecard is not". agents-live's scorecard had the class and
+ * not the attribute, and showed no sort control at all.
+ *
+ * LIVE PAGES
+ *   A page that re-renders rows on a poll keeps the viewer's sort and search.
+ *   Rows added to or replaced in a bound table are re-sorted by the active
+ *   column and re-filtered by the bound search box, with nothing for the page
+ *   to call. Before this, agents-live re-rendered every 15 s and tickets
+ *   every 60 s, and each render undid the viewer's sort while the header
+ *   still showed it. TC.table.refresh(tableOrSelector) does the same on
+ *   demand, for a page that changes cell text in place.
+ *
  * The filter input's value is a selector for the table. Left empty, it binds
- * to the first [data-tc-table] inside the input's own parent element.
+ * to the first bound table inside the input's own parent element.
  *
  * Zero dependencies. No build step. Does nothing if no matching markup exists.
  */
 (function (window, document) {
   "use strict";
+
+  /* What gets bound: the explicit attribute, or the org's table class. */
+  var TABLE_SEL = "[data-tc-table], table.tc-table";
 
   if (!document.querySelectorAll) { return; }
 
@@ -220,8 +238,56 @@
     return row.tcHaystack;
   }
 
-  function refresh(table) {
+  function resolve(t) {
+    return typeof t === "string" ? document.querySelector(t) : t;
+  }
+
+  /* Discard the mutation records this library just produced, so the row
+   * observer never answers its own re-sort. */
+  function quiet(table) {
+    if (table.tcObserver) { table.tcObserver.takeRecords(); }
+  }
+
+  /* Put the viewer's view back after rows changed underneath it: clear the
+   * cached row text, re-sort by the active column, re-run each bound search
+   * box. Takes a table or a selector. Returns the table, or null when nothing
+   * matches -- it never throws, because pages call it from a render loop.
+   * Before 2026-09-11 it only cleared the cache and took only an element, and
+   * agents-live passed it a selector string, so it did nothing at all there. */
+  function refresh(t) {
+    var table = resolve(t);
+    if (!table || !table.tBodies) { return null; }
+    if (table.getAttribute("data-tc-table-bound") !== "true") { setupTable(table); }
     each(rowsOf(table), function (row) { row.tcHaystack = null; });
+    each(headerCells(table), function (cell, i) {
+      var dir = cell.getAttribute("aria-sort");
+      if (cell.hasAttribute("data-tc-sortable") && (dir === "ascending" || dir === "descending")) {
+        sortBy(table, i, dir);
+      }
+    });
+    var inputs = table.tcFilters || [];
+    if (inputs.length) {
+      each(inputs, function (input) { filter(table, input.value); });
+    } else {
+      announce(table, rowsOf(table).length, rowsOf(table).length);
+    }
+    quiet(table);
+    return table;
+  }
+
+  /* Only row-level changes count: a <tbody> gaining or losing rows, or the
+   * table gaining or losing a <tbody>. Cell-level churn, such as a hovercard
+   * adding a span, is ignored. */
+  function watch(table) {
+    if (table.tcObserver || typeof window.MutationObserver !== "function") { return; }
+    var obs = new window.MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        var tag = records[i].target && records[i].target.nodeName;
+        if (tag === "TBODY" || tag === "TABLE") { refresh(table); return; }
+      }
+    });
+    obs.observe(table, { childList: true, subtree: true });
+    table.tcObserver = obs;
   }
 
   function filter(table, query) {
@@ -270,7 +336,7 @@
        * filter input uses, so the two agree on a page with several tables. */
       var wants = sel
         ? document.querySelector(sel)
-        : (el.parentNode && el.parentNode.querySelector ? el.parentNode.querySelector("[data-tc-table]") : null);
+        : (el.parentNode && el.parentNode.querySelector ? el.parentNode.querySelector(TABLE_SEL) : null);
       if (wants !== table) { return; }
       el.textContent = shown === total
         ? total + (total === 1 ? " row" : " rows")
@@ -286,6 +352,9 @@
   function setupTable(table) {
     if (table.getAttribute("data-tc-table-bound") === "true") { return; }
     table.setAttribute("data-tc-table-bound", "true");
+    /* A class-bound table takes the attribute too, so the injected CSS and
+     * every [data-tc-table] lookup treat it the same as a marked one. */
+    if (!table.hasAttribute("data-tc-table")) { table.setAttribute("data-tc-table", ""); }
 
     each(headerCells(table), function (cell, index) {
       if (cell.hasAttribute("data-tc-nosort")) { return; }
@@ -306,6 +375,7 @@
       function activate() {
         var dir = cell.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
         sortBy(table, index, dir);
+        quiet(table);
       }
       cell.addEventListener("click", activate);
       cell.addEventListener("keydown", function (e) {
@@ -318,6 +388,7 @@
     });
 
     announce(table, rowsOf(table).length, rowsOf(table).length);
+    watch(table);
   }
 
   function setupFilter(input) {
@@ -326,15 +397,16 @@
 
     var sel = input.getAttribute("data-tc-table-filter");
     var table = sel ? document.querySelector(sel)
-                    : (input.parentNode && input.parentNode.querySelector("[data-tc-table]"));
+                    : (input.parentNode && input.parentNode.querySelector(TABLE_SEL));
     if (!table) { return; }
+    (table.tcFilters = table.tcFilters || []).push(input);
 
     if (!input.hasAttribute("aria-label") && !input.hasAttribute("aria-labelledby")) {
       input.setAttribute("aria-label", "Search this table");
     }
     if (!input.hasAttribute("autocomplete")) { input.setAttribute("autocomplete", "off"); }
 
-    function run() { filter(table, input.value); }
+    function run() { filter(table, input.value); quiet(table); }
 
     /* "input" fires for typing, pasting, clearing, autofill and the search
      * field's own clear button -- one listener covers every path a value can
@@ -352,7 +424,7 @@
 
   function init(root) {
     root = root || document;
-    var tables = root.querySelectorAll("[data-tc-table]");
+    var tables = root.querySelectorAll(TABLE_SEL);
     var inputs = root.querySelectorAll("[data-tc-table-filter]");
     if (!tables.length && !inputs.length) { return; }
     injectStyle();
@@ -361,7 +433,24 @@
   }
 
   window.TC = window.TC || {};
-  window.TC.table = { init: init, sort: sortBy, filter: filter, refresh: refresh };
+  window.TC.table = {
+    init: init,
+    refresh: refresh,
+    sort: function (t, index, dir) {
+      var table = resolve(t);
+      if (!table) { return null; }
+      sortBy(table, index, dir);
+      quiet(table);
+      return table;
+    },
+    filter: function (t, query) {
+      var table = resolve(t);
+      if (!table) { return null; }
+      var r = filter(table, query);
+      quiet(table);
+      return r;
+    }
+  };
 
   ready(function () { init(document); });
 })(window, document);
