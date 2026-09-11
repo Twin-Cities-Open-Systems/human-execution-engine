@@ -156,5 +156,43 @@ class TestJob(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
 
 
+
+class Wif(unittest.TestCase):
+    CON = {"organization_id": "org-1", "workspace_id": "wrkspc_1", "service_account_id": "svac_1",
+           "federation_rule_id": "fdrl_1", "issuer": "https://issuer.lab.tcos.us", "subject": "pve:ci-triage"}
+
+    def test_mint_jwt_signs_es256_with_the_jwks_kid(self):
+        import base64, hashlib, json, subprocess
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()).decode()
+        tok, claims = d.mint_jwt(pem, self.CON, 600)
+        h, c, sig = tok.split(".")
+        pad = lambda x: x + "=" * (-len(x) % 4)
+        header = json.loads(base64.urlsafe_b64decode(pad(h)))
+        self.assertEqual(header["alg"], "ES256")
+        pub = key.public_key().public_numbers(); raw = b"\x04" + pub.x.to_bytes(32, "big") + pub.y.to_bytes(32, "big")
+        self.assertEqual(header["kid"], hashlib.sha256(raw).hexdigest()[:16])
+        self.assertEqual(claims["aud"], "https://api.anthropic.com"); self.assertEqual(claims["sub"], "pve:ci-triage")
+        self.assertEqual(claims["exp"] - claims["iat"], 600)
+        r = base64.urlsafe_b64decode(pad(sig)); der = encode_dss_signature(int.from_bytes(r[:32], "big"), int.from_bytes(r[32:], "big"))
+        key.public_key().verify(der, f"{h}.{c}".encode(), ec.ECDSA(hashes.SHA256()))   # raises if wrong
+
+    def test_run_sh_wif_exchanges_and_never_exports_an_api_key(self):
+        job = {"name": "j", "prompt": "prompt.md", "budget_usd": 1.0, "timeout_s": 60, "tools": ["Read"], "mode": "default",
+               "inputs": [], "outputs": ["out/"], "dir": "/tmp/j"}
+        sh = d.render_run_sh(job, "j-1", self.CON)
+        self.assertIn("read -r HEE_WIF_JWT", sh); self.assertIn("v1/oauth/token", sh)
+        self.assertIn("export ANTHROPIC_AUTH_TOKEN", sh); self.assertIn("unset ANTHROPIC_API_KEY", sh)
+        self.assertNotIn("export ANTHROPIC_API_KEY", sh); self.assertIn("fdrl_1", sh)
+        self.assertIn("unset HEE_WIF_JWT HEE_WIF_BODY", sh)
+
+    def test_console_block_must_be_complete(self):
+        with self.assertRaises(SystemExit):
+            d.console_block({"console": {"workspace_id": "w"}}, "ci-triage")
+        self.assertEqual(d.console_block({"console": self.CON}, "ci-triage")["federation_rule_id"], "fdrl_1")
+
 if __name__ == "__main__":
     sys.exit(unittest.main())
