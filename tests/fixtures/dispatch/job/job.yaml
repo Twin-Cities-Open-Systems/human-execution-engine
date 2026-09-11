@@ -1,0 +1,4 @@
+name: demo
+prompt: prompt.md
+budget_usd: 0.50
+allowed_tools: [Read, Write]

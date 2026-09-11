@@ -48,6 +48,7 @@ fi
 #   hee-check help            -> the tool
 #   hee-check refs help       -> the refs subcommand
 #   hee-check boundary help   -> the boundary subcommand
+#   hee-check examples help   -> run the '# ci' examples from every tool's --help
 # `--help` and `-h` are accepted as synonyms so hee-gen-manpages, which
 # runs `<tool> --help`, keeps working.
 usage_refs() {
@@ -616,6 +617,54 @@ OPTIONS
 EXIT STATUS
   0 OK   2 CRITICAL a unit is invalid   3 UNKNOWN systemd-analyze absent
 EOF
+}
+
+usage_examples() {
+  cat <<'EOF'
+hee-check examples [ROOT] -- run every example a tool's --help marks "# ci"
+
+  A tool's --help IS its man page (PROMPTING_RULES 17). An example line in
+  it -- "  $ hee view --jobs --md --root tests/fixtures/dispatch   # ci" --
+  is documentation and a test at once: this check extracts every line that
+  starts with "$ " and ends with "# ci" from every tool under ROOT/tooling/bin,
+  runs each from ROOT with the tools on PATH and a 60 s timeout, and is
+  CRITICAL on any non-zero exit. Examples without the marker are shown in
+  the page and never run (they need the lab, a keyring, a human).
+
+  Operator, 2026-09-11: "make sure all the man pages are updated with working
+  examples where possible. ci must use the man pages to ensure they work."
+  Fixtures for examples live under tests/fixtures/, shared with the unit tests.
+EOF
+}
+
+check_examples() {
+  root="${1:-$TOOL_ROOT}"
+  [ -d "$root/tooling/bin" ] || { hee_status UNKNOWN "hee-check examples: $root has no tooling/bin -- this check is for the hee repo"; return 3; }
+  ran=0; failed=0; tools=0
+  for t in "$root"/tooling/bin/hee-*; do
+    [ -f "$t" ] && [ -x "$t" ] || continue
+    help=$(cd "$root" && timeout 20 "$t" --help 2>/dev/null) || continue
+    ex=$(printf '%s
+' "$help" | sed -n 's/^[[:space:]]*\$ \(.*[^[:space:]]\)[[:space:]]*# ci[[:space:]]*$/\1/p')
+    [ -n "$ex" ] || continue
+    tools=$((tools + 1))
+    while IFS= read -r cmd; do
+      [ -n "$cmd" ] || continue
+      ran=$((ran + 1))
+      out=$(cd "$root" && PATH="$root/tooling/bin:$PATH" timeout 60 bash -c "$cmd" 2>&1); code=$?
+      if [ "$code" -ne 0 ]; then
+        failed=$((failed + 1))
+        hee_status CRITICAL "$(basename "$t") example exited $code: $cmd"
+        printf '%s
+' "$out" | tail -n 3 | sed 's/^/      /'
+      fi
+    done <<EOF2
+$ex
+EOF2
+  done
+  if [ "$ran" -eq 0 ]; then hee_status WARNING "hee-check examples: no example is marked '# ci' in any tool's --help yet"; return 1; fi
+  [ "$failed" -eq 0 ] && { hee_status OK "hee-check examples: $ran example(s) from $tools tool(s) ran clean"; return 0; }
+  return 2
 }
 
 check_systemd() {
@@ -1227,6 +1276,9 @@ case "$cmd" in
     done
     check_signatures "$_s_root" "$_s_resign" "$_s_key" ;;
   systemd)  shift 2>/dev/null || true; check_systemd "$@" ;;
+  examples) shift 2>/dev/null || true
+            if [ "${1:-}" = "help" ]; then usage_examples; exit 0; fi
+            check_examples "${1:-$TOOL_ROOT}" ;;
   all)      shift 2>/dev/null || true
             # The CI gate. CRITICAL fails it; WARNING and UNKNOWN are
             # reported and do not. Rule 16: a check that is red for a
@@ -1240,6 +1292,10 @@ case "$cmd" in
             check_refs "${1:-.}"; b=$?
             check_locale "${1:-.}"; c=$?
             check_signatures "${1:-.}" 0 ""; d=$?
+            # The man-page examples run only where the tools live: the hee repo itself.
+            e=0
+            if [ -x "${1:-.}/tooling/bin/hee" ]; then check_examples "${1:-.}"; e=$?; fi
+            [ "$e" -eq 2 ] && d=2
             _worst=$a
             [ "$b" -gt "$_worst" ] && _worst=$b
             [ "$c" -gt "$_worst" ] && _worst=$c

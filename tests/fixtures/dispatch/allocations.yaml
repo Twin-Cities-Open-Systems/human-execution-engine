@@ -1,0 +1,26 @@
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: fleet-allocations-fixture
+  description: "Test fixture for hee pve dispatch --dry-run --offline and hee check examples. Not a real fleet; ids are placeholders."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: tests
+    topic: fixtures
+    artifact: registry
+  annotations:
+    inuid: "e34692125d13eec917d92c274e69d7c86cc3ebf129462d0e71b6e8cb431bdd1e"
+    inuid_seed: "hee-registry://hee/tests/fixtures/dispatch/allocations/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    author: touchy-claude
+    transcriber: touchy-claude
+    updated-at: "2026-09-11T00:00:00Z"
+spec:
+  allocations:
+    ci-triage:
+      hostname: tcos-triage-herbert
+      vmid: 115
+      kind: agent
+      agent_roster: ci-triage
+      console: { organization_id: org-fixture, workspace_id: wrkspc_fixture, service_account_id: svac_fixture, federation_rule_id: fdrl_fixture, issuer: https://issuer.lab.tcos.us, subject: pve:ci-triage }
