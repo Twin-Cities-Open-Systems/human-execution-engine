@@ -237,12 +237,14 @@ def fmt_ts(ms: int) -> str:
 
 def _srt_dialogue(block: str, ts_re) -> str:
     lines = block.strip().splitlines()
+    print("debug lines srt",lines)
     dialogue = [l for l in lines if l.strip() and not ts_re.search(l) and not l.strip().isdigit()]
     return " ".join(dialogue).strip()
 
 
 def _srt_blocks(srt_path: Path):
     text = srt_path.read_text(errors="replace")
+    print("debug-text",text)
     ts_re = re.compile(
         r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
     )
@@ -280,6 +282,7 @@ def srt_context(srt_path: Path, offset_ms: int, current_only: bool = False):
     titles" -- -current-only drops the before/after context and
     returns just the exact-moment line, still real, still None if
     that moment falls in a silent gap."""
+    print("debug-srt_path",Path)
     if not srt_path.exists():
         return None
     blocks, _ = _srt_blocks(srt_path)
@@ -294,6 +297,7 @@ def srt_context(srt_path: Path, offset_ms: int, current_only: bool = False):
 
 def find_srt(media_file: str):
     p = Path(media_file)
+    print(f"DEBUG: {p}")
     for candidate in [p.with_suffix(".en.srt"), p.with_suffix(".srt")]:
         if candidate.exists():
             return candidate
@@ -306,6 +310,12 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
     with urllib.request.urlopen(req, timeout=10) as r:
         body = r.read()
     root = ET.fromstring(body)
+    for k in root:
+        print(k)
+        for v in k:
+            if v.get("Video"):
+                foo = v.file
+                print("foo-file",foo)
 
     video = root.find("Video")
     track = root.find("Track")
@@ -337,10 +347,14 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
     if video is not None:
         year = video.get("year") or video.get("parentYear") or ""
         offset = int(video.get("viewOffset") or 0)
-        part = video.find("./Media/Part")
+        #part = video.find("./Media/Part")
+        part = video.find(".")
+        foo = part.find(".")
+        print(f'DEBUG foo: {foo}')
         srt_text = None
         if part is not None:
             media_file = part.get("file")
+            print(f"DEBUG: {media_file}")
             if media_file:
                 srt_path = find_srt(media_file)
                 if srt_path:
@@ -441,9 +455,11 @@ def main():
         )
 
     device_names = read_device_names()
+    print("debug",device_names)
 
     try:
         r = now_playing(args.server, token, device_names, args.current_only)
+        print("debug-nowplaying",r)
     except Exception as e:
         sys.exit(f"hee-scrob: fetch failed: {e}")
 
@@ -455,6 +471,7 @@ def main():
         return
 
     line = format_line(r)
+    print("debug-line",line)
     if args.discord:
         post_discord(line)
     else:
