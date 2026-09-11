@@ -691,8 +691,8 @@ def job_live_probe(pve_host, jid, vmid=None):
     if not vmid:
         find = ("for v in $(pct list | awk 'NR>1 && $2==\"running\"{print $1}'); do "
                 f"pct exec $v -- test -d {JOBS_ROOT}/{jid} 2>/dev/null && {{ echo vmid=$v; break; }}; done")
-        r = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", find])
-        for line in (r.stdout or "").splitlines():
+        _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", find])
+        for line in (_out or "").splitlines():
             if line.startswith("vmid=") and line[5:].strip():
                 vmid = line[5:].strip()
     if not vmid:
@@ -707,10 +707,10 @@ def job_live_probe(pve_host, jid, vmid=None):
         f"echo hostname=$(pct exec {vmid} -- hostname)\n"
         f"pct exec {vmid} -- env PATH={CONTAINER_PATH} sh -c {shlex.quote(inner)}\n"
     )
-    r = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", host_script])
+    _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", host_script])
     facts = {"vmid": int(vmid), "running": False, "out": [], "auth": [], "stream": [], "result": None}
     section = None
-    for line in (r.stdout or "").splitlines():
+    for line in (_out or "").splitlines():
         if line in ("--out", "--auth", "--stream", "--result"):
             section = line[2:]
             continue
@@ -834,7 +834,9 @@ def jobs_section(args):
         a["jobs"] += 1; a["cost"] += d.get("cost_usd") or 0; a["turns"] += d.get("num_turns") or 0; a["out"] += u.get("output_tokens") or 0
         a["mistakes"] += len(v.get("mistakes") or []); a["corrections"] += v.get("corrections") or 0; a["denials"] += d.get("permission_denials") or 0
         a["failed"] += 1 if (d.get("exit") not in (0, None) or d.get("is_error")) else 0
-    if args.md:
+    if args.json or args.publish:
+        pass   # machine output below; no table on stdout
+    elif args.md:
         print("| " + " | ".join(head) + " |"); print("|" + "---|" * len(head))
         for r in rows: print("| " + " | ".join(str(x) for x in r) + " |")
         print("\n| agent | jobs | failed | cost $ | turns | output tokens | denials | corrections | mistakes | mistakes/job |\n|---|---|---|---|---|---|---|---|---|---|")
@@ -848,8 +850,60 @@ def jobs_section(args):
         for a, t in sorted(agents.items()):
             print(f"  {a:16} jobs {t['jobs']}  failed {t['failed']}  cost ${t['cost']:.3f}  turns {t['turns']}  out {t['out']}  denials {t['denials']}  corrections {t['corrections']}  mistakes {t['mistakes']} ({t['mistakes'] / t['jobs']:.2f}/job)")
     total = sum(d.get("cost_usd") or 0 for d in recs)
-    hee_status.emit("OK", f"hee-view: {len(recs)} dispatch record(s), {len(agents)} agent(s), ${total:.2f} total")
+    if args.json or args.publish:
+        import datetime as _dt
+        today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+        doc = {"generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+               "daily_cap_usd": float(os.environ.get("HEE_DISPATCH_DAILY_CAP_USD", "10.00")),
+               "spent_today_usd": round(sum(d.get("cost_usd") or 0 for d in recs if str(d.get("started_at", "")).startswith(today)), 4),
+               "total_usd": round(total, 4), "agents": agents,
+               "jobs": [{k: d.get(k) for k in ("job", "name", "agent", "hostname", "vmid", "ticket", "auth", "started_at", "ended_at",
+                                                "budget_usd", "cost_usd", "num_turns", "duration_ms", "exit", "is_error", "subtype",
+                                                "permission_denials", "denied_tools", "usage", "models", "review")} for d in recs],
+               "running": []}
+        if args.live:
+            doc["running"] = jobs_live(args.pve_host)
+        out = json.dumps(doc, default=str, indent=1)
+        if args.publish:
+            publish_json(args.publish, out)
+        elif args.json:
+            print(out)
+    if not args.json:   # a JSON consumer gets JSON and nothing else on stdout
+        hee_status.emit("OK", f"hee-view: {len(recs)} dispatch record(s), {len(agents)} agent(s), ${total:.2f} total")
     return 0
+
+
+def jobs_live(pve_host):
+    """Every job dir under JOBS_ROOT on every running agent container that has
+    a claude process: the same cgroup/proc probe --job uses, one ssh per
+    container. Cheap enough for a 30 s timer; SNMP takes this over later."""
+    find = ("for v in $(pct list | awk 'NR>1 && $2==\"running\"{print $1}'); do "
+            f"j=$(pct exec $v -- sh -c 'pgrep -f \"^claude -p\" >/dev/null && ls -t {JOBS_ROOT} 2>/dev/null | head -n 1'); "
+            "[ -n \"$j\" ] && echo \"$v $j\"; done")
+    _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", find])
+    out = []
+    for line in (_out or "").splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        vm, jid = parts
+        facts = job_live_probe(pve_host, jid, vm) or {}
+        facts["job"] = jid
+        out.append(facts)
+    return out
+
+
+def publish_json(target, text):
+    """TARGET is VMID:/path on the pve host (the view container's docroot):
+    written through pct exec so nothing new listens anywhere."""
+    import shlex
+    vm, path = target.split(":", 1)
+    cmd = f"pct exec {vm} -- sh -c 'mkdir -p $(dirname {shlex.quote(path)}) && cat > {shlex.quote(path)}.tmp && mv {shlex.quote(path)}.tmp {shlex.quote(path)}'"
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "root@10.0.0.153", cmd], input=text.encode(), capture_output=True)
+    if r.returncode != 0:
+        hee_status.emit("CRITICAL", f"hee-view: publish to {target} failed: {r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+        sys.exit(2)
+    print(f"published {len(text)} bytes -> {target}")
 
 
 def inbound_status():
@@ -972,6 +1026,10 @@ def main():
     ap.add_argument("--jobs", "-jobs", action="store_true",
                     help="every dispatch record (current repo, then ~/git/fleet-ops): one row per job and a per-agent scorecard")
     ap.add_argument("--md", action="store_true", help="with --jobs: Markdown tables, for committing as pve/agents/SCORECARD.md")
+    ap.add_argument("--live", action="store_true", help="with --jobs: also probe every running job on the pve host (cgroup, process, out/)")
+    ap.add_argument("--publish", metavar="VMID:PATH",
+                    help="with --jobs: write the JSON to that path inside a container on the pve host (view.lab: 107:/www/data/jobs.json) "
+                         "instead of printing it -- what the 30 s timer on kiosk runs")
     ap.add_argument("--mark-seen", action="store_true",
                     help="with --braindump: remember the newest entry, so the next run reports "
                          "only what arrives after it. Separate from reading on purpose -- a run "
