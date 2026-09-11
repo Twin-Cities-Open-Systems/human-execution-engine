@@ -8,6 +8,19 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
 
     hee-pve-dispatch [-h] [--cred ACCOUNT] [--cred-dir DIR] [--key-env VAR]
       hee-pve-dispatch AGENT JOBDIR --cred ACCOUNT [--cred-dir DIR] [--ticket ID]
+      hee-pve-dispatch AGENT JOBDIR --wif --cred ISSUER-KEY-ACCOUNT [--ticket ID]
+
+      --wif: workload identity federation instead of a static key. --cred names
+         the hee cred account holding the lab issuer's ES256 private key (made by
+         `hee cred -seal ... -genkey es256`). This tool mints ONE JWT for the job
+         (iss/sub/aud from the allocation registry's console: block, unique jti,
+         exp = the job timeout + 2 min), ships it on stdin exactly as a key would
+         be, and the generated run.sh exchanges it once at the Claude Console
+         (POST /v1/oauth/token, jwt-bearer) for a short-lived token bound to the
+         role's service account, then runs claude with ANTHROPIC_AUTH_TOKEN. No
+         static API key exists anywhere for the agent. The registry entry needs
+         console.organization_id, workspace_id, service_account_id,
+         federation_rule_id, issuer and subject.
       hee-pve-dispatch AGENT JOBDIR --dry-run
 
     positional arguments:
@@ -24,6 +37,10 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       --key-env VAR         read the key from this environment variable instead of
                             --cred (what the --cred re-exec uses: HEE_CRED_PASS).
                             Never pass a key on the command line.
+      --wif                 federate instead of a static key: --cred is the lab
+                            issuer's signing key; the registry's console: block
+                            for the role supplies rule, org, service account,
+                            workspace, issuer, subject
       --ticket ID           the hee ticket this dispatch works on; recorded, not
                             enforced
       --dry-run             resolve the agent, validate the job, print run.sh and
@@ -33,7 +50,7 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
 
 # DESCRIPTION
 
-                            [--ticket ID] [--dry-run] [--host HOST]
+                            [--wif] [--ticket ID] [--dry-run] [--host HOST]
                             [--allocations ALLOCATIONS]
                             agent jobdir
 
@@ -71,7 +88,8 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       prompt: prompt.md                   # file in JOBDIR; its text is the -p prompt
       inputs: [in/, rules.md]             # shipped; default: everything but results/
       outputs: [out/]                     # collected; default: out/
-      budget_usd: 2.00                    # required -- claude --max-budget-usd
+      budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
+      budget_reason: "five doc pages to read and cite"   # required when budget_usd > 1.00
       timeout_s: 1800                     # default 1800 -- `timeout` around claude
       permission_mode: acceptEdits        # default; claude --permission-mode
       allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed

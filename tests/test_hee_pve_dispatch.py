@@ -90,7 +90,7 @@ class TestJob(unittest.TestCase):
             d.plan_job(self.job)
 
     def test_defaults_and_run_sh(self):
-        self._write("name: convert\nbudget_usd: 1.5\n")
+        self._write("name: convert\nbudget_usd: 1.5\nbudget_reason: test\n")
         job = d.plan_job(self.job)
         self.assertEqual(job["tools"], d.DEFAULT_TOOLS)
         self.assertEqual(job["mode"], "acceptEdits")
@@ -102,7 +102,8 @@ class TestJob(unittest.TestCase):
         self.assertIn("--permission-mode acceptEdits", sh)
         self.assertIn("--allowedTools Read Write Edit Glob Grep", sh)
         self.assertIn("timeout 1800", sh)
-        self.assertIn('"$(cat prompt.md)"', sh)      # the prompt text itself is never in the script
+        self.assertIn('"$(cat prompt.md; printf %s ', sh)      # the prompt text itself is never in the script; the out/ note is appended at run time
+        self.assertIn("Files the dispatcher itself writes into out/", sh)
         self.assertNotIn("quotes", sh)
         self.assertNotIn("bypassPermissions", sh)
 
@@ -155,6 +156,78 @@ class TestJob(unittest.TestCase):
                 d.main()
         self.assertEqual(run.call_count, 1)
 
+
+
+class Friction(unittest.TestCase):
+    def test_write_implies_edit_and_stream_json(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as t:
+            j = os.path.join(t, "job"); os.makedirs(j)
+            open(os.path.join(j, "prompt.md"), "w").write("x")
+            open(os.path.join(j, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 1\nallowed_tools: [Read, Write]\n")
+            job = d.plan_job(j)
+            self.assertIn("Edit", job["tools"])
+            sh = d.render_run_sh(job, "t-1")
+            self.assertIn("--output-format stream-json", sh); self.assertIn("out/result.json", sh)
+
+
+class Money(unittest.TestCase):
+    def test_above_routine_ceiling_needs_a_reason(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as t:
+            j = os.path.join(t, "job"); os.makedirs(j); open(os.path.join(j, "prompt.md"), "w").write("x")
+            open(os.path.join(j, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 3\n")
+            with self.assertRaises(SystemExit):
+                d.plan_job(j)
+            open(os.path.join(j, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 3\nbudget_reason: five pages to cite\n")
+            self.assertEqual(d.plan_job(j)["budget_usd"], 3.0)
+
+    def test_spent_today_sums_todays_records(self):
+        import tempfile, os, datetime
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(os.path.join(t, ".hee", "dispatch"))
+            today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+            open(os.path.join(t, ".hee", "dispatch", "a.yaml"), "w").write(f"job: a\nstarted_at: '{today}T01:00:00+00:00'\ncost_usd: 2.31\n")
+            open(os.path.join(t, ".hee", "dispatch", "b.yaml"), "w").write("job: b\nstarted_at: '2020-01-01T01:00:00+00:00'\ncost_usd: 9\n")
+            self.assertAlmostEqual(d.spent_today(t), 2.31)
+
+
+class Wif(unittest.TestCase):
+    CON = {"organization_id": "org-1", "workspace_id": "wrkspc_1", "service_account_id": "svac_1",
+           "federation_rule_id": "fdrl_1", "issuer": "https://issuer.lab.tcos.us", "subject": "pve:ci-triage"}
+
+    def test_mint_jwt_signs_es256_with_the_jwks_kid(self):
+        import base64, hashlib, json, subprocess
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()).decode()
+        tok, claims = d.mint_jwt(pem, self.CON, 600)
+        h, c, sig = tok.split(".")
+        pad = lambda x: x + "=" * (-len(x) % 4)
+        header = json.loads(base64.urlsafe_b64decode(pad(h)))
+        self.assertEqual(header["alg"], "ES256")
+        pub = key.public_key().public_numbers(); raw = b"\x04" + pub.x.to_bytes(32, "big") + pub.y.to_bytes(32, "big")
+        self.assertEqual(header["kid"], hashlib.sha256(raw).hexdigest()[:16])
+        self.assertEqual(claims["aud"], "https://api.anthropic.com"); self.assertEqual(claims["sub"], "pve:ci-triage")
+        self.assertEqual(claims["exp"] - claims["iat"], 600)
+        r = base64.urlsafe_b64decode(pad(sig)); der = encode_dss_signature(int.from_bytes(r[:32], "big"), int.from_bytes(r[32:], "big"))
+        key.public_key().verify(der, f"{h}.{c}".encode(), ec.ECDSA(hashes.SHA256()))   # raises if wrong
+
+    def test_run_sh_wif_exchanges_and_never_exports_an_api_key(self):
+        job = {"name": "j", "prompt": "prompt.md", "budget_usd": 1.0, "timeout_s": 60, "tools": ["Read"], "mode": "default",
+               "inputs": [], "outputs": ["out/"], "dir": "/tmp/j"}
+        sh = d.render_run_sh(job, "j-1", self.CON)
+        self.assertIn("read -r HEE_WIF_JWT", sh); self.assertIn("v1/oauth/token", sh)
+        self.assertIn("export ANTHROPIC_AUTH_TOKEN", sh); self.assertIn("unset ANTHROPIC_API_KEY", sh)
+        self.assertNotIn("export ANTHROPIC_API_KEY", sh); self.assertIn("fdrl_1", sh)
+        self.assertIn("unset HEE_WIF_JWT HEE_WIF_BODY", sh)
+
+    def test_console_block_must_be_complete(self):
+        with self.assertRaises(SystemExit):
+            d.console_block({"console": {"workspace_id": "w"}}, "ci-triage")
+        self.assertEqual(d.console_block({"console": self.CON}, "ci-triage")["federation_rule_id"], "fdrl_1")
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
