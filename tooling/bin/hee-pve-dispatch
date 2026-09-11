@@ -70,6 +70,7 @@ import re
 import shlex
 import subprocess
 import sys
+import shutil
 import tarfile
 import time
 import uuid
@@ -88,6 +89,12 @@ DEFAULT_ALLOCATIONS = os.path.expanduser(
     "~/git/fleet-ops/hee/registries/fleet-allocations.registry.v1.yaml")
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 JOBS_ROOT = "/home/agent/jobs"
+# Appended to every prompt. Job one (wif-prep-readonly, 2026-09-11) opened its
+# report by flagging out/auth.log -- the dispatcher's own exchange log -- as an
+# unexplained anomaly, because nothing had told it what run.sh writes.
+OUT_NOTE = ("\n\n## Files the dispatcher itself writes into out/ (not inputs, not yours to cite)\n"
+            "out/auth.log (token exchange status), out/exit, out/result.json, out/stderr.log, out/stream.jsonl. "
+            "Ignore them. Everything you produce goes under out/ beside them.\n")
 KEY_ENV_DEFAULT = "HEE_CRED_PASS"
 
 
@@ -263,7 +270,7 @@ def render_run_sh(job, jid, wif=None):
     short-lived token (python3 stdlib -- the containers have no jq) and hands
     claude ANTHROPIC_AUTH_TOKEN, with ANTHROPIC_API_KEY guaranteed unset."""
     remote = f"{JOBS_ROOT}/{jid}"
-    claude = ["claude", "-p", '"$(cat ' + shlex.quote(job["prompt"]) + ')"',
+    claude = ["claude", "-p", '"$(cat ' + shlex.quote(job["prompt"]) + '; printf %s ' + shlex.quote(OUT_NOTE) + ')"',
               "--output-format", "json",
               "--max-budget-usd", f"{job['budget_usd']:.2f}",
               "--permission-mode", job["mode"]]
@@ -485,6 +492,17 @@ def main():
         extract_results(r.stdout, results_dir)
         emit("OK", f"outputs collected into {results_dir}")
     res = read_result(results_dir)
+    # Evidence, committed: results/ is gitignored (raw, large), but the one
+    # object that says what happened -- claude's result.json -- is copied
+    # beside the job as evidence/result.json-<epoch>. Operator, 2026-09-11:
+    # "we save those result.json in evidence with a ts, date +%s".
+    src = os.path.join(results_dir, "out", "result.json")
+    evidence = None
+    if os.path.isfile(src) and os.path.getsize(src) > 0:
+        ev_dir = os.path.join(job["dir"], "evidence")
+        os.makedirs(ev_dir, exist_ok=True)
+        evidence = os.path.join(ev_dir, f"result.json-{int(started.timestamp())}")
+        shutil.copyfile(src, evidence)
 
     root = repo_root_of(job["dir"]) or job["dir"]
     rec_dir = os.path.join(root, ".hee", "dispatch")
@@ -501,6 +519,7 @@ def main():
         "exit": res["exit"], "cost_usd": res["cost_usd"], "num_turns": res["num_turns"],
         "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
         "results_dir": os.path.relpath(results_dir, root),
+        "evidence": os.path.relpath(evidence, root) if evidence else None,
         "remote_dir": f"{hostname}:{remote}",
     }
     with open(os.path.join(rec_dir, f"{jid}.yaml"), "w", encoding="utf-8") as fh:
