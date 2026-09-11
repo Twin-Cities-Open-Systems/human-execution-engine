@@ -1075,7 +1075,7 @@ def tickets_section(args):
         for x in j:
             if x["state"] == "blocked":
                 print(f"           blocked  {x['name']} ({x['agent']}) by {', '.join(x['open_blockers'])}")
-        print(f"  prs      " + ("not read (--offline)" if doc["offline"] else f"{len(doc['prs'])} open"))
+        print("  prs      " + ("not read (--offline)" if doc["offline"] else f"{len(doc['prs'])} open"))
         for e in doc["errors"]:
             print(f"  error    {e}")
     label = "WARNING" if (crit or doc["errors"]) else "OK"
