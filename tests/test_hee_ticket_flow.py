@@ -96,5 +96,28 @@ class Json(unittest.TestCase):
         self.assertTrue(any("dogfood -> idea" in w for w in what), what)
 
 
+class ListOne(unittest.TestCase):
+    """-list SPEC prints whole records (operator, 2026-09-11: `hee ticket -list 0102`)."""
+
+    def test_one_ticket_whole_record_with_whys(self):
+        r = run(["-list", "demo/0002", "--workspace", str(FIXTURE)], ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("# demo/0002", r.stdout)
+        self.assertIn("why: ran against every repo for a day", r.stdout)
+        self.assertNotIn("demo/0001", r.stdout)
+
+    def test_range_and_no_match(self):
+        r = run(["-list", "1-2", "--workspace", str(FIXTURE)], ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("# demo/0001", r.stdout)
+        self.assertIn("# demo/0002", r.stdout)
+        self.assertNotEqual(run(["-list", "9999", "--workspace", str(FIXTURE)], ROOT).returncode, 0)
+
+    def test_plain_list_still_lists(self):
+        r = run(["-list", "--workspace", str(FIXTURE)], ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("0010", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

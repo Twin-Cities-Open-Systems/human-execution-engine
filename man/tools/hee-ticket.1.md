@@ -7,7 +7,7 @@ hee-ticket - repo-local tickets, stored as real YAML in git
 # SYNOPSIS
 
     hee-ticket -new "DESCRIPTION" [--source WHERE] [--ref URL] [--tag T[,T...]]
-    hee-ticket -list [--open | --closed]
+    hee-ticket -list [SPEC] [--open | --closed]
     hee-ticket -advance ID [--why TEXT]
     hee-ticket -back ID --why TEXT
     hee-ticket -close SPEC [--why TEXT]
@@ -71,6 +71,7 @@ hee-ticket - repo-local tickets, stored as real YAML in git
 
     $ hee ticket -list                                       # ci
     $ hee ticket -list --open                                # ci
+    $ hee ticket -list demo/0002 --workspace tests/fixtures/tickets-workspace   # ci
     $ hee ticket -json --workspace tests/fixtures/tickets-workspace   # ci
     $ hee ticket -html --workspace --out /tmp/tickets.html   # every repo under ~/git; not run in CI
 
@@ -85,7 +86,8 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     -new       open a ticket at stage idea. --source records where it came
                from (a page, a brain dump timestamp, a review); --ref a
                GitHub issue or PR URL it tracks; --tag comma-separated tags.
-    -list      print every ticket in this repo (--workspace, or outside any
+    -list      print every ticket in this repo, or with SPEC (an id, range,
+               list or description regex) each matching ticket's whole record (--workspace, or outside any
                repo: every repo under ~/git, repo first); --open/--closed filter
     -advance   move one ticket one legal step forward in idea->footgun<->dogfood:
                idea to footgun, footgun to dogfood.
