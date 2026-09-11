@@ -795,6 +795,63 @@ def job_section(args):
     return 0
 
 
+def jobs_section(args):
+    """Every dispatch record in the current repo (then ~/git/fleet-ops), one
+    row each, plus a per-agent rollup: the scorecard. --md prints it as a
+    Markdown table for committing (pve/agents/SCORECARD.md)."""
+    import glob, yaml
+    roots = []
+    for r in [_repo_root(os.getcwd()), os.path.expanduser("~/git/fleet-ops")]:
+        if r and r not in roots:
+            roots.append(r)
+    recs = []
+    seen = set()
+    for root in roots:
+        for f in sorted(glob.glob(os.path.join(root, ".hee", "dispatch", "*.yaml"))):
+            with open(f) as fh:
+                d = yaml.safe_load(fh) or {}
+            if d.get("job") in seen:
+                continue
+            seen.add(d.get("job")); recs.append(d)
+    if not recs:
+        hee_status.emit("UNKNOWN", "hee-view: no dispatch records under " + ", ".join(roots))
+        return 3
+    recs.sort(key=lambda d: d.get("started_at") or "")
+    def n(x): return "" if x is None else x
+    rows = []
+    for d in recs:
+        u = d.get("usage") or {}; v = d.get("review") or {}
+        secs = (d.get("duration_ms") or 0) // 1000
+        rows.append([d.get("job", "")[:40], d.get("agent", ""), (d.get("started_at") or "")[:16], d.get("auth", "key"),
+                     f"{d.get('cost_usd') or 0:.3f}", n(d.get("num_turns")), f"{secs // 60}m{secs % 60:02d}s",
+                     n(u.get("input_tokens")), n(u.get("output_tokens")), n(u.get("cache_read_input_tokens")),
+                     n(d.get("permission_denials")), n(d.get("exit")), n(v.get("accepted")), n(v.get("corrections")), len(v.get("mistakes") or [])])
+    head = ["job", "agent", "started", "auth", "cost $", "turns", "wall", "in", "out", "cache_read", "denials", "exit", "accepted", "corr", "mistakes"]
+    agents = {}
+    for d in recs:
+        a = agents.setdefault(d.get("agent"), {"jobs": 0, "cost": 0.0, "turns": 0, "out": 0, "mistakes": 0, "corrections": 0, "denials": 0, "failed": 0})
+        v = d.get("review") or {}; u = d.get("usage") or {}
+        a["jobs"] += 1; a["cost"] += d.get("cost_usd") or 0; a["turns"] += d.get("num_turns") or 0; a["out"] += u.get("output_tokens") or 0
+        a["mistakes"] += len(v.get("mistakes") or []); a["corrections"] += v.get("corrections") or 0; a["denials"] += d.get("permission_denials") or 0
+        a["failed"] += 1 if (d.get("exit") not in (0, None) or d.get("is_error")) else 0
+    if args.md:
+        print("| " + " | ".join(head) + " |"); print("|" + "---|" * len(head))
+        for r in rows: print("| " + " | ".join(str(x) for x in r) + " |")
+        print("\n| agent | jobs | failed | cost $ | turns | output tokens | denials | corrections | mistakes | mistakes/job |\n|---|---|---|---|---|---|---|---|---|---|")
+        for a, t in sorted(agents.items()):
+            print(f"| {a} | {t['jobs']} | {t['failed']} | {t['cost']:.3f} | {t['turns']} | {t['out']} | {t['denials']} | {t['corrections']} | {t['mistakes']} | {t['mistakes'] / t['jobs']:.2f} |")
+    else:
+        w = [max(len(str(x)) for x in col) for col in zip(head, *rows)]
+        print("  ".join(h.ljust(w[i]) for i, h in enumerate(head)))
+        for r in rows: print("  ".join(str(x).ljust(w[i]) for i, x in enumerate(r)))
+        print()
+        for a, t in sorted(agents.items()):
+            print(f"  {a:16} jobs {t['jobs']}  failed {t['failed']}  cost ${t['cost']:.3f}  turns {t['turns']}  out {t['out']}  denials {t['denials']}  corrections {t['corrections']}  mistakes {t['mistakes']} ({t['mistakes'] / t['jobs']:.2f}/job)")
+    total = sum(d.get("cost_usd") or 0 for d in recs)
+    hee_status.emit("OK", f"hee-view: {len(recs)} dispatch record(s), {len(agents)} agent(s), ${total:.2f} total")
+    return 0
+
+
 def inbound_status():
     import shutil
     if not shutil.which("gh"):
@@ -912,6 +969,9 @@ def main():
                     help="one dispatched agent job, by id or unique prefix: the dispatch record and results when "
                          "finished; while running, the container's cgroup, the claude process and out/ read from the pve host")
     ap.add_argument("--json", action="store_true", help="with --job: also print the raw record or probe as JSON")
+    ap.add_argument("--jobs", "-jobs", action="store_true",
+                    help="every dispatch record (current repo, then ~/git/fleet-ops): one row per job and a per-agent scorecard")
+    ap.add_argument("--md", action="store_true", help="with --jobs: Markdown tables, for committing as pve/agents/SCORECARD.md")
     ap.add_argument("--mark-seen", action="store_true",
                     help="with --braindump: remember the newest entry, so the next run reports "
                          "only what arrives after it. Separate from reading on purpose -- a run "
@@ -948,6 +1008,8 @@ def main():
         return braindump_section(args)
     if args.job:
         return job_section(args)
+    if args.jobs:
+        return jobs_section(args)
 
     if args.via:
         if "://" in args.via or "/" in args.via:

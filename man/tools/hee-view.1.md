@@ -12,8 +12,8 @@ hee-view - hee-view command
 
                     [--dns-host DNS_HOST] [--nerd] [--sites] [--sitemap SITEMAP]
                     [--via [USER@]HOST] [--crawl] [--braindump] [--job JID]
-                    [--json] [--mark-seen] [--braindump-url URL] [--sites-only]
-                    [--network {lab,public,all}]
+                    [--json] [--jobs] [--md] [--mark-seen] [--braindump-url URL]
+                    [--sites-only] [--network {lab,public,all}]
 
     options:
       -h, --help            show this help message and exit
@@ -48,6 +48,10 @@ hee-view - hee-view command
                             running, the container's cgroup, the claude process
                             and out/ read from the pve host
       --json                with --job: also print the raw record or probe as JSON
+      --jobs, -jobs         every dispatch record (current repo, then ~/git/fleet-
+                            ops): one row per job and a per-agent scorecard
+      --md                  with --jobs: Markdown tables, for committing as
+                            pve/agents/SCORECARD.md
       --mark-seen           with --braindump: remember the newest entry, so the
                             next run reports only what arrives after it. Separate
                             from reading on purpose -- a run that scrolled past
