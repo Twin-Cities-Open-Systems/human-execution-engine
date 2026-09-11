@@ -13,7 +13,8 @@ Every file also holds to the same four rules:
 - **It works alone.** No file needs any other file in this directory. Include
   one, include all six, in any order.
 - **It does nothing if its markup is absent.** A page that includes `table.js`
-  but has no `[data-tc-table]` pays for one `querySelectorAll` and stops.
+  but has no `[data-tc-table]` or `table.tc-table` pays for one `querySelectorAll`
+  and stops.
 - **Hover is never the only way in.** Anything that responds to a mouse
   responds to a keyboard, because a hover-only affordance does not exist for
   someone who does not use a mouse.
@@ -28,7 +29,7 @@ Every file also holds to the same four rules:
 | `library/js/hovercard.js` | GitHub-style hover preview of a file or an issue | `[data-tc-profile]` |
 | `library/js/collapse.js` | Collapse and expand a card, remembered per card | `[data-tc-collapse]` |
 | `library/js/arrange.js` | Drag cards into a new order, remembered | `[data-tc-arrange]` |
-| `library/js/table.js` | Sort any column, filter across every field as you type | `[data-tc-table]` |
+| `library/js/table.js` | Sort any column, filter across every field as you type | `[data-tc-table]`, `table.tc-table` |
 | `library/js/links.js` | External links open a new tab, safely | every `a[href]` |
 | `library/js/freshness.js` | How old a page's source is, as a pill and a hue; stale after 12h by default | `[data-tc-epoch]` |
 
@@ -197,8 +198,22 @@ Two details worth knowing:
   `.tc-sr-only` text are excluded, so `links.js`'s screen-reader hint does not
   make every row with an external link match a search for "tab".
 
-If a row's cells change after load, call `TC.table.refresh(table)` to drop the
-cached row text.
+Every `table.tc-table` is bound too, marked or not. A table styled as the
+org's table is a sortable table, so no page can ship one without sort controls.
+That gap is what left the scorecard on agents-live unsortable, 2026-09-11.
+
+**Live pages keep the viewer's sort and search.** When a page replaces a bound
+table's rows, on a poll for example, the rows are re-sorted by the active column
+and re-filtered by the bound search box. The page calls nothing. Before this,
+every poll on agents-live and tickets undid the viewer's sort while the heading
+still showed it.
+
+If a row's cells change in place after load, call
+`TC.table.refresh(tableOrSelector)`. It drops the cached row text and re-applies
+the sort and the search. It takes a table or a selector, and returns null rather
+than throwing when nothing matches, because pages call it from a render loop.
+
+`tests/test_js_table.py` checks all of this in headless Chrome.
 
 ### links.js
 
