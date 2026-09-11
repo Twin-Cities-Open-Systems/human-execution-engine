@@ -231,3 +231,41 @@ class Wif(unittest.TestCase):
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
+
+
+class ResultJson(unittest.TestCase):
+    """The first stream-json job exited 0 with no result.json: run.sh had
+    `exec timeout claude ...; grep ... > out/result.json`, and exec replaced
+    the shell before the grep. review-resume-85, 2026-09-11."""
+
+    def setUp(self):
+        self.m = _load()
+
+    def test_run_sh_never_execs_before_the_result_grep(self):
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "prompt.md"), "w").write("do it\n")
+            open(os.path.join(d, "job.yaml"), "w").write("name: t\nprompt: prompt.md\nbudget_usd: 0.5\n")
+            job = self.m.plan_job(d)
+            run_sh = self.m.render_run_sh(job, "t-20260911T000000Z", None)
+        self.assertNotIn("exec timeout", run_sh)
+        self.assertIn("> out/result.json; exit $rc", run_sh)
+
+    def test_ensure_result_json_takes_the_last_result_event(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "out"))
+            with open(os.path.join(d, "out", "stream.jsonl"), "w") as fh:
+                fh.write('{"type":"system"}\n{"type":"assistant","message":"mentions \\"type\\":\\"result\\""}\n')
+                fh.write('{"type":"result","subtype":"success","is_error":false,"num_turns":11,"total_cost_usd":0.48}\n')
+            open(os.path.join(d, "out", "exit"), "w").write("0\n")
+            self.assertTrue(self.m.ensure_result_json(d))
+            res = self.m.read_result(d)
+            self.assertEqual((res["exit"], res["num_turns"], res["cost_usd"], res["is_error"]), (0, 11, 0.48, False))
+
+    def test_ensure_result_json_keeps_an_existing_file_and_reports_absence(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "out"))
+            self.assertFalse(self.m.ensure_result_json(d))
+            open(os.path.join(d, "out", "result.json"), "w").write('{"type":"result","num_turns":1}\n')
+            open(os.path.join(d, "out", "stream.jsonl"), "w").write('{"type":"result","num_turns":9}\n')
+            self.assertTrue(self.m.ensure_result_json(d))
+            self.assertIn('"num_turns":1', open(os.path.join(d, "out", "result.json")).read())
