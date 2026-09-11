@@ -1187,6 +1187,17 @@ _gitignore_samples() {
   case "${1%/}" in /*|*/*) ;; *) printf 'deep/%s\n' "$_gs_leaf" ;; esac
 }
 
+# _gitignore_base_label PATH -- how the managed block names its base. Never
+# the absolute path: on 2026-09-11 that wrote /home/<user>/git/... into this
+# repo's .gitignore and 17 other repos' PRs (rule 10, no hardcoded home paths).
+_gitignore_base_label() {
+  case "$1" in
+    */.github/gitignore/base.gitignore) echo ".github/gitignore/base.gitignore (the org baseline)" ;;
+    */library/gitignore/secrets.baseline) echo "human-execution-engine library/gitignore/secrets.baseline (the bundled copy)" ;;
+    *) echo "$(basename "$1") (from HEE_GITIGNORE_BASE)" ;;
+  esac
+}
+
 check_gitignore() {
   root="${1:-.}"
   _fix="${2:-0}"
@@ -1325,7 +1336,7 @@ EOF_SAMPLES
       {
         echo "# >>> hee gitignore base >>>"
         echo "# Managed by: hee check gitignore --fix. Edit the base, not this block."
-        echo "# Base: $_base"
+        echo "# Base: $(_gitignore_base_label "$_base")"
         echo "# Never negate one of these back in: in a public repo it publishes"
         echo "# the file permanently -- see pr:609@human-execution-engine."
         grep -vE '^\s*#' "$_base" | grep -vE '^\s*$'
