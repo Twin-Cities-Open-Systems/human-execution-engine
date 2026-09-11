@@ -870,9 +870,9 @@ def jobs_section(args):
                "jobs": [{k: d.get(k) for k in ("job", "name", "agent", "hostname", "vmid", "ticket", "auth", "started_at", "ended_at",
                                                 "budget_usd", "cost_usd", "num_turns", "duration_ms", "exit", "is_error", "subtype",
                                                 "permission_denials", "denied_tools", "usage", "models", "review")} for d in recs],
-               "running": []}
+               "running": [], "unrecorded": []}
         if args.live:
-            doc["running"] = jobs_live(args.pve_host)
+            doc["running"], doc["unrecorded"] = jobs_live(args.pve_host, {d.get("job") for d in recs})
         out = json.dumps(doc, default=str, indent=1)
         if args.publish:
             publish_json(args.publish, out)
@@ -883,24 +883,38 @@ def jobs_section(args):
     return 0
 
 
-def jobs_live(pve_host):
-    """Every job dir under JOBS_ROOT on every running agent container that has
-    a claude process: the same cgroup/proc probe --job uses, one ssh per
-    container. Cheap enough for a 30 s timer; SNMP takes this over later."""
+def jobs_live(pve_host, recorded=()):
+    """(running, unrecorded) from every running container's JOBS_ROOT.
+
+    running: the job whose directory is claude's cwd -- read from /proc, so it
+    names the job even when several job dirs exist. unrecorded: the newest job
+    dirs with no dispatch record here, finished (out/exit written) or stopped
+    (no exit, no claude). Both get the same cgroup/proc probe --job uses.
+
+    Before 2026-09-11 this listed only a container with a claude process, and
+    only its newest dir: a job that finished while its dispatcher was dead never
+    reached the page, and the page read "3 jobs on record" with a fourth job
+    done on ct118 (operator: "I don't think agents-live is live")."""
+    inner = (f'p=$(pgrep -f "^claude -p" | head -n 1); rj=""; '
+             f'[ -n "$p" ] && rj=$(basename "$(readlink /proc/$p/cwd)"); '
+             f'for j in $(ls -t {JOBS_ROOT} 2>/dev/null | head -n 5); do '
+             f'if [ "$j" = "$rj" ]; then s=running; elif [ -f {JOBS_ROOT}/$j/out/exit ]; then s=finished; else s=stopped; fi; '
+             f'echo "$j $s"; done')
     find = ("for v in $(pct list | awk 'NR>1 && $2==\"running\"{print $1}'); do "
-            f"j=$(pct exec $v -- sh -c 'pgrep -f \"^claude -p\" >/dev/null && ls -t {JOBS_ROOT} 2>/dev/null | head -n 1'); "
-            "[ -n \"$j\" ] && echo \"$v $j\"; done")
+            f"pct exec $v -- sh -c {shlex.quote(inner)} 2>/dev/null | sed \"s/^/$v /\"; done")
     _rc, _out, _err = sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", f"root@{pve_host}", find])
-    out = []
+    running, unrecorded = [], []
     for line in (_out or "").splitlines():
         parts = line.split()
-        if len(parts) != 2:
+        if len(parts) != 3:
             continue
-        vm, jid = parts
+        vm, jid, state = parts
+        if state != "running" and jid in recorded:
+            continue
         facts = job_live_probe(pve_host, jid, vm) or {}
-        facts["job"] = jid
-        out.append(facts)
-    return out
+        facts["job"], facts["state"] = jid, state
+        (running if state == "running" else unrecorded).append(facts)
+    return running, unrecorded
 
 
 def publish_json(target, text):
