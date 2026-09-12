@@ -143,21 +143,29 @@ DOTFILES_DIR := $(GIT_DIR)/dotfiles
 # ever reconciled): "everyone same dotfiles... dotfiles and the
 # hee/makefile work together." Clones the one real canonical
 # Twin-Cities-Open-Systems/dotfiles repo (never a per-identity copy)
-# and runs its own install-dotfiles.sh -a, unmodified -- that script
-# already renames any existing file aside rather than clobbering it, so
-# this is safe to wire straight into bootstrap/bootstrap-all rather
-# than gating behind a separate confirm step. install-dotfiles.sh
-# itself stays real and hee-independent by design (Spencer: "oper can
-# still use dotfiles without hee") -- this target is a convenience
-# wrapper around it, not a replacement.
-install-dotfiles: ## clone and run the dotfiles installer
+# and runs its installer -- which renames any existing file aside rather
+# than clobbering it, so this is safe to wire straight into
+# bootstrap/bootstrap-all rather than gating behind a separate confirm
+# step. install-dotfiles.sh itself stays real and hee-independent by
+# design (Spencer: "oper can still use dotfiles without hee") -- this
+# target is a convenience wrapper around it, not a replacement.
+#
+# Since 2026-09-12 it runs dotfiles' `make install` rather than
+# install-dotfiles.sh -a. Spencer's requirements for the flippy install:
+# every account runs bootstrap-all, then dotfiles make install, with
+# manpath folded into install. `make install` is the dotfiles front door
+# and now ends by registering hee's man pages; calling the script
+# directly skipped that, so a bootstrapped account had hee on PATH and
+# no `man hee`. HEE_REPO_DIR points manpath at this clone rather than at
+# dotfiles' own default guess of where checkouts live.
+install-dotfiles: ## clone dotfiles and run its make install (dotfiles, then hee man pages)
 	@if [ -d "$(DOTFILES_DIR)/.git" ]; then \
 		echo "bootstrap.mk: dotfiles already cloned at $(DOTFILES_DIR)"; \
 	else \
 		mkdir -p "$(GIT_DIR)"; \
 		gh repo clone "$(GH_ORG)/dotfiles" "$(DOTFILES_DIR)"; \
 	fi
-	@( cd "$(DOTFILES_DIR)" && bash install-dotfiles.sh -a )
+	@$(MAKE) --no-print-directory -C "$(DOTFILES_DIR)" install HEE_REPO_DIR="$(CLONE_DIR)"
 
 clone-repo: ## clone human-execution-engine into the clone dir shown under VARIABLES
 	@if [ -d "$(CLONE_DIR)/.git" ]; then \
