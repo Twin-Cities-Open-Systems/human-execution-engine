@@ -45,7 +45,7 @@ hee-check - repo boundary and integrity checks
                and can re-sign the ones that drifted
     tickets    every .hee/tickets record parses and moves legally through
                idea->footgun<->dogfood
-    all        boundary + refs + locale + signatures + tickets
+    all        boundary + refs + locale + signatures + tickets + gitignore
 
     Add `help` after any subcommand for its own page:
         hee-check refs help
