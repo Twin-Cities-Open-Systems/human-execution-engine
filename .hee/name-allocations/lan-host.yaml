@@ -1,5 +1,29 @@
+apollo:
+  allocated_at: '2026-09-12T06:20:50+00:00'
+  pool: greek-myth
+  scope: lan-host
+ares:
+  allocated_at: '2026-09-12T06:20:50+00:00'
+  pool: greek-myth
+  scope: lan-host
+artemis:
+  allocated_at: '2026-09-12T06:20:50+00:00'
+  pool: greek-myth
+  scope: lan-host
+athena:
+  allocated_at: '2026-09-12T06:20:50+00:00'
+  pool: greek-myth
+  scope: lan-host
+hades:
+  allocated_at: '2026-09-12T06:20:50+00:00'
+  pool: greek-myth
+  scope: lan-host
 hera:
   allocated_at: '2026-09-12T05:25:07+00:00'
+  pool: greek-myth
+  scope: lan-host
+hermes:
+  allocated_at: '2026-09-12T06:20:50+00:00'
   pool: greek-myth
   scope: lan-host
 poseidon:
