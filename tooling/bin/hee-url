@@ -69,13 +69,27 @@ def cmd_short(url: str, tags: str):
     print(f"hee-url: {h} -> {url}" + (f"  [{tags}]" if tags else ""))
 
 
+def _local_dates(stamps):
+    """Stamps as the current user's `date` prints them (library/py/hee_day).
+    Operator, 2026-09-11: every hee tool reports time in the user's own format."""
+    import os as _os, sys as _sys
+    lib = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "..", "library", "py")
+    if lib not in _sys.path:
+        _sys.path.insert(0, lib)
+    try:
+        from hee_day import local_dates
+    except ImportError:
+        return list(stamps)
+    return local_dates(stamps)
+
+
 def cmd_get(h: str):
     conn = db()
     row = conn.execute("SELECT url, tags, created_at FROM urls WHERE hash = ?", (h,)).fetchone()
     if not row:
         sys.exit(f"hee-url: no entry for {h}")
     url, tags, created = row
-    print(f"{url}" + (f"  [{tags}]" if tags else "") + f"  ({created})")
+    print(f"{url}" + (f"  [{tags}]" if tags else "") + f"  ({_local_dates([created])[0]})")
 
 
 def cmd_search(terms: list, use_or: bool):

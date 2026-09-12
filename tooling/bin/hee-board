@@ -94,7 +94,21 @@ def cmd_stale(items, args):
             continue
         ts = datetime.fromisoformat(updated.replace("Z", "+00:00"))
         if ts < cutoff:
-            print(f"{fmt(it)}  (last update {updated})")
+            print(f"{fmt(it)}  (last update {_local_dates([updated])[0]})")
+
+
+def _local_dates(stamps):
+    """Stamps as the current user's `date` prints them (library/py/hee_day).
+    Operator, 2026-09-11: every hee tool reports time in the user's own format."""
+    import os as _os, sys as _sys
+    lib = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "..", "library", "py")
+    if lib not in _sys.path:
+        _sys.path.insert(0, lib)
+    try:
+        from hee_day import local_dates
+    except ImportError:
+        return list(stamps)
+    return local_dates(stamps)
 
 
 def main():

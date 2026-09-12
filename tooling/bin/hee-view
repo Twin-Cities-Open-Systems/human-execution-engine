@@ -607,12 +607,21 @@ def braindump_section(args):
     # time compare here. No parsing, nothing to get wrong across zones.
     fresh = [e for e in entries if e["ts"] > seen] if seen else entries
     newest = entries[-1]["ts"]
+    # Shown the way this machine's `date` prints time; compared and stored as
+    # the UTC stamps above. Operator, 2026-09-11: "format it exactly like the
+    # default date command on the local system".
+    try:
+        from hee_day import local_dates
+    except ImportError:   # --via on a host with no HEE checkout: UTC as written
+        def local_dates(xs):
+            return list(xs)
 
     if args.nerd:
-        for e in entries if not seen else fresh:
+        listed = entries if not seen else fresh
+        for e, when in zip(listed, local_dates(x["ts"] for x in listed)):
             src = f"  [{e['source']}]" if e["source"] else ""
             first = (e["body"].strip().split("\n") or [""])[0][:96]
-            print(f"  {e['ts']}{src}\n      {first}")
+            print(f"  {when}{src}\n      {first}")
 
     # Detail on stdout, status on stderr -- so without this flush the two
     # interleave differently depending on whether the caller is a terminal or
@@ -626,17 +635,18 @@ def braindump_section(args):
             fh.write(newest + "\n")
         os.replace(tmp, cursor_file)   # atomic: a killed run never truncates it
 
+    newest_shown, seen_shown = local_dates([newest, seen]) if seen else (local_dates([newest])[0], "")
     if not seen:
-        hee_status.emit("WARNING", f"hee-view: {len(entries)} brain dump entries, newest {newest} "
+        hee_status.emit("WARNING", f"hee-view: {len(entries)} brain dump entries, newest {newest_shown} "
                                    f"-- no cursor yet, so all of them are unread. "
                                    f"`hee view --braindump --mark-seen` to start counting from here")
         return 1
     if fresh:
         hee_status.emit("WARNING", f"hee-view: {len(fresh)} NEW brain dump "
-                                   f"entr{'y' if len(fresh) == 1 else 'ies'} since {seen} "
-                                   f"(newest {newest}, {len(entries)} total)")
+                                   f"entr{'y' if len(fresh) == 1 else 'ies'} since {seen_shown} "
+                                   f"(newest {newest_shown}, {len(entries)} total)")
         return 1
-    hee_status.emit("OK", f"hee-view: no new brain dump entries since {seen} ({len(entries)} total)")
+    hee_status.emit("OK", f"hee-view: no new brain dump entries since {seen_shown} ({len(entries)} total)")
     return 0
 
 
@@ -760,7 +770,12 @@ def job_section(args):
         print(f"  agent      {r.get('agent')} ({r.get('hostname')}, vmid {r.get('vmid')})  auth {r.get('auth', 'key')}"
               + (f"  rule {r.get('federation_rule_id')}" if r.get("federation_rule_id") else ""))
         print(f"  ticket     {r.get('ticket')}   record {os.path.relpath(rec_path, root)}")
-        print(f"  ran        {r.get('started_at')} -> {r.get('ended_at')}  timeout {r.get('timeout_s')}s  budget ${r.get('budget_usd')}")
+        try:
+            from hee_day import local_dates
+            ran = local_dates([r.get('started_at'), r.get('ended_at')])
+        except ImportError:   # --via on a host with no HEE checkout
+            ran = [r.get('started_at'), r.get('ended_at')]
+        print(f"  ran        {ran[0]} -> {ran[1]}  timeout {r.get('timeout_s')}s  budget ${r.get('budget_usd')}")
         print(f"  verdict    exit {r.get('exit')}  is_error {r.get('is_error')}  cost ${r.get('cost_usd')}  "
               f"turns {r.get('num_turns')}  models {r.get('models')}")
         if r.get("usage"):
@@ -904,6 +919,13 @@ def jobs_section(args):
         for h, n in sorted(nodes.items()):
             print(f"| {h} | {n['role']} | {n['jobs']} | {n['with_resources']} | {n['cost_per_job']:.3f} | {dash(n['cost_per_job_vs_fleet'])}x | {n['wall_s_per_job']} | {dash(n['cpu_s_per_job'])} | {dash(n['mem_peak_mb'])} | {dash(n['out_tokens_per_cpu_s'])} | {n['mistakes_per_job']} |")
     else:
+        # The terminal table shows each start the way the user's `date` prints
+        # it; --md and --json keep UTC, since those are committed or parsed.
+        try:
+            from hee_day import local_dates
+            rows = [r[:2] + [s] + r[3:] for r, s in zip(rows, local_dates(d.get("started_at") or "" for d in recs))]
+        except ImportError:
+            pass
         w = [max(len(str(x)) for x in col) for col in zip(head, *rows)]
         print("  ".join(h.ljust(w[i]) for i, h in enumerate(head)))
         for r in rows: print("  ".join(str(x).ljust(w[i]) for i, x in enumerate(r)))

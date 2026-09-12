@@ -107,8 +107,22 @@ def pct_remaining(pool):
     return 100.0 * pool["remaining"] / pool["limit"]
 
 
+def _local_dates(stamps):
+    """Stamps as the current user's `date` prints them (library/py/hee_day).
+    Operator, 2026-09-11: every hee tool reports time in the user's own format."""
+    import os as _os, sys as _sys
+    lib = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "..", "library", "py")
+    if lib not in _sys.path:
+        _sys.path.insert(0, lib)
+    try:
+        from hee_day import local_dates
+    except ImportError:
+        return list(stamps)
+    return local_dates(stamps)
+
+
 def fmt_reset(ts):
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%SZ")
+    return _local_dates([f"@{int(ts)}"])[0]
 
 
 HOST_POOLS = ("mem", "swap", "load", "agents")
@@ -253,14 +267,17 @@ def cmd_watch(args):
     try:
         for n in range(1, args.samples + 1):
             pools = collect(args.pools)
-            stamp = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
+            # A --log file is stored, so it keeps ISO-8601 UTC; stdout is for a person.
+            now = datetime.now(tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            stamp = now if args.log else _local_dates([now])[0]
             for name, pool in pools.items():
                 pct = pct_remaining(pool)
                 worst = max(worst, 2 if pct < 10 else (1 if pct < 30 else 0))
                 print(f"{stamp} {_fmt(name, pool)}", file=out)
             if n < args.samples:
                 time.sleep(args.interval)
-        print(f"{datetime.now(tz=timezone.utc).strftime('%H:%M:%S')} \u23f9  watch "
+        now = datetime.now(tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        print(f"{now if args.log else _local_dates([now])[0]} \u23f9  watch "
               f"exited after {args.samples} samples (bounded by design)", file=out)
     finally:
         if args.log:
