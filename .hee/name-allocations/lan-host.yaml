@@ -1,0 +1,12 @@
+hera:
+  allocated_at: '2026-09-12T05:25:07+00:00'
+  pool: greek-myth
+  scope: lan-host
+poseidon:
+  allocated_at: '2026-09-12T05:29:52+00:00'
+  pool: greek-myth
+  scope: lan-host
+zeus:
+  allocated_at: '2026-09-12T05:15:54+00:00'
+  pool: greek-myth
+  scope: lan-host
