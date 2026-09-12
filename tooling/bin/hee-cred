@@ -39,7 +39,7 @@ own TPM, for the flippy Debian install. A host that is about to be
 installed has no GPG secret key, and the Debian installer has neither a
 TPM driver nor a GPG decrypt tool, so its Wi-Fi password and first
 account password are sealed with age to an age-plugin-tpm recipient
-(age1tpm1...) from a live USB, and opened at first boot by the one TPM
+(age1tag1...) from a live USB, and opened at first boot by the one TPM
 that recipient belongs to. Folded in here rather than a new tool, same
 reason as -genfrom. The store is the same directory with a different
 extension, <account>.age, and -pass/-run choose the backend from the
@@ -215,7 +215,7 @@ def encrypt_age(secret: str, recipient_list: list, out_path: Path):
     except FileNotFoundError:
         sys.exit("hee-cred: -backend age needs `age` on PATH")
     if proc.returncode != 0:
-        # An age1tpm1... recipient makes age run age-plugin-tpm even to
+        # A plugin recipient makes age run the matching age-plugin-* even to
         # encrypt, so a missing plugin surfaces here, as age's own message.
         sys.exit(f"hee-cred: age encrypt failed: {proc.stderr.decode(errors='replace')}")
     tmp = out_path.with_name(out_path.name + ".tmp")
@@ -434,7 +434,7 @@ def main():
                     help="GPG key ids/emails, or age recipients with -backend age")
     ap.add_argument("-backend", choices=BACKENDS, default="gpg",
                     help="with -seal: gpg (default) writes ACCOUNT.gpg; age writes ACCOUNT.age "
-                         "to age recipients, e.g. an age-plugin-tpm age1tpm1... recipient")
+                         "to age recipients, e.g. an age-plugin-tpm age1tag1... recipient")
     ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")
     ap.add_argument("-run", dest="run_account", metavar="ACCOUNT",
                     help="like -pass, but also exports the secret under a variable name "
