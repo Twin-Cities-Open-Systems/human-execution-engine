@@ -72,6 +72,10 @@ inventory page's add form submits.
 - stableid (MUST): see Naming
 - vendor, model, serial (MAY; null when unknown)
 - interfaces[] (MAY): `{role: wired|wireless, mac}`, MAC lowercase colon form
+- specs (MAY): measured characteristics as flat key/value strings (cpu, memory,
+  storage, firmware, display). Measured, not from a listing, with the method in
+  source; at most 60 keys. A MAC belongs to the device that carries the NIC --
+  a dock's NIC is the dock's interface, not the laptop's.
 - requirements[] (MAY): buying or install criteria, for planned items
 - refs[] (MAY): URLs to the decision or spec behind the record
 - notes (MAY)

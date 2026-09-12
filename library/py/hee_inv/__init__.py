@@ -39,7 +39,7 @@ ROLES = ("wired", "wireless")
 
 REQUIRED = ("schema", "name", "asset_type", "sub", "bucket", "lifecycle")
 OPTIONAL = ("stableid", "vendor", "model", "serial", "interfaces", "location",
-            "requirements", "refs", "notes", "source", "observed")
+            "specs", "requirements", "refs", "notes", "source", "observed")
 
 CONTRACT = Path(__file__).resolve().parents[3] / "hee" / "contracts" / "inventory.contract.v1.md"
 
@@ -173,6 +173,18 @@ def validate(doc, values: dict, now: datetime | None = None) -> dict:
             raise Invalid("location.path: 1-8 parts of letters, digits, dot, dash or underscore")
         r["location"] = path
 
+    specs = doc.get("specs")
+    r["specs"] = {}
+    if specs is not None:
+        if not isinstance(specs, dict) or len(specs) > 60:
+            raise Invalid("specs: must be an object of at most 60 fields")
+        for k, v in specs.items():
+            if not isinstance(k, str) or not TOKEN.match(k.replace("_", "-")):
+                raise Invalid(f"specs.{k}: keys are lowercase tokens (letters, digits, dash, underscore)")
+            if not isinstance(v, str) or not v.strip() or len(v) > 300 or "\n" in v:
+                raise Invalid(f"specs.{k}: values are one-line strings of 1-300 characters")
+            r["specs"][k] = v.strip()
+
     src = doc.get("source")
     r["source"] = {}
     if src is not None:
@@ -244,6 +256,10 @@ def render(r: dict) -> tuple[str, str]:
         f"    model: {q(r['model'])}",
         f"    serial: {q(r['serial'])}",
     ]
+    if r["specs"]:
+        y += ["    specs:"] + [f"      {k}: {q(v)}" for k, v in r["specs"].items()]
+    else:
+        y += ["    specs: {}"]
     if r["interfaces"]:
         y += ["    interfaces:"]
         for itf in r["interfaces"]:

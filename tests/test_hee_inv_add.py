@@ -106,6 +106,19 @@ class TestAdd(unittest.TestCase):
         r = self.run_add(planned(stableid=None, serial=None, asset_type="camera"))
         self.assertTrue(r.stdout.strip().endswith("__inv-asset-electronics-camera-20260912t062050z.yaml"), r.stdout)
 
+    @unittest.skipUnless(yaml, "PyYAML not installed")
+    def test_specs_rendered_as_a_flat_map(self):
+        r = self.run_add(planned(stableid="flippy", lifecycle="in_service", asset_type="laptop",
+                                 specs={"cpu": "Intel Core i7-8565U", "memory": "2x16 GB DDR4",
+                                        "firmware_bios": "F.49 (2023-04-25)"}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        d = yaml.safe_load((self.repo / r.stdout.strip()).read_text())
+        self.assertEqual(d["spec"]["asset"]["specs"]["firmware_bios"], "F.49 (2023-04-25)")
+        for bad in ({"CPU": "x"}, {"cpu": ""}, {"cpu": 8}, {"cpu": "a\nb"}):
+            r = self.run_add(planned(stableid="other", specs=bad))
+            self.assertEqual(r.returncode, 2, bad)
+            self.assertIn("specs.", r.stderr)
+
     def test_mac_normalized(self):
         r = self.run_add(planned(interfaces=[{"role": "wireless", "mac": "B8-27-EB-F2-D1-34"}]))
         self.assertEqual(r.returncode, 0, r.stderr)
