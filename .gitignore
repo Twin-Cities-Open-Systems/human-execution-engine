@@ -150,7 +150,7 @@ man/index.db
 
 # >>> hee gitignore base >>>
 # Managed by: hee check gitignore --fix. Edit the base, not this block.
-# Base: /home/claude/git/.github/gitignore/base.gitignore
+# Base: .github/gitignore/base.gitignore (the org baseline)
 # Never negate one of these back in: in a public repo it publishes
 # the file permanently -- see pr:609@human-execution-engine.
 secrets/
