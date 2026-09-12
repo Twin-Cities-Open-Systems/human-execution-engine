@@ -91,9 +91,13 @@ jobs:
           # repo to DECLARE its exemptions in a file that both its own CI and
           # this gate read. Tracked in 633.
           - repo: fleet-ops
-            home_skip: "':!hosts/*' ':!systemd/*' ':!bin/systemd/*'"
+            # Re-synced 2026-09-11: fleet-ops added the pve/agents/jobs skips
+            # (a job's in/ holds verbatim copies of other repos' files) and this
+            # copy did not follow, so stable failed on every commit that day
+            # while fleet-ops' own hee-check stayed green.
+            home_skip: "':!hosts/*' ':!systemd/*' ':!bin/systemd/*' ':!pve/agents/jobs/*/in/*'"
             lint_skip: "':!viz-dashboard/public/*'"
-            refs_skip: "viz-dashboard/public"
+            refs_skip: "viz-dashboard/public pve/agents/jobs"
     steps:
       # The consumer, read with the org-scoped token. The default GITHUB_TOKEN
       # is scoped to THIS repo only and cannot see the 10 private consumers --
