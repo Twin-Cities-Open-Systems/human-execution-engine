@@ -1,6 +1,6 @@
-.TH HEE-CRED 1 "2026-08-22" "HEE" "User Commands"
+.TH HEE-CRED 1 "2026-09-12" "HEE" "User Commands"
 .SH NAME
-hee-cred \- real, minimal GPG-backed credential store
+hee-cred \- real, minimal sealed credential store (GPG, or age for TPM-bound secrets)
 .SH SYNOPSIS
 .B hee cred
 .B \-seal
@@ -19,16 +19,27 @@ hee-cred \- real, minimal GPG-backed credential store
 [\fB\-blocks\fR \fIN\fR] [\fB\-root\fR \fIPATH\fR]
 .br
 .B hee cred
+.B \-seal
+.I ACCOUNT
+.B \-backend age
+.B \-recipients
+.I RECIPIENT[,RECIPIENT...]
+[\fB\-dir\fR \fIPATH\fR]
+.br
+.B hee cred
 .B \-pass
 .I ACCOUNT
 .B \-exec
 .I COMMAND [ARGS...]
-[\fB\-dir\fR \fIPATH\fR]
+[\fB\-dir\fR \fIPATH\fR] [\fB\-identity\fR \fIFILE\fR]
 .SH DESCRIPTION
 .B hee-cred
-stores secrets as ciphertext-only GPG files under
+stores secrets as ciphertext-only files under
 .BR .hee/secrets/ACCOUNT.gpg ,
-and never lets a decrypted value reach an agent's own visible output.
+or
+.B .hee/secrets/ACCOUNT.age
+for the age backend, and never lets a decrypted value reach an agent's own
+visible output.
 Retrieval is exec-only: the secret is injected into a single child
 process's environment and nowhere else.
 .PP
@@ -43,22 +54,53 @@ instead pulls real words out of a local media corpus matching
 joins them into a passphrase. Still never printed \-\- flows straight
 into the same GPG encrypt call as a typed secret.
 .PP
+.B \-seal \-backend age
+encrypts with
+.BR age (1)
+to age recipients instead of GPG keys. An age-plugin-tpm recipient
+.RI ( age1tag1... )
+binds the secret to one machine's TPM: nothing but that TPM can open it.
+That is how a host being installed gets secrets it can use at first boot,
+before it has any GPG key.
+.PP
 .B \-pass
 decrypts and sets the secret in the
 .B HEE_CRED_PASS
 environment variable of the
 .B \-exec
 child process only \-\- never argv (visible via \fBps\fR to other
-users), never stdout, never a log line.
+users), never stdout, never a log line. The backend is chosen by which
+file exists; an account with both a
+.B .gpg
+and an
+.B .age
+file is refused rather than guessed at.
 .SH OPTIONS
 .TP
 .BI \-seal " ACCOUNT"
 Seal a new secret under the given account name.
 .TP
 .BI \-recipients " ID[,ID...]"
-Comma\-separated GPG key IDs or emails to encrypt to. At least one
-required. Multiple recipients means any one of them can independently
-decrypt.
+Comma\-separated GPG key IDs or emails to encrypt to, or age recipients
+with
+.BR "\-backend age" .
+At least one required. Multiple recipients means any one of them can
+independently decrypt.
+.TP
+.BI \-backend " gpg|age"
+With
+.BR \-seal :
+the encryption backend (default
+.BR gpg ).
+.B age
+writes
+.I ACCOUNT.age
+and needs
+.B age
+on PATH, plus
+.B age\-plugin\-tpm
+for a TPM recipient. Refused if the account already has a file from the
+other backend.
 .TP
 .BI \-run " ACCOUNT"
 Like
@@ -93,6 +135,18 @@ variable does not follow from the credential's own name.
 .BI \-pass " ACCOUNT"
 Decrypt the named account's secret for one \fB\-exec\fR call.
 .TP
+.BI \-identity " FILE"
+With
+.B \-pass
+or
+.B \-run
+on an
+.B .age
+credential: the age identity file to decrypt with. Defaults to
+.BR HEE_CRED_AGE_IDENTITY .
+A TPM identity file holds a key wrapped by that TPM and is useless on any
+other machine.
+.TP
 .BI \-exec " COMMAND [ARGS...]"
 The command to run with \fBHEE_CRED_PASS\fR set. Required with
 \fB\-pass\fR.
@@ -125,19 +179,39 @@ hee cred \-pass my\-api\-key \-exec bash \-c \e
 .br
     'curl \-H "Authorization: Bearer $HEE_CRED_PASS" https://api.example.com'
 .RE
+.PP
+Seal a Wi\-Fi password to this machine's TPM, then open it on the same
+machine (the identity comes from
+.BR "age\-plugin\-tpm \-\-generate" ):
+.PP
+.RS
+hee cred \-seal wifi \-backend age \e
+.br
+    \-recipients "$(age\-plugin\-tpm \-y identity.txt)" \-dir .hee/secrets
+.br
+hee cred \-run wifi \-identity identity.txt \-dir .hee/secrets \e
+.br
+    \-exec nmcli connection modify home wifi\-sec.psk\-flags 0 ...
+.RE
 .SH SECURITY
 A secret sealed to multiple recipients can be decrypted independently
 by any one of them \-\- this is intentional, not a weakness. Add every
 real party that legitimately needs access as a recipient at seal
 time; there is no way to add a recipient after the fact without
 re\-sealing.
+.PP
+A TPM\-sealed secret dies with that TPM: a firmware TPM clear or a board
+replacement makes it unrecoverable. Keep the plaintext's real source of
+truth (a password manager) and treat the sealed copy as a delivery
+vehicle, not a backup.
 .SH ORGANIZATION
 Twin Cities Open Systems \- Operations LLC
 .br
 IANA Private Enterprise Number: 1.3.6.1.4.1.66550
 .SH SEE ALSO
 .BR hee-pwgen (1),
-.BR hee-qr (1)
+.BR hee-qr (1),
+.BR age (1)
 .SH ENVIRONMENT
 .TP
 .B HEE_CRED_DIR
@@ -148,6 +222,13 @@ Set it in
 to pin one store per machine;
 .B \-dir
 still wins when given.
+.TP
+.B HEE_CRED_AGE_IDENTITY
+The age identity file used to open
+.B .age
+credentials when
+.B \-identity
+is not given.
 .TP
 .B HEE_CRED_PASS
 Set in the child's environment by
