@@ -23,7 +23,7 @@ Dataset repo (canonical data): tcos-plan-private/inventory/objects/
 ## Taxonomy (labels)
 
 - inv.bucket: consumable | durable | commodity | unknown
-- inv.sub: food | sundry | building | tools | vehicle | metal | unknown
+- inv.sub: food | sundry | building | tools | vehicle | metal | electronics | unknown
 
 ## Location
 
