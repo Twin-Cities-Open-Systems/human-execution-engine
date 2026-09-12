@@ -18,6 +18,26 @@ Usage:
                                    PRs, esp. Dependabot ones, are never added
                                    to it, so board-scoped commands above would
                                    silently miss almost all of them)
+  hee-board outsiders --roster FILE [--days N] [--allow-bot LOGIN]... [--markdown FILE]
+                               -- PRs and issues filed by accounts outside the
+                                   roster: every open one, plus any created in
+                                   the last N days (default 7), in every
+                                   non-archived org repo
+
+outsiders:
+  "Us" is every GitHub login in the roster file (roster.json: tiers[].people[].github).
+  A roster login whose status is departed or inactive still counts as a finding:
+  the roster says that account holds no access. Bots are listed separately;
+  dependabot[bot] and github-actions[bot] are expected, --allow-bot adds more.
+
+  Severity, per item:
+    CRITICAL  an account outside the roster filed on a PRIVATE repo -- it can
+              read that repo, so access is wider than the roster says
+    WARNING   an account outside the roster, an unexpected bot, or a roster
+              account marked departed or inactive, filed on a public repo
+    UNKNOWN   a repo whose issues could not be read (token scope, rate limit)
+    OK        nothing filed from outside the roster
+  Exit code is the worst of these, in that order: 2, 1, 3, 0.
 """
 import argparse
 import json
@@ -31,6 +51,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
+from hee_status import Status, render  # noqa: E402
 
 PROJECT_OWNER = "Twin-Cities-Open-Systems"
 PROJECT_NUMBER = 1
@@ -85,6 +106,132 @@ def cmd_open_prs(items, args):
     print(f"\n{len(prs)} open PR(s) total.", file=sys.stderr)
 
 
+EXPECTED_BOTS = ("dependabot[bot]", "github-actions[bot]")  # the only bots that filed in the org, measured 2026-09-11
+INACTIVE_STATUSES = ("departed", "inactive")
+
+
+def load_roster(path):
+    """login -> roster status, from roster.json's tiers[].people[]."""
+    data = json.loads(_Path(path).read_text())
+    return {p["github"]: p.get("status") for t in data.get("tiers", [])
+            for p in t.get("people", []) if p.get("github")}
+
+
+def classify(login, user_type, roster, allowed_bots):
+    """One author -> (kind, finding). kind is us, bot, roster-inactive,
+    bot-unexpected or outsider; finding is whether it needs a human look."""
+    if login in roster:
+        if roster[login] in INACTIVE_STATUSES:
+            return "roster-inactive", True
+        return "us", False
+    if user_type == "Bot":
+        return ("bot", False) if login in allowed_bots else ("bot-unexpected", True)
+    return "outsider", True
+
+
+def severity(kind, private):
+    if kind == "outsider" and private:
+        return Status.CRITICAL
+    return Status.WARNING
+
+
+def select_items(items, cutoff):
+    """Open items, plus any created at or after cutoff, once each."""
+    seen, out = set(), []
+    for it in items:
+        created = datetime.fromisoformat(it["created_at"].replace("Z", "+00:00"))
+        if (it["state"] == "open" or created >= cutoff) and it["number"] not in seen:
+            seen.add(it["number"])
+            out.append(it)
+    return out
+
+
+def fetch_repo_items(owner, repo, cutoff, run=subprocess.run):
+    """Every open item and every item updated since cutoff, or None if the
+    repo's issues cannot be read. The issues API returns PRs too."""
+    jq = ('.[] | {number, title, html_url, state, created_at, author_association, '
+          'login: .user.login, user_type: .user.type, is_pr: (.pull_request != null)}')
+    since = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = []
+    for query in ("state=open", f"state=all&since={since}"):
+        proc = run(["gh", "api", "--paginate", f"repos/{owner}/{repo}/issues?{query}&per_page=100", "--jq", jq],
+                   capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None, (proc.stderr.strip().splitlines() or ["no output"])[0]
+        items.extend(json.loads(ln) for ln in proc.stdout.splitlines() if ln.strip())
+    return items, ""
+
+
+def review(repos, fetched, roster, allowed_bots, cutoff):
+    """repos: [{name, private}]; fetched: name -> (items or None, error).
+    Returns (worst Status, findings, unreadable, counts)."""
+    findings, unreadable, counts = [], [], {}
+    for r in repos:
+        items, err = fetched[r["name"]]
+        if items is None:
+            unreadable.append((r["name"], err))
+            continue
+        for it in select_items(items, cutoff):
+            kind, finding = classify(it["login"], it["user_type"], roster, allowed_bots)
+            key = (r["name"], kind)
+            counts[key] = counts.get(key, 0) + 1
+            if finding:
+                findings.append({**it, "repo": r["name"], "private": r["private"], "kind": kind,
+                                 "severity": severity(kind, r["private"])})
+    levels = {f["severity"] for f in findings}
+    for level in (Status.CRITICAL, Status.WARNING):
+        if level in levels:
+            return level, findings, unreadable, counts
+    return (Status.UNKNOWN if unreadable else Status.OK), findings, unreadable, counts
+
+
+def outsiders_markdown(worst, findings, unreadable, counts, days):
+    lines = [f"**{worst.icon} {worst.name}** -- PRs and issues filed from outside the roster "
+             f"(open, or created in the last {days} days).", ""]
+    if findings:
+        lines += ["| Severity | Repo | Item | Author | Why | Created |", "|---|---|---|---|---|---|"]
+        for f in sorted(findings, key=lambda f: (f["severity"].value != 2, f["repo"], f["number"])):
+            item = f"[{'PR' if f['is_pr'] else 'issue'} #{f['number']}]({f['html_url']})"
+            lines.append(f"| {f['severity'].icon} {f['severity'].name} | {f['repo']} | {item} | "
+                         f"`{f['login']}` ({f['author_association']}) | {f['kind']} | {f['created_at'][:10]} |")
+        lines.append("")
+    else:
+        lines += ["Nothing filed from outside the roster.", ""]
+    if unreadable:
+        lines += [f"**{Status.UNKNOWN.icon} UNKNOWN** -- could not read issues in {len(unreadable)} repo(s):", ""]
+        lines += [f"- {name}: {err}" for name, err in unreadable] + [""]
+    bots = sum(n for (_, kind), n in counts.items() if kind == "bot")
+    ours = sum(n for (_, kind), n in counts.items() if kind == "us")
+    lines.append(f"Counted and not flagged: {ours} item(s) from roster accounts, {bots} from expected bots.")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_outsiders(items, args):
+    roster = load_roster(args.roster)
+    allowed = set(EXPECTED_BOTS) | set(args.allow_bot or [])
+    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    # One JSON object per line: --paginate concatenates per-page arrays, which
+    # is not one JSON document once the org passes 100 repos.
+    proc = subprocess.run(["gh", "api", "--paginate", f"orgs/{PROJECT_OWNER}/repos?per_page=100",
+                           "--jq", ".[] | select(.archived | not) | {name, private}"], capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(render(Status.UNKNOWN, f"cannot list {PROJECT_OWNER} repos -- {proc.stderr.strip()}"))
+        return Status.UNKNOWN.value
+    repos = [json.loads(ln) for ln in proc.stdout.splitlines() if ln.strip()]
+    fetched = {r["name"]: fetch_repo_items(PROJECT_OWNER, r["name"], cutoff) for r in repos}
+    worst, findings, unreadable, counts = review(repos, fetched, roster, allowed, cutoff)
+    for f in findings:
+        print(render(f["severity"], f"{f['repo']}#{f['number']} {'PR' if f['is_pr'] else 'issue'} by "
+                                    f"{f['login']} ({f['kind']}, {'private' if f['private'] else 'public'} repo)"))
+    for name, err in unreadable:
+        print(render(Status.UNKNOWN, f"{name}: cannot read issues -- {err}"))
+    print(render(worst, f"{len(findings)} item(s) from outside the roster in {len(repos)} repo(s), "
+                        f"{len(unreadable)} unreadable"))
+    if args.markdown:
+        _Path(args.markdown).write_text(outsiders_markdown(worst, findings, unreadable, counts, args.days))
+    return worst.value
+
+
 def cmd_stale(items, args):
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
     for it in items:
@@ -119,6 +266,11 @@ def main():
     sub.add_parser("open-prs")
     s = sub.add_parser("stale")
     s.add_argument("--days", type=int, default=30)
+    o = sub.add_parser("outsiders")
+    o.add_argument("--roster", required=True, help="roster.json naming every GitHub login that is us")
+    o.add_argument("--days", type=int, default=7, help="also report items created in the last N days, open or not")
+    o.add_argument("--allow-bot", action="append", help="a bot login that is expected (repeatable)")
+    o.add_argument("--markdown", help="also write the report as Markdown to this file")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -137,10 +289,12 @@ def main():
     if args.cmd == "open-prs":
         cmd_open_prs(None, args)
         return
+    if args.cmd == "outsiders":
+        return cmd_outsiders(None, args)
 
     items = fetch_items()
     {"p0": cmd_p0, "stale": cmd_stale}[args.cmd](items, args)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
