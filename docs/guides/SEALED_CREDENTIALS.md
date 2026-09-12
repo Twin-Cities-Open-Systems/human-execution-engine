@@ -227,6 +227,44 @@ credentials in one session turned out to be openable on exactly one host,
 with nothing in any repo recording which host that was. When you seal
 something, say where it is openable in the same change.
 
+## Sealing to a machine's own TPM (`-backend age`)
+
+GPG sealing assumes the host that opens a credential already holds a
+secret key. A host that is **about to be installed** holds nothing, and
+the Debian installer can neither talk to a TPM nor decrypt GPG. For
+that case `hee cred` has a second backend: `age`, encrypting to an
+age-plugin-tpm recipient that exists only inside that machine's TPM.
+
+Built for the flippy Debian install on 2026-09-12. The Wi-Fi password and
+the first account's password are sealed from a live USB before the disk
+is touched, and opened by the installed system at first boot.
+
+    # on the target machine, booted from live media
+    age-plugin-tpm --generate -o identity.txt
+    hee cred -seal wifi -backend age \
+      -recipients "$(age-plugin-tpm -y identity.txt)" -dir .hee/secrets
+
+    # later, on the same machine
+    hee cred -run wifi -identity identity.txt -dir .hee/secrets -exec <consumer>
+
+What differs from GPG:
+
+- **The file is `<account>.age`.** `-pass` and `-run` pick the backend
+  from whichever file exists. An account with both a `.gpg` and an
+  `.age` file is refused, and `-seal` refuses to create the second one
+  before it asks for the secret.
+- **Opening needs an identity**, via `-identity FILE` or
+  `HEE_CRED_AGE_IDENTITY`. A TPM identity file holds a key wrapped by
+  that TPM. Copied to any other machine it opens nothing, so committing
+  it beside the ciphertext is safe in a way a GPG secret key never is.
+- **Tools on PATH:** `age`, plus `age-plugin-tpm` for a TPM recipient,
+  both to seal and to open. Opening also needs access to /dev/tpmrm0,
+  usually root or the `tss` group.
+- **A TPM clear destroys the secret.** A firmware reset or a board swap
+  makes every credential sealed to that TPM unrecoverable. Keep the real
+  source of truth in the password manager, and treat the sealed copy as
+  delivery, not backup.
+
 ## See also
 
 - `hee cred --help` — the tool's own manual page, per

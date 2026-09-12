@@ -34,11 +34,26 @@ interactive-terminal prompt -- but the "never printed" invariant still
 holds: the generated value flows straight into the same GPG encrypt
 call as a typed one, never echoed anywhere.
 
+Real extension (2026-09-12): "-backend age" -- sealing to a machine's
+own TPM, for the flippy Debian install. A host that is about to be
+installed has no GPG secret key, and the Debian installer has neither a
+TPM driver nor a GPG decrypt tool, so its Wi-Fi password and first
+account password are sealed with age to an age-plugin-tpm recipient
+(age1tpm1...) from a live USB, and opened at first boot by the one TPM
+that recipient belongs to. Folded in here rather than a new tool, same
+reason as -genfrom. The store is the same directory with a different
+extension, <account>.age, and -pass/-run choose the backend from the
+file that exists -- so every .gpg store and every wrapper keeps working
+unchanged. One account never has both: -seal refuses to create the
+second, and -pass refuses to guess between them.
+
 Usage:
   hee-cred -seal <account> -recipients "<gpg-id>[,<gpg-id>...]" [-dir PATH]
   hee-cred -seal <account> -recipients "..." -genfrom TERM [-blocks N] [-root PATH]
   hee-cred -seal <account> -recipients "..." -genkey es256      # prints the public JWKS
+  hee-cred -seal <account> -backend age -recipients "<age-recipient>[,...]" [-dir PATH]
   hee-cred -pass <account> -exec CMD [ARGS...] [-dir PATH]
+  hee-cred -pass <account> -identity FILE -exec CMD [ARGS...]   # an .age credential
 
 -seal (typed) reads the secret from an interactive prompt (hidden
 input) -- refuses to run at all if stdin isn't a real terminal,
@@ -58,9 +73,17 @@ The private key exists nowhere but the sealed file: it is generated in
 memory and never written in the clear. Added 2026-09-10 for the lab's
 own OIDC issuer (pve agents federating to the Claude Console).
 
+-seal -backend age encrypts with `age` to age recipients instead of GPG
+keys -- any age recipient works, and an age-plugin-tpm one binds the
+secret to that machine's TPM. Every way of producing the secret (typed,
+-genfrom, -genkey) works with either backend.
+
 -pass decrypts and injects the secret into the HEE_CRED_PASS environment
 variable of the -exec child process only -- never argv (visible to other
-users via `ps`), never printed to stdout/stderr by this tool.
+users via `ps`), never printed to stdout/stderr by this tool. An .age
+credential needs an identity: -identity FILE, or HEE_CRED_AGE_IDENTITY.
+A TPM identity file holds a key wrapped by that TPM -- useless on any
+other machine -- and age runs age-plugin-tpm from PATH to use it.
 """
 import argparse
 import getpass
@@ -86,6 +109,8 @@ from hee_cli import help_wanted, note_ignored  # noqa: E402
 # from anywhere. -dir still wins when given.
 DEFAULT_DIR = os.environ.get("HEE_CRED_DIR") or ".hee/secrets"
 ENV_VAR = "HEE_CRED_PASS"
+AGE_IDENTITY_ENV = "HEE_CRED_AGE_IDENTITY"
+BACKENDS = ("gpg", "age")
 DEFAULT_CORPUS_ROOT = "/var/local/hee-corpus"
 WORD_RE = re.compile(r"[A-Za-z']{3,}")
 
@@ -143,10 +168,78 @@ def genkey_es256():
     return key.decode(), json.dumps(jwks, indent=2)
 
 
-def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT, genkey: str = None):
+def encrypt_gpg(secret: str, recipient_list: list, out_path: Path):
+    recipient_args = []
+    for r in recipient_list:
+        recipient_args += ["-r", r]
+
+    # --trust-model always, --batch, --yes: gpg must NEVER prompt here.
+    #
+    # Measured 2026-09-02. Without --trust-model, an untrusted recipient makes
+    # gpg ask "Use this key anyway?" -- and because subprocess hands it a PIPE
+    # for stdin, it opens /dev/tty DIRECTLY to ask:
+    #
+    #   $ printf SECRET | gpg --encrypt --armor -r spencer@kiosk.lab.tcos.us
+    #   gpg: 01C9F82A7582A4DC: There is no assurance this key belongs to ...
+    #   gpg: cannot open '/dev/tty'
+    #
+    # /dev/tty is the OPERATOR'S TERMINAL. On a real terminal that prompt
+    # appears mid-ceremony and the next thing typed answers it instead of
+    # going where it was meant to. Two keys in this fleet's keyring carry
+    # trust `-` today, so this is the normal case, not an edge one.
+    #
+    # Trust checking adds nothing here anyway: -recipients is explicit, so the
+    # operator has already named the key. gpg re-asking is asking a question
+    # that was answered on the command line.
+    #
+    # --detach-sign and --verify elsewhere in this toolchain deliberately do
+    # NOT get --batch: those genuinely need the terminal for a passphrase.
+    # Swept 2026-09-02; this is the only --encrypt site in the org.
+    cmd = ["gpg", "--encrypt", "--armor", "--trust-model", "always",
+           "--batch", "--yes", *recipient_args, "-o", str(out_path)]
+    proc = subprocess.run(cmd, input=secret.encode(), capture_output=True)
+    if proc.returncode != 0:
+        sys.exit(f"hee-cred: gpg encrypt failed: {proc.stderr.decode(errors='replace')}")
+
+
+def encrypt_age(secret: str, recipient_list: list, out_path: Path):
+    # The ciphertext comes back on stdout and is swapped into place, rather
+    # than age writing out_path itself: a re-seal that fails halfway must
+    # leave the old credential intact, not a truncated one. Only ciphertext
+    # ever touches the disk.
+    cmd = ["age", "--encrypt", "--armor"]
+    for r in recipient_list:
+        cmd += ["-r", r]
+    try:
+        proc = subprocess.run(cmd, input=secret.encode(), capture_output=True)
+    except FileNotFoundError:
+        sys.exit("hee-cred: -backend age needs `age` on PATH")
+    if proc.returncode != 0:
+        # An age1tpm1... recipient makes age run age-plugin-tpm even to
+        # encrypt, so a missing plugin surfaces here, as age's own message.
+        sys.exit(f"hee-cred: age encrypt failed: {proc.stderr.decode(errors='replace')}")
+    tmp = out_path.with_name(out_path.name + ".tmp")
+    tmp.write_bytes(proc.stdout)
+    os.replace(tmp, out_path)
+
+
+def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT, genkey: str = None, backend: str = "gpg"):
     recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
     if not recipient_list:
-        sys.exit("hee-cred: -recipients required, at least one real GPG key id/email")
+        what = "age recipient" if backend == "age" else "GPG key id/email"
+        sys.exit(f"hee-cred: -recipients required, at least one real {what}")
+
+    # One account, one backend -- checked BEFORE a secret is typed or
+    # generated, so nobody enters a secret only to be refused afterwards.
+    other = secrets_dir / f"{account}.{'gpg' if backend == 'age' else 'age'}"
+    try:
+        other_exists = other.exists()
+    except OSError:
+        other_exists = False
+    if other_exists:
+        sys.exit(f"hee-cred: {other} already exists -- one account, one backend. "
+                 f"Remove it (or seal under another account name) first, so "
+                 f"-pass never has to guess which one you meant.")
 
     jwks = None
     if genkey:
@@ -180,39 +273,11 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
         print(f"hee-cred: captured {len(secret)} characters")
 
     secrets_dir.mkdir(parents=True, exist_ok=True)
-    out_path = secrets_dir / f"{account}.gpg"
-
-    recipient_args = []
-    for r in recipient_list:
-        recipient_args += ["-r", r]
-
-    # --trust-model always, --batch, --yes: gpg must NEVER prompt here.
-    #
-    # Measured 2026-09-02. Without --trust-model, an untrusted recipient makes
-    # gpg ask "Use this key anyway?" -- and because subprocess hands it a PIPE
-    # for stdin, it opens /dev/tty DIRECTLY to ask:
-    #
-    #   $ printf SECRET | gpg --encrypt --armor -r spencer@kiosk.lab.tcos.us
-    #   gpg: 01C9F82A7582A4DC: There is no assurance this key belongs to ...
-    #   gpg: cannot open '/dev/tty'
-    #
-    # /dev/tty is the OPERATOR'S TERMINAL. On a real terminal that prompt
-    # appears mid-ceremony and the next thing typed answers it instead of
-    # going where it was meant to. Two keys in this fleet's keyring carry
-    # trust `-` today, so this is the normal case, not an edge one.
-    #
-    # Trust checking adds nothing here anyway: -recipients is explicit, so the
-    # operator has already named the key. gpg re-asking is asking a question
-    # that was answered on the command line.
-    #
-    # --detach-sign and --verify elsewhere in this toolchain deliberately do
-    # NOT get --batch: those genuinely need the terminal for a passphrase.
-    # Swept 2026-09-02; this is the only --encrypt site in the org.
-    cmd = ["gpg", "--encrypt", "--armor", "--trust-model", "always",
-           "--batch", "--yes", *recipient_args, "-o", str(out_path)]
-    proc = subprocess.run(cmd, input=secret.encode(), capture_output=True)
-    if proc.returncode != 0:
-        sys.exit(f"hee-cred: gpg encrypt failed: {proc.stderr.decode(errors='replace')}")
+    out_path = secrets_dir / f"{account}.{backend}"
+    if backend == "age":
+        encrypt_age(secret, recipient_list, out_path)
+    else:
+        encrypt_gpg(secret, recipient_list, out_path)
     print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
     if jwks:
         print(jwks)   # the PUBLIC half only -- what an issuer registration takes
@@ -246,9 +311,33 @@ def recipient_keyids(path: Path):
     return re.findall(r"keyid ([0-9A-Fa-f]{8,40})", text)
 
 
+def decrypt_age(in_path: Path, identity: str = None) -> str:
+    identity = identity or os.environ.get(AGE_IDENTITY_ENV)
+    if not identity:
+        sys.exit(f"hee-cred: {in_path.name} is an age credential and needs an identity -- "
+                 f"pass -identity FILE or set {AGE_IDENTITY_ENV}")
+    try:
+        proc = subprocess.run(["age", "--decrypt", "-i", identity, str(in_path)],
+                              capture_output=True)
+    except FileNotFoundError:
+        sys.exit("hee-cred: opening an .age credential needs `age` on PATH")
+    if proc.returncode != 0:
+        err = proc.stderr.decode(errors="replace").strip()
+        msg = [f"hee-cred: age decrypt failed: {err}",
+               f"  identity tried: {identity}"]
+        if "plugin" in err or "tpm" in err.lower():
+            msg.append("  A TPM identity runs age-plugin-tpm from PATH, on the machine")
+            msg.append("  whose TPM it belongs to, with access to /dev/tpmrm0 (usually")
+            msg.append("  root or the tss group). The same file on another machine")
+            msg.append("  cannot open anything -- that is the point of sealing to a TPM.")
+        sys.exit("\n".join(msg))
+    return proc.stdout.decode()
+
+
 def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
-                    var_name: str = None):
-    in_path = secrets_dir / f"{account}.gpg"
+                    var_name: str = None, identity: str = None):
+    gpg_path = secrets_dir / f"{account}.gpg"
+    age_path = secrets_dir / f"{account}.age"
     # exists() STATS the path, and stat raises rather than returning False when
     # the parent directory denies traversal -- which is the normal case now
     # that secret stores are 0700/0750. Unhandled, that surfaced as a Python
@@ -256,7 +345,8 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
     # look at is the same answer as one that is not there: it cannot be used
     # from here. Say which, and say whose it is.
     try:
-        present = in_path.exists()
+        have_gpg = gpg_path.exists()
+        have_age = age_path.exists()
     except OSError as e:
         owner = ""
         try:
@@ -265,25 +355,31 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
             owner = f" (owned by {pwd.getpwuid(st.st_uid).pw_name})"
         except (OSError, KeyError, ImportError):
             pass
-        sys.exit(f"hee-cred: cannot read {in_path}: {e.strerror}\n"
+        sys.exit(f"hee-cred: cannot read {gpg_path}: {e.strerror}\n"
                  f"  {secrets_dir}{owner} does not permit this account to look"
                  f" inside it. Run as the owning account, or re-seal the"
                  f" credential into a store this one can read.")
-    if not present:
+    if have_gpg and have_age:
+        sys.exit(f"hee-cred: both {gpg_path.name} and {age_path.name} exist in"
+                 f" {secrets_dir.resolve()} -- refusing to guess which one is"
+                 f" current. Remove the stale one.")
+    in_path = age_path if have_age else gpg_path
+    if not (have_gpg or have_age):
         # Name the resolved directory and list what is actually in it. A bare
         # "no sealed credential at .hee/secrets/x.gpg" hides the real cause,
         # which is almost always that the RELATIVE default resolved against
         # an unexpected cwd.
-        msg = [f"hee-cred: no sealed credential at {in_path.resolve()}"]
+        msg = [f"hee-cred: no sealed credential at {gpg_path.resolve()} (or .age)"]
         try:
             listable = secrets_dir.is_dir()
         except OSError:
             listable = False
         if listable:
             try:
-                found = sorted(q.stem for q in secrets_dir.glob("*.gpg"))
+                found = sorted({q.name for pattern in ("*.gpg", "*.age")
+                                for q in secrets_dir.glob(pattern)})
                 msg.append(f"  {secrets_dir.resolve()} holds: "
-                           + (", ".join(found) if found else "(no .gpg files)"))
+                           + (", ".join(found) if found else "(no .gpg or .age files)"))
             except OSError as e:
                 msg.append(f"  {secrets_dir} is not listable by this account:"
                            f" {e.strerror}")
@@ -295,27 +391,30 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
     if not exec_cmd:
         sys.exit("hee-cred: -exec <command...> required -- hee-cred never prints a decrypted secret directly")
 
-    proc = subprocess.run(["gpg", "--decrypt", "--quiet", str(in_path)], capture_output=True)
-    if proc.returncode != 0:
-        # "No secret key" alone sends the reader to `gpg --list-keys`, which
-        # answers a DIFFERENT question -- the public keyring -- and reassures
-        # them wrongly. Measured 2026-09-09: that exact detour cost a real
-        # debugging session. So name the keys the file is actually addressed
-        # to, and say plainly that a public key is not enough.
-        err = proc.stderr.decode(errors="replace").strip()
-        msg = [f"hee-cred: gpg decrypt failed: {err}"]
-        ids = recipient_keyids(in_path)
-        if ids:
-            msg.append(f"  {in_path.name} is sealed to: {', '.join(ids)}")
-            msg.append("  This host holds no SECRET key for any of them. Note that")
-            msg.append("  `gpg --list-keys` lists PUBLIC keys and will happily show")
-            msg.append("  these -- use `gpg --list-secret-keys` to see what can")
-            msg.append("  actually decrypt. Re-seal to a key this host holds, on a")
-            msg.append("  host that can already open it, then copy the file here:")
-            msg.append("  the recipients live in the FILE, so re-sealing elsewhere")
-            msg.append("  changes nothing until the new file arrives.")
-        sys.exit("\n".join(msg))
-    secret = proc.stdout.decode()
+    if in_path.suffix == ".age":
+        secret = decrypt_age(in_path, identity)
+    else:
+        proc = subprocess.run(["gpg", "--decrypt", "--quiet", str(in_path)], capture_output=True)
+        if proc.returncode != 0:
+            # "No secret key" alone sends the reader to `gpg --list-keys`, which
+            # answers a DIFFERENT question -- the public keyring -- and reassures
+            # them wrongly. Measured 2026-09-09: that exact detour cost a real
+            # debugging session. So name the keys the file is actually addressed
+            # to, and say plainly that a public key is not enough.
+            err = proc.stderr.decode(errors="replace").strip()
+            msg = [f"hee-cred: gpg decrypt failed: {err}"]
+            ids = recipient_keyids(in_path)
+            if ids:
+                msg.append(f"  {in_path.name} is sealed to: {', '.join(ids)}")
+                msg.append("  This host holds no SECRET key for any of them. Note that")
+                msg.append("  `gpg --list-keys` lists PUBLIC keys and will happily show")
+                msg.append("  these -- use `gpg --list-secret-keys` to see what can")
+                msg.append("  actually decrypt. Re-seal to a key this host holds, on a")
+                msg.append("  host that can already open it, then copy the file here:")
+                msg.append("  the recipients live in the FILE, so re-sealing elsewhere")
+                msg.append("  changes nothing until the new file arrives.")
+            sys.exit("\n".join(msg))
+        secret = proc.stdout.decode()
 
     child_env = os.environ.copy()
     child_env[ENV_VAR] = secret
@@ -331,7 +430,11 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
 def main():
     ap = argparse.ArgumentParser(prog="hee-cred", add_help=True)
     ap.add_argument("-seal", dest="seal_account", metavar="ACCOUNT")
-    ap.add_argument("-recipients", default="", metavar="GPGID1,GPGID2,...")
+    ap.add_argument("-recipients", default="", metavar="RECIPIENT1,RECIPIENT2,...",
+                    help="GPG key ids/emails, or age recipients with -backend age")
+    ap.add_argument("-backend", choices=BACKENDS, default="gpg",
+                    help="with -seal: gpg (default) writes ACCOUNT.gpg; age writes ACCOUNT.age "
+                         "to age recipients, e.g. an age-plugin-tpm age1tpm1... recipient")
     ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")
     ap.add_argument("-run", dest="run_account", metavar="ACCOUNT",
                     help="like -pass, but also exports the secret under a variable name "
@@ -339,6 +442,9 @@ def main():
                          "no sh -c wrapper to rename it")
     ap.add_argument("-as", dest="var_name", metavar="VAR",
                     help="with -run/-pass: use this variable name instead of the derived one")
+    ap.add_argument("-identity", metavar="FILE",
+                    help=f"with -run/-pass on an .age credential: the age identity file "
+                         f"(default: ${AGE_IDENTITY_ENV})")
     ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD")
     ap.add_argument("-dir", default=DEFAULT_DIR, metavar="PATH")
     ap.add_argument("-genfrom", dest="genfrom_term", metavar="TERM")
@@ -360,16 +466,16 @@ def main():
     secrets_dir = Path(args.dir)
 
     if args.seal_account:
-        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey)
+        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey, args.backend)
     elif args.run_account:
         unseal_and_exec(args.run_account, args.exec_cmd or [], secrets_dir,
-                        args.var_name)
+                        args.var_name, args.identity)
     elif args.pass_account:
         # -pass keeps its original contract: HEE_CRED_PASS only, unless -as
         # is given. Adding a derived variable here would change what existing
         # callers see in their environment.
         unseal_and_exec(args.pass_account, args.exec_cmd or [], secrets_dir,
-                        args.var_name or ENV_VAR)
+                        args.var_name or ENV_VAR, args.identity)
     else:
         print(__doc__)
         sys.exit(1)
