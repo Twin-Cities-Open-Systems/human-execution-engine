@@ -47,11 +47,28 @@ file that exists -- so every .gpg store and every wrapper keeps working
 unchanged. One account never has both: -seal refuses to create the
 second, and -pass refuses to guess between them.
 
+Real extension (2026-09-12, later the same day): "-passphrase" and
+"-install-keys" -- a person's own identity keys (SSH private key, GPG
+secret key) delivered to a freshly bootstrapped host. Spencer: "we will
+need to make sure my gpg and ssh keys are on here if we want to have it
+work out of the box ... or can we seal them in git? ... maybe it is
+first login stuff ... fold this into hee cred". Neither existing backend
+fits: GPG needs the GPG key that is being delivered, and a TPM recipient
+binds a personal key to one machine (and zeus, the next host, has no
+TPM). So the third shape is age's own passphrase mode (scrypt): the
+ciphertext is safe in a private repo, opens on any host, and costs one
+human moment -- the first login, where -install-keys asks for the
+passphrase once, puts the keys where ssh and gpg look, and lays the SOA
+anchor (~/.hee/index/_.yaml) with hee-trust. The key files are sealed
+as they are, so a key's own passphrase stays as a second layer.
+
 Usage:
   hee-cred -seal <account> -recipients "<gpg-id>[,<gpg-id>...]" [-dir PATH]
   hee-cred -seal <account> -recipients "..." -genfrom TERM [-blocks N] [-root PATH]
   hee-cred -seal <account> -recipients "..." -genkey es256      # prints the public JWKS
   hee-cred -seal <account> -backend age -recipients "<age-recipient>[,...]" [-dir PATH]
+  hee-cred -seal <name> -backend age -passphrase [-dir PATH] < ~/.ssh/id_ed25519
+  hee-cred -install-keys -dir PATH [-account NAME] [-force]
   hee-cred -pass <account> -exec CMD [ARGS...] [-dir PATH]
   hee-cred -pass <account> -identity FILE -exec CMD [ARGS...]   # an .age credential
 
@@ -78,12 +95,28 @@ keys -- any age recipient works, and an age-plugin-tpm one binds the
 secret to that machine's TPM. Every way of producing the secret (typed,
 -genfrom, -genkey) works with either backend.
 
+-seal -backend age -passphrase seals with a passphrase instead of a
+recipient (`age -p`, scrypt). age asks for the passphrase itself, on the
+controlling terminal, so this needs a terminal even though the plaintext
+may arrive on stdin: the one case where -seal reads a redirect, because
+an identity key is a multi-line FILE, not a line anyone types. What
+arrives must look like a key (an OpenSSH private key or a PGP private
+key block) unless -any says otherwise, so a password pasted from a chat
+still cannot slip through this path.
+
+-install-keys opens every passphrase-sealed .age file in -dir (age asks
+once per file), installs an OpenSSH key under ~/.ssh with its .pub
+derived, imports a PGP key block into gpg, creates ~/.hee/secrets, and
+runs `hee-trust anchor` when ~/.hee/index/_.yaml is missing. It never
+prints key material and never overwrites a differing key without -force.
+
 -pass decrypts and injects the secret into the HEE_CRED_PASS environment
 variable of the -exec child process only -- never argv (visible to other
 users via `ps`), never printed to stdout/stderr by this tool. An .age
 credential needs an identity: -identity FILE, or HEE_CRED_AGE_IDENTITY.
 A TPM identity file holds a key wrapped by that TPM -- useless on any
-other machine -- and age runs age-plugin-tpm from PATH to use it.
+other machine -- and age runs age-plugin-tpm from PATH to use it. A
+passphrase-sealed .age file needs no identity: age asks on the terminal.
 """
 import argparse
 import getpass
@@ -113,6 +146,53 @@ AGE_IDENTITY_ENV = "HEE_CRED_AGE_IDENTITY"
 BACKENDS = ("gpg", "age")
 DEFAULT_CORPUS_ROOT = "/var/local/hee-corpus"
 WORD_RE = re.compile(r"[A-Za-z']{3,}")
+# age -p and its decrypt prompt read the passphrase from the controlling
+# terminal, never from stdin. HEE_CRED_TTY exists for the test suite, whose
+# fake age never prompts; nothing else should set it.
+TTY_PATH = os.environ.get("HEE_CRED_TTY") or "/dev/tty"
+KEY_HEADERS = ("-----BEGIN OPENSSH PRIVATE KEY-----", "-----BEGIN PGP PRIVATE KEY BLOCK-----")
+ARMOR_BEGIN = b"-----BEGIN AGE ENCRYPTED FILE-----"
+AGE_MAGIC = b"age-encryption.org/v1\n"
+
+
+def die(msg: str, code: int = 2):
+    """CRITICAL, exit 2 (Nagios plugin API), the same shape the fleet's
+    first-boot and first-login scripts print."""
+    print(f"❌ CRITICAL {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def need_tty(what: str):
+    """age prompts for a passphrase on the controlling terminal. Without
+    one it fails after the plaintext has already been read, so check first
+    and say plainly what is missing."""
+    try:
+        fd = os.open(TTY_PATH, os.O_RDWR | os.O_NOCTTY)
+    except OSError as e:
+        die(f"{what} needs a terminal for age's passphrase prompt ({TTY_PATH}: {e.strerror}) -- "
+            "run it from an interactive shell, not from a service, a pipe or an agent")
+    os.close(fd)
+
+
+def is_passphrase_sealed(path: Path) -> bool:
+    """True when an .age file was sealed with a passphrase (`age -p`): its
+    header carries an scrypt stanza. Reads the header only; nothing is
+    decrypted, so this is safe on a file this host cannot open."""
+    import base64
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return False
+    if data.startswith(ARMOR_BEGIN):
+        lines = [ln.strip() for ln in data.splitlines()[1:] if ln.strip() and not ln.startswith(b"-----")]
+        try:
+            data = base64.b64decode(b"".join(lines))
+        except (ValueError, TypeError):
+            return False
+    if not data.startswith(AGE_MAGIC):
+        return False
+    header = data.split(b"\n---", 1)[0]
+    return b"\n-> scrypt " in header
 
 
 def genfrom(term: str, blocks: int, root: str) -> str:
@@ -223,9 +303,42 @@ def encrypt_age(secret: str, recipient_list: list, out_path: Path):
     os.replace(tmp, out_path)
 
 
-def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT, genkey: str = None, backend: str = "gpg"):
+def write_private(out_path: Path, data: bytes):
+    """tmp + os.replace, 0600 from the first byte: a failed re-seal leaves
+    the old file intact, and nothing is ever readable by the group."""
+    tmp = out_path.with_name(out_path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    os.replace(tmp, out_path)
+
+
+def encrypt_age_passphrase(secret: str, out_path: Path):
+    """`age -p`: age asks for the passphrase (twice) on the terminal; the
+    plaintext goes in on stdin and the armored ciphertext comes back on
+    stdout, swapped into place like the recipient path."""
+    try:
+        proc = subprocess.run(["age", "--encrypt", "--armor", "-p"],
+                              input=secret.encode(), stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        die("-backend age needs `age` on PATH")
+    if proc.returncode != 0:
+        die(f"age -p failed (exit {proc.returncode}); nothing written")
+    write_private(out_path, proc.stdout)
+
+
+def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = None, blocks: int = 4, corpus_root: str = DEFAULT_CORPUS_ROOT, genkey: str = None, backend: str = "gpg", passphrase: bool = False, any_kind: bool = False):
     recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
-    if not recipient_list:
+    if passphrase:
+        # -passphrase is an age mode; saying so is the only sane reading of
+        # the flag, so it implies the backend rather than demanding it twice.
+        backend = "age"
+        if recipient_list:
+            die("-passphrase seals with a passphrase, not to recipients -- drop -recipients")
+        if genfrom_term or genkey:
+            die("-passphrase is for identity keys read from stdin (or typed); it does not combine with -genfrom or -genkey")
+        need_tty("-seal -passphrase")
+    elif not recipient_list:
         what = "age recipient" if backend == "age" else "GPG key id/email"
         sys.exit(f"hee-cred: -recipients required, at least one real {what}")
 
@@ -253,6 +366,18 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
         # unprinted the same as the typed path.
         secret = genfrom(genfrom_term, blocks, corpus_root)
         print(f"hee-cred: generated a {blocks}-word passphrase from real dialogue matching '{genfrom_term}' (not shown)")
+    elif passphrase and not sys.stdin.isatty():
+        # The one redirect -seal accepts: a key FILE (multi-line, never typed).
+        # It must look like a key unless -any says otherwise, so this path
+        # cannot become a back door for a password piped in from a chat.
+        secret = sys.stdin.read()
+        first = secret.lstrip().split("\n", 1)[0].strip() if secret.strip() else ""
+        if not secret.strip():
+            die("empty stdin, nothing to seal")
+        if first not in KEY_HEADERS and not any_kind:
+            die("stdin does not start with an OpenSSH private key or a PGP private key block -- "
+                "-passphrase seals identity keys; pass -any to seal something else on purpose")
+        print(f"hee-cred: read {len(secret.splitlines())} lines from stdin (not shown)")
     else:
         if not sys.stdin.isatty():
             sys.exit(
@@ -271,14 +396,21 @@ def seal(account: str, recipients: str, secrets_dir: Path, genfrom_term: str = N
         # itself both times. Length is the only signal the operator can check
         # against what they meant to enter, and it leaks nothing.
         print(f"hee-cred: captured {len(secret)} characters")
+        if passphrase and not any_kind and secret.strip() not in KEY_HEADERS:
+            die("a typed line is not an identity key -- -passphrase seals key files (redirect one on stdin); "
+                "pass -any to seal a typed secret with a passphrase on purpose")
 
     secrets_dir.mkdir(parents=True, exist_ok=True)
     out_path = secrets_dir / f"{account}.{backend}"
-    if backend == "age":
+    if passphrase:
+        encrypt_age_passphrase(secret, out_path)
+        print(f"hee-cred: sealed -> {out_path} (passphrase, scrypt; opens anywhere the passphrase is known)")
+    elif backend == "age":
         encrypt_age(secret, recipient_list, out_path)
+        print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
     else:
         encrypt_gpg(secret, recipient_list, out_path)
-    print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
+        print(f"hee-cred: sealed -> {out_path} (recipients: {', '.join(recipient_list)})")
     if jwks:
         print(jwks)   # the PUBLIC half only -- what an issuer registration takes
 
@@ -312,6 +444,16 @@ def recipient_keyids(path: Path):
 
 
 def decrypt_age(in_path: Path, identity: str = None) -> str:
+    if is_passphrase_sealed(in_path):
+        # No identity: age asks for the passphrase on the terminal.
+        need_tty(f"opening {in_path.name} (passphrase-sealed)")
+        try:
+            proc = subprocess.run(["age", "--decrypt", str(in_path)], stdout=subprocess.PIPE)
+        except FileNotFoundError:
+            sys.exit("hee-cred: opening an .age credential needs `age` on PATH")
+        if proc.returncode != 0:
+            die(f"age could not open {in_path.name} (exit {proc.returncode}): wrong passphrase, or no terminal")
+        return proc.stdout.decode()
     identity = identity or os.environ.get(AGE_IDENTITY_ENV)
     if not identity:
         sys.exit(f"hee-cred: {in_path.name} is an age credential and needs an identity -- "
@@ -427,6 +569,110 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
     sys.exit(result.returncode)
 
 
+def install_keys(secrets_dir: Path, account: str = None, force: bool = False) -> int:
+    """First login on a bootstrapped host: open every passphrase-sealed
+    .age file in secrets_dir and put its key where ssh or gpg looks.
+
+    Returns the Nagios exit code: 0 all OK, 1 a WARNING somewhere, 2 a
+    CRITICAL somewhere. Every item prints exactly one status line and no
+    key material, ever. age asks for the passphrase once per file (v1;
+    one prompt for the whole set is a later refinement)."""
+    worst = 0
+    def ok(m):       print(f"✅ OK {m}")
+    def warning(m):
+        nonlocal worst; worst = max(worst, 1); print(f"⚠️ WARNING {m}")
+    def critical(m):
+        nonlocal worst; worst = 2; print(f"❌ CRITICAL {m}", file=sys.stderr)
+
+    try:
+        files = sorted(p for p in secrets_dir.glob("*.age") if is_passphrase_sealed(p))
+    except OSError as e:
+        die(f"cannot list {secrets_dir}: {e.strerror}")
+    if account:
+        prefix = f"{account}-"
+        files = [p for p in files if p.name.startswith(prefix)]
+    if not files:
+        warning(f"no passphrase-sealed .age file in {secrets_dir.resolve()}"
+                + (f" for account {account}" if account else "") + " -- nothing to install")
+    else:
+        need_tty("-install-keys")
+
+    home = Path.home()
+    ssh_dir = home / ".ssh"
+    for path in files:
+        name = path.name[:-len(".age")]
+        if account and name.startswith(f"{account}-"):
+            name = name[len(account) + 1:]
+        plain = decrypt_age(path)
+        first = plain.lstrip().split("\n", 1)[0].strip() if plain.strip() else ""
+        if first == KEY_HEADERS[0]:
+            dest = ssh_dir / name
+            if not plain.endswith("\n"):
+                plain += "\n"
+            data = plain.encode()
+            ssh_dir.mkdir(mode=0o700, exist_ok=True)
+            os.chmod(ssh_dir, 0o700)
+            if dest.exists():
+                try:
+                    same = dest.read_bytes() == data
+                except OSError:
+                    same = False
+                if same:
+                    ok(f"{dest} already installed (identical)")
+                    del data, plain
+                    continue
+                if not force:
+                    critical(f"{dest} exists and differs from {path.name} -- not overwritten (pass -force to replace it)")
+                    del data, plain
+                    continue
+            write_private(dest, data)
+            del data, plain
+            # The public half, derived rather than shipped: ssh-keygen may ask
+            # for the key's own passphrase on the terminal, which is the
+            # second layer working as intended.
+            proc = subprocess.run(["ssh-keygen", "-y", "-f", str(dest)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if proc.returncode == 0 and proc.stdout.strip():
+                pub = dest.with_name(dest.name + ".pub")
+                pub.write_bytes(proc.stdout)
+                os.chmod(pub, 0o644)
+                ok(f"{dest} installed (0600), {pub.name} derived")
+            else:
+                warning(f"{dest} installed (0600); ssh-keygen -y could not derive {dest.name}.pub (wrong key passphrase?) -- run: ssh-keygen -y -f {dest} > {dest}.pub")
+        elif first == KEY_HEADERS[1]:
+            proc = subprocess.run(["gpg", "--batch", "--quiet", "--import"], input=plain.encode(),
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            del plain
+            if proc.returncode != 0:
+                critical(f"gpg --import of {path.name} failed: {proc.stderr.decode(errors='replace').strip()}")
+            else:
+                ok(f"{path.name}: PGP secret key imported into gpg (the key's own passphrase still guards it)")
+        else:
+            del plain
+            critical(f"{path.name} does not hold an OpenSSH private key or a PGP private key block -- nothing written")
+
+    hee = home / ".hee"
+    secrets_home = hee / "secrets"
+    if not secrets_home.is_dir():
+        secrets_home.mkdir(mode=0o700, parents=True)
+        ok(f"{secrets_home} created (0700)")
+    else:
+        ok(f"{secrets_home} present")
+    anchor = hee / "index" / "_.yaml"
+    if anchor.exists():
+        ok(f"{anchor} present")
+    else:
+        import shutil
+        if shutil.which("hee-trust"):
+            proc = subprocess.run(["hee-trust", "anchor"])
+            if proc.returncode == 0 and anchor.exists():
+                ok(f"{anchor} written by hee-trust anchor")
+            else:
+                critical(f"hee-trust anchor exited {proc.returncode} and {anchor} is still missing")
+        else:
+            warning(f"{anchor} missing and hee-trust is not on PATH -- run `hee trust anchor` after the bootstrap")
+    return worst
+
+
 def main():
     ap = argparse.ArgumentParser(prog="hee-cred", add_help=True)
     ap.add_argument("-seal", dest="seal_account", metavar="ACCOUNT")
@@ -435,6 +681,20 @@ def main():
     ap.add_argument("-backend", choices=BACKENDS, default="gpg",
                     help="with -seal: gpg (default) writes ACCOUNT.gpg; age writes ACCOUNT.age "
                          "to age recipients, e.g. an age-plugin-tpm age1tag1... recipient")
+    ap.add_argument("-passphrase", action="store_true",
+                    help="with -seal: seal with a passphrase (age -p, scrypt) instead of recipients; "
+                         "the plaintext may be redirected from a key file, and age asks for the "
+                         "passphrase on the terminal")
+    ap.add_argument("-any", dest="any_kind", action="store_true",
+                    help="with -seal -passphrase: accept stdin that is not an OpenSSH or PGP private key")
+    ap.add_argument("-install-keys", dest="install_keys", action="store_true",
+                    help="open every passphrase-sealed .age file in -dir and install it: OpenSSH keys "
+                         "to ~/.ssh (with .pub derived), PGP key blocks into gpg; then ~/.hee/secrets "
+                         "and, if missing, ~/.hee/index/_.yaml via hee-trust anchor")
+    ap.add_argument("-account", metavar="NAME",
+                    help="with -install-keys: only files named NAME-*.age, installed without the prefix")
+    ap.add_argument("-force", action="store_true",
+                    help="with -install-keys: replace an existing key that differs")
     ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")
     ap.add_argument("-run", dest="run_account", metavar="ACCOUNT",
                     help="like -pass, but also exports the secret under a variable name "
@@ -466,7 +726,9 @@ def main():
     secrets_dir = Path(args.dir)
 
     if args.seal_account:
-        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey, args.backend)
+        seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey, args.backend, args.passphrase, args.any_kind)
+    elif args.install_keys:
+        sys.exit(install_keys(secrets_dir, args.account, args.force))
     elif args.run_account:
         unseal_and_exec(args.run_account, args.exec_cmd or [], secrets_dir,
                         args.var_name, args.identity)

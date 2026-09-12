@@ -27,6 +27,20 @@ hee-cred \- real, minimal sealed credential store (GPG, or age for TPM-bound sec
 [\fB\-dir\fR \fIPATH\fR]
 .br
 .B hee cred
+.B \-seal
+.I NAME
+.B \-backend age \-passphrase
+[\fB\-any\fR] [\fB\-dir\fR \fIPATH\fR]
+.B <
+.I KEYFILE
+.br
+.B hee cred
+.B \-install\-keys
+.B \-dir
+.I PATH
+[\fB\-account\fR \fINAME\fR] [\fB\-force\fR]
+.br
+.B hee cred
 .B \-pass
 .I ACCOUNT
 .B \-exec
@@ -62,6 +76,47 @@ to age recipients instead of GPG keys. An age-plugin-tpm recipient
 binds the secret to one machine's TPM: nothing but that TPM can open it.
 That is how a host being installed gets secrets it can use at first boot,
 before it has any GPG key.
+.PP
+.B \-seal \-backend age \-passphrase
+seals with a passphrase instead of recipients
+.RB ( "age \-p" ,
+scrypt). This is the shape for a person's own identity keys: the
+ciphertext is safe in a private repository, opens on any host, and is
+bound to no hardware. It is the one
+.B \-seal
+form that reads a redirect on stdin, because a private key is a
+multi\-line file, not a line anyone types; what arrives must be an
+OpenSSH private key or a PGP private key block unless
+.B \-any
+says otherwise. age asks for the passphrase itself on the controlling
+terminal, so a terminal is required even with stdin redirected. Seal key
+files as they are: a key's own passphrase stays as a second layer.
+.PP
+.B \-install\-keys
+is the first\-login half. It opens every passphrase\-sealed
+.B .age
+file in
+.B \-dir
+(age asks for the passphrase once per file), installs an OpenSSH key
+under
+.B ~/.ssh
+(0600, directory 0700) with its
+.B .pub
+derived by
+.BR "ssh\-keygen \-y" ,
+imports a PGP key block with
+.BR "gpg \-\-import" ,
+creates
+.B ~/.hee/secrets
+(0700), and runs
+.B hee\-trust anchor
+when
+.B ~/.hee/index/_.yaml
+is missing. One status line per item, never any key material. An
+existing identical key is a no\-op; a differing one is refused unless
+.B \-force
+is given. Exit 0 when everything is OK, 1 with a WARNING, 2 with a
+CRITICAL.
 .PP
 .B \-pass
 decrypts and sets the secret in the
@@ -101,6 +156,43 @@ on PATH, plus
 .B age\-plugin\-tpm
 for a TPM recipient. Refused if the account already has a file from the
 other backend.
+.TP
+.B \-passphrase
+With
+.BR "\-seal \-backend age" :
+seal with a passphrase (scrypt) instead of
+.BR \-recipients ,
+which is then refused. Reads a key file from a stdin redirect, or a
+typed line with
+.BR \-any .
+Needs a terminal for age's own passphrase prompt.
+.TP
+.B \-any
+With
+.BR \-passphrase :
+accept plaintext that is not an OpenSSH or PGP private key.
+.TP
+.B \-install\-keys
+Open every passphrase\-sealed
+.B .age
+file in
+.B \-dir
+and install it (see DESCRIPTION).
+.TP
+.BI \-account " NAME"
+With
+.BR \-install\-keys :
+only files named
+.IR NAME\-*.age ,
+installed without the prefix, so
+.I spencer\-id_ed25519.age
+lands as
+.BR ~/.ssh/id_ed25519 .
+.TP
+.B \-force
+With
+.BR \-install\-keys :
+replace an existing key that differs from the sealed one.
 .TP
 .BI \-run " ACCOUNT"
 Like
@@ -193,6 +285,23 @@ hee cred \-run wifi \-identity identity.txt \-dir .hee/secrets \e
 .br
     \-exec nmcli connection modify home wifi\-sec.psk\-flags 0 ...
 .RE
+.PP
+Seal your own SSH and GPG keys with a passphrase for a host that is
+about to be bootstrapped, then install them at its first login:
+.PP
+.RS
+hee cred \-seal spencer\-id_ed25519 \-backend age \-passphrase \e
+.br
+    \-dir hosts/flippy/keys < ~/.ssh/id_ed25519
+.br
+gpg \-\-armor \-\-export\-secret\-keys KEYID | \e
+.br
+    hee cred \-seal spencer\-gpg \-backend age \-passphrase \-dir hosts/flippy/keys
+.br
+# on the new host, as the account, at its first login
+.br
+hee cred \-install\-keys \-dir ~/keys \-account spencer
+.RE
 .SH SECURITY
 A secret sealed to multiple recipients can be decrypted independently
 by any one of them \-\- this is intentional, not a weakness. Add every
@@ -204,6 +313,13 @@ A TPM\-sealed secret dies with that TPM: a firmware TPM clear or a board
 replacement makes it unrecoverable. Keep the plaintext's real source of
 truth (a password manager) and treat the sealed copy as a delivery
 vehicle, not a backup.
+.PP
+A passphrase\-sealed file is exactly as strong as its passphrase: keep
+that in the password manager, never in a repository or a chat, and seal
+key files with their own passphrases intact so a leaked sealing
+passphrase still yields locked keys. Once installed, the keys rest on
+the host's disk; an unencrypted root filesystem is then the weakest
+link, not this tool.
 .SH ORGANIZATION
 Twin Cities Open Systems \- Operations LLC
 .br
@@ -235,3 +351,9 @@ Set in the child's environment by
 .B \-pass
 and
 .BR \-run .
+.TP
+.B HEE_CRED_TTY
+The device checked for age's passphrase prompt (default
+.IR /dev/tty ).
+For the test suite, whose stand\-in age never prompts; nothing else
+should set it.

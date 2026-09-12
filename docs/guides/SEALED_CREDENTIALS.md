@@ -265,6 +265,67 @@ What differs from GPG:
   source of truth in the password manager, and treat the sealed copy as
   delivery, not backup.
 
+## Sealing identity keys with a passphrase (`-passphrase`, `-install-keys`)
+
+A person's own SSH and GPG keys are the third shape, and neither backend
+above fits them. GPG sealing needs the GPG key that is being delivered.
+A TPM recipient binds a personal key to one machine, and the next host
+to bootstrap (zeus, a Raspberry Pi) has no TPM at all. So identity keys
+use age's own passphrase mode (`age -p`, scrypt): the ciphertext is safe
+in a private repository, opens on any host, and costs exactly one human
+moment, the first login.
+
+Decided for the flippy install on 2026-09-12 (Spencer: "we will need to
+make sure my gpg and ssh keys are on here if we want to have it work out
+of the box ... maybe it is first login stuff ... fold this into hee
+cred"). Tracked as
+[human-execution-engine#734](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/734)
+and requirement 21 of
+[fleet-ops#556](https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/556).
+
+    # on the machine that holds the keys today, in an interactive shell
+    hee cred -seal spencer-id_ed25519 -backend age -passphrase \
+      -dir hosts/flippy/keys < ~/.ssh/id_ed25519
+    gpg --armor --export-secret-keys KEYID | \
+      hee cred -seal spencer-gpg -backend age -passphrase -dir hosts/flippy/keys
+
+    # on the new host, as the account, at its first login
+    hee cred -install-keys -dir ~/keys -account spencer
+
+What is different from the two recipient backends:
+
+- **stdin is a key file, and only a key file.** `-seal` otherwise refuses
+  anything that is not typed at a terminal, so a password can never be
+  piped in from a chat or a log. A private key is a multi-line file, so
+  `-passphrase` reads a redirect, and refuses it unless it starts with
+  an OpenSSH private key or a PGP private key block. `-any` overrides
+  that on purpose.
+- **age asks for the passphrase itself**, twice to seal and once to
+  open, on the controlling terminal. A service, a pipe or an agent has
+  no terminal and is refused before anything is read. The first-login
+  step on a desktop therefore runs inside a terminal window; on a
+  headless host it runs from the first interactive shell.
+- **`-install-keys` puts each key where its tool looks:** an OpenSSH key
+  to `~/.ssh/<name>` at 0600 (directory 0700) with the `.pub` derived by
+  `ssh-keygen -y`, a PGP block into `gpg --import`. `-account spencer`
+  takes only `spencer-*.age` and strips the prefix, so
+  `spencer-id_ed25519.age` becomes `~/.ssh/id_ed25519`. Then
+  `~/.hee/secrets` (0700) and, if `~/.hee/index/_.yaml` is missing,
+  `hee-trust anchor`, so the SOA anchor exists before anything else on
+  the host reads it.
+- **Never overwrites, never prints.** An identical key already in place
+  is an OK no-op; a differing one is CRITICAL unless `-force`. No key
+  material reaches stdout or stderr. Exit 0/1/2 for OK/WARNING/CRITICAL.
+- **Seal keys as they are.** The SSH key keeps its own passphrase and the
+  exported GPG key keeps its; a leaked sealing passphrase still yields
+  locked keys. The sealing passphrase lives in the password manager, and
+  nowhere in git.
+- **The disk is the remaining weak point.** Once installed the keys rest
+  on the host's filesystem; an unencrypted root is then the thing to fix
+  (fleet-ops#556 puts root on LUKS for that reason).
+- **v1 asks once per file.** Two keys, two prompts. One prompt for the
+  whole set is a later refinement.
+
 ## See also
 
 - `hee cred --help` — the tool's own manual page, per
