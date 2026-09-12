@@ -10,6 +10,7 @@ SYNOPSIS
   hee release -cut     [SELECT] [-version vX.Y.Z] [-yes]   build, changelog, release commit + PR
   hee release -promote [SELECT] [-yes]         every surface from the release commit, tagged, published
   hee release -publish [SELECT] [-version vX.Y.Z] [-yes]   the GitHub Release for an existing version tag
+  hee release -requires [SELECT]               what lab, cut and promote need on this machine; checks only
   hee release help
 
   SELECT picks repos. Nothing: the repo you are in. -all: every checkout
@@ -60,6 +61,38 @@ DESCRIPTION
   commit (hee git tag) and publishes the GitHub Release, notes being that
   version's CHANGELOG section.
 
+REQUIREMENTS
+  A card can declare what its steps need on the machine that runs them.
+  -lab, -cut and -promote check it FIRST, before any build or deploy, and
+  report every missing item at once as UNKNOWN (3), each naming the step
+  and surface that needs it. -requires runs the checks alone, for all
+  three steps, and builds nothing.
+
+    spec:
+      requires:                          # every step
+        commands: [git, python3, exiftool]
+        python: [PIL, yaml]              # python3 -c "import PIL"
+        files: [../fleet-ops/tools/meme-factory/tile/tile.py]   # repo-relative; ~ allowed
+        lab: { ssh: [pve] }              # ssh -o BatchMode=yes HOST true
+        cut: { commands: [gh] }
+        promote:                         # this step only
+          versions: { node: ">=20" }     # the first version in `node --version`
+          decrypt: [../tcos-www/.hee/secrets/cloudflare-tcos-www.gpg]
+      surfaces:
+        - { name: web, requires: { commands: [wrangler] }, lab: "./deploy.sh lab", promote: "./deploy.sh promote" }
+
+  A surface's requires has the same shape. decrypt reads the sealed file's
+  recipient key ids and looks for a matching secret key (gpg
+  --list-secret-keys); it never decrypts. A card's credential: adds its
+  sealed file to promote's files and decrypt checks. A card without
+  requires runs exactly as before. The one install hint is the Python
+  package behind a module whose name differs (PIL is Pillow); distro
+  package names differ per distro and are never guessed.
+
+  Operator, 2026-09-12, after a promote on a fresh machine failed one
+  missing dependency at a time: "why is it just crashing, should be taken
+  care of already" (human-execution-engine#729).
+
 THE -where LANGUAGE
   field op value, joined by and / or, parentheses allowed. Fields:
 
@@ -93,7 +126,7 @@ VERSIONS
 
 EXIT STATUS
   0 OK, 1 WARNING (nothing to release, nothing selected), 2 CRITICAL (gate, build or deploy failed, bad name or regex),
-  3 UNKNOWN (no card)
+  3 UNKNOWN (no card, or a requirement the card declares is missing)
 
 FILES
   release.card.v1.yaml         the repo's surfaces and credential (repo root)
@@ -105,9 +138,11 @@ SEE ALSO
 """
 from __future__ import annotations
 
+import base64
 import fnmatch
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -122,7 +157,7 @@ CARD = "release.card.v1.yaml"
 HEE = str(Path(__file__).resolve().parent / "hee")
 REGISTRY = Path(__file__).resolve().parent.parent.parent / "library" / "regex" / "patterns.yaml"
 ALIASES = {"hee": "human-execution-engine", "gh": ".github", ".gh": ".github", "www": "tcos-www"}
-VERBS = ("status", "next", "find", "lab", "cut", "promote", "publish")
+VERBS = ("status", "next", "find", "lab", "cut", "promote", "publish", "requires")
 VER_RE = re.compile(r"v\d+\.\d+\.\d+")
 REGEX_META = set(".^$*+?{}[]\\|()")
 
@@ -387,12 +422,202 @@ def run_surface(root, s, key, env):
         say("CRITICAL", f"{s['name']} {key} failed (exit {r.returncode}) -- stopping"); sys.exit(CRITICAL)
 
 
+# ---------------------------------------------------------- requirements
+STEPS = ("lab", "cut", "promote")
+REQ_ORDER = ("commands", "versions", "python", "files", "decrypt", "ssh")
+# A Python module -> the package that provides it, only where the names
+# differ and the mapping is certain. Never distro package names: they differ
+# per distro, and a wrong one sends the operator the wrong way.
+PY_PACKAGE = {"PIL": "Pillow", "yaml": "PyYAML"}
+VER_SPEC_RE = re.compile(r"^\s*(>=|<=|==|>|<)\s*(\d+(?:\.\d+){0,2})\s*$")
+
+
+def _fold(block, label, step, out):
+    """One requires mapping into out[(kind, item)] = {labels}. The block's own
+    lists apply to every step; its lab/cut/promote sub-block to that step only."""
+    if not isinstance(block, dict):
+        return
+    for kind in ("commands", "python", "files", "decrypt", "ssh"):
+        for item in block.get(kind) or []:
+            item = os.path.normpath(str(item)) if kind in ("files", "decrypt") else str(item)
+            out.setdefault((kind, item), set()).add(label)
+    for cmd, spec in (block.get("versions") or {}).items():
+        out.setdefault(("versions", f"{cmd} {spec}"), set()).add(label)
+    if step and isinstance(block.get(step), dict):
+        _fold({k: v for k, v in block[step].items() if k not in STEPS}, label, None, out)
+
+
+def collect_requires(card, steps) -> dict:
+    out = {}
+    spec = card["spec"]
+    for step in steps:
+        _fold(spec.get("requires"), step, step, out)
+        for s in spec["surfaces"]:
+            _fold(s.get("requires"), f"{step} ({s['name']})", step, out)
+        cred = spec.get("credential") or {}
+        if step == "promote" and cred.get("account") and cred.get("dir"):
+            sealed = os.path.normpath(f"{cred['dir']}/{cred['account']}.gpg")
+            for kind in ("files", "decrypt"):
+                out.setdefault((kind, sealed), set()).add("promote (credential)")
+    return out
+
+
+def pgp_recipients(data: bytes) -> list[str]:
+    """Recipient key ids from the public-key encrypted session key packets at
+    the head of an OpenPGP message (RFC 4880 5.1), binary or armored. Reads
+    headers only: nothing is decrypted and no pinentry can appear."""
+    if data.lstrip().startswith(b"-----BEGIN PGP"):
+        body, state = [], "header"
+        for line in data.decode("ascii", "replace").splitlines()[1:]:
+            if line.startswith("-----END"):
+                break
+            if state == "header":
+                state = "body" if not line.strip() else "header"
+                continue
+            if not line.startswith("="):
+                body.append(line.strip())
+        data = base64.b64decode("".join(body))
+    ids, i = [], 0
+    while i < len(data) and data[i] & 0x80:
+        b = data[i]
+        if b & 0x40:                                   # new-format header
+            tag, o = b & 0x3F, data[i + 1]
+            if o < 192:
+                n, i = o, i + 2
+            elif o < 224:
+                n, i = ((o - 192) << 8) + data[i + 2] + 192, i + 3
+            elif o == 255:
+                n, i = int.from_bytes(data[i + 2:i + 6], "big"), i + 6
+            else:
+                break                                  # partial length: a data packet, past the recipients
+        else:                                          # old-format header
+            tag, lt = (b >> 2) & 0x0F, b & 0x03
+            if lt == 3:
+                break
+            w = (1, 2, 4)[lt]
+            n, i = int.from_bytes(data[i + 1:i + 1 + w], "big"), i + 1 + w
+        if tag != 1:
+            break
+        pkt = data[i:i + n]
+        if len(pkt) >= 9 and pkt[0] == 3:
+            ids.append(pkt[1:9].hex().upper())
+        i += n
+    return ids
+
+
+def secret_keyids():
+    if not shutil.which("gpg"):
+        return None
+    r = subprocess.run(["gpg", "--batch", "--list-secret-keys", "--with-colons"], capture_output=True, text=True)
+    return {f[4].upper() for f in (line.split(":") for line in r.stdout.splitlines()) if f[0] in ("sec", "ssb") and len(f) > 4}
+
+
+def _vtuple(v: str):
+    parts = [int(x) for x in v.split(".")]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def check_one(root: Path, kind: str, item: str, cache: dict):
+    """None when the requirement is met, else what is wrong, in words."""
+    if kind == "commands":
+        return None if shutil.which(item) else f"command {item} is not on PATH"
+    if kind == "python":
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", item):
+            return f"python module {item!r} is not a module name"
+        py = shutil.which("python3")
+        if not py:
+            return f"python module {item}: python3 is not on PATH"
+        if subprocess.run([py, "-c", f"import {item}"], capture_output=True).returncode == 0:
+            return None
+        hint = f" (its package is {PY_PACKAGE[item]})" if item in PY_PACKAGE else ""
+        return f"python module {item} does not import in python3{hint}"
+    if kind == "files":
+        return None if (root / os.path.expanduser(item)).exists() else f"file {item} does not exist"
+    if kind == "versions":
+        cmd, _, want = item.partition(" ")
+        m = VER_SPEC_RE.match(want)
+        if not m:
+            return f"version {item!r} is not CMD: \">=N[.N[.N]]\""
+        if not shutil.which(cmd):
+            return f"command {cmd} is not on PATH (needs {want.strip()})"
+        r = subprocess.run([cmd, "--version"], capture_output=True, text=True)
+        found = re.search(r"\d+(?:\.\d+){0,2}", r.stdout + r.stderr)
+        if not found:
+            return f"{cmd} --version printed no version (needs {want.strip()})"
+        have, need = _vtuple(found.group(0)), _vtuple(m.group(2))
+        ok = {">=": have >= need, ">": have > need, "==": have == need, "<=": have <= need, "<": have < need}[m.group(1)]
+        return None if ok else f"{cmd} is {found.group(0)}, needs {want.strip()}"
+    if kind == "decrypt":
+        p = root / os.path.expanduser(item)
+        if not p.is_file():
+            return f"sealed file {item} does not exist, so nothing here can decrypt it"
+        try:
+            recips = pgp_recipients(p.read_bytes())
+        except (ValueError, IndexError, OSError) as e:
+            return f"sealed file {item} is not readable as OpenPGP ({e})"
+        if not recips:
+            return f"sealed file {item} names no public-key recipient"
+        if all(r_ == "0" * 16 for r_ in recips):
+            return f"sealed file {item} hides its recipients, so a matching key cannot be checked"
+        if "secret" not in cache:
+            cache["secret"] = secret_keyids()
+        if cache["secret"] is None:
+            return f"sealed file {item}: gpg is not on PATH"
+        if cache["secret"] & set(recips):
+            return None
+        return f"sealed file {item}: no secret key on this machine is a recipient ({', '.join(recips)})"
+    if kind == "ssh":
+        if item.startswith("-"):
+            return f"ssh {item!r} is not a host"
+        if not shutil.which("ssh"):
+            return f"ssh {item}: ssh is not on PATH"
+        try:
+            r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", item, "true"],
+                               capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            return f"ssh {item}: no answer in 30 s"
+        last = (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
+        return None if r.returncode == 0 else f"ssh {item} failed: {last}"
+    return f"{kind} is not a requirement kind ({', '.join(REQ_ORDER)})"
+
+
+def check_requires(root, card, steps) -> int:
+    """Every declared requirement for these steps, all checked before anything
+    runs. A card that declares none, for these steps, passes silently."""
+    items = collect_requires(card, steps)
+    if not items:
+        return OK
+    cache, missing = {}, []
+    rank = {k: n for n, k in enumerate(REQ_ORDER)}
+    for (kind, item), labels in sorted(items.items(), key=lambda kv: (rank.get(kv[0][0], 99), kv[0][1])):
+        why = check_one(root, kind, item, cache)
+        if why:
+            missing.append((why, labels))
+    what = ", ".join(steps)
+    for why, labels in missing:
+        say("UNKNOWN", f"requires: {why} -- needed by {', '.join(sorted(labels))}")
+    if missing:
+        say("UNKNOWN", f"{len(missing)} of {len(items)} requirement(s) missing for {what} -- nothing was built or deployed")
+        return UNKNOWN
+    say("OK", f"requires: all {len(items)} requirement(s) met for {what}")
+    return OK
+
+
+def cmd_requires(root, card):
+    if not collect_requires(card, STEPS):
+        say("WARNING", f"{CARD} declares no requires -- nothing to check"); return WARNING
+    return check_requires(root, card, STEPS)
+
+
 def cmd_lab(root, card):
     # Build first, exactly as cut does. Measured 2026-09-10 on resume: -lab
     # ran only the surfaces' lab commands, so media/bin/deploy.sh staged the
     # tracked (stale) outputs, said OK, and the two posts merged an hour
     # earlier were 404 on lab. The help always promised "build and push".
     # The outputs stay in the tree for review; cut is what commits them.
+    rc = check_requires(root, card, ("lab",))
+    if rc != OK:
+        return rc
     build_surfaces(root, card)
     env = dict(os.environ)
     for s in card["spec"]["surfaces"]:
@@ -425,6 +650,9 @@ def build_surfaces(root, card) -> list[str]:
 
 
 def cmd_cut(root, card, version=None, yes=False):
+    rc = check_requires(root, card, ("cut",))
+    if rc != OK:
+        return rc
     if git("status", "--porcelain", "--untracked-files=no"):
         say("CRITICAL", "uncommitted changes -- cut from a clean main"); return CRITICAL
     sh("git", "fetch", "-q", "origin", "main")
@@ -508,6 +736,12 @@ def cmd_publish(root, card, version=None, yes=False):
 
 
 def cmd_promote(root, card, yes=False):
+    # Before the git checks, so a fresh machine sees everything it lacks in
+    # one run -- the dry run included (2026-09-12: the dry run said OK, then
+    # -yes died at the credential, after the build had died on Pillow).
+    rc = check_requires(root, card, ("promote",))
+    if rc != OK:
+        return rc
     if git("status", "--porcelain", "--untracked-files=no"):
         say("CRITICAL", "uncommitted changes -- promote from origin/main"); return CRITICAL
     sh("git", "fetch", "-q", "origin", "main", "--tags")
@@ -596,7 +830,7 @@ def main(argv):
         print(__doc__.strip()); return OK
     verb, yes, version, repos, allrepos, where, unknown = parse_flags(argv)
     if unknown or not verb:
-        say("CRITICAL", "usage: hee release -status|-next|-find|-lab|-cut|-promote|-publish [-repos REGEX,.. | -all] "
+        say("CRITICAL", "usage: hee release -status|-next|-find|-lab|-cut|-promote|-publish|-requires [-repos REGEX,.. | -all] "
             "[-where EXPR] [-version vX.Y.Z] [-yes]" + (f" (unknown: {' '.join(unknown)})" if unknown else "")); return CRITICAL
     pred = where_fn(where) if where else None
     inside = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
@@ -631,6 +865,8 @@ def main(argv):
         return cmd_cut(root, card, version, yes=yes)
     if verb == "promote":
         return cmd_promote(root, card, yes=yes)
+    if verb == "requires":
+        return cmd_requires(root, card)
     return cmd_publish(root, card, version, yes=yes)
 
 
