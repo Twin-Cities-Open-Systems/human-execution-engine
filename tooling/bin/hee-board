@@ -51,7 +51,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
-from hee_status import Status, render  # noqa: E402
+from hee_status import ArgumentParser, Status, exit_with, render  # noqa: E402
 
 PROJECT_OWNER = "Twin-Cities-Open-Systems"
 PROJECT_NUMBER = 1
@@ -90,7 +90,7 @@ def cmd_off_project(items, args):
           "this Project's own item list (items missing from the board can't be "
           "found by listing the board) -- run the full backfill audit script instead.",
           file=sys.stderr)
-    sys.exit(2)
+    sys.exit(Status.UNKNOWN.value)   # cannot be answered from this list: UNKNOWN, not CRITICAL
 
 
 def cmd_open_prs(items, args):
@@ -259,7 +259,7 @@ def _local_dates(stamps):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = ArgumentParser(prog="hee-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("p0")
     sub.add_parser("off-project")
@@ -297,4 +297,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_with(main)   # sys.exit("gh ... failed") is UNKNOWN 3, not exit 1

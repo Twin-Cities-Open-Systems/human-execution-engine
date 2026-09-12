@@ -69,6 +69,27 @@ except ImportError:
             print(f"{lvl} {message}",
                   file=stream or (sys.stdout if lvl == "OK" else sys.stderr))
 
+        @staticmethod
+        def render(level, message=""):
+            return f"{str(level).upper()} {message}"
+
+        class ArgumentParser(argparse.ArgumentParser):
+            def error(self, message):
+                self.print_usage(sys.stderr)
+                print(f"UNKNOWN {self.prog}: {message}", file=sys.stderr)
+                sys.exit(3)
+
+        @staticmethod
+        def exit_with(main):
+            try:
+                rc = main()
+            except SystemExit as e:
+                if isinstance(e.code, str):
+                    print(f"UNKNOWN {e.code}", file=sys.stderr)
+                    sys.exit(3)
+                raise
+            sys.exit(getattr(rc, "value", rc) or 0)
+
 try:
     import yaml
 except ImportError:
@@ -1262,7 +1283,7 @@ def lab_section(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-view", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = hee_status.ArgumentParser(prog="hee-view", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pve-host", default="10.0.0.153")
     ap.add_argument("--haproxy-host", default="10.0.0.160")
     ap.add_argument("--dns-host", default="10.0.0.194")
@@ -1388,19 +1409,22 @@ def main():
         lab_section(args)
 
     sites_ok = True
+    sites_rc = 0   # Nagios, --sites only: 0 OK, 1 WARNING, 2 CRITICAL, 3 UNKNOWN
     if args.sites:
         sites, err = load_sitemap(args.sitemap)
         all_sites = list(sites) if not err else []
         if not err:
             for w in lint_sitemap(sites):
                 print(f"🟡 WARNING sitemap: {w}")
+                sites_rc = max(sites_rc, 1)
             total = len(sites)
             sites = filter_sites(sites, args.network)
             if args.network != "all":
                 print(f"# scope: {args.network} ({len(sites)} of {total} sites)")
         if err:
-            print(f"🔴 sites: sitemap unavailable ({err})")
+            print(hee_status.render("UNKNOWN", f"sites: sitemap unavailable ({err}) -- nothing was checked"))
             sites_ok = False
+            sites_rc = 3
         else:
             results = sites_check(sites)
             if args.nerd:
@@ -1408,12 +1432,18 @@ def main():
             else:
                 print_sites_condensed(results)
             sites_ok = all(r["code"] and 200 <= r["code"] < 400 for r in results)
+            if not sites_ok:
+                sites_rc = 2
             if args.crawl:
                 # crawl the scoped sites; judge coverage against the whole map,
                 # so a lab page is covered by its prod twin's entry
                 pages, broken, unlisted = crawl_sites(sites, listed=all_sites)
-                if print_crawl(pages, broken, unlisted, nerd=args.nerd) == 2:
+                crawl_rc = print_crawl(pages, broken, unlisted, nerd=args.nerd)
+                if crawl_rc == 2:
                     sites_ok = False
+                    sites_rc = 2
+                elif crawl_rc == 1:
+                    sites_rc = max(sites_rc, 1)
 
     print_inbound(inbound_status())
 
@@ -1422,10 +1452,13 @@ def main():
     # checks stay report-only (matches this tool's existing, deliberate
     # "informational, not a gate" behavior) -- only --sites changes this,
     # since it's the one being wired into real CI (fleet-ops#295).
-    if args.sites and not sites_ok:
-        return 1
+    # Nagios since 2026-09-11: 1 WARNING (sitemap lint, pages missing from the
+    # map), 2 CRITICAL (a site or crawled page broken), 3 UNKNOWN (no sitemap).
+    # It returned 1 for all of them.
+    if args.sites:
+        return sites_rc
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    hee_status.exit_with(main)

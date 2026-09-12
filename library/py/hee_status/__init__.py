@@ -33,15 +33,25 @@ Usage
 
     emit(Status.OK, "everything is fine")
     raise SystemExit(status("CRITICAL"))     # -> exit 2
+
+Tool entry points
+-----------------
+    from hee_status import ArgumentParser, exit_with
+
+    ap = ArgumentParser(prog="hee-thing")   # a usage error exits 3 UNKNOWN
+    ...
+    if __name__ == "__main__":
+        exit_with(main)                     # Status, int, None or sys.exit("msg")
 """
 
 from __future__ import annotations
 
+import argparse
 import enum
 import os
 import sys
 
-__all__ = ["Status", "status", "render", "emit", "demo"]
+__all__ = ["Status", "status", "render", "emit", "demo", "ArgumentParser", "exit_with"]
 
 
 class Status(enum.Enum):
@@ -101,6 +111,40 @@ def emit(level, message: str = "", stream=None) -> Status:
         stream = sys.stderr if lvl is not Status.OK else sys.stdout
     print(render(lvl, message), file=stream)
     return lvl
+
+
+class ArgumentParser(argparse.ArgumentParser):
+    """argparse with usage errors mapped to UNKNOWN (3).
+
+    The Nagios plugin API names invalid command-line arguments UNKNOWN. Plain
+    argparse exits 2, which reads as CRITICAL. Subparsers inherit this class.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        emit(Status.UNKNOWN, f"{self.prog}: {message}")
+        raise SystemExit(Status.UNKNOWN.value)
+
+
+def exit_with(main) -> None:
+    """Run a tool's main() and exit with its Nagios code.
+
+    A Status exits with its value: Status is a plain Enum, so sys.exit(member)
+    prints the repr and exits 1 (measured 2026-09-08 in hee-pve-health). None
+    exits 0 and an int exits as itself. A sys.exit("message") is UNKNOWN (3):
+    the tool stopped before it could determine anything, and Python's default
+    exit for a message is 1, which reads as WARNING.
+    """
+    try:
+        rc = main()
+    except SystemExit as e:
+        if isinstance(e.code, str):
+            emit(Status.UNKNOWN, e.code)
+            raise SystemExit(Status.UNKNOWN.value)
+        raise
+    if isinstance(rc, Status):
+        rc = rc.value
+    raise SystemExit(rc or 0)
 
 
 def demo() -> None:

@@ -27,7 +27,7 @@ hee-lint - fast lint gate for HEE-object YAML
 
 # OPTIONS
 
-    --mode warn    report findings, exit 1 if any (default)
+    --mode warn    report findings, exit 0 -- non-blocking (default)
     --mode error   report findings, exit 2 if any
 
 
@@ -42,7 +42,7 @@ hee-lint - fast lint gate for HEE-object YAML
 # EXIT STATUS
 
     0  OK        clean, OR any findings under --mode warn
-    1           findings under --mode error
+    2  CRITICAL  findings under --mode error
     3  UNKNOWN   cannot run -- not in a git repo, or an unrecognized option
 
     --mode warn ALWAYS exits 0. That is deliberate, not an oversight: warn

@@ -44,7 +44,7 @@ import urllib.request
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
-from hee_status import Status, emit  # noqa: E402
+from hee_status import ArgumentParser, Status, emit, exit_with  # noqa: E402
 
 # Real KISS fallback (Spencer, live): not every real account has SSH
 # root access to pve (by design -- see fleet-ops#285's real user/token
@@ -1450,7 +1450,7 @@ def cmd_warn(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(
+    ap = ArgumentParser(
         prog="hee-pve-health",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
@@ -1627,13 +1627,9 @@ an exfiltration.
 
 
 if __name__ == "__main__":
-    # sys.exit(main()), not a bare main(): the return value was discarded, so
-    # every subcommand exited 0 no matter what it found. `drift` would have
-    # reported CRITICAL and exited 0 -- a checker that cannot fail is the
-    # failure it exists to catch (issue:423@fleet-ops). Found 2026-09-08.
-    _rc = main()
-    # Status is a plain enum.Enum, not IntEnum -- its members are TRUTHY and
-    # sys.exit(member) prints the repr and exits 1. `.value` is the real code,
-    # as hee_status's own class docstring says. Measured 2026-09-08: `drift`
-    # reported OK and exited 1 before this.
-    sys.exit(_rc.value if isinstance(_rc, Status) else (_rc or 0))
+    # exit_with(main), not a bare main(): the return value was once discarded,
+    # so every subcommand exited 0 no matter what it found (issue:423@fleet-ops,
+    # found 2026-09-08). exit_with also maps a Status member to its value (a
+    # bare Enum member exits 1), and turns sys.exit("cannot read ...") -- pve
+    # unreachable -- into UNKNOWN 3 instead of exit 1.
+    exit_with(main)

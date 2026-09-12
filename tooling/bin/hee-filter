@@ -23,8 +23,9 @@ Usage:
 
   hee-filter scan [--i-reviewed-manually]
       Reads content on stdin, runs tcos-audit's real ruleset against
-      it. Clean: exit 0, no output. Findings: printed to stderr, exit 1.
-      Scanner unavailable (tcos-audit not checked out): exit 2, unless
+      it. Clean: exit 0, no output. Findings: printed to stderr, exit 2
+      (CRITICAL). Scanner unavailable (tcos-audit not checked out): exit 3
+      (UNKNOWN), unless
       --i-reviewed-manually is passed, which prints a loud warning to
       stderr and exits 0 -- never a silent skip.
 
@@ -89,7 +90,7 @@ DESCRIPTION
 EXIT STATUS
   0 OK        confirmed public
   1 WARNING   private, or the check itself could not confirm public
-  2 CRITICAL  wrong number of arguments
+  3 UNKNOWN   wrong number of arguments
 
 EXAMPLES
   hee-filter check-repo Twin-Cities-Open-Systems/human-execution-engine
@@ -136,7 +137,7 @@ DESCRIPTION
 
   The scanner is tcos-audit's own scan_common.py, imported from
   ~/git/tcos-audit/bin -- a fixed path, not a search. If tcos-audit is
-  not checked out there, this REFUSES with exit 2 rather than passing
+  not checked out there, this REFUSES with exit 3 (UNKNOWN) rather than passing
   content it did not scan.
 
 OPTIONS
@@ -148,8 +149,8 @@ OPTIONS
 
 EXIT STATUS
   0 OK        no findings (or scanner unavailable and the override passed)
-  1 WARNING   findings printed to stderr -- do not publish
-  2 CRITICAL  the scan could not run and no override was given
+  2 CRITICAL  findings printed to stderr -- do not publish
+  3 UNKNOWN   the scan could not run and no override was given
 
 EXAMPLES
   cat post.md | hee-filter scan
@@ -183,7 +184,7 @@ DESCRIPTION
 
 EXIT STATUS
   0 OK        a mode was printed -- this subcommand has no failure path
-  2 CRITICAL  REQUESTED was missing
+  3 UNKNOWN   REQUESTED was missing
 
 EXAMPLES
   hee-filter check-mode raw --venue resume --supported professional,raw
@@ -222,8 +223,9 @@ SUBCOMMANDS
 EXIT STATUS
   Nagios plugin convention.
   0 OK        the gate passed
-  1 WARNING   the gate did not pass -- private repo, or real findings
-  2 CRITICAL  the gate could not run -- missing/unknown subcommand, wrong
+  1 WARNING   check-repo: the repo is private, or could not be confirmed public
+  2 CRITICAL  scan: real findings -- do not publish
+  3 UNKNOWN   the gate could not run -- missing/unknown subcommand, wrong
               arguments, or the scanner is unavailable
 
 ENVIRONMENT
@@ -290,7 +292,7 @@ def scan(i_reviewed_manually):
             print("hee-filter: mandatory content scan could not run -- tcos-audit not found at "
                   "~/git/tcos-audit. Pass --i-reviewed-manually if you've reviewed this content "
                   "yourself and are certain it's safe.", file=sys.stderr)
-            return 2
+            return 3   # UNKNOWN: nothing was scanned
         print("!!! WARNING: publishing WITHOUT the mandatory content scan -- tcos-audit "
               "unavailable, --i-reviewed-manually was passed. This content has NOT been "
               "automatically checked. !!!", file=sys.stderr)
@@ -301,10 +303,10 @@ def scan(i_reviewed_manually):
     findings = scan_text(text)
     if not findings:
         return 0
-    print(f"hee-filter: {len(findings)} real finding(s) from the mandatory content scan:", file=sys.stderr)
+    print(f"❌ CRITICAL hee-filter: {len(findings)} real finding(s) from the mandatory content scan:", file=sys.stderr)
     for f in findings:
         print(f"  [{f.rule}] line {f.line_no}: {f.reason}\n      {f.snippet}", file=sys.stderr)
-    return 1
+    return 2
 
 
 # Real, existing policy from resume/convert.sh -- which venues default
@@ -362,12 +364,12 @@ def main():
         return 0
     if len(sys.argv) < 2:
         print(HELP, end="")
-        return 2
+        return 3
     cmd = sys.argv[1]
     if cmd == "check-repo":
         if len(sys.argv) != 3:
             print("usage: hee-filter check-repo <owner/repo>", file=sys.stderr)
-            return 2
+            return 3
         return check_repo(sys.argv[2])
     if cmd == "prime-repos":
         org = sys.argv[2] if len(sys.argv) > 2 else "Twin-Cities-Open-Systems"
@@ -377,14 +379,14 @@ def main():
     if cmd == "check-mode":
         if len(sys.argv) < 3:
             print("usage: hee-filter check-mode <requested> --venue <name> --supported a,b,c", file=sys.stderr)
-            return 2
+            return 3
         requested = sys.argv[2]
         rest = sys.argv[3:]
         venue = rest[rest.index("--venue") + 1] if "--venue" in rest else ""
         supported = rest[rest.index("--supported") + 1] if "--supported" in rest else ""
         return check_mode(requested, venue, supported)
     print(HELP, end="")
-    return 2
+    return 3
 
 
 if __name__ == "__main__":
