@@ -26,7 +26,14 @@ set -u
 
 say(){ printf "%s\n" "$*"; }
 die(){ say "ERROR: $*"; exit 2; }
-need(){ command -v "$1" >/dev/null 2>&1 || die "missing cmd: $1"; }
+# Every missing command at once, as UNKNOWN (3): the tool cannot determine
+# anything without them. One-at-a-time dies sent the operator back to the
+# package manager once per tool on a fresh machine (2026-09-12).
+needs(){
+  _missing=""
+  for _c in "$@"; do command -v "$_c" >/dev/null 2>&1 || _missing="$_missing $_c"; done
+  [ -z "$_missing" ] || { say "❓ UNKNOWN missing command(s):$_missing"; exit 3; }
+}
 
 # Help is answered BEFORE the dependency checks and the SOA anchor check
 # below. A tool must be able to explain itself on a machine where its
@@ -112,13 +119,9 @@ if [ "$_hee_inv_cmd" = "add" ]; then
   PYTHONPATH="$TOOL_ROOT/library/py${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m hee_inv "$@"
 fi
 
-need git
-need rg
-need yq
-need sha256sum
-need exiftool
-need unzip
-need date
+# Commands are checked per subcommand, below: yq is only the unknown report's,
+# exiftool and unzip only ingest's. A global list made each one a requirement
+# of everything (operator, 2026-09-12: yq was missing for hee inv).
 
 SOA_ANCHOR="$HOME/.hee/index/_.yaml"
 [ -f "$SOA_ANCHOR" ] || die "missing SOA anchor: $SOA_ANCHOR"
@@ -492,6 +495,7 @@ case "$cmd" in
       esac
       shift || true
     done
+    needs git rg sha256sum exiftool unzip date
     cmd_ingest "$incoming" "$tcos_repo"
     ;;
   unknown)
@@ -511,6 +515,7 @@ case "$cmd" in
       esac
       shift || true
     done
+    needs git rg yq date
     cmd_unknown_report "$tcos_repo" "$warn_days" "$crit_days"
     ;;
   *)
