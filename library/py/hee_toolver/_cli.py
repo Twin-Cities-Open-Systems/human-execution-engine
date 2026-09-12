@@ -162,7 +162,7 @@ def main() -> int:
 
     if cmd not in ("tool", "platform", "hardware", "session", "verity", "verify", "all"):
         line("UNKNOWN", f"unknown subcommand: {cmd}")
-        return 2
+        return 3   # invalid arguments are UNKNOWN under the Nagios API; the label already said so
 
     if want_json:
         print(json.dumps(out, indent=2, sort_keys=True, default=str))

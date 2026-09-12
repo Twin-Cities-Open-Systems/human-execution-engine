@@ -53,8 +53,9 @@ hee-filter - the shared publish-safety gate
 
     Nagios plugin convention.
     0 OK        the gate passed
-    1 WARNING   the gate did not pass -- private repo, or real findings
-    2 CRITICAL  the gate could not run -- missing/unknown subcommand, wrong
+    1 WARNING   check-repo: the repo is private, or could not be confirmed public
+    2 CRITICAL  scan: real findings -- do not publish
+    3 UNKNOWN   the gate could not run -- missing/unknown subcommand, wrong
                 arguments, or the scanner is unavailable
 
 

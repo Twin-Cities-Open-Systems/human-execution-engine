@@ -27,10 +27,8 @@ hee-tools-check - is every external tool this org expects actually here
     line reads (version-flag-unknown). Nothing is installed, downloaded,
     or modified -- this tool is strictly read-only.
 
-    Note, real and worth knowing before you script against it: a missing
-    tool is reported in the OUTPUT but does not change the exit code.
-    Parse the status LABEL (per vis.status.shfn.bash), never the exit
-    code, to decide whether the toolchain is complete.
+    The exit code is the worst status reported, so a script can gate on it;
+    each line's LABEL (per vis.status.shfn.bash) says which tool.
 
 
 # ENVIRONMENT
@@ -41,12 +39,14 @@ hee-tools-check - is every external tool this org expects actually here
 
 # EXIT STATUS
 
-    Nagios plugin convention.
-    0 OK   every manifest line was read and reported, whether or not the
-           tools themselves are present
-    Any other status comes from the shell's own `set -e` -- in practice an
-    unreadable MANIFEST. This tool does not currently map that to a
-    vocabulary code; documented as-is, not changed here.
+    Nagios plugin convention; the worst line wins.
+    0 OK        every manifest tool is present
+    1 WARNING   an optional tool is missing
+    2 CRITICAL  a required tool is missing
+    3 UNKNOWN   the MANIFEST cannot be read
+
+    Until 2026-09-11 this tool exited 0 even with a required tool missing, and
+    an unreadable MANIFEST exited 2 from the shell.
 
 
 # SEE ALSO

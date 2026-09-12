@@ -27,7 +27,7 @@ DESCRIPTION
   the seed it names is a determinism claim the object cannot support.
 
 OPTIONS
-  --mode warn    report findings, exit 1 if any (default)
+  --mode warn    report findings, exit 0 -- non-blocking (default)
   --mode error   report findings, exit 2 if any
 
 ENVIRONMENT
@@ -38,7 +38,7 @@ ENVIRONMENT
 
 EXIT STATUS
   0  OK        clean, OR any findings under --mode warn
-  1           findings under --mode error
+  2  CRITICAL  findings under --mode error
   3  UNKNOWN   cannot run -- not in a git repo, or an unrecognized option
 
   --mode warn ALWAYS exits 0. That is deliberate, not an oversight: warn
@@ -198,7 +198,7 @@ check_file() {
   fi
 }
 
-cd "${REPO_ROOT}" || exit 2
+cd "${REPO_ROOT}" || exit 3
 for f in $FILES; do
   check_file "$f"
 done
@@ -206,7 +206,7 @@ done
 if [ "${MODE}" = "error" ]; then
   if [ $FAIL -ne 0 ] || [ $WARN -ne 0 ]; then
     echo "🔴 CRITICAL: RESULT fail=${FAIL} warn=${WARN} (mode=error)"
-    exit 1
+    exit 2
   fi
 fi
 

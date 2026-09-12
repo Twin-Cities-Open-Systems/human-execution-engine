@@ -49,6 +49,7 @@ from datetime import datetime, timezone
 from pathlib import Path as _Path  # noqa: E402
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
 from hee_cli import help_wanted, note_ignored  # noqa: E402
+from hee_status import ArgumentParser, exit_with  # noqa: E402
 
 
 # One agent per task, flat -- agents do not spawn agents. On 2026-09-08 one
@@ -286,7 +287,7 @@ def cmd_watch(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-quota", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = ArgumentParser(prog="hee-quota", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     POOLS = ["github", "host", "all"]
@@ -332,4 +333,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    exit_with(main)   # gh failure and an unknown pool are UNKNOWN 3, not exit 1

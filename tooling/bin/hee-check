@@ -1460,7 +1460,8 @@ case "$cmd" in
     # pattern list missed a bare "." and broke the most common invocation.
     # A path-shaped argument is a TARGET: validate it, so a missing one is
     # UNKNOWN/3 ("could not determine") rather than being mistaken for a
-    # typo'd subcommand. A bare word is a subcommand: a typo is CRITICAL/2.
+    # typo'd subcommand. A bare word is a subcommand: a typo is UNKNOWN/3 too -- the Nagios
+    # code for invalid arguments (it exited 2 under a label that said UNKNOWN).
     # Issue 440 turned on exactly this distinction -- `hee-check og` was a
     # typo, `hee-check /nope` was a bad target, and both silently said OK.
     case "$cmd" in
@@ -1471,7 +1472,7 @@ case "$cmd" in
         else
           hee_status UNKNOWN "unknown subcommand: $cmd" >&2
           usage >&2
-          exit 2
+          exit 3
         fi
         ;;
     esac

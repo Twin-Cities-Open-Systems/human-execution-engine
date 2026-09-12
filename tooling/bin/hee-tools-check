@@ -67,18 +67,18 @@ DESCRIPTION
   line reads (version-flag-unknown). Nothing is installed, downloaded,
   or modified -- this tool is strictly read-only.
 
-  Note, real and worth knowing before you script against it: a missing
-  tool is reported in the OUTPUT but does not change the exit code.
-  Parse the status LABEL (per vis.status.shfn.bash), never the exit
-  code, to decide whether the toolchain is complete.
+  The exit code is the worst status reported, so a script can gate on it;
+  each line's LABEL (per vis.status.shfn.bash) says which tool.
 
 EXIT STATUS
-  Nagios plugin convention.
-  0 OK   every manifest line was read and reported, whether or not the
-         tools themselves are present
-  Any other status comes from the shell's own `set -e` -- in practice an
-  unreadable MANIFEST. This tool does not currently map that to a
-  vocabulary code; documented as-is, not changed here.
+  Nagios plugin convention; the worst line wins.
+  0 OK        every manifest tool is present
+  1 WARNING   an optional tool is missing
+  2 CRITICAL  a required tool is missing
+  3 UNKNOWN   the MANIFEST cannot be read
+
+  Until 2026-09-11 this tool exited 0 even with a required tool missing, and
+  an unreadable MANIFEST exited 2 from the shell.
 
 ENVIRONMENT
   HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
@@ -98,8 +98,6 @@ if hee_help_wanted "$@"; then
 fi
 
 MANIFEST="${1:-$DEFAULT_MANIFEST}"
-
-have() { command -v "$1" >/dev/null 2>&1; }
 
 # vline NAME [REQ]
 #
@@ -138,11 +136,19 @@ vline() {
   else
     if [ "$req" = "optional" ]; then
       hee_status WARNING "$(printf '%-8s %s' "$spec" "missing (optional)")"
+      [ "$WORST" -ge 1 ] || WORST=1
     else
       hee_status CRITICAL "$(printf '%-8s %s' "$spec" "missing")"
+      WORST=2
     fi
   fi
 }
+
+if [ ! -r "$MANIFEST" ]; then
+  hee_status UNKNOWN "hee-tools-check: cannot read manifest: $MANIFEST"
+  exit 3
+fi
+WORST=0
 
 echo "### hee-tools-check"
 echo "manifest: $MANIFEST"
@@ -159,3 +165,5 @@ while IFS= read -r line; do
   req="${5:-required}"
   vline "$name" "$req"
 done < "$MANIFEST"
+
+exit "$WORST"
