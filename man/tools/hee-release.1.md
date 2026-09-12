@@ -13,6 +13,7 @@ hee-release - lab, cut, promote: releases for one repo, a list, or the org
       hee release -cut     [SELECT] [-version vX.Y.Z] [-yes]   build, changelog, release commit + PR
       hee release -promote [SELECT] [-yes]         every surface from the release commit, tagged, published
       hee release -publish [SELECT] [-version vX.Y.Z] [-yes]   the GitHub Release for an existing version tag
+      hee release -requires [SELECT]               what lab, cut and promote need on this machine; checks only
       hee release help
 
       SELECT picks repos. Nothing: the repo you are in. -all: every checkout
@@ -36,35 +37,86 @@ hee-release - lab, cut, promote: releases for one repo, a list, or the org
 # DESCRIPTION
 
 
-      The release procedure was a dozen commands across three scripts, each
-      with its own timestamp tag. This is the whole procedure now, from any
-      directory:
+    The release procedure was a dozen commands across three scripts, each
+    with its own timestamp tag. This is the whole procedure now, from any
+    directory:
 
-        hee release -lab -repos hee              review on lab
-        hee release -cut -repos hee -yes         builds every surface into the release commit, opens the
-                                                 release PR; approving and merging it IS the sign-off (HEE_POLICY 17)
-        hee release -promote -repos hee -yes     every surface, one version, verified, published
+      hee release -lab -repos hee              review on lab
+      hee release -cut -repos hee -yes         builds every surface into the release commit, opens the
+                                               release PR; approving and merging it IS the sign-off (HEE_POLICY 17)
+      hee release -promote -repos hee -yes     every surface, one version, verified, published
 
-      A repo declares its surfaces in release.card.v1.yaml at its root:
+    A repo declares its surfaces in release.card.v1.yaml at its root:
 
-        apiVersion: hee/v1
-        kind: Card
-        metadata: { name: tcos-www-release, labels: { domain: release } }
+      apiVersion: hee/v1
+      kind: Card
+      metadata: { name: tcos-www-release, labels: { domain: release } }
+      spec:
+        credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
+        build: "./convert.sh"            # optional, repo-level: one build renders every surface (resume)
+        outputs: ["media", "dist"]       # its tracked outputs
+        surfaces:
+          - name: tcos-www
+            build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
+            outputs: ["*.html", "!*.template.html"]       # git pathspecs (glob); a leading ! excludes
+            lab: "./deploy.sh lab"
+            promote: "./deploy.sh promote"
+
+    Each surface's promote receives RELEASE_VERSION and tags
+    prod/<surface>/<version>; the tool then signs <version> on the release
+    commit (hee git tag) and publishes the GitHub Release, notes being that
+    version's CHANGELOG section.
+
+
+# FILES
+
+    release.card.v1.yaml         the repo's surfaces and credential (repo root)
+    CHANGELOG.md                 written by cut, read by promote
+    library/regex/patterns.yaml  org-repo-name, the validation pattern for -repos
+
+
+# EXIT STATUS
+
+    0 OK, 1 WARNING (nothing to release, nothing selected), 2 CRITICAL (gate, build or deploy failed, bad name or regex),
+    3 UNKNOWN (no card, or a requirement the card declares is missing)
+
+
+# SEE ALSO
+
+    hee-gen-changelog(1), hee-git-tag(1), hee-git-merge(1), hee-cred(1), hee-fields(1)
+
+# REQUIREMENTS
+
+      A card can declare what its steps need on the machine that runs them.
+      -lab, -cut and -promote check it FIRST, before any build or deploy, and
+      report every missing item at once as UNKNOWN (3), each naming the step
+      and surface that needs it. -requires runs the checks alone, for all
+      three steps, and builds nothing.
+
         spec:
-          credential: { account: cloudflare-tcos-www, dir: .hee/secrets }   # optional: promote runs under hee cred
-          build: "./convert.sh"            # optional, repo-level: one build renders every surface (resume)
-          outputs: ["media", "dist"]       # its tracked outputs
+          requires:                          # every step
+            commands: [git, python3, exiftool]
+            python: [PIL, yaml]              # python3 -c "import PIL"
+            files: [../fleet-ops/tools/meme-factory/tile/tile.py]   # repo-relative; ~ allowed
+            lab: { ssh: [pve] }              # ssh -o BatchMode=yes HOST true
+            cut: { commands: [gh] }
+            promote:                         # this step only
+              versions: { node: ">=20" }     # the first version in `node --version`
+              decrypt: [../tcos-www/.hee/secrets/cloudflare-tcos-www.gpg]
           surfaces:
-            - name: tcos-www
-              build: "python3 generate-public-site.py"     # optional: run by cut, outputs go into the release commit
-              outputs: ["*.html", "!*.template.html"]       # git pathspecs (glob); a leading ! excludes
-              lab: "./deploy.sh lab"
-              promote: "./deploy.sh promote"
+            - { name: web, requires: { commands: [wrangler] }, lab: "./deploy.sh lab", promote: "./deploy.sh promote" }
 
-      Each surface's promote receives RELEASE_VERSION and tags
-      prod/<surface>/<version>; the tool then signs <version> on the release
-      commit (hee git tag) and publishes the GitHub Release, notes being that
-      version's CHANGELOG section.
+      A surface's requires has the same shape. decrypt reads the sealed file's
+      recipient key ids and looks for a matching secret key (gpg
+      --list-secret-keys); it never decrypts. A card's credential: adds its
+      sealed file to promote's files and decrypt checks. A card without
+      requires runs exactly as before. The one install hint is the Python
+      package behind a module whose name differs (PIL is Pillow); distro
+      package names differ per distro and are never guessed.
+
+      Operator, 2026-09-12, after a promote on a fresh machine failed one
+      missing dependency at a time: "why is it just crashing, should be taken
+      care of already" (human-execution-engine#729).
 
     THE -where LANGUAGE
       field op value, joined by and / or, parentheses allowed. Fields:
@@ -83,23 +135,6 @@ hee-release - lab, cut, promote: releases for one repo, a list, or the org
       (hee fields) and an on-prem git remote next: same words, more backends,
       the objects we already keep and their metadata -- rich and dead simple.
 
-
-# FILES
-
-    release.card.v1.yaml         the repo's surfaces and credential (repo root)
-    CHANGELOG.md                 written by cut, read by promote
-    library/regex/patterns.yaml  org-repo-name, the validation pattern for -repos
-
-
-# EXIT STATUS
-
-    0 OK, 1 WARNING (nothing to release, nothing selected), 2 CRITICAL (gate, build or deploy failed, bad name or regex),
-    3 UNKNOWN (no card)
-
-
-# SEE ALSO
-
-    hee-gen-changelog(1), hee-git-tag(1), hee-git-merge(1), hee-cred(1), hee-fields(1)
 
 # VERSIONS
 

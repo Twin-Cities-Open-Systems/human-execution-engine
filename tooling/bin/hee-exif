@@ -134,6 +134,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -164,8 +165,14 @@ def run(cmd, **kw):
 
 
 def require_exiftool():
-    if run(["which", "exiftool"]).returncode != 0:
-        sys.exit("hee-exif: exiftool not found -- install libimage-exiftool-perl")
+    # shutil.which, not `which`: the which binary is its own package on some
+    # distros, and without it this check reported exiftool missing when it
+    # was not. The command is named, not a distro package (Debian calls it
+    # libimage-exiftool-perl, Arch perl-image-exiftool). UNKNOWN 3: this
+    # tool cannot determine anything without it, as verify's help says.
+    if not shutil.which("exiftool"):
+        print("❓ UNKNOWN hee-exif: exiftool is not on PATH -- every hee-exif command reads or writes through it", file=sys.stderr)
+        sys.exit(3)
 
 
 URL_SCHEMES = ("http://", "https://", "gopher://", "ftp://", "file://")
@@ -537,7 +544,7 @@ def gpg_fingerprint(key):
 def cmd_embed_sig(args):
     import tempfile
     require_exiftool()
-    if run(["which", "gpg"]).returncode != 0:
+    if not shutil.which("gpg"):
         sys.exit("hee-exif embed-sig: gpg not found")
     fpr = gpg_fingerprint(args.key)
     if not fpr:
@@ -608,7 +615,7 @@ def _pixel_compare(theirs, ours):
 def cmd_verify(args):
     import tempfile
     require_exiftool()
-    if run(["which", "gpg"]).returncode != 0:
+    if not shutil.which("gpg"):
         print("⚠️ UNKNOWN hee-exif verify: gpg not found"); return 3
     worst = 0
     _fetch_dir = tempfile.mkdtemp()
