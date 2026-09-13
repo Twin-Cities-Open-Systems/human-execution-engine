@@ -71,6 +71,7 @@ index -- installer, publisher, freshness check -- must prefer these.
 
 - [hee](../hee.1) -- authored
 - [hee-cred](../hee-cred.1) -- authored
+- [hee-goose](../hee-goose.1) -- authored
 - [hee-net](../hee-net.1) -- authored
 - [hee-pwgen](../hee-pwgen.1) -- authored
 - [hee-qdb](../hee-qdb.1) -- authored

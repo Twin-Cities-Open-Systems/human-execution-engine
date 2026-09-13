@@ -1,19 +1,31 @@
 HEE-CRED(1)                      User Commands                     HEE-CRED(1)
 
 NAME
-       hee-cred - real, minimal GPG-backed credential store
+       hee-cred  - real, minimal sealed credential store (GPG, or age for TPM-
+       bound secrets)
 
 SYNOPSIS
        hee cred -seal ACCOUNT -recipients ID[,ID...]  [-dir PATH]
-       hee  cred  -seal ACCOUNT -recipients ID[,ID...]  -genfrom TERM [-blocks
+       hee cred -seal ACCOUNT -recipients ID[,ID...]  -genfrom  TERM  [-blocks
        N] [-root PATH]
-       hee cred -pass ACCOUNT -exec COMMAND [ARGS...]  [-dir PATH]
+       hee  cred  -seal  ACCOUNT  -backend  age -recipients RECIPIENT[,RECIPI‐
+       ENT...]  [-dir PATH]
+       hee cred -seal NAME -backend age -passphrase [-any] [-dir PATH] <  KEY‐
+       FILE
+       hee cred -install-keys -dir PATH [-account NAME] [-force]
+       hee  cred -pass ACCOUNT -exec COMMAND [ARGS...]  [-dir PATH] [-identity
+       FILE]
+       hee cred -github-app ACCOUNT  [-key  FILE  [-force]]  [-registry  FILE]
+       [-dir PATH]
+       hee  cred  -run  ACCOUNT -github-token GRANT [-registry FILE] [-as VAR]
+       -exec COMMAND [ARGS...]
 
 DESCRIPTION
-       hee-cred stores secrets as ciphertext-only  GPG  files  under  .hee/se‐
-       crets/ACCOUNT.gpg,  and  never  lets a decrypted value reach an agent's
-       own visible output.  Retrieval is exec-only:  the  secret  is  injected
-       into a single child process's environment and nowhere else.
+       hee-cred stores secrets as ciphertext-only files under .hee/secrets/AC‐
+       COUNT.gpg, or .hee/secrets/ACCOUNT.age for the age backend,  and  never
+       lets  a decrypted value reach an agent's own visible output.  Retrieval
+       is exec-only: the secret is injected into a single child process's  en‐
+       vironment and nowhere else.
 
        -seal  (typed)  reads  the secret from an interactive hidden prompt. It
        refuses to run at all if stdin isn't a real terminal  --  deliberately,
@@ -23,18 +35,103 @@ DESCRIPTION
        matching TERM, joins them into a passphrase.  Still  never  printed  --
        flows straight into the same GPG encrypt call as a typed secret.
 
-       -pass  decrypts  and  sets  the secret in the HEE_CRED_PASS environment
-       variable of the -exec child process only -- never argv (visible via  ps
-       to other users), never stdout, never a log line.
+       -seal  -backend  age  encrypts with age(1) to age recipients instead of
+       GPG keys. An age-plugin-tpm recipient (age1tag1...)  binds  the  secret
+       to  one machine's TPM: nothing but that TPM can open it.  That is how a
+       host being installed gets secrets it can use at first boot,  before  it
+       has any GPG key.
+
+       -seal  -backend  age -passphrase seals with a passphrase instead of re‐
+       cipients (age -p, scrypt). This is the shape for a person's  own  iden‐
+       tity keys: the ciphertext is safe in a private repository, opens on any
+       host,  and is bound to no hardware. It is the one -seal form that reads
+       a redirect on stdin, because a private key is a multi-line file, not  a
+       line anyone types; what arrives must be an OpenSSH private key or a PGP
+       private  key  block  unless  -any  says  otherwise.  age  asks  for the
+       passphrase itself on the controlling terminal, so  a  terminal  is  re‐
+       quired  even with stdin redirected. Seal key files as they are: a key's
+       own passphrase stays as a second layer.
+
+       -install-keys is the first-login half. It opens every passphrase-sealed
+       .age file in -dir (age asks for the passphrase once per file), installs
+       an OpenSSH key under ~/.ssh (0600, directory 0700) with  its  .pub  de‐
+       rived by ssh-keygen -y, imports a PGP key block with gpg --import, cre‐
+       ates  ~/.hee/secrets  (0700), and runs hee-trust anchor when ~/.hee/in‐
+       dex/_.yaml is missing. One status line per item, never any  key  mater‐
+       ial.  An  existing identical key is a no-op; a differing one is refused
+       unless -force is given. Exit 0 when everything is OK, 1 with a WARNING,
+       2 with a CRITICAL.
+
+       -pass decrypts and sets the secret  in  the  HEE_CRED_PASS  environment
+       variable  of the -exec child process only -- never argv (visible via ps
+       to other users), never stdout, never a log line. The backend is  chosen
+       by  which  file exists; an account with both a .gpg and an .age file is
+       refused rather than guessed at.
+
+       -github-app and -github-token give an organization's automation  GitHub
+       access  without  a  personal  token.  A personal access token of either
+       kind is tied to the person who made it; a GitHub App belongs to the or‐
+       ganization. The App's private key is sealed here like any other creden‐
+       tial, and everything that is not secret -- the organization, the  App's
+       client  id,  its permission ceiling, the keys its private key is sealed
+       to, and one grant per identity -- lives in  a  registry  (see  ENVIRON‐
+       MENT).
+
+       -github-app  walks  one App through its life. Not registered: it prints
+       GitHub's registration link, pre-filled with the ceiling, private,  with
+       no  webhook,  and exits 1. With -key, the private key file GitHub down‐
+       loaded: it checks that the file is an RSA key that signs, and seals  it
+       to  the registry's recipients. Registered and sealed: it opens the key,
+       asks GitHub what the organization's installation  holds,  and  compares
+       that with the ceiling -- more is CRITICAL, less is WARNING.
+
+       -github-token  changes what -run or -pass hands the child: not the key,
+       but one installation token for GRANT, in GH_TOKEN (or  -as  VAR).   The
+       token  names  only  the grant's repositories -- a regular expression, a
+       list, or the agent roster's scope.repos -- and a subset  of  the  App's
+       permissions.  A  grant  above  the  ceiling is refused before GitHub is
+       called; a token whose granted permissions or repositories  differ  from
+       the request is revoked and refused. The child never sees HEE_CRED_PASS,
+       and  the  token is revoked when the child exits, so it lives as long as
+       the command and never longer than GitHub's one hour. The  child's  exit
+       code is the tool's.
 
 OPTIONS
        -seal ACCOUNT
               Seal a new secret under the given account name.
 
        -recipients ID[,ID...]
-              Comma-separated  GPG  key  IDs or emails to encrypt to. At least
-              one required. Multiple recipients means any one of them can  in‐
-              dependently decrypt.
+              Comma-separated  GPG key IDs or emails to encrypt to, or age re‐
+              cipients with -backend age.  At least one required. Multiple re‐
+              cipients means any one of them can independently decrypt.
+
+       -backend gpg|age
+              With -seal: the encryption backend (default  gpg).   age  writes
+              ACCOUNT.age and needs age on PATH, plus age-plugin-tpm for a TPM
+              recipient.  Refused  if  the account already has a file from the
+              other backend.
+
+       -passphrase
+              With -seal -backend age: seal with a passphrase (scrypt) instead
+              of -recipients, which is then refused. Reads a key file  from  a
+              stdin redirect, or a typed line with -any.  Needs a terminal for
+              age's own passphrase prompt.
+
+       -any   With -passphrase: accept plaintext that is not an OpenSSH or PGP
+              private key.
+
+       -install-keys
+              Open  every  passphrase-sealed  .age file in -dir and install it
+              (see DESCRIPTION).
+
+       -account NAME
+              With -install-keys: only files named NAME-*.age, installed with‐
+              out   the   prefix,   so   spencer-id_ed25519.age    lands    as
+              ~/.ssh/id_ed25519.
+
+       -force With  -install-keys:  replace  an existing key that differs from
+              the sealed one. With -github-app -key: replace a sealed App  key
+              (a rotation).
 
        -run ACCOUNT
               Like  -pass  , but also exports the secret under a variable name
@@ -53,18 +150,48 @@ OPTIONS
        -pass ACCOUNT
               Decrypt the named account's secret for one -exec call.
 
+       -identity FILE
+              With  -pass or -run on an .age credential: the age identity file
+              to decrypt with. Defaults to HEE_CRED_AGE_IDENTITY.  A TPM iden‐
+              tity file holds a key wrapped by that TPM and is useless on  any
+              other machine.
+
+       -github-app ACCOUNT
+              Register,  seal  or  check  the  GitHub App whose private key is
+              sealed as ACCOUNT (see DESCRIPTION). Exit 0  OK,  1  WARNING,  2
+              CRITICAL.
+
+       -key FILE
+              With -github-app: the private key file GitHub downloaded, sealed
+              to  the  registry's  seal_recipients.  An existing sealed key is
+              replaced only with -force: generate the new key in GitHub,  seal
+              it,  check,  then delete the old key in GitHub. Delete the down‐
+              loaded file once it is sealed.
+
+       -github-token GRANT
+              With -run or -pass on  a  GitHub  App  key:  give  the  child  a
+              one-hour  installation  token  for GRANT instead of the key, re‐
+              voked when the child exits.
+
+       -registry FILE
+              With -github-app or -github-token: the GitHub App registry.  De‐
+              faults   to   HEE_GITHUB_APPS,   else   ~/git/fleet-ops/hee/reg‐
+              istries/github-apps.registry.v1.yaml.
+
        -exec COMMAND [ARGS...]
               The command to run with HEE_CRED_PASS set. Required with -pass.
 
        -genfrom TERM
-              Generate  a  passphrase  from real corpus text matching TERM in‐
+              Generate a passphrase from real corpus text  matching  TERM  in‐
               stead of typing one.
 
        -blocks N
               Number of corpus-derived words to join (default 4).
 
        -dir PATH
-              Secrets directory (default .hee/secrets, relative to cwd).
+              Secrets  directory (default .hee/secrets, relative to cwd). With
+              -github-app or -github-token, the .hee/secrets beside  the  reg‐
+              istry's repository, so both work from any directory.
 
        -root PATH
               Corpus root for -genfrom (default /var/local/hee-corpus).
@@ -78,21 +205,77 @@ EXAMPLES
        Use a sealed secret without ever seeing it:
 
               hee cred -pass my-api-key -exec bash -c \
-                  'curl    -H    "Authorization:    Bearer     $HEE_CRED_PASS"
+                  'curl     -H    "Authorization:    Bearer    $HEE_CRED_PASS"
               https://api.example.com'
 
+       Preferred pattern for a tool that reads its secret from stdin: seal it,
+       then pipe it in from the -exec child, so the plaintext exists  only  on
+       that one pipe and never on a command line, in a file, or in a log:
+
+              hee cred -pass registry-login -exec sh -c \
+                  'printf  %s  "$HEE_CRED_PASS"  | docker login -u bot --pass‐
+              word-stdin'
+
+       Seal a Wi-Fi password to this machine's TPM, then open it on  the  same
+       machine (the identity comes from age-plugin-tpm --generate):
+
+              hee cred -seal wifi -backend age \
+                  -recipients   "$(age-plugin-tpm   -y   identity.txt)"   -dir
+              .hee/secrets
+              hee cred -run wifi -identity identity.txt -dir .hee/secrets \
+                  -exec nmcli connection modify home wifi-sec.psk-flags 0 ...
+
+       Seal your own SSH and GPG keys with a passphrase for  a  host  that  is
+       about to be bootstrapped, then install them at its first login:
+
+              hee cred -seal spencer-id_ed25519 -backend age -passphrase \
+                  -dir hosts/flippy/keys < ~/.ssh/id_ed25519
+              gpg --armor --export-secret-keys KEYID | \
+                  hee  cred  -seal  spencer-gpg  -backend age -passphrase -dir
+              hosts/flippy/keys
+              # on the new host, as the account, at its first login
+              hee cred -install-keys -dir ~/keys -account spencer
+
+       Register the organization's GitHub App, seal its key, check it, and run
+       one command with a token that dies when the command does:
+
+              hee cred -github-app github-app-tcos-agents
+              hee cred -github-app github-app-tcos-agents \
+                  -key ~/Downloads/tcos-agents.2026-09-13.private-key.pem
+              hee cred -run github-app-tcos-agents -github-token touchy-claude
+              \
+                  -exec gh pr list --repo Twin-Cities-Open-Systems/fleet-ops
+
 SECURITY
-       A  secret  sealed to multiple recipients can be decrypted independently
-       by any one of them -- this is intentional, not a  weakness.  Add  every
-       real  party that legitimately needs access as a recipient at seal time;
+       A secret sealed to multiple recipients can be  decrypted  independently
+       by  any  one  of them -- this is intentional, not a weakness. Add every
+       real party that legitimately needs access as a recipient at seal  time;
        there is no way to add a recipient after the fact without re-sealing.
+
+       A TPM-sealed secret dies with that TPM: a firmware TPM clear or a board
+       replacement makes it unrecoverable. Keep the plaintext's real source of
+       truth  (a password manager) and treat the sealed copy as a delivery ve‐
+       hicle, not a backup.
+
+       A passphrase-sealed file is exactly as strong as its  passphrase:  keep
+       that in the password manager, never in a repository or a chat, and seal
+       key  files  with  their  own  passphrases  intact  so  a leaked sealing
+       passphrase still yields locked keys. Once installed, the keys  rest  on
+       the  host's  disk;  an  unencrypted root filesystem is then the weakest
+       link, not this tool.
+
+       A GitHub App private key does not expire. Whoever holds it can mint to‐
+       kens up to the App's ceiling until an owner deletes that key in GitHub,
+       so keep the ceiling as small as the grants need, delete the  downloaded
+       file  once it is sealed, and rotate by adding a new key before deleting
+       the old one (an App may hold up to 25).
 
 ORGANIZATION
        Twin Cities Open Systems - Operations LLC
        IANA Private Enterprise Number: 1.3.6.1.4.1.66550
 
 SEE ALSO
-       hee-pwgen(1), hee-qr(1)
+       hee-pwgen(1), hee-qr(1), age(1), gh(1)
 
 ENVIRONMENT
        HEE_CRED_DIR
@@ -100,7 +283,27 @@ ENVIRONMENT
               fault  .hee/secrets.   Set  it in heerc to pin one store per ma‐
               chine; -dir still wins when given.
 
+       HEE_CRED_AGE_IDENTITY
+              The age identity file used to open .age credentials when  -iden‐
+              tity is not given.
+
        HEE_CRED_PASS
               Set in the child's environment by -pass and -run.
 
-HEE                               2026-08-22                       HEE-CRED(1)
+       HEE_CRED_TTY
+              The   device   checked  for  age's  passphrase  prompt  (default
+              /dev/tty).   For  the  test  suite,  whose  stand-in  age  never
+              prompts; nothing else should set it.
+
+       HEE_GITHUB_APPS
+              The GitHub App registry, when -registry is not given.
+
+       GH_TOKEN
+              Set  in  the  child's  environment  by -github-token, unless -as
+              names another variable.
+
+       HEE_GITHUB_API
+              The GitHub REST API root (default https://api.github.com).   For
+              the test suite's local stand-in; nothing else should set it.
+
+HEE                               2026-09-13                       HEE-CRED(1)
