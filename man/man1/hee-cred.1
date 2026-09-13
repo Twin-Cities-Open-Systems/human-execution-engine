@@ -369,6 +369,16 @@ hee cred \-pass my\-api\-key \-exec bash \-c \e
     'curl \-H "Authorization: Bearer $HEE_CRED_PASS" https://api.example.com'
 .RE
 .PP
+Preferred pattern for a tool that reads its secret from stdin: seal it,
+then pipe it in from the \fB\-exec\fR child, so the plaintext exists only
+on that one pipe and never on a command line, in a file, or in a log:
+.PP
+.RS
+hee cred \-pass registry\-login \-exec sh \-c \e
+.br
+    'printf %s "$HEE_CRED_PASS" | docker login \-u bot \-\-password\-stdin'
+.RE
+.PP
 Seal a Wi\-Fi password to this machine's TPM, then open it on the same
 machine (the identity comes from
 .BR "age\-plugin\-tpm \-\-generate" ):
