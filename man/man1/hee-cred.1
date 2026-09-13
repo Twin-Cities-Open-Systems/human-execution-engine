@@ -1,4 +1,4 @@
-.TH HEE-CRED 1 "2026-09-12" "HEE" "User Commands"
+.TH HEE-CRED 1 "2026-09-13" "HEE" "User Commands"
 .SH NAME
 hee-cred \- real, minimal sealed credential store (GPG, or age for TPM-bound secrets)
 .SH SYNOPSIS
@@ -46,6 +46,20 @@ hee-cred \- real, minimal sealed credential store (GPG, or age for TPM-bound sec
 .B \-exec
 .I COMMAND [ARGS...]
 [\fB\-dir\fR \fIPATH\fR] [\fB\-identity\fR \fIFILE\fR]
+.br
+.B hee cred
+.B \-github\-app
+.I ACCOUNT
+[\fB\-key\fR \fIFILE\fR [\fB\-force\fR]] [\fB\-registry\fR \fIFILE\fR] [\fB\-dir\fR \fIPATH\fR]
+.br
+.B hee cred
+.B \-run
+.I ACCOUNT
+.B \-github\-token
+.I GRANT
+[\fB\-registry\fR \fIFILE\fR] [\fB\-as\fR \fIVAR\fR]
+.B \-exec
+.I COMMAND [ARGS...]
 .SH DESCRIPTION
 .B hee-cred
 stores secrets as ciphertext-only files under
@@ -130,6 +144,51 @@ file exists; an account with both a
 and an
 .B .age
 file is refused rather than guessed at.
+.PP
+.B \-github\-app
+and
+.B \-github\-token
+give an organization's automation GitHub access without a personal token.
+A personal access token of either kind is tied to the person who made it;
+a GitHub App belongs to the organization. The App's private key is sealed
+here like any other credential, and everything that is not secret \-\- the
+organization, the App's client id, its permission ceiling, the keys its
+private key is sealed to, and one grant per identity \-\- lives in a
+registry (see ENVIRONMENT).
+.PP
+.B \-github\-app
+walks one App through its life. Not registered: it prints GitHub's
+registration link, pre\-filled with the ceiling, private, with no webhook,
+and exits 1. With
+.BR \-key ,
+the private key file GitHub downloaded: it checks that the file is an RSA
+key that signs, and seals it to the registry's recipients. Registered and
+sealed: it opens the key, asks GitHub what the organization's installation
+holds, and compares that with the ceiling \-\- more is CRITICAL, less is
+WARNING.
+.PP
+.B \-github\-token
+changes what
+.B \-run
+or
+.B \-pass
+hands the child: not the key, but one installation token for
+.IR GRANT ,
+in
+.B GH_TOKEN
+(or
+.BR "\-as VAR" ).
+The token names only the grant's repositories \-\- a regular expression, a
+list, or the agent roster's
+.I scope.repos
+\-\- and a subset of the App's permissions. A grant above the ceiling is
+refused before GitHub is called; a token whose granted permissions or
+repositories differ from the request is revoked and refused. The child
+never sees
+.BR HEE_CRED_PASS ,
+and the token is revoked when the child exits, so it lives as long as the
+command and never longer than GitHub's one hour. The child's exit code is
+the tool's.
 .SH OPTIONS
 .TP
 .BI \-seal " ACCOUNT"
@@ -192,7 +251,9 @@ lands as
 .B \-force
 With
 .BR \-install\-keys :
-replace an existing key that differs from the sealed one.
+replace an existing key that differs from the sealed one. With
+.BR "\-github\-app \-key" :
+replace a sealed App key (a rotation).
 .TP
 .BI \-run " ACCOUNT"
 Like
@@ -239,6 +300,40 @@ credential: the age identity file to decrypt with. Defaults to
 A TPM identity file holds a key wrapped by that TPM and is useless on any
 other machine.
 .TP
+.BI \-github\-app " ACCOUNT"
+Register, seal or check the GitHub App whose private key is sealed as
+.I ACCOUNT
+(see DESCRIPTION). Exit 0 OK, 1 WARNING, 2 CRITICAL.
+.TP
+.BI \-key " FILE"
+With
+.BR \-github\-app :
+the private key file GitHub downloaded, sealed to the registry's
+.IR seal_recipients .
+An existing sealed key is replaced only with
+.BR \-force :
+generate the new key in GitHub, seal it, check, then delete the old key
+in GitHub. Delete the downloaded file once it is sealed.
+.TP
+.BI \-github\-token " GRANT"
+With
+.B \-run
+or
+.B \-pass
+on a GitHub App key: give the child a one\-hour installation token for
+.I GRANT
+instead of the key, revoked when the child exits.
+.TP
+.BI \-registry " FILE"
+With
+.B \-github\-app
+or
+.BR \-github\-token :
+the GitHub App registry. Defaults to
+.BR HEE_GITHUB_APPS ,
+else
+.IR ~/git/fleet\-ops/hee/registries/github\-apps.registry.v1.yaml .
+.TP
 .BI \-exec " COMMAND [ARGS...]"
 The command to run with \fBHEE_CRED_PASS\fR set. Required with
 \fB\-pass\fR.
@@ -251,7 +346,9 @@ instead of typing one.
 Number of corpus\-derived words to join (default 4).
 .TP
 .BI \-dir " PATH"
-Secrets directory (default \fB.hee/secrets\fR, relative to cwd).
+Secrets directory (default \fB.hee/secrets\fR, relative to cwd). With
+\fB\-github\-app\fR or \fB\-github\-token\fR, the \fB.hee/secrets\fR beside
+the registry's repository, so both work from any directory.
 .TP
 .BI \-root " PATH"
 Corpus root for \fB\-genfrom\fR (default \fB/var/local/hee\-corpus\fR).
@@ -302,6 +399,21 @@ gpg \-\-armor \-\-export\-secret\-keys KEYID | \e
 .br
 hee cred \-install\-keys \-dir ~/keys \-account spencer
 .RE
+.PP
+Register the organization's GitHub App, seal its key, check it, and run
+one command with a token that dies when the command does:
+.PP
+.RS
+hee cred \-github\-app github\-app\-tcos\-agents
+.br
+hee cred \-github\-app github\-app\-tcos\-agents \e
+.br
+    \-key ~/Downloads/tcos\-agents.2026\-09\-13.private\-key.pem
+.br
+hee cred \-run github\-app\-tcos\-agents \-github\-token touchy\-claude \e
+.br
+    \-exec gh pr list \-\-repo Twin\-Cities\-Open\-Systems/fleet\-ops
+.RE
 .SH SECURITY
 A secret sealed to multiple recipients can be decrypted independently
 by any one of them \-\- this is intentional, not a weakness. Add every
@@ -320,6 +432,12 @@ key files with their own passphrases intact so a leaked sealing
 passphrase still yields locked keys. Once installed, the keys rest on
 the host's disk; an unencrypted root filesystem is then the weakest
 link, not this tool.
+.PP
+A GitHub App private key does not expire. Whoever holds it can mint
+tokens up to the App's ceiling until an owner deletes that key in GitHub,
+so keep the ceiling as small as the grants need, delete the downloaded
+file once it is sealed, and rotate by adding a new key before deleting the
+old one (an App may hold up to 25).
 .SH ORGANIZATION
 Twin Cities Open Systems \- Operations LLC
 .br
@@ -327,7 +445,8 @@ IANA Private Enterprise Number: 1.3.6.1.4.1.66550
 .SH SEE ALSO
 .BR hee-pwgen (1),
 .BR hee-qr (1),
-.BR age (1)
+.BR age (1),
+.BR gh (1)
 .SH ENVIRONMENT
 .TP
 .B HEE_CRED_DIR
@@ -357,3 +476,20 @@ The device checked for age's passphrase prompt (default
 .IR /dev/tty ).
 For the test suite, whose stand\-in age never prompts; nothing else
 should set it.
+.TP
+.B HEE_GITHUB_APPS
+The GitHub App registry, when
+.B \-registry
+is not given.
+.TP
+.B GH_TOKEN
+Set in the child's environment by
+.BR \-github\-token ,
+unless
+.B \-as
+names another variable.
+.TP
+.B HEE_GITHUB_API
+The GitHub REST API root (default
+.IR https://api.github.com ).
+For the test suite's local stand\-in; nothing else should set it.

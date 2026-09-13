@@ -71,6 +71,14 @@ Usage:
   hee-cred -install-keys -dir PATH [-account NAME] [-force]
   hee-cred -pass <account> -exec CMD [ARGS...] [-dir PATH]
   hee-cred -pass <account> -identity FILE -exec CMD [ARGS...]   # an .age credential
+  hee-cred -github-app <account> [-registry FILE] [-dir PATH]    # register / check an org's GitHub App
+  hee-cred -github-app <account> -key FILE [-force]              # seal its downloaded private key
+  hee-cred -run <account> -github-token <grant> -exec CMD [ARGS...]      # CMD gets GH_TOKEN, 1 h, revoked on exit
+
+EXAMPLES
+  $ hee cred -github-app github-app-tcos-agents
+  $ hee cred -github-app github-app-tcos-agents -key ~/Downloads/tcos-agents.2026-09-13.private-key.pem
+  $ hee cred -run github-app-tcos-agents -github-token touchy-claude -exec gh pr list --repo Twin-Cities-Open-Systems/fleet-ops
 
 -seal (typed) reads the secret from an interactive prompt (hidden
 input) -- refuses to run at all if stdin isn't a real terminal,
@@ -117,6 +125,36 @@ credential needs an identity: -identity FILE, or HEE_CRED_AGE_IDENTITY.
 A TPM identity file holds a key wrapped by that TPM -- useless on any
 other machine -- and age runs age-plugin-tpm from PATH to use it. A
 passphrase-sealed .age file needs no identity: age asks on the terminal.
+
+Real extension (2026-09-13): "-github-app" and "-github-token" -- GitHub
+access for the org's agents without a personal token. fleet-ops#387: "no
+agent holds a long-lived token. The factory mints a GitHub App installation
+token per job, one hour, scoped to that agent's repos and permissions".
+Spencer, the same day: "I want to use tokens, not login" and "I own the org,
+I create the tokens". A personal access token belongs to the person who made
+it; an App belongs to the org. The App's private key is a credential like
+any other here, so the lifecycle folds in rather than becoming a new tool.
+Everything that is not secret -- the org, the client id, the permission
+ceiling, one grant per identity, the keys the private key is sealed to --
+lives in the registry (fleet-ops hee/registries/github-apps.registry.v1.yaml,
+or $HEE_GITHUB_APPS, or -registry), and the store is the .hee/secrets beside
+that registry unless -dir says otherwise, so both flags work from any
+directory.
+
+-github-app ACCOUNT walks one App through its life. Not registered yet: it
+prints GitHub's registration link, pre-filled from the registry. With -key
+FILE, the .pem GitHub downloaded: it checks that the file is an RSA key that
+signs and seals it to the registry's recipients (-force replaces an existing
+one, for a key rotation). Registered and sealed: it opens the key, asks GitHub what the org's
+installation actually holds, and compares that with the registry's ceiling --
+more than the ceiling is CRITICAL, less is WARNING.
+
+-github-token GRANT, with -run or -pass, changes what the child receives: not
+the key, but one installation token for that grant -- its repositories
+(a regex, a list, or the agent roster's scope.repos) and a subset of the App's
+permissions -- as GH_TOKEN (or -as VAR). GitHub's answer is checked against
+the request before the child starts, and the token is revoked when the child
+exits, so it lives as long as the command, at most one hour.
 """
 import argparse
 import getpass
@@ -476,8 +514,135 @@ def decrypt_age(in_path: Path, identity: str = None) -> str:
     return proc.stdout.decode()
 
 
+def decrypt_gpg(in_path: Path) -> str:
+    proc = subprocess.run(["gpg", "--decrypt", "--quiet", str(in_path)], capture_output=True)
+    if proc.returncode != 0:
+        # "No secret key" alone sends the reader to `gpg --list-keys`, which
+        # answers a DIFFERENT question -- the public keyring -- and reassures
+        # them wrongly. Measured 2026-09-09: that exact detour cost a real
+        # debugging session. So name the keys the file is actually addressed
+        # to, and say plainly that a public key is not enough.
+        err = proc.stderr.decode(errors="replace").strip()
+        msg = [f"hee-cred: gpg decrypt failed: {err}"]
+        ids = recipient_keyids(in_path)
+        if ids:
+            msg.append(f"  {in_path.name} is sealed to: {', '.join(ids)}")
+            msg.append("  This host holds no SECRET key for any of them. Note that")
+            msg.append("  `gpg --list-keys` lists PUBLIC keys and will happily show")
+            msg.append("  these -- use `gpg --list-secret-keys` to see what can")
+            msg.append("  actually decrypt. Re-seal to a key this host holds, on a")
+            msg.append("  host that can already open it, then copy the file here:")
+            msg.append("  the recipients live in the FILE, so re-sealing elsewhere")
+            msg.append("  changes nothing until the new file arrives.")
+        sys.exit("\n".join(msg))
+    return proc.stdout.decode()
+
+
+def github_token_exec(account: str, pem: str, grant: str, registry: str, exec_cmd: list, var_name: str = None) -> int:
+    """-github-token: the child receives one installation token for GRANT,
+    never the App's key, and the token is revoked when the child exits."""
+    import hee_ghapp as gh
+    try:
+        spec, reg = gh.load_registry(registry)
+        name, app = gh.app_for_cred(spec, account)
+        if not app.get("client_id"):
+            die(f"{name} has no client_id in {reg} -- it is not registered yet; run hee cred -github-app {account}")
+        perms, repos = gh.resolve_grant(app, grant, reg)
+        tok = gh.mint(pem, app["client_id"], spec["org"], perms, repos)
+    except gh.GitHubAppError as e:
+        die(f"-github-token {grant}: {e}")
+    del pem
+    var = var_name or "GH_TOKEN"
+    print(f"✅ OK hee-cred: {name} token for grant {grant} as ${var}: {len(tok['repositories'])} repositories, "
+          + ",".join(f"{k}={v}" for k, v in sorted(tok["permissions"].items()))
+          + f"; expires {tok['expires_at']}, revoked when the command exits", file=sys.stderr)
+    child_env = os.environ.copy()
+    child_env.pop(ENV_VAR, None)       # the key's variable must not survive into the child
+    child_env[var] = tok["token"]
+    try:
+        rc = subprocess.run(exec_cmd, env=child_env, shell=False).returncode
+    finally:
+        if not gh.revoke(tok["token"]):
+            print(f"⚠️ WARNING hee-cred: GitHub did not confirm revoking the token; it expires {tok['expires_at']}",
+                  file=sys.stderr)
+    return rc
+
+
+def github_app(account: str, registry: str, secrets_dir: Path, force: bool = False, key_file: str = None) -> int:
+    """-github-app: register, seal, check. Returns the Nagios exit code."""
+    import hee_ghapp as gh
+    try:
+        spec, reg = gh.load_registry(registry)
+        name, app = gh.app_for_cred(spec, account)
+    except gh.GitHubAppError as e:
+        die(str(e))
+    org = spec["org"]
+    sealed = secrets_dir / f"{account}.gpg"
+    try:
+        have_key = sealed.exists()
+    except OSError as e:
+        die(f"cannot look for {sealed}: {e.strerror}")
+
+    if key_file:
+        # A named file, not stdin: whether stdin "has a key" cannot be told
+        # without reading it, and a check run from a service or an agent has
+        # a stdin that is neither a terminal nor ever closed.
+        try:
+            pem = Path(key_file).read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            die(f"-key {key_file}: {getattr(e, 'strerror', None) or e}")
+        first = pem.lstrip().split("\n", 1)[0].strip() if pem.strip() else ""
+        if first not in gh.KEY_HEADERS:
+            die(f"-key {key_file} is not a PEM private key -- pass the .pem file GitHub downloaded, nothing else")
+        if have_key and not force:
+            die(f"{sealed} already holds a key -- pass -force to replace it (a rotation: generate the new key in "
+                "GitHub, seal it here, check, then delete the old key in GitHub)")
+        recipients = [str(r) for r in app.get("seal_recipients") or []]
+        if not recipients:
+            die(f"{name} has no seal_recipients in {reg}")
+        try:
+            gh.app_jwt(pem, app.get("client_id") or "unregistered")   # an RSA key that signs, or refuse
+        except gh.GitHubAppError as e:
+            die(str(e))
+        secrets_dir.mkdir(parents=True, exist_ok=True)
+        encrypt_gpg(pem, recipients, sealed)
+        del pem
+        print(f"✅ OK {name}: private key sealed -> {sealed} (recipients: {', '.join(recipients)})")
+        print("  Delete the downloaded .pem now: the sealed copy is the only one that should exist.")
+        return 0
+
+    if not app.get("client_id"):
+        print(f"⚠️ WARNING {name}: not registered -- {reg} has no client_id")
+        print(f"  1. Register it, as an owner of {org}, from this pre-filled form:")
+        print(f"     {gh.registration_url(org, app)}")
+        print("  2. On the App's page: copy the Client ID into the registry; Install App -> "
+              f"{org} -> All repositories; Private keys -> Generate a private key.")
+        print(f"  3. Seal the downloaded .pem: hee cred -github-app {account} -key, followed by its path")
+        return 1
+    if not have_key:
+        print(f"⚠️ WARNING {name}: registered (client id {app['client_id']}) but no sealed key at {sealed}")
+        print(f"  Generate a private key on the App's page, then: hee cred -github-app {account} -key, followed by its path")
+        return 1
+    pem = decrypt_gpg(sealed)
+    try:
+        inst = gh.installation(gh.app_jwt(pem, app["client_id"]), org)
+    except gh.GitHubAppError as e:
+        die(f"{name}: {e}")
+    del pem
+    print(f"✅ OK {name}: key opens and signs; installation {inst.get('id')} on {org} "
+          f"({inst.get('repository_selection')} repositories, app {inst.get('app_slug')})")
+    worst = 0
+    for level, msg in gh.compare_installation(inst, app.get("permissions") or {}):
+        worst = max(worst, 2 if level == "CRITICAL" else 1)
+        print(("❌ CRITICAL " if level == "CRITICAL" else "⚠️ WARNING ") + f"{name}: {msg}")
+    if worst == 0:
+        print(f"✅ OK {name}: installation permissions match the registry's ceiling")
+    return worst
+
+
 def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
-                    var_name: str = None, identity: str = None):
+                    var_name: str = None, identity: str = None,
+                    github_grant: str = None, registry: str = None):
     gpg_path = secrets_dir / f"{account}.gpg"
     age_path = secrets_dir / f"{account}.age"
     # exists() STATS the path, and stat raises rather than returning False when
@@ -536,27 +701,13 @@ def unseal_and_exec(account: str, exec_cmd: list, secrets_dir: Path,
     if in_path.suffix == ".age":
         secret = decrypt_age(in_path, identity)
     else:
-        proc = subprocess.run(["gpg", "--decrypt", "--quiet", str(in_path)], capture_output=True)
-        if proc.returncode != 0:
-            # "No secret key" alone sends the reader to `gpg --list-keys`, which
-            # answers a DIFFERENT question -- the public keyring -- and reassures
-            # them wrongly. Measured 2026-09-09: that exact detour cost a real
-            # debugging session. So name the keys the file is actually addressed
-            # to, and say plainly that a public key is not enough.
-            err = proc.stderr.decode(errors="replace").strip()
-            msg = [f"hee-cred: gpg decrypt failed: {err}"]
-            ids = recipient_keyids(in_path)
-            if ids:
-                msg.append(f"  {in_path.name} is sealed to: {', '.join(ids)}")
-                msg.append("  This host holds no SECRET key for any of them. Note that")
-                msg.append("  `gpg --list-keys` lists PUBLIC keys and will happily show")
-                msg.append("  these -- use `gpg --list-secret-keys` to see what can")
-                msg.append("  actually decrypt. Re-seal to a key this host holds, on a")
-                msg.append("  host that can already open it, then copy the file here:")
-                msg.append("  the recipients live in the FILE, so re-sealing elsewhere")
-                msg.append("  changes nothing until the new file arrives.")
-            sys.exit("\n".join(msg))
-        secret = proc.stdout.decode()
+        secret = decrypt_gpg(in_path)
+
+    if github_grant:
+        if in_path.suffix == ".age":
+            sys.exit(f"hee-cred: -github-token opens a GPG-sealed App key; {in_path.name} is age")
+        sys.exit(github_token_exec(account, secret, github_grant, registry, exec_cmd,
+                                   None if var_name == ENV_VAR else var_name))
 
     child_env = os.environ.copy()
     child_env[ENV_VAR] = secret
@@ -705,8 +856,22 @@ def main():
     ap.add_argument("-identity", metavar="FILE",
                     help=f"with -run/-pass on an .age credential: the age identity file "
                          f"(default: ${AGE_IDENTITY_ENV})")
+    ap.add_argument("-github-app", dest="github_app", metavar="ACCOUNT",
+                    help="the org GitHub App whose private key is ACCOUNT: print its pre-filled registration link, "
+                         "seal a .pem redirected on stdin, or check the installation against the registry")
+    ap.add_argument("-github-token", dest="github_token", metavar="GRANT",
+                    help="with -run/-pass on a GitHub App key: give CMD a one-hour installation token for GRANT "
+                         "as GH_TOKEN (or -as VAR) instead of the key, and revoke it when CMD exits")
+    ap.add_argument("-key", dest="key_file", metavar="FILE",
+                    help="with -github-app: the .pem GitHub downloaded -- checked to be an RSA key that signs, then "
+                         "sealed to the registry's seal_recipients (-force replaces a sealed key: a rotation)")
+    ap.add_argument("-registry", metavar="FILE",
+                    help="with -github-app/-github-token: the GitHub App registry "
+                         "(default: $HEE_GITHUB_APPS, else ~/git/fleet-ops/hee/registries/github-apps.registry.v1.yaml)")
     ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD")
-    ap.add_argument("-dir", default=DEFAULT_DIR, metavar="PATH")
+    ap.add_argument("-dir", default=None, metavar="PATH",
+                    help=f"the store (default: $HEE_CRED_DIR, else {DEFAULT_DIR} under the current directory; "
+                         "with -github-app/-github-token, the .hee/secrets beside the registry)")
     ap.add_argument("-genfrom", dest="genfrom_term", metavar="TERM")
     ap.add_argument("-genkey", dest="genkey", metavar="ALG", help="es256: generate a signing key, seal the private half, print the public JWKS")
     ap.add_argument("-blocks", type=int, default=4, metavar="N")
@@ -723,21 +888,32 @@ def main():
 
     args = ap.parse_args()
 
-    secrets_dir = Path(args.dir)
+    secrets_dir = Path(args.dir or DEFAULT_DIR)
+    if args.github_app or args.github_token:
+        import hee_ghapp
+        registry = hee_ghapp.registry_path(args.registry)
+        if not args.dir:
+            secrets_dir = hee_ghapp.store_dir(registry)
+    else:
+        registry = None
 
-    if args.seal_account:
+    if args.github_app:
+        sys.exit(github_app(args.github_app, registry, secrets_dir, args.force, args.key_file))
+    elif args.github_token and not (args.run_account or args.pass_account):
+        sys.exit("hee-cred: -github-token GRANT goes with -run ACCOUNT or -pass ACCOUNT (the App's sealed key)")
+    elif args.seal_account:
         seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey, args.backend, args.passphrase, args.any_kind)
     elif args.install_keys:
         sys.exit(install_keys(secrets_dir, args.account, args.force))
     elif args.run_account:
         unseal_and_exec(args.run_account, args.exec_cmd or [], secrets_dir,
-                        args.var_name, args.identity)
+                        args.var_name, args.identity, args.github_token, registry)
     elif args.pass_account:
         # -pass keeps its original contract: HEE_CRED_PASS only, unless -as
         # is given. Adding a derived variable here would change what existing
         # callers see in their environment.
         unseal_and_exec(args.pass_account, args.exec_cmd or [], secrets_dir,
-                        args.var_name or ENV_VAR, args.identity)
+                        args.var_name or ENV_VAR, args.identity, args.github_token, registry)
     else:
         print(__doc__)
         sys.exit(1)
