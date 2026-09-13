@@ -1,0 +1,31 @@
+.TH HEE-GOOSE 1 "2026-09-13" "HEE" "User Commands"
+.SH NAME
+hee-goose \- honk
+.SH SYNOPSIS
+.B hee goose
+.SH DESCRIPTION
+Prints
+.B HONK
+in italics and a goose. That is all it does.
+.PP
+The goose is rendered with
+.BR chafa (1),
+which uses the kitty graphics protocol where the terminal supports it. Set
+.B HEE_GOOSE_IMAGE
+to render another image.
+.SH EXAMPLES
+.PP
+.RS
+.nf
+$ hee goose
+\fIHONK\fR
+.fi
+.RE
+.PP
+followed by the goose, drawn in the terminal.
+.SH ENVIRONMENT
+.TP
+.B HEE_GOOSE_IMAGE
+Path to the image chafa renders instead of the shipped goose.
+.SH SEE ALSO
+.BR chafa (1)
