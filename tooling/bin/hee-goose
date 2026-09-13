@@ -2,22 +2,40 @@
 # section: 1
 """hee-goose -- honk.
 
-Prints HONK in italics and a goose. That is all it does.
+SYNOPSIS
+  hee goose
 
-The goose is rendered with chafa, which uses the kitty graphics protocol
-when the terminal supports it. Set HEE_GOOSE_IMAGE to render another image.
+DESCRIPTION
+  Prints HONK in italics and a goose. That is all it does. The goose is
+  rendered with chafa, which uses the kitty graphics protocol when the
+  terminal supports it. Set HEE_GOOSE_IMAGE to render another image.
+
+EXIT STATUS
+  0 on success; non-zero if chafa fails (e.g. it is not installed or the
+  image is unreadable).
 
 EXAMPLES
   hee goose
+
+ENVIRONMENT
+  HEE_GOOSE_IMAGE   image chafa renders instead of the shipped goose.
+
+SEE ALSO
+  chafa(1)
 """
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 IMAGE = os.environ.get("HEE_GOOSE_IMAGE", os.path.join(HERE, "..", "share", "hee-goose", "goose.png"))
 
-if any(a in ("-h", "--help", "help") for a in sys.argv[1:]):
+if help_wanted(sys.argv[1:]):
+    note_ignored(sys.argv[1:])
     print(__doc__)
     sys.exit(0)
 
