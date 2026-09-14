@@ -107,7 +107,7 @@ elif "--decrypt" in args:
 else:
     sys.exit("fake age: unexpected arguments")
 '''
-FAKE_HEE_TRUST = '#!/bin/sh\n[ "$1" = anchor ] || exit 9\nmkdir -p "$HOME/.hee/index" && printf \'id: "hee://_/index/_.yaml"\\n\' > "$HOME/.hee/index/_.yaml"\n'
+FAKE_HEE_TRUST = '#!/bin/sh\n[ "$1" = anchor ] || exit 9\n[ "$2" = --write ] || { echo "Dry run. Nothing written."; exit 0; }\nmkdir -p "$HOME/.hee/index" && printf \'id: "hee://_/index/_.yaml"\\n\' > "$HOME/.hee/index/_.yaml"\n'
 
 
 class PassphraseBackend(unittest.TestCase):

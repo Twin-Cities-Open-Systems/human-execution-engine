@@ -814,7 +814,7 @@ def install_keys(secrets_dir: Path, account: str = None, force: bool = False) ->
     else:
         import shutil
         if shutil.which("hee-trust"):
-            proc = subprocess.run(["hee-trust", "anchor"])
+            proc = subprocess.run(["hee-trust", "anchor", "--write"])
             if proc.returncode == 0 and anchor.exists():
                 ok(f"{anchor} written by hee-trust anchor")
             else:
