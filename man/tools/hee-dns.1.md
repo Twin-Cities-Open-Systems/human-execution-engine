@@ -43,10 +43,20 @@ hee-dns - generate BIND zones from one flat host file.
 
         =name:ip:ttl    A and PTR      -- a real machine
         +name:ip:ttl    A only         -- a vhost on a shared proxy
+        ^rev:name:ttl   PTR only       -- an address in this network whose
+                                          name lives in ANOTHER zone
         @zone::mx:dist:ttl             -- MX
 
     "Unless reason" is the `+`. Eight names in this lab point at haproxy; an
     address gets ONE PTR naming the machine, not every vhost it fronts.
+
+    `^` is tinydns's PTR-only record: `rev` is the full reverse name
+    (72.0.0.10.in-addr.arpa) and `name` the machine it answers with. It is for
+    a machine on this network that is named outside this zone -- an `=` there
+    would put an A record for it inside lab.tcos.us under the wrong name.
+    Spencer, 2026-09-16, of 10.0.0.72: "nuc-1.crooked.tcos.us (never lab)":
+
+        ^72.0.0.10.in-addr.arpa:nuc-1.crooked.tcos.us:300
 
     The format was chosen for a second reason: it is already djbdns-native. If
     this lab ever swaps BIND for tinydns the source file is the input, not a
