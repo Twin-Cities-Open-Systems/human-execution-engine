@@ -1,0 +1,37 @@
+id: '0011'
+created_at: '2026-09-16T01:37:59Z'
+description: 'P1: tmux-agent launcher under-reports input devices in discovery.txt.
+  SUPERSEDED by fleet-ops ticket 0122 -- see https://github.com/Twin-Cities-Open-Systems/fleet-ops/pull/604,
+  where the fix lands. Kept here as the record of a real footgun in this system, not
+  as open work. The bug: bin/tmux-agent-start.sh:158 ran `grep -iB2 ''touch'' /proc/bus/input/devices
+  | grep -i name='', matching the literal string ''touch''. On flippy that found only
+  ''SYNA329A:00 06CB:CD4F Touchpad'' and missed the entire ELAN2514:00 04F3:2975 block
+  -- the x360''s I2C touchscreen and its Stylus digitizer -- because those names contain
+  no ''touch''. Measured 2026-09-17: the old line reports 1 device, the fix reports
+  30. Agents are instructed to trust discovery.txt over the entry doc, so a convertible
+  reported as having no touchscreen: silence read as a real negative result, PROMPTING_RULES
+  rule 2. WHY IT WAS FILED IN THE WRONG REPO, which is the part worth keeping: the
+  file lives in fleet-ops, but on 2026-09-16 fleet-ops was not cloneable from claude@flippy
+  -- that host''s SSH key was generated and never registered, so the session that
+  found the bug could not file where the code lives and wrote it here instead. The
+  key is registered now. A ticket parked in the wrong repo because of a missing credential
+  is a real cost of leaving a host half-onboarded, and it is the reason this one sat
+  unfiled and uncommitted for a day.'
+status: closed
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-16T01:37:59Z'
+source: flippy shift 2026-09-15, hardware self-check review
+ref: https://github.com/Twin-Cities-Open-Systems/fleet-ops/pull/604
+tags:
+- p1
+- fleet-ops
+- discovery
+- hardware
+- superseded
+closed_at: '2026-09-17T19:59:08Z'
+closed_reason: Superseded by fleet-ops ticket 0122; the fix lands in https://github.com/Twin-Cities-Open-Systems/fleet-ops/pull/604.
+  Filed in this repo only because fleet-ops was not cloneable from claude@flippy on
+  2026-09-16 (unregistered SSH key); that is fixed, so the work moved to where the
+  code lives.

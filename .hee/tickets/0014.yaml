@@ -1,0 +1,32 @@
+id: '0014'
+created_at: '2026-09-17T05:20:10Z'
+description: 'feat(hee-dns): emit DHCP reservations, so name-IP-MAC has one source
+  instead of three. hee-dns exists precisely because forward and reverse DNS drifted
+  apart when maintained separately -- its own help records lab.tcos.us having sixteen
+  A records and zero PTR records, ''not through neglect, through structure''. DHCP
+  reservations are the same join one layer out: name <-> IP <-> MAC. Hand-maintaining
+  them beside the host file reproduces exactly the failure hee-dns was built to kill.
+  Trigger 2026-09-16: an esptool reset moved an ESP32 from 10.0.0.130 to 10.0.0.254,
+  and with 5-6 boards being deployed we need reservations. The MAC is ALREADY recorded,
+  in the one inventory, as interfaces[].mac -- so no new source of truth is needed.
+  Two shapes to weigh (rule 7, operator decides): (a) extend the tinydns-format host
+  file with a MAC field and emit reservations from it -- one file, but diverges from
+  the djbdns-native format chosen deliberately so a tinydns migration needs no conversion;
+  (b) join the existing host file (name<->IP) against the inventory (name<->MAC) and
+  emit reservations from the pair -- keeps both formats canonical and adds zero duplicated
+  data, at the cost of reading two inputs. UNMEASURED: which DHCP server this lab
+  runs (dnsmasq, kea, or the router at 10.0.0.1) -- output format depends on it and
+  fleet-ops is not reachable from claude@flippy to check.'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-17T05:20:10Z'
+source: flippy shift 2026-09-16, ESP32 deployment
+tags:
+- hee-dns
+- dhcp
+- esp32
+- fleet
+- rule-7
+- rule-15

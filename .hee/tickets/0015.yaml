@@ -1,0 +1,33 @@
+id: '0015'
+created_at: '2026-09-17T06:05:46Z'
+description: 'design(hee): split board reading between hee-ver (report) and hee-inv
+  (file evidence) -- refines ticket 0012. Measured while inventorying Espressif boards
+  on flippy 2026-09-17: reading a board produces two different KINDS of output, and
+  folding both into one tool would give that tool a second job. (1) Identity and firmware
+  fingerprint -- chip, revision, MAC, crystal, flash size, and which firmware is installed
+  -- is discovery, which is exactly what hee-ver self-describes as: ''One discovery
+  surface. It reports what is actually here, and verifies that what was recorded is
+  still true.'' Its existing verify subcommand is the natural home for re-checking
+  a recorded claim such as ''board #3 is still factory AT firmware''. (2) The flash
+  image itself is evidence, and hee-inv ALREADY owns evidence at inventory/evidence/by-sha256/
+  with a documented XMP pointer scheme (hee/contracts/inventory.contract.v1.md). A
+  4MB image addressed by sha256 belongs there, not in a discovery tool. Proposed division:
+  hee ver reports, hee inv files. Staged implementation that proves the shape is fleet-ops/esp32/bin/read-board.sh
+  (currently /srv/tcos/esp32/bin/read-board.sh on flippy); delete it once both halves
+  land. Real datum from the same session: two ESP8266 boards running byte-identical
+  factory firmware produced DIFFERENT image sha256 values, because per-device MAC
+  and RF calibration live in flash -- so any verify that compares whole-image hashes
+  across boards will report false differences.'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-17T06:05:46Z'
+source: flippy shift 2026-09-17, board inventory pass
+tags:
+- hee-ver
+- hee-inv
+- esp32
+- fleet
+- rule-15
+- refines-0012
