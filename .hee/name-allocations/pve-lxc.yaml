@@ -26,6 +26,10 @@ herbert:
   allocated_at: '2026-09-10T06:47:43+00:00'
   pool: family-guy
   scope: pve-lxc
+homer:
+  allocated_at: '2026-09-17T05:00:59+00:00'
+  pool: simpsons
+  scope: pve-lxc
 joe:
   allocated_at: '2026-09-07T01:24:04+00:00'
   pool: family-guy
