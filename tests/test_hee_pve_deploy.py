@@ -47,6 +47,17 @@ spec:
 
 class TestNet0(unittest.TestCase):
 
+    def test_features_render_in_manifest_order(self):
+        self.assertIsNone(deploy._features({}))
+        self.assertEqual(deploy._features({"features": {"nesting": True, "keyctl": True}}), "nesting=1,keyctl=1")
+        self.assertEqual(deploy._features({"features": {"fuse": False}}), "fuse=0")
+
+    def test_features_refuse_what_they_do_not_know(self):
+        for bad in ({"features": {"mount": True}}, {"features": {"nesting": 1}}, {"features": []},
+                    {"features": {}}, {"features": {"keyctl": True}, "unprivileged": False}):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                deploy._features(bad)
+
     def test_default_is_dhcp_on_vmbr0(self):
         self.assertEqual(deploy._net0({}), "name=eth0,bridge=vmbr0,ip=dhcp")
 
