@@ -58,6 +58,27 @@ class TestFieldsAndRender(unittest.TestCase):
         self.assertIn("0001", run(self.a, "-list", "--closed").stdout)
         self.assertNotIn("0002", run(self.a, "-list", "--closed").stdout)
 
+    def test_close_handles_an_id_that_yaml_loaded_as_an_int(self):
+        """A ticket file written with an unquoted id (0010) loads as the int 8.
+
+        Real record, caught 2026-09-17: three tickets in this repo's own
+        .hee/tickets/ were written that way, and `-close` crashed on all of
+        them with AttributeError: 'int' object has no attribute 'lstrip'.
+        cmd_close was the one loader that never applied the
+        filename-is-the-id correction _read_ticket and _load_tickets both do.
+        The file name is the id; whatever YAML made of the field is not.
+        """
+        run(self.a, "-new", "one")
+        rec = self.a / ".hee/tickets/0001.yaml"
+        rec.write_text(rec.read_text().replace("id: '0001'", "id: 0001"))
+
+        r = run(self.a, "-close", "1", "--why", "still closable")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import yaml
+        got = yaml.safe_load(rec.read_text())
+        self.assertEqual(got["status"], "closed")
+        self.assertEqual(got["closed_reason"], "still closable")
+
     def test_html_strikes_closed_and_aggregates_workspace(self):
         run(self.a, "-new", "alpha open", "--ref", "https://github.com/o/alpha/issues/3")
         run(self.a, "-new", "alpha done")

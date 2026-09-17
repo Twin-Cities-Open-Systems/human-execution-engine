@@ -504,7 +504,9 @@ def cmd_close(spec: str, why=None):
     records = []
     for tid in all_ids:
         with open(d / f"{tid}.yaml") as f:
-            records.append(yaml.safe_load(f))
+            rec = yaml.safe_load(f) or {}
+        rec["id"] = tid   # the file name is the id; an unquoted 0010 reads as 8
+        records.append(rec)
 
     matched = resolve_spec(spec, records, lambda r: r["id"], lambda r: r.get("description"))
 
