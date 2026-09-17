@@ -26,6 +26,7 @@ Manifest format (pve/services/<name>.yaml):
   storage: ssd1
   bridge: vmbr0
   unprivileged: true
+  features: {nesting: true, keyctl: true}   # pve LXC features; only for a container that runs containers
   addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
   agent: ci-triage                  # agent roster role, only for a container that runs an agent
   files:                            # committed files pushed INTO the container
@@ -208,6 +209,42 @@ def _anchor_ok(spec, anchors_path):
     return True
 
 
+# The pve LXC features a manifest may switch on. Deliberately short: each one
+# widens what the container can do to the host kernel, so a new one is a
+# decision made here, in review, not a string passed through.
+#   nesting  run containers (Docker, Podman) or systemd sandboxing inside
+#   keyctl   the kernel keyring syscalls Docker needs in an unprivileged container
+#   fuse     FUSE mounts inside the container
+FEATURES = ("nesting", "keyctl", "fuse")
+
+
+def _features(spec):
+    """pvesh's -features value, or None when the manifest declares none.
+
+    Real trigger (2026-09-17): the inventory service is a Docker image, and a
+    Docker LXC needs nesting=1 and keyctl=1. ipk-factory already runs with
+    nesting=1, recorded under `not_expressible:` because this tool had no
+    field for it -- so it could not be rebuilt from its manifest.
+    """
+    feats = spec.get("features")
+    if feats is None:
+        return None
+    if not isinstance(feats, dict) or not feats:
+        sys.exit("hee-pve-deploy: 'features' must be a mapping, e.g. {nesting: true, keyctl: true}")
+    parts = []
+    for name, on in feats.items():
+        if name not in FEATURES:
+            sys.exit(f"hee-pve-deploy: feature '{name}' is not one this tool sets "
+                     f"(allowed: {', '.join(FEATURES)}). Each one widens the container's reach "
+                     f"into the host kernel; add it to FEATURES in review, not in a manifest.")
+        if not isinstance(on, bool):
+            sys.exit(f"hee-pve-deploy: feature '{name}' must be true or false, not {on!r}")
+        parts.append(f"{name}={int(on)}")
+    if feats.get("keyctl") and not spec.get("unprivileged", True):
+        sys.exit("hee-pve-deploy: keyctl applies only to an unprivileged container; this one is privileged.")
+    return ",".join(parts)
+
+
 def _net0(spec, anchors_path=None):
     """The net0 string, with a static address when the manifest declares one.
 
@@ -335,6 +372,7 @@ def main():
     # inside apply_addons, AFTER `pvesh create`, so a misspelled set left a
     # running container holding nothing but its resolver files.
     plan_addons(addons, args.addons)
+    features = _features(spec)  # at plan time too: a bad feature fails before anything exists
 
     existing = existing_hostnames(args.host, args.node)
     if hostname in existing:
@@ -360,6 +398,8 @@ def main():
         "-unprivileged", "1" if spec.get("unprivileged", True) else "0",
         "-start", "1",
     ]
+    if features:
+        create_args += ["-features", features]
 
     if args.dry_run:
         print(f"hee-pve-deploy: DRY RUN, would run: pvesh {' '.join(create_args)}")
