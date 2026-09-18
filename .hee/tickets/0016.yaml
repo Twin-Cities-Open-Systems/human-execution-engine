@@ -1,0 +1,12 @@
+id: '0016'
+created_at: '2026-09-18T22:53:29Z'
+description: 'refs: resolve bare cross-repo paths only against human-execution-engine'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-18T22:53:29Z'
+ref: https://github.com/Twin-Cities-Open-Systems/human-execution-engine/pull/747
+tags:
+- hee-check
+- refs
