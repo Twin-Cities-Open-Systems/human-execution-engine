@@ -1,0 +1,27 @@
+id: '0013'
+created_at: '2026-09-17T05:00:01Z'
+description: 'design(hee): settle ''hee deploy TARGET'' vs ''hee pve deploy'' before
+  a firmware deploy path is added. Operator, 2026-09-16, thinking out loud while planning
+  ESP32 firmware deployment: today it is ''hee pve deploy'' (tooling/bin/hee-pve-deploy);
+  it may want to be ''hee deploy pve|firmware|...'' so the verb leads and targets
+  hang off it. This needs deciding BEFORE a firmware deploy lands, because adding
+  ''hee firmware deploy'' alongside ''hee pve deploy'' sets the noun-first precedent
+  permanently and a later reversal is churn across docs, muscle memory and every generated
+  man page. For verb-first: rule 15 favours one extended surface over growing siblings,
+  and deploy targets are open-ended (pve, firmware, site). Against: hee-pve-deploy,
+  hee-pve-dispatch, hee-pve-health and hee-pve-users already form a consistent noun-first
+  family, so verb-first would either split that family or force renaming four tools.
+  Rule 7 applies -- surface both sides and let the operator decide rather than picking
+  silently.'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-17T05:00:01Z'
+source: flippy shift 2026-09-16, operator thinking out loud
+tags:
+- hee
+- cli-design
+- rule-7
+- rule-15
+- needs-operator

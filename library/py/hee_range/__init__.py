@@ -86,8 +86,13 @@ def resolve_spec(spec, items, get_id, get_haystack):
         # ordered set, and the caller wrote that order deliberately.
         wanted = [w.lstrip("0") or "0" for w in parse_id_range_ordered(spec)]
         rank = {w: i for i, w in enumerate(wanted)}
-        matched = [it for it in items if (get_id(it).lstrip("0") or "0") in rank]
-        return sorted(matched, key=lambda it: rank[get_id(it).lstrip("0") or "0"])
+        # str(): the docstring says get_id returns a str, but nothing enforced
+        # it, and a YAML id written unquoted (0010) loads as an int -- which
+        # crashed here with AttributeError rather than simply not matching.
+        def _key(it):
+            return str(get_id(it)).lstrip("0") or "0"
+        matched = [it for it in items if _key(it) in rank]
+        return sorted(matched, key=lambda it: rank[_key(it)])
 
     pattern = re.compile(spec, re.IGNORECASE)
     return [it for it in items if pattern.search(get_haystack(it) or "")]

@@ -1,0 +1,26 @@
+id: '0012'
+created_at: '2026-09-17T05:00:01Z'
+description: 'feat(hee-ver): report serial/USB device identity, and the hardware groups
+  the account actually holds. Today ''hee ver hardware'' is scoped to DMI/BIOS/CPU/memory
+  and unprivileged. Two gaps measured on flippy 2026-09-16 while inventorying ESP32
+  boards: (1) nothing in the hee surface can say what is on /dev/ttyUSB* -- identifying
+  a board meant calling esptool by hand, and the fleet has 5-6 of them to inventory;
+  (2) ''the account is not in dialout'' is a fleet fact that should be REPORTED, not
+  discovered as a PermissionError at use time. hee-ver is bash and dispatches on a
+  case (tooling/bin/hee-ver:262), so a subcommand is the natural rung and no new top-level
+  tool is needed (rule 15). Proposed: report USB VID:PID, bridge driver, and where
+  the board answers, chip/revision/MAC/flash size; and have ''hardware'' also report
+  held groups (dialout, video, plugdev). Must degrade honestly without dialout rather
+  than reporting ''no device'' -- rule 2, silence is not a negative result.'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-17T05:00:01Z'
+source: flippy shift 2026-09-16, ESP32 inventory work
+tags:
+- hee-ver
+- esp32
+- fleet
+- hardware
+- rule-15
