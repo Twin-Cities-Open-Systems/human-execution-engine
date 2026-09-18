@@ -31,7 +31,8 @@ OPTIONS
   --mode error   report findings, exit 2 if any
 
 ENVIRONMENT
-  HEE_LINT_SKIP  git pathspecs to exclude, space-separated, e.g.
+  HEE_LINT_SKIP  git pathspecs to exclude, space-separated (the repo declares
+                 the same list as check.lint_skip in .hee/config.yaml), e.g.
                  ':!viz-dashboard/public/*' -- a rendered surface holding
                  copies of objects it does not own is derived, not a source,
                  and declaring that is the repo's job.
@@ -101,8 +102,18 @@ WARN=0
 # -- for a rendered surface that carries copies of objects it does not own.
 # A derived directory is not a source of truth and should not be linted as
 # one; declaring it here is the repo saying so, out loud, per rule 16.
+# The repo's own list comes first, from .hee/config.yaml check.lint_skip
+# (repo.config.shfn.bash); the environment appends to it.
+_LINT_SKIP=""
+if [ -r "${TOOL_ROOT}/library/bash/repo.config.shfn.bash" ]; then
+  # shellcheck source=/dev/null
+  . "${TOOL_ROOT}/library/bash/repo.config.shfn.bash"
+  for _p in $(hee_repo_config_list "${REPO_ROOT}" lint_skip); do
+    _LINT_SKIP="${_LINT_SKIP} '${_p}'"
+  done
+fi
 # shellcheck disable=SC2086
-FILES="$(cd "${REPO_ROOT}" && eval git ls-files "'*.yml'" "'*.yaml'" ${HEE_LINT_SKIP:-} 2>/dev/null)"
+FILES="$(cd "${REPO_ROOT}" && eval git ls-files "'*.yml'" "'*.yaml'" ${_LINT_SKIP} ${HEE_LINT_SKIP:-} 2>/dev/null)"
 if [ -z "${FILES}" ]; then
   echo "🟢 OK: no tracked YAML files"
   exit 0

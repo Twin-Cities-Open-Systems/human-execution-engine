@@ -35,6 +35,12 @@ TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+# shellcheck source=/dev/null
+if [ -r "$TOOL_ROOT/library/bash/repo.config.shfn.bash" ]; then
+  . "$TOOL_ROOT/library/bash/repo.config.shfn.bash"
+else
+  hee_repo_config_list() { :; }
+fi
 
 if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
   . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
@@ -206,12 +212,33 @@ ENVIRONMENT
                      space-separated, e.g. viz-dashboard/public -- a rendered
                      surface holding copies of objects it does not own. Not
                      HEE_DERIVED_DIRS, which means "must not be committed".
+                     The repo declares the same list once, for every runner,
+                     as check.refs_skip in .hee/config.yaml -- see REPO CONFIG.
   HEE_HOME_PATH_SKIP git pathspecs the home-path scan skips, e.g. ':!hosts/*'
                      for host-pinned scripts and units that name the real
-                     user on the real host on purpose. Set it in heerc; the
-                     repo declares the exemption, the checker never guesses.
-                     For a single deliberate line, prefer the marker
+                     user on the real host on purpose. The repo declares the
+                     exemption as check.home_path_skip in .hee/config.yaml
+                     (see REPO CONFIG); the environment appends to it, and
+                     the checker never guesses. For a single deliberate
+                     line, prefer the marker
                      hee-check:home-ok -- see `hee-check boundary --help`.
+
+REPO CONFIG
+  A repo declares its exemptions once, in .hee/config.yaml, and every
+  runner reads them -- a laptop and CI see the same list:
+
+      check:
+        refs_skip:                    # directories, HEE_REFS_SKIP form
+          - viz-dashboard/public
+        home_path_skip:               # git pathspecs, HEE_HOME_PATH_SKIP form
+          - ':!pve/agents/jobs/*/in/*'
+        lint_skip:                    # git pathspecs, HEE_LINT_SKIP form
+          - ':!viz-dashboard/public/*'
+
+  The environment variables append AFTER the file, so a run can widen a
+  skip and cannot silently narrow one. Real trigger, fleet-ops ticket
+  0067: the lists lived only in the CI workflow, so the same tree was
+  green on GitHub and red on every laptop.
 
 EXAMPLES
   hee-check                     boundary check of the current repo
@@ -301,6 +328,11 @@ check_boundary() {
   # what a host-pinned unit IS, and the repo is private. Rule 10 scopes the
   # ban to SHARED bootstrap scripts. The repo declares the exemption; the
   # checker does not guess it.
+  # .hee/config.yaml check.home_path_skip is the same declaration, kept in
+  # the repo so a local run and CI read one list (repo.config.shfn.bash).
+  for _p in $(hee_repo_config_list "$root" home_path_skip); do
+    _HP_SKIP="$_HP_SKIP '$_p'"
+  done
   _HP_SKIP="$_HP_SKIP ${HEE_HOME_PATH_SKIP:-}"
 
   # A path on the RIGHT of a docker -v/--volume is inside the image, not on
@@ -726,6 +758,10 @@ check_refs() {
   root="${1:-.}"
   validate_target "$root" || return 3
   command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable -- cannot check refs"; return 3; }
+  # The repo's own check.refs_skip joins the environment's list; the
+  # python below reads only HEE_REFS_SKIP, so this is the one place both meet.
+  _cfg_refs="$(hee_repo_config_list "$root" refs_skip | tr '\n' ' ')"
+  [ -n "$_cfg_refs" ] && export HEE_REFS_SKIP="$_cfg_refs ${HEE_REFS_SKIP:-}"
   HEE_REFS_FIX="$fix" PYTHONPATH="$TOOL_ROOT/library/py:${PYTHONPATH:-}" python3 - "$root" <<'PY'
 import os, sys
 sys.path.insert(0, os.path.join(os.environ.get("PYTHONPATH","").split(":")[0]))

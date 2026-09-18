@@ -33,7 +33,8 @@ hee-lint - fast lint gate for HEE-object YAML
 
 # ENVIRONMENT
 
-    HEE_LINT_SKIP  git pathspecs to exclude, space-separated, e.g.
+    HEE_LINT_SKIP  git pathspecs to exclude, space-separated (the repo declares
+                   the same list as check.lint_skip in .hee/config.yaml), e.g.
                    ':!viz-dashboard/public/*' -- a rendered surface holding
                    copies of objects it does not own is derived, not a source,
                    and declaring that is the repo's job.

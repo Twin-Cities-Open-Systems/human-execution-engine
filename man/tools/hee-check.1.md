@@ -59,11 +59,15 @@ hee-check - repo boundary and integrity checks
                        space-separated, e.g. viz-dashboard/public -- a rendered
                        surface holding copies of objects it does not own. Not
                        HEE_DERIVED_DIRS, which means "must not be committed".
+                       The repo declares the same list once, for every runner,
+                       as check.refs_skip in .hee/config.yaml -- see REPO CONFIG.
     HEE_HOME_PATH_SKIP git pathspecs the home-path scan skips, e.g. ':!hosts/*'
                        for host-pinned scripts and units that name the real
-                       user on the real host on purpose. Set it in heerc; the
-                       repo declares the exemption, the checker never guesses.
-                       For a single deliberate line, prefer the marker
+                       user on the real host on purpose. The repo declares the
+                       exemption as check.home_path_skip in .hee/config.yaml
+                       (see REPO CONFIG); the environment appends to it, and
+                       the checker never guesses. For a single deliberate
+                       line, prefer the marker
                        hee-check:home-ok -- see `hee-check boundary --help`.
 
 
@@ -89,3 +93,21 @@ hee-check - repo boundary and integrity checks
 # SEE ALSO
 
     hee-lint, hee-index, hee-print
+
+# REPO CONFIG
+
+    A repo declares its exemptions once, in .hee/config.yaml, and every
+    runner reads them -- a laptop and CI see the same list:
+
+        check:
+          refs_skip:                    # directories, HEE_REFS_SKIP form
+            - viz-dashboard/public
+          home_path_skip:               # git pathspecs, HEE_HOME_PATH_SKIP form
+            - ':!pve/agents/jobs/*/in/*'
+          lint_skip:                    # git pathspecs, HEE_LINT_SKIP form
+            - ':!viz-dashboard/public/*'
+
+    The environment variables append AFTER the file, so a run can widen a
+    skip and cannot silently narrow one. Real trigger, fleet-ops ticket
+    0067: the lists lived only in the CI workflow, so the same tree was
+    green on GitHub and red on every laptop.

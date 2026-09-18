@@ -70,8 +70,8 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-__all__ = ["Broken", "scan", "DOC_EXT", "EXCLUDE_PREFIXES", "EXCLUDE_SEGMENTS",
-           "SUPPRESS_MARKER"]
+__all__ = ["DOC_EXT", "EXCLUDE_PREFIXES", "EXCLUDE_SEGMENTS", "SUPPRESS_MARKER",
+           "Broken", "main_checkout", "scan", "sibling_checkouts"]
 
 #: Written anywhere on the line, with an optional reason after it.
 SUPPRESS_MARKER = "hee-check:refs-ok"
@@ -215,8 +215,7 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
     broken: list[Broken] = []
     # Sibling checkouts, for cross-repo references written as bare paths --
     # a fleet-ops contract citing blueprints/dir-layout-v1.yaml means HEE's.
-    _here = os.path.abspath(root)
-    siblings = [d for d in discover_repos(os.path.dirname(_here)) if os.path.abspath(d) != _here]
+    siblings = sibling_checkouts(os.path.abspath(root))
     cross: dict[str, int] = {}
 
     for f in sorted(files):
@@ -337,6 +336,68 @@ def repair(root: str = ".", broken: list[Broken] | None = None) -> list[tuple[st
                 raise RuntimeError(f"repair would corrupt {src}: doubled path segment")
             open(path, "w").write(text)
     return changed
+
+
+def _origin(path: str) -> str:
+    """The repo's origin URL, normalised so ssh and https spellings of one
+    remote compare equal (host/owner/name, lower-case, no .git). Empty when
+    there is no origin."""
+    r = subprocess.run(["git", "-C", path, "remote", "get-url", "origin"],
+                       capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        return ""
+    u = r.stdout.strip().lower()
+    u = re.sub(r"\.git/?$", "", u)
+    u = re.sub(r"^(ssh://)?git@([^:/]+)[:/]", r"\2/", u)
+    u = re.sub(r"^https?://([^@/]+@)?", "", u)
+    return u.rstrip("/")
+
+
+def main_checkout(path: str) -> str:
+    """The main working tree for `path`. A git worktree's .git is a file
+    pointing at the main clone's .git/worktrees/<name>; its siblings are the
+    main clone's siblings, not the other worktrees beside it. Measured
+    2026-09-18: `hee check refs` run inside ~/git/fleet-ops.worktrees/<b>
+    found no sibling checkouts at all and reported every cross-repo
+    reference broken."""
+    r = subprocess.run(["git", "-C", path, "rev-parse", "--git-common-dir"],
+                       capture_output=True, text=True, check=False)
+    common = r.stdout.strip() if r.returncode == 0 else ""
+    if not common:
+        return path
+    common = os.path.abspath(os.path.join(path, common))
+    if os.path.basename(common) == ".git":
+        return os.path.dirname(common)
+    return path
+
+
+def sibling_checkouts(here: str) -> list[str]:
+    """Checkouts beside `here` that a bare cross-repo path may resolve in.
+
+    One entry per REPOSITORY, not per directory. Two clones of the same
+    remote are one answer, not an ambiguity: measured 2026-09-18, an
+    operator's ~/git held both Human-Execution-Engine and
+    human-execution-engine, and every fleet-ops reference into HEE came
+    back "found in several siblings -- ambiguous -- broken" (265 findings,
+    all of them this). Another clone of `here`'s own remote is never a
+    sibling either: a file that is not on this branch is not "resolved"
+    because a second checkout sits on a branch that has it.
+    """
+    base = main_checkout(os.path.abspath(here))
+    mine = _origin(base)
+    seen = {mine} if mine else set()
+    out: list[str] = []
+    for d in discover_repos(os.path.dirname(base)):
+        d = os.path.abspath(d)
+        if d == base:
+            continue
+        o = _origin(d)
+        if o and o in seen:
+            continue
+        if o:
+            seen.add(o)
+        out.append(d)
+    return out
 
 
 def discover_repos(path: str) -> list[str]:
