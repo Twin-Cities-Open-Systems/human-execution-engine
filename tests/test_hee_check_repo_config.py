@@ -111,6 +111,19 @@ class RepoConfig(unittest.TestCase):
             self.assertEqual(rc, 2, "a list under another key was read as check.refs_skip: " + out)
 
 
+class PackageManifest(unittest.TestCase):
+    def test_package_json_paths_are_package_relative(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            make_repo(repo, {
+                "frontend/package.json": '{"name": "x", "main": "src/main.tsx"}\n',
+                "frontend/src/main.tsx": "export {}\n",
+                "src/other.md": "x\n",
+            })
+            rc, out = run(CHECK, "refs", ".", cwd=repo)
+            self.assertEqual(rc, 0, out)
+
+
 class Siblings(unittest.TestCase):
     def test_duplicate_clone_is_one_answer(self):
         with tempfile.TemporaryDirectory() as d:

@@ -270,6 +270,13 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
                 checked += 1
                 if ref in existing or os.path.exists(os.path.join(root, ref)) or ref in _evidence_manifest(root):
                     continue
+                if os.path.basename(f) == "package.json" and \
+                        os.path.exists(os.path.join(root, os.path.dirname(f), ref)):
+                    # A package manifest's paths ("main", "bin", "files") are
+                    # relative to the package, which need not be the repo root.
+                    # Measured 2026-09-18: tick-task/frontend/package.json
+                    # `"main": "src/main.tsx"` reported broken against the root.
+                    continue
                 # Not here. Resolved in exactly one sibling checkout: real,
                 # tallied, not broken. In several: ambiguous, and that IS broken.
                 hits = [s for s in siblings if os.path.exists(os.path.join(s, ref))]
