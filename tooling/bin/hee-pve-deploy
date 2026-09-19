@@ -474,6 +474,14 @@ def main():
     else:
         print(f"hee-pve-deploy: creating '{hostname}' as vmid {vmid}...")
         pvesh(args.host, create_args, capture=False)
+        # pvesh exits 0 when the create TASK was accepted, not when it succeeded:
+        # measured 2026-09-19, "unable to create CT 123 - unsupported debian
+        # version '13.6'" printed by the task, exit 0, and this tool went on to
+        # wait 60 s for a network on a container that did not exist. The
+        # container's existence is the only proof of a create.
+        if hostname not in existing_hostnames(args.host, args.node):
+            sys.exit(f"hee-pve-deploy: pvesh create was accepted but '{hostname}' (vmid {vmid}) does not "
+                     f"exist afterwards -- the create task failed; its own message is above.")
         print(f"hee-pve-deploy: '{hostname}' created and starting (vmid {vmid}).")
         if addons or files or scripts or resolver_files:
             # `-start 1` returns when the container is started, not when
