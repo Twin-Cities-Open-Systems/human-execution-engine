@@ -13,8 +13,12 @@ made, kept consistent here rather than picking a second one.
 Targets are named, not raw paths, so "where does -r search" stays a
 real, explicit, growable list instead of everyone needing to remember
 absolute paths:
-  storage -> /mnt/nuc1-pool/storage/docs
-  media   -> /mnt/nuc1-pool/media
+  storage -> /data/storage/docs    (the lab share pve serves, mounted at /data/storage
+                                    on every lab host; fleet-ops pve/storage/README.md)
+
+The `media` target (nuc-1's /mnt/nuc1-pool/media) was removed 2026-09-19:
+nuc-1's NFS is the crooked network's, not the lab's, and nothing in the lab
+mounts it. A lab media share does not exist yet; add the target when it does.
 
 Usage:
   hee-scan -target NAME -r REGEX
@@ -33,8 +37,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library
 from hee_cli import help_wanted, note_ignored  # noqa: E402
 
 TARGETS = {
-    "storage": "/mnt/nuc1-pool/storage/docs",
-    "media": "/mnt/nuc1-pool/media",
+    "storage": "/data/storage/docs",
 }
 
 
