@@ -38,6 +38,9 @@ Manifest format (pve/services/<name>.yaml):
     nameservers: [10.0.0.194, 10.0.0.72]
     search: [lab.tcos.us, tcos.us]
     ndots: 2
+  mounts:                           # directories of the pve HOST lent to the container (bind mounts)
+    - {host: /srv/storage, ct: /data/storage}            # read-write
+    - {host: /srv/media, ct: /data/media, ro: true}      # read-only
 
 `files:` and `provision:` paths are relative to the root of the repo the
 manifest lives in (git rev-parse --show-toplevel), never to the current
@@ -86,6 +89,24 @@ on musl: the search list is used only when a name has FEWER dots than
 ndots, so `view.lab` (one dot) resolves as view.lab.tcos.us only with
 ndots 2. Operator: "proper search and ndot settings too (view.lab/foo should
 work)".
+
+`mounts:` lends a directory of the pve HOST to the container, rendered as
+`-mpN host,mp=ct[,ro=1]` in manifest order. It is the only way an
+unprivileged LXC gets shared storage: the container cannot mount NFS
+itself, so the host mounts or serves the storage and bind-mounts the
+directory in. Real trigger (2026-09-18): the meme-factory service needs the
+lab's $MNTPATH (/data/storage) inside its container, and ipk-factory has
+waited since 2026-09-03 for "the nfs share once set up" -- with no field,
+both would have been a hand `pct set`, the imperative shape this tool exists
+to remove. Rules: both paths absolute and normalized (no trailing slash, no
+`..`), no comma or `=` in either (pve's option syntax), `ct` never `/`, no
+two entries with the same `ct`. Known and not hidden: in an unprivileged
+container the host's uids are shifted (host uid N appears as 100000+N), so
+files owned by ordinary host users read as nobody:nogroup -- reading needs
+the world-read bit, writing needs a world-writable (1777) or
+100000-range-owned directory on the host, and this tool chmods nothing.
+pve accepts a bind mount only from root@pam, which pvesh over ssh to root
+is. A bind mount is never part of a container backup.
 
 Usage:
   hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
@@ -245,6 +266,43 @@ def _features(spec):
     return ",".join(parts)
 
 
+def _mounts(spec):
+    """pvesh `-mpN` arguments for the manifest's `mounts:`, or [] when none.
+
+    A bind mount is a host path as the volume plus `mp=` for where it lands
+    in the container. Validated at plan time so a bad entry fails before
+    `pvesh create`, like features and the resolver. See the module
+    docstring for the uid-shift caveat this deliberately does not paper over.
+    """
+    mounts = spec.get("mounts")
+    if mounts is None:
+        return []
+    if not isinstance(mounts, list) or not mounts:
+        sys.exit("hee-pve-deploy: 'mounts' must be a non-empty list of "
+                 "{host: /abs/on/pve, ct: /abs/in/container[, ro: true]} entries")
+    args, seen = [], set()
+    for i, m in enumerate(mounts):
+        if not isinstance(m, dict) or not {"host", "ct"} <= set(m) or set(m) - {"host", "ct", "ro"}:
+            sys.exit(f"hee-pve-deploy: mounts[{i}] must be {{host: /abs, ct: /abs[, ro: bool]}}, got {m!r}")
+        host, ct, ro = m["host"], m["ct"], m.get("ro", False)
+        for key, val in (("host", host), ("ct", ct)):
+            if not isinstance(val, str) or not val.startswith("/") or val != os.path.normpath(val):
+                sys.exit(f"hee-pve-deploy: mounts[{i}].{key} must be an absolute, normalized path "
+                         f"(no trailing slash, no '..'), got {val!r}")
+            if "," in val or "=" in val:
+                sys.exit(f"hee-pve-deploy: mounts[{i}].{key} {val!r} contains ',' or '=', which pve's "
+                         f"option syntax cannot carry")
+        if ct == "/":
+            sys.exit(f"hee-pve-deploy: mounts[{i}].ct may not be '/' -- that is the rootfs")
+        if ct in seen:
+            sys.exit(f"hee-pve-deploy: mounts[{i}].ct {ct} is declared twice")
+        if not isinstance(ro, bool):
+            sys.exit(f"hee-pve-deploy: mounts[{i}].ro must be true or false, not {ro!r}")
+        seen.add(ct)
+        args += [f"-mp{i}", f"{host},mp={ct}" + (",ro=1" if ro else "")]
+    return args
+
+
 def _net0(spec, anchors_path=None):
     """The net0 string, with a static address when the manifest declares one.
 
@@ -373,6 +431,7 @@ def main():
     # running container holding nothing but its resolver files.
     plan_addons(addons, args.addons)
     features = _features(spec)  # at plan time too: a bad feature fails before anything exists
+    mounts = _mounts(spec)  # same: a bad mount fails before anything exists
 
     existing = existing_hostnames(args.host, args.node)
     if hostname in existing:
@@ -400,6 +459,7 @@ def main():
     ]
     if features:
         create_args += ["-features", features]
+    create_args += mounts
 
     if args.dry_run:
         print(f"hee-pve-deploy: DRY RUN, would run: pvesh {' '.join(create_args)}")

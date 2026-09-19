@@ -77,6 +77,9 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
         nameservers: [10.0.0.194, 10.0.0.72]
         search: [lab.tcos.us, tcos.us]
         ndots: 2
+      mounts:                           # directories of the pve HOST lent to the container (bind mounts)
+        - {host: /srv/storage, ct: /data/storage}            # read-write
+        - {host: /srv/media, ct: /data/media, ro: true}      # read-only
 
     `files:` and `provision:` paths are relative to the root of the repo the
     manifest lives in (git rev-parse --show-toplevel), never to the current
@@ -125,3 +128,21 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
     ndots, so `view.lab` (one dot) resolves as view.lab.tcos.us only with
     ndots 2. Operator: "proper search and ndot settings too (view.lab/foo should
     work)".
+
+    `mounts:` lends a directory of the pve HOST to the container, rendered as
+    `-mpN host,mp=ct[,ro=1]` in manifest order. It is the only way an
+    unprivileged LXC gets shared storage: the container cannot mount NFS
+    itself, so the host mounts or serves the storage and bind-mounts the
+    directory in. Real trigger (2026-09-18): the meme-factory service needs the
+    lab's $MNTPATH (/data/storage) inside its container, and ipk-factory has
+    waited since 2026-09-03 for "the nfs share once set up" -- with no field,
+    both would have been a hand `pct set`, the imperative shape this tool exists
+    to remove. Rules: both paths absolute and normalized (no trailing slash, no
+    `..`), no comma or `=` in either (pve's option syntax), `ct` never `/`, no
+    two entries with the same `ct`. Known and not hidden: in an unprivileged
+    container the host's uids are shifted (host uid N appears as 100000+N), so
+    files owned by ordinary host users read as nobody:nogroup -- reading needs
+    the world-read bit, writing needs a world-writable (1777) or
+    100000-range-owned directory on the host, and this tool chmods nothing.
+    pve accepts a bind mount only from root@pam, which pvesh over ssh to root
+    is. A bind mount is never part of a container backup.

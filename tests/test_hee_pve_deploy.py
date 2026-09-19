@@ -172,6 +172,51 @@ class TestFilesAndProvision(unittest.TestCase):
                       "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -s", text)
 
 
+class TestMounts(unittest.TestCase):
+
+    def test_renders_mpN_in_manifest_order(self):
+        self.assertEqual(deploy._mounts({}), [])
+        self.assertEqual(
+            deploy._mounts({"mounts": [{"host": "/srv/storage", "ct": "/data/storage"},
+                                       {"host": "/srv/media", "ct": "/data/media", "ro": True}]}),
+            ["-mp0", "/srv/storage,mp=/data/storage", "-mp1", "/srv/media,mp=/data/media,ro=1"])
+
+    def test_refusals(self):
+        bad = [
+            {"mounts": {}},                                            # not a list
+            {"mounts": []},                                            # empty
+            {"mounts": [{"host": "/srv/x"}]},                          # no ct
+            {"mounts": [{"host": "srv/x", "ct": "/data/x"}]},          # relative host
+            {"mounts": [{"host": "/srv/x/", "ct": "/data/x"}]},        # trailing slash
+            {"mounts": [{"host": "/srv/../x", "ct": "/data/x"}]},      # not normalized
+            {"mounts": [{"host": "/srv/x", "ct": "/"}]},               # rootfs
+            {"mounts": [{"host": "/srv/x", "ct": "/data/x"},
+                        {"host": "/srv/y", "ct": "/data/x"}]},         # duplicate ct
+            {"mounts": [{"host": "/srv/x", "ct": "/data/x", "ro": "yes"}]},   # ro not bool
+            {"mounts": [{"host": "/srv/x", "ct": "/data/x", "size": "8G"}]},  # unknown key
+            {"mounts": [{"host": "/srv/a,b", "ct": "/data/x"}]},       # pve option syntax
+        ]
+        for spec in bad:
+            with self.subTest(spec=spec), self.assertRaises(SystemExit):
+                deploy._mounts(spec)
+
+    def test_dry_run_prints_the_mount_and_never_connects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "svc.yaml"
+            manifest.write_text(
+                "hostname: mf-test\ntemplate: alpine.tar.xz\nstorage: ssd1\n"
+                "mounts:\n  - {host: /srv/storage, ct: /data/storage}\n")
+            out = io.StringIO()
+            with mock.patch.object(deploy, "existing_hostnames", return_value={}), \
+                 mock.patch.object(deploy, "ensure_template", return_value=None), \
+                 mock.patch.object(deploy, "pvesh", return_value="999\n"), \
+                 mock.patch.object(sys, "argv", ["hee-pve-deploy", str(manifest), "--dry-run"]), \
+                 contextlib.redirect_stdout(out):
+                deploy.main()
+        self.assertIn("-mp0 /srv/storage,mp=/data/storage", out.getvalue())
+        self.assertIn("DRY RUN complete", out.getvalue())
+
+
 class TestAddonRegistry(unittest.TestCase):
 
     def test_missing_registry_refuses_rather_than_skips(self):
