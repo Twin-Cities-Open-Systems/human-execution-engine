@@ -18,8 +18,8 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "tooling" / "bin" / "hee-pve-deploy"
@@ -350,7 +350,7 @@ class TestAgentRosterModel(unittest.TestCase):
         with mock.patch.object(deploy.subprocess, "run") as run:
             with self.assertRaises(SystemExit):
                 deploy.render_agent_roster_model({"agent": "groomer"}, self.agent_roster)
-            run.assert_not_called()
+            self.assertEqual([c.args[0] for c in run.call_args_list if c.args and c.args[0] and c.args[0][0] == 'pct'], [])  # git rev-parse (manifest resolution) is a read; nothing reaches pct
 
     def test_missing_agent_roster_or_signature_refuses(self):
         with self.assertRaises(SystemExit):
@@ -527,6 +527,264 @@ class TestManifestRoot(unittest.TestCase):
             open(m, "w").close()
             self.assertEqual(deploy._manifest_root(m), os.path.realpath(d)
                              if os.path.realpath(d) == d else d)
+
+
+# ---------------------------------------------------------------------------
+# --reprovision -- human-execution-engine#760.
+#
+# Nothing here opens a real ssh connection either: subprocess.run itself is
+# mocked wherever a helper would call out to `pct`/`pvesh`, the same fake
+# shape the rest of this file uses for `gpg` (TestAgentRosterModel) and pve
+# create (TestMounts.test_dry_run_prints_the_mount_and_never_connects).
+# ---------------------------------------------------------------------------
+
+class TestReprovisionHelp(unittest.TestCase):
+
+    def test_help_documents_reprovision_and_its_missing_container_no_op(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["hee-pve-deploy", "--help"]), \
+             contextlib.redirect_stdout(out):
+            deploy.main()
+        text = out.getvalue()
+        self.assertIn("--reprovision", text)
+        self.assertIn("no-op", text)
+
+
+class TestLiveSha256(unittest.TestCase):
+
+    def test_present_file_returns_its_hash(self):
+        r = types.SimpleNamespace(returncode=0, stdout="deadbeef  /etc/x\n", stderr="")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            self.assertEqual(deploy._live_sha256("h", 1, "/etc/x"), "deadbeef")
+
+    def test_absent_file_is_none_not_an_error(self):
+        r = types.SimpleNamespace(returncode=1, stdout="",
+                                  stderr="sha256sum: /etc/x: No such file or directory\n")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            self.assertIsNone(deploy._live_sha256("h", 1, "/etc/x"))
+
+
+class TestTarAndLiveDirSha256(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        (self.root / "svc" / "sub").mkdir(parents=True)
+        (self.root / "svc" / "app.py").write_text("print(1)\n")
+        (self.root / "svc" / "sub" / "x.txt").write_text("x\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "svc/app.py", "svc/sub/x.txt"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-q", "-m", "x"], check=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_tar_entry_sha256s_keys_match_paths_relative_to_dst(self):
+        files = deploy.plan_files({"files": [{"src": "svc", "dst": "/opt/svc"}]}, self.root)
+        entries = deploy._tar_entry_sha256s(files[0]["data"])
+        self.assertEqual(set(entries), {"app.py", "sub/x.txt"})
+        self.assertEqual(entries["app.py"], deploy._sha256_hex(b"print(1)\n"))
+
+    def test_live_dir_sha256s_parses_find_sha256sum_output(self):
+        r = types.SimpleNamespace(returncode=0, stdout="aaa  ./app.py\nbbb  ./sub/x.txt\n", stderr="")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            live = deploy._live_dir_sha256s("h", 1, "/opt/svc")
+        self.assertEqual(live, {"app.py": "aaa", "sub/x.txt": "bbb"})
+
+    def test_live_dir_sha256s_missing_dst_is_empty_not_an_error(self):
+        r = types.SimpleNamespace(returncode=1, stdout="", stderr="")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            self.assertEqual(deploy._live_dir_sha256s("h", 1, "/opt/nope"), {})
+
+
+class TestDiffFiles(unittest.TestCase):
+
+    def test_regular_files_report_unchanged_changed_new(self):
+        files = [
+            {"rel": "a", "src": None, "data": b"AAAA", "dst": "/etc/a", "mode": None},
+            {"rel": "b", "src": None, "data": b"BBBB", "dst": "/etc/b", "mode": None},
+            {"rel": "c", "src": None, "data": b"CCCC", "dst": "/etc/c", "mode": None},
+        ]
+        hash_a = deploy._sha256_hex(b"AAAA")
+        hash_b_old = deploy._sha256_hex(b"old-b")
+        with mock.patch.object(deploy, "_live_sha256", side_effect=[hash_a, hash_b_old, None]):
+            report = deploy.diff_files("h", 1, files)
+        self.assertEqual([label for label, _ in report], ["a -> /etc/a", "b -> /etc/b", "c -> /etc/c"])
+        self.assertEqual([status for _, status in report], ["unchanged", "changed", "new"])
+
+    def test_directory_entry_new_changed_unchanged(self):
+        entry = {"rel": "svc/", "src": None, "data": {"tar": b"", "files": 2, "strip": 1},
+                 "dst": "/opt/svc", "mode": None, "dir": True}
+        wanted = {"a": "h1", "b": "h2"}
+        with mock.patch.object(deploy, "_tar_entry_sha256s", return_value=wanted), \
+             mock.patch.object(deploy, "_live_dir_sha256s", return_value={}):
+            self.assertEqual(deploy.diff_files("h", 1, [entry])[0], ("svc/ -> /opt/svc/", "new"))
+        with mock.patch.object(deploy, "_tar_entry_sha256s", return_value=wanted), \
+             mock.patch.object(deploy, "_live_dir_sha256s", return_value=dict(wanted)):
+            self.assertEqual(deploy.diff_files("h", 1, [entry])[0], ("svc/ -> /opt/svc/", "unchanged"))
+        with mock.patch.object(deploy, "_tar_entry_sha256s", return_value=wanted), \
+             mock.patch.object(deploy, "_live_dir_sha256s", return_value={"a": "h1", "b": "OLD"}):
+            self.assertEqual(deploy.diff_files("h", 1, [entry])[0], ("svc/ -> /opt/svc/", "changed"))
+
+
+class TestLiveConfig(unittest.TestCase):
+
+    def test_parses_pct_config_colon_lines(self):
+        r = types.SimpleNamespace(
+            returncode=0,
+            stdout="arch: amd64\nfeatures: nesting=1,keyctl=1\nmp0: /srv/storage,mp=/data/storage\n",
+            stderr="")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            live = deploy.live_config("h", 123)
+        self.assertEqual(live["features"], "nesting=1,keyctl=1")
+        self.assertEqual(live["mp0"], "/srv/storage,mp=/data/storage")
+
+    def test_unreadable_config_refuses(self):
+        r = types.SimpleNamespace(returncode=1, stdout="", stderr="no such container")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            with self.assertRaises(SystemExit):
+                deploy.live_config("h", 123)
+
+
+class TestDiffConfig(unittest.TestCase):
+
+    def test_no_diff_when_live_matches_the_manifest(self):
+        spec = {"features": {"nesting": True},
+                "mounts": [{"host": "/srv/storage", "ct": "/data/storage"}]}
+        live = {"features": "nesting=1", "mp0": "/srv/storage,mp=/data/storage"}
+        self.assertEqual(deploy.diff_config(spec, live, 123), [])
+
+    def test_reports_mismatched_missing_and_extra_mounts_and_features(self):
+        spec = {"features": {"nesting": True, "keyctl": True},
+                "mounts": [{"host": "/srv/storage", "ct": "/data/storage"}]}
+        live = {"features": "nesting=1", "mp0": "/srv/OLD,mp=/data/storage", "mp1": "/srv/x,mp=/data/x"}
+        pct_sets = [pct_set for _, pct_set in deploy.diff_config(spec, live, 123)]
+        self.assertIn("pct set 123 -features nesting=1,keyctl=1", pct_sets)
+        self.assertIn("pct set 123 -mp0 /srv/storage,mp=/data/storage", pct_sets)
+        self.assertIn("pct set 123 -delete mp1", pct_sets)
+
+    def test_manifest_with_no_features_but_live_has_some_reports_a_delete(self):
+        diffs = deploy.diff_config({}, {"features": "nesting=1"}, 5)
+        self.assertEqual(diffs, [("features: manifest wants none, live is 'nesting=1'",
+                                  "pct set 5 -delete features")])
+
+
+class TestPctExecStdinExitCode(unittest.TestCase):
+
+    def test_provision_failure_exits_with_the_scripts_own_code(self):
+        r = types.SimpleNamespace(returncode=3, stderr=b"boom")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            with self.assertRaises(SystemExit) as cm:
+                deploy._pct_exec_stdin("h", 1, ["sh", "-s"], b"", "provision: x.sh",
+                                       capture=False, propagate_exit_code=True)
+        self.assertEqual(cm.exception.code, 3)
+
+    def test_files_push_failure_still_exits_on_a_message_not_a_bare_code(self):
+        r = types.SimpleNamespace(returncode=3, stderr=b"boom")
+        with mock.patch.object(deploy.subprocess, "run", return_value=r):
+            with self.assertRaises(SystemExit) as cm:
+                deploy._pct_exec_stdin("h", 1, ["sh", "-c", "x"], b"", "files: x")
+        self.assertIsInstance(cm.exception.code, str)
+
+
+class TestReprovisionIntegration(unittest.TestCase):
+    """main() with --reprovision, mocking existing_hostnames/live_config the
+    same way TestMounts mocks pvesh/existing_hostnames for a create."""
+
+    def _manifest(self, tmp, extra=""):
+        manifest = Path(tmp) / "svc.yaml"
+        manifest.write_text(
+            "hostname: mf-test\ntemplate: alpine.tar.xz\nstorage: ssd1\n"
+            "provision:\n  - prov.sh\n" + extra)
+        (Path(tmp) / "prov.sh").write_text("echo hi\n")
+        return manifest
+
+    def test_missing_container_reprovision_is_a_plain_create(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest(tmp)
+            out = io.StringIO()
+            with mock.patch.object(deploy, "existing_hostnames", return_value={}), \
+                 mock.patch.object(deploy, "ensure_template", return_value=None), \
+                 mock.patch.object(deploy, "pvesh", return_value="999\n"), \
+                 mock.patch.object(sys, "argv",
+                                    ["hee-pve-deploy", str(manifest), "--reprovision", "--dry-run"]), \
+                 contextlib.redirect_stdout(out):
+                deploy.main()
+            text = out.getvalue()
+            self.assertIn("does not exist yet -- '--reprovision' is a no-op", text)
+            self.assertIn("DRY RUN, would run: pvesh create", text)
+            self.assertIn("DRY RUN, would run prov.sh via:", text)
+
+    def test_dry_run_reprovision_touches_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest(tmp)
+            out = io.StringIO()
+            with mock.patch.object(deploy, "existing_hostnames", return_value={"mf-test": 7}), \
+                 mock.patch.object(deploy, "live_config", return_value={}), \
+                 mock.patch.object(deploy.subprocess, "run") as run, \
+                 mock.patch.object(sys, "argv",
+                                    ["hee-pve-deploy", str(manifest), "--reprovision", "--dry-run"]), \
+                 contextlib.redirect_stdout(out):
+                deploy.main()
+            text = out.getvalue()
+            self.assertIn("already exists (vmid 7) -- reprovisioning", text)
+            self.assertIn("DRY RUN, would run prov.sh via:", text)
+            self.assertIn("DRY RUN complete", text)
+            self.assertEqual([c.args[0] for c in run.call_args_list if c.args and c.args[0] and c.args[0][0] == 'pct'], [])  # git rev-parse (manifest resolution) is a read; nothing reaches pct   # no files: entries here, so no sha256sum reads either;
+                                      # apply_files/apply_provision print-only under dry_run
+
+    def test_existing_container_reships_reports_diff_and_runs_provision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest(tmp, extra="files:\n  - {src: prov.sh, dst: /opt/prov.sh}\n")
+            out = io.StringIO()
+            with mock.patch.object(deploy, "existing_hostnames", return_value={"mf-test": 123}), \
+                 mock.patch.object(deploy, "live_config", return_value={}), \
+                 mock.patch.object(deploy, "_live_sha256", return_value=None), \
+                 mock.patch.object(deploy, "apply_files") as af, \
+                 mock.patch.object(deploy, "apply_provision") as ap, \
+                 mock.patch.object(sys, "argv", ["hee-pve-deploy", str(manifest), "--reprovision"]), \
+                 contextlib.redirect_stdout(out):
+                deploy.main()
+            text = out.getvalue()
+            self.assertIn("'mf-test' already exists (vmid 123) -- reprovisioning", text)
+            self.assertIn("files: prov.sh -> /opt/prov.sh: new", text)
+            self.assertNotIn("WARNING", text)   # nothing in mounts:/features: to warn about
+            af.assert_called_once()
+            ap.assert_called_once()
+
+    def test_exit_code_follows_the_provision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest(tmp)
+            with mock.patch.object(deploy, "existing_hostnames", return_value={"mf-test": 123}), \
+                 mock.patch.object(deploy, "live_config", return_value={}), \
+                 mock.patch.object(deploy, "apply_files", return_value=None), \
+                 mock.patch.object(deploy, "apply_provision", side_effect=SystemExit(7)), \
+                 mock.patch.object(sys, "argv", ["hee-pve-deploy", str(manifest), "--reprovision"]):
+                with self.assertRaises(SystemExit) as cm:
+                    deploy.main()
+            self.assertEqual(cm.exception.code, 7)
+
+    def test_mounts_mismatch_warns_with_the_pct_set_and_applies_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "svc.yaml"
+            manifest.write_text(
+                "hostname: mf-test\ntemplate: alpine.tar.xz\nstorage: ssd1\n"
+                "mounts:\n  - {host: /srv/storage, ct: /data/storage}\n")
+            out = io.StringIO()
+            with mock.patch.object(deploy, "existing_hostnames", return_value={"mf-test": 42}), \
+                 mock.patch.object(deploy, "live_config",
+                                    return_value={"mp0": "/srv/OLD,mp=/data/storage"}), \
+                 mock.patch.object(deploy, "apply_files", return_value=None), \
+                 mock.patch.object(deploy, "apply_provision", return_value=None), \
+                 mock.patch.object(deploy.subprocess, "run") as run, \
+                 mock.patch.object(sys, "argv", ["hee-pve-deploy", str(manifest), "--reprovision"]), \
+                 contextlib.redirect_stdout(out):
+                deploy.main()
+            text = out.getvalue()
+            self.assertIn("WARNING", text)
+            self.assertIn("pct set 42 -mp0 /srv/storage,mp=/data/storage", text)
+            self.assertIn("not applied", text)
+            self.assertEqual([c.args[0] for c in run.call_args_list if c.args and c.args[0] and c.args[0][0] == 'pct'], [])  # git rev-parse (manifest resolution) is a read; nothing reaches pct   # never runs `pct set` -- nothing reached subprocess at all
 
 
 if __name__ == "__main__":

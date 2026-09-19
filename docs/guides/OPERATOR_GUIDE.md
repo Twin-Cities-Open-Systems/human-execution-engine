@@ -189,6 +189,21 @@ service usually needs:
   it and lends the directory. Inside the container host uids are shifted, so
   reading needs the world-read bit and writing a world-writable or
   range-owned directory.
+- **`--reprovision`** re-ships every `files:` entry and re-runs `provision:`
+  on a container that already exists, in place of the plain idempotent skip
+  (human-execution-engine#760). It never touches the container's config: no
+  `pct set`, ever, under this flag -- so it cannot change a MAC a DHCP
+  reservation is keyed on, or a mount. Each `files:` entry is sha256-compared
+  against what is already in the container (a directory entry compares every
+  file the tar carries) and reported `new`/`changed`/`unchanged` before it is
+  re-shipped; `provision:` then runs exactly as it does at create, and
+  `hee-pve-deploy`'s own exit code is the provision script's. If the
+  manifest's `mounts:` or `features:` no longer match the live container
+  (`pct config VMID`), each difference prints as a WARNING naming the exact
+  `pct set` that would fix it -- nothing is applied, because that still
+  needs a destroy and a create. On a hostname that does not exist yet
+  `--reprovision` is a no-op: a plain create happens. `--dry-run
+  --reprovision` previews all of this and changes nothing.
 - **`files:` with a directory `src`** ships every file git tracks under it as
   one tar (`git archive HEAD`), unpacked at `dst`. This is how a service's
   code reaches a container when the repo is private and the container holds
