@@ -264,6 +264,12 @@ def real_deploy(
     prev = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=resume, capture_output=True, text=True, check=False
     ).stdout.strip()
+    if not prev or prev == "HEAD":
+        # A detached checkout has no branch to come back to: `git switch HEAD`
+        # is refused, the run would end on the new branch, and the WARNING
+        # from the finally block below lands after the exit code is decided
+        # (pr-reviewer, second pass, 2026-09-19). Refuse before anything moves.
+        return fail_critical(f"{resume}: checkout is detached (no branch to return to); check out a branch first")
 
     fetch = subprocess.run(["git", "fetch", "origin", "main"], cwd=resume, capture_output=True, text=True, check=False)
     if fetch.returncode != 0:
@@ -277,6 +283,7 @@ def real_deploy(
         return fail_critical(f"{resume}: git switch -c {branch} origin/main failed: {switch.stderr.strip()}")
 
     committed = False
+    rc = 2
     try:
         post_dir = resume / "profiles" / oper / "blog"
         post_dir.mkdir(parents=True, exist_ok=True)
@@ -373,9 +380,11 @@ def real_deploy(
 
         if warnings or WARNINGS:
             print(f"⚠️ WARNING hee-deploy: lab updated, with warnings above -- {review_url}")
-            return 1
-        print(f"✅ OK hee-deploy: lab updated -- {review_url}")
-        return 0
+            rc = 1
+        else:
+            print(f"✅ OK hee-deploy: lab updated -- {review_url}")
+            rc = 0
+        return rc
     finally:
         # Every path out of here, success or refusal, leaves the checkout
         # the way it was found: the build's tracked outputs restored, the
@@ -391,6 +400,11 @@ def real_deploy(
         back = subprocess.run(["git", "switch", prev], cwd=resume, capture_output=True, text=True, check=False)
         if back.returncode != 0:
             warn(f"{resume}: could not switch back to {prev}: {back.stderr.strip()}")
+            if rc == 0:
+                # the verdict above already printed OK; say so, and let the
+                # exit code carry the warning (a return in finally wins)
+                print("⚠️ WARNING hee-deploy: deployed, but the checkout was not left as found -- exit 1")
+                return 1  # noqa: B012 -- deliberate: the finally's warning must reach the exit code
         elif not committed:
             subprocess.run(["git", "branch", "-D", branch], cwd=resume, capture_output=True, text=True, check=False)
 
