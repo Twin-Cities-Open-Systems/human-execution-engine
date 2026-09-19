@@ -284,6 +284,12 @@ def real_deploy(
         # (pr-reviewer, second pass, 2026-09-19). Refuse before anything moves.
         return fail_critical(f"{resume}: checkout is detached (no branch to return to); check out a branch first")
 
+    # Lab is a directory on pve's NFS export, mounted on every lab host; no
+    # ssh, no pve (operator, 2026-09-19). Refuse before the minute-long build
+    # when it is not there.
+    lab_www = Path(os.environ.get("HEE_LAB_WWW") or "/data/storage/lab/www")
+    if not lab_www.is_dir():
+        return fail_critical(f"lab share not mounted at {lab_www} -- mount pve's /data/storage (fstab: 10.0.0.153:/ /data/storage nfs4), or set HEE_LAB_WWW")
     stage(f"fetching origin/main in {resume}")
     fetch = subprocess.run(["git", "fetch", "origin", "main"], cwd=resume, capture_output=True, text=True, check=False)
     if fetch.returncode != 0:
@@ -353,7 +359,7 @@ def real_deploy(
                     f"{beside}: missing beside {page} -- media/bin/media-item.py root should have copied it"
                 )
 
-        stage(f"deploying: media/bin/deploy.sh {oper} lab -- minify, then stream the media tree to ct107 over ssh pve (a minute or more for a tree with galleries)")
+        stage(f"deploying: media/bin/deploy.sh {oper} lab -- minify, then rsync the stage into {lab_www}")
         deploy = subprocess.run(["media/bin/deploy.sh", oper, "lab"], cwd=resume, capture_output=True, text=True, check=False)
         if deploy.returncode != 0:
             return fail_critical(f"media/bin/deploy.sh {oper} lab failed:\n{deploy.stderr.strip()}")
