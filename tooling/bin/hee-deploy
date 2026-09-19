@@ -1,0 +1,508 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-deploy -- publish a directory of markdown + images as a resume blog post
+
+SYNOPSIS
+  hee deploy blog [DIR] [-oper SLUG] [-to lab|prod] [-dry-run] [-no-pr] [-resume PATH]
+  hee deploy help | blog help
+
+DESCRIPTION
+  Turns a directory shaped like:
+
+    mkdir my-new-blog && cd my-new-blog
+    echo "# Title of new blog" > blog.md
+    cp /some/path/images* .
+    ls {a,b,c,d}.png
+    ls {a,b,c,d}.png.md        # notes, stories or info about each image
+    hee deploy blog -to lab    # warn on a title-only post, but deploy it for testing
+
+  into a real post on the resume checkout at `-resume` (default
+  `~/git/resume`): a branch `blog/<oper>-<slug>` off `origin/main`,
+  `profiles/<oper>/blog/<slug>.md` plus its images copied beside it, built
+  with `./convert.sh`, pushed to lab with `media/bin/deploy.sh <oper> lab`,
+  and a PR that records what is already live. DIR defaults to `.`.
+
+  DIR is the unit of input:
+
+    blog.md               line 1 `# Title` (required); line 2 may be
+                           `**Date:** YYYY-MM-DD`; then prose. Markdown
+                           only, no raw HTML.
+    *.png *.jpg *.jpeg
+    *.gif *.webp           figures, in byte-order filename sort
+    <image>.md             the note for that image (e.g. `a.png.md` notes
+                           `a.png`); its first non-empty line is the
+                           figure's alt text, the rest is the caption
+
+  The slug is DIR's basename, lowercased; it must match
+  `^[a-z0-9][a-z0-9-]*$` or the tool refuses. The oper is `-oper` if given,
+  else `$USER` when that is a profile under `<resume>/profiles/`, else the
+  tool refuses and lists the profiles it found -- it never guesses a
+  person.
+
+  -oper       which person's blog; default: $USER if it is a profile
+  -to         lab|prod, default lab. prod (phase 1) only prints the
+              release procedure and does nothing else.
+  -dry-run    run every gate, print the assembled post between
+              `----- post -----` markers and the files that would be
+              written, write nothing, create no branch, run nothing
+  -no-pr      leave the branch local after deploying to lab, no PR
+  -resume     path to the resume checkout, default ~/git/resume
+
+GATES (in order, each with its exit code)
+  DIR missing, or no blog.md, or line 1 not '# Title'    CRITICAL 2, refuse
+  slug not slug-safe                                     CRITICAL 2, refuse
+  -oper not a profile dir with profile.json              CRITICAL 2, refuse, lists profiles
+  an <image>.md note whose image is absent               CRITICAL 2, refuse
+  blog.md has a title and no other non-empty line        WARNING 1 on lab (deploys anyway),
+                                                          CRITICAL 2 on prod (refuse)
+  an image with no note                                  WARNING 1, deploys anyway
+  -to prod                                                UNKNOWN 3, prints the release
+                                                          procedure, does nothing
+
+EXIT STATUS
+  0  OK -- deployed (or dry-run completed) clean
+  1  WARNING -- deployed (or dry-run completed) anyway
+  2  CRITICAL -- refused; nothing written, nothing deployed
+  3  UNKNOWN -- -to prod: printed the release procedure, did nothing else
+
+NOT IN V1
+  media and meme kinds, -to prod beyond printing the procedure, editing an
+  existing post, deleting images.
+
+EXAMPLES
+  $ hee deploy blog tests/fixtures/deploy-blog/my-new-blog -oper alice -resume tests/fixtures/deploy-blog/resume -dry-run   # ci
+  hee deploy blog ./my-new-blog -dry-run                # every gate, the assembled post, nothing written
+  hee deploy blog ./my-new-blog -oper alice -to lab     # build, lab, PR
+  hee deploy blog ./my-new-blog -to prod                # prints the release procedure, exit 3
+  hee deploy help
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# library/py lives in this tool's own repo -- derive from this script's own
+# location the way in/hee_cli.py's own docstring shows, not from any
+# "repo root" helper (which would resolve against whatever repo is being
+# acted on, not the repo this tool ships in).
+sys.path.insert(
+    0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py")
+)
+from hee_cli import help_wanted, note_ignored
+
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+VALUE_FLAGS = ("-oper", "--oper", "-to", "--to", "-resume", "--resume")
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+TITLE_RE = re.compile(r"^#\s+\S")
+
+# Verbatim, per SPEC's "-to prod (phase 1)" section -- do not reflow.
+RELEASE_PROCEDURE = (
+    "hee release -lab -repos resume            # already done by this tool",
+    "hee release -cut -repos resume -yes       # release commit + PR; merging it is the sign-off",
+    "hee release -promote -repos resume -yes   # prod; the operator's act",
+)
+
+
+# A tokenized remote (https://x-access-token:ghp_...@github.com/...) comes
+# back verbatim in git's stderr on a failed push or fetch; every message
+# passes through these two, so the userinfo is dropped here, once.
+CREDS_RE = re.compile(r"(://)[^/@\s]+@")
+
+# Every WARNING printed anywhere, so the exit code can say 1 when one was
+# printed -- not only the gate warnings main() collects.
+WARNINGS: list[str] = []
+
+
+def _safe(text: str) -> str:
+    return CREDS_RE.sub(r"\1***@", text)
+
+
+def fail_critical(msg: str) -> int:
+    print(f"❌ CRITICAL hee-deploy: {_safe(msg)}", file=sys.stderr)
+    return 2
+
+
+def warn(msg: str) -> None:
+    WARNINGS.append(msg)
+    print(f"⚠️ WARNING hee-deploy: {_safe(msg)}", file=sys.stderr)
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse's default error() prints a bare usage line with no status
+    word -- Output Discipline (SPEC) requires every verdict line to carry
+    one, so a bad invocation still reads as the CRITICAL it is."""
+
+    def error(self, message: str) -> None:
+        print(f"❌ CRITICAL hee-deploy: {message}", file=sys.stderr)
+        self.exit(2)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    # add_help=False: help is answered by hee_cli, before this parser is
+    # ever built, so a missing dependency or a malformed flag elsewhere on
+    # the line can never stop `help` from working.
+    parser = _ArgumentParser(prog="hee-deploy", add_help=False)
+    parser.add_argument("kind", choices=["blog"])
+    parser.add_argument("dir", nargs="?", default=".")
+    parser.add_argument("-oper", "--oper", dest="oper", default=None)
+    parser.add_argument("-to", "--to", dest="to", choices=["lab", "prod"], default="lab")
+    parser.add_argument("-dry-run", "--dry-run", dest="dry_run", action="store_true")
+    parser.add_argument("-no-pr", "--no-pr", dest="no_pr", action="store_true")
+    parser.add_argument("-resume", "--resume", dest="resume", default="~/git/resume")
+    return parser
+
+
+def collect_images(dir_path: Path) -> list[Path]:
+    files = [p for p in dir_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS]
+    return sorted(files, key=lambda p: p.name)
+
+
+def collect_notes(dir_path: Path) -> dict[str, Path]:
+    """Map an image filename to its note path, e.g. "a.png" -> a.png.md."""
+    notes: dict[str, Path] = {}
+    for p in sorted(dir_path.glob("*.md"), key=lambda p: p.name):
+        if p.name == "blog.md":
+            continue
+        base = p.name[: -len(".md")]
+        if Path(base).suffix.lower() in IMAGE_EXTS:
+            notes[base] = p
+    return notes
+
+
+def note_alt_caption(note_path: Path) -> tuple[str, str]:
+    lines = note_path.read_text(encoding="utf-8").splitlines()
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    alt = lines[i].strip() if i < len(lines) else ""
+    caption = "\n".join(lines[i + 1 :]).strip("\n").strip() if i < len(lines) else ""
+    return alt, caption
+
+
+def build_post_text(
+    title_line: str,
+    body_lines: list[str],
+    today: str,
+    images: list[Path],
+    notes: dict[str, Path],
+) -> str:
+    if body_lines and DATE_RE.search(body_lines[0]):
+        date_line = body_lines[0]
+        rest = body_lines[1:]
+    else:
+        date_line = f"**Date:** {today}"
+        rest = body_lines
+    if not rest or rest[0].strip() != "":
+        rest = [""] + rest
+
+    blocks = ["\n".join([title_line, date_line] + rest).rstrip("\n")]
+    for img in images:
+        note = notes.get(img.name)
+        alt, caption = note_alt_caption(note) if note else ("", "")
+        block = f"![{alt}]({img.name})"
+        if caption:
+            block += "\n\n" + caption
+        blocks.append(block)
+    return "\n\n".join(blocks) + "\n"
+
+
+def resolve_oper(oper_arg: str | None, profiles_dir: Path) -> tuple[str | None, str]:
+    """Returns (oper or None, error message when None). Never guesses."""
+
+    def profile_ok(name: str) -> bool:
+        return bool(name) and (profiles_dir / name / "profile.json").is_file()
+
+    oper = oper_arg or os.environ.get("USER", "")
+    if profile_ok(oper):
+        return oper, ""
+
+    known = (
+        sorted(p.name for p in profiles_dir.iterdir() if p.is_dir() and (p / "profile.json").is_file())
+        if profiles_dir.is_dir()
+        else []
+    )
+    who = f"-oper {oper_arg}" if oper_arg else f"$USER ({oper!r})" if oper else "$USER (unset)"
+    listing = ", ".join(known) if known else "(none found)"
+    return None, f"{who} is not a profile under {profiles_dir} -- known profiles: {listing}"
+
+
+def print_release_procedure() -> None:
+    print(
+        "⚪ UNKNOWN hee-deploy: -to prod is phase 1 -- run the release "
+        "procedure yourself, in order:"
+    )
+    for line in RELEASE_PROCEDURE:
+        print(line)
+
+
+def real_deploy(
+    resume: Path,
+    oper: str,
+    slug: str,
+    title: str,
+    post_text: str,
+    images: list[Path],
+    no_pr: bool,
+    warnings: list[str],
+) -> int:
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=resume, capture_output=True, text=True, check=False)
+    if status.returncode != 0:
+        return fail_critical(f"{resume}: git status failed: {status.stderr.strip()}")
+    if status.stdout.strip():
+        dirty = [line[3:] for line in status.stdout.splitlines()]
+        return fail_critical(f"{resume}: working tree is dirty, refusing -- {', '.join(dirty)}")
+
+    prev = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=resume, capture_output=True, text=True, check=False
+    ).stdout.strip()
+    if not prev or prev == "HEAD":
+        # A detached checkout has no branch to come back to: `git switch HEAD`
+        # is refused, the run would end on the new branch, and the WARNING
+        # from the finally block below lands after the exit code is decided
+        # (pr-reviewer, second pass, 2026-09-19). Refuse before anything moves.
+        return fail_critical(f"{resume}: checkout is detached (no branch to return to); check out a branch first")
+
+    fetch = subprocess.run(["git", "fetch", "origin", "main"], cwd=resume, capture_output=True, text=True, check=False)
+    if fetch.returncode != 0:
+        return fail_critical(f"{resume}: git fetch origin main failed: {fetch.stderr.strip()}")
+
+    branch = f"blog/{oper}-{slug}"
+    switch = subprocess.run(
+        ["git", "switch", "-c", branch, "origin/main"], cwd=resume, capture_output=True, text=True, check=False
+    )
+    if switch.returncode != 0:
+        return fail_critical(f"{resume}: git switch -c {branch} origin/main failed: {switch.stderr.strip()}")
+
+    committed = False
+    rc = 2
+    try:
+        post_dir = resume / "profiles" / oper / "blog"
+        post_dir.mkdir(parents=True, exist_ok=True)
+        (post_dir / f"{slug}.md").write_text(post_text, encoding="utf-8")
+
+        image_dir = post_dir / slug
+        if images:  # an empty directory is not tracked and would only linger
+            image_dir.mkdir(parents=True, exist_ok=True)
+        copied = []
+        for img in images:
+            dest = image_dir / img.name
+            shutil.copyfile(img, dest)
+            copied.append(dest)
+
+        hee_on_path = shutil.which("hee") is not None
+        # hee exif brand reads the branding card from $HEE_BRANDING; the org's
+        # lives in tcos-audit. Pass it explicitly when the env is unset, so a
+        # fresh host brands the same way kiosk does (measured 2026-09-19: with
+        # neither, brand exits 1 "no branding file").
+        branding = os.environ.get("HEE_BRANDING") or str(Path.home() / "git" / "tcos-audit" / "policy" / "branding.card.v1.yaml")
+        brand_cmd = ["hee", "exif", "brand"] + (["--branding", branding] if Path(branding).is_file() else [])
+        for dest in copied:
+            if not hee_on_path:
+                warn(f"{dest}: hee exif not on PATH -- image not branded")
+                continue
+            brand = subprocess.run(brand_cmd + [str(dest)], capture_output=True, text=True, check=False)
+            if brand.returncode != 0:
+                warn(f"{dest}: hee exif brand failed: {brand.stderr.strip()}")
+
+        build = subprocess.run(["./convert.sh"], cwd=resume, capture_output=True, text=True, check=False)
+        if build.returncode != 0:
+            return fail_critical(f"{resume}: ./convert.sh failed -- nothing deployed:\n{build.stderr.strip()}")
+
+        profile_path = resume / "profiles" / oper / "profile.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        media_routing = profile.get("meta", {}).get("media_routing", "")
+        if not media_routing:
+            return fail_critical(f"{profile_path}: no meta.media_routing")
+        prefix = media_routing.split(".")[0]
+
+        # The media tree is keyed by the oper slug (media/touchy-claude/dist);
+        # the HOST by the routing prefix (touchy.media.lab.tcos.us). Measured
+        # 2026-09-19; SPEC step 6 said <prefix> for both until then.
+        page = resume / "media" / oper / "dist" / "blog" / slug / "index.html"
+        if not page.is_file():
+            return fail_critical(f"{page}: missing after build -- media/bin/media-item.py root should have copied it")
+        for img in images:
+            beside = page.parent / img.name
+            if not beside.is_file():
+                return fail_critical(
+                    f"{beside}: missing beside {page} -- media/bin/media-item.py root should have copied it"
+                )
+
+        deploy = subprocess.run(["media/bin/deploy.sh", oper, "lab"], cwd=resume, capture_output=True, text=True, check=False)
+        if deploy.returncode != 0:
+            return fail_critical(f"media/bin/deploy.sh {oper} lab failed:\n{deploy.stderr.strip()}")
+
+        review_url = f"https://{prefix}.media.lab.tcos.us/blog/{slug}/"
+
+        # The record is the commit, with or without a PR: only the post and
+        # its files, never the build's tracked outputs.
+        add = subprocess.run(
+            ["git", "add", f"profiles/{oper}/blog/{slug}.md", f"profiles/{oper}/blog/{slug}/"],
+            cwd=resume, capture_output=True, text=True, check=False,
+        )
+        if add.returncode != 0:
+            return fail_critical(f"{resume}: git add failed: {add.stderr.strip()}")
+        commit = subprocess.run(
+            ["git", "commit", "-m", f"blog({oper}): {title}"], cwd=resume, capture_output=True, text=True, check=False
+        )
+        if commit.returncode != 0:
+            return fail_critical(f"{resume}: git commit failed: {commit.stderr.strip()}")
+        committed = True
+
+        if no_pr:
+            print(f"ℹ️  NOTE hee-deploy: -no-pr -- branch {branch} committed and left local, not pushed")
+        else:
+            push = subprocess.run(
+                ["git", "push", "-u", "origin", branch], cwd=resume, capture_output=True, text=True, check=False
+            )
+            if push.returncode != 0:
+                return fail_critical(f"{resume}: git push failed: {push.stderr.strip()}")
+            pr = subprocess.run(
+                [
+                    "gh", "pr", "create", "--base", "main", "--head", branch, "--assignee", "@me",
+                    "--title", f"blog({oper}): {title}",
+                    "--body", f"Live on lab: {review_url}\n\nThis PR is the git record.",
+                ],
+                cwd=resume, capture_output=True, text=True, check=False,
+            )
+            if pr.returncode != 0:
+                return fail_critical(f"{resume}: gh pr create failed: {pr.stderr.strip()}")
+            print(pr.stdout.strip())
+
+        if warnings or WARNINGS:
+            print(f"⚠️ WARNING hee-deploy: lab updated, with warnings above -- {review_url}")
+            rc = 1
+        else:
+            print(f"✅ OK hee-deploy: lab updated -- {review_url}")
+            rc = 0
+        return rc
+    finally:
+        # Every path out of here, success or refusal, leaves the checkout
+        # the way it was found: the build's tracked outputs restored, the
+        # post files removed unless they were committed, the previous
+        # branch checked out, and an uncommitted branch deleted so the next
+        # run can create it again. git clean is scoped to this post's path.
+        subprocess.run(["git", "checkout", "--", "."], cwd=resume, capture_output=True, text=True, check=False)
+        if not committed:
+            subprocess.run(
+                ["git", "clean", "-fdq", "--", f"profiles/{oper}/blog/{slug}.md", f"profiles/{oper}/blog/{slug}"],
+                cwd=resume, capture_output=True, text=True, check=False,
+            )
+        back = subprocess.run(["git", "switch", prev], cwd=resume, capture_output=True, text=True, check=False)
+        if back.returncode != 0:
+            warn(f"{resume}: could not switch back to {prev}: {back.stderr.strip()}")
+            if rc == 0:
+                # the verdict above already printed OK; say so, and let the
+                # exit code carry the warning (a return in finally wins)
+                print("⚠️ WARNING hee-deploy: deployed, but the checkout was not left as found -- exit 1")
+                return 1  # noqa: B012 -- deliberate: the finally's warning must reach the exit code
+        elif not committed:
+            subprocess.run(["git", "branch", "-D", branch], cwd=resume, capture_output=True, text=True, check=False)
+
+
+def main(argv: list[str]) -> int:
+    # A post is utf-8 whatever the locale says; under LC_ALL=C both streams
+    # default to ascii and a title like "Café" became UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    if help_wanted(argv, VALUE_FLAGS):
+        note_ignored(argv, value_flags=VALUE_FLAGS)
+        sys.stdout.write(__doc__ or "")
+        return 0
+
+    args = build_parser().parse_args(argv)
+
+    dir_path = Path(args.dir)
+    resume = Path(args.resume).expanduser()
+
+    # Gate 1: DIR / blog.md / title line.
+    if not dir_path.is_dir():
+        return fail_critical(f"no such directory: {dir_path}")
+    blog_md = dir_path / "blog.md"
+    if not blog_md.is_file():
+        return fail_critical(f"{blog_md}: not found")
+    raw_lines = blog_md.read_text(encoding="utf-8").splitlines()
+    if not raw_lines or not TITLE_RE.match(raw_lines[0]):
+        found = raw_lines[0] if raw_lines else "(empty file)"
+        return fail_critical(f"{blog_md}: line 1 must be '# Title', found: {found!r}")
+    title_line = raw_lines[0]
+    title = re.sub(r"^#\s+", "", title_line).strip()
+
+    # Gate 2: slug.
+    basename = dir_path.resolve().name
+    slug = basename.lower()
+    if not SLUG_RE.fullmatch(slug):
+        return fail_critical(
+            f"directory name {basename!r} is not a valid slug (lowercased: {slug!r}); "
+            "must match ^[a-z0-9][a-z0-9-]*$"
+        )
+
+    # Gate 3: -oper.
+    profiles_dir = resume / "profiles"
+    if args.oper is not None and not SLUG_RE.fullmatch(args.oper):
+        return fail_critical(f"-oper {args.oper!r} is not a slug; must match ^[a-z0-9][a-z0-9-]*$")
+    oper, oper_err = resolve_oper(args.oper, profiles_dir)
+    if oper is None:
+        return fail_critical(oper_err)
+
+    # Gate 4: an <image>.md note whose image is absent.
+    images = collect_images(dir_path)
+    notes = collect_notes(dir_path)
+    for base, note_path in notes.items():
+        if not (dir_path / base).is_file():
+            return fail_critical(f"{note_path}: note has no matching image {dir_path / base}")
+
+    # Gate 5: title-only post.
+    title_only = all(not line.strip() for line in raw_lines[1:])
+    if title_only and args.to == "prod":
+        return fail_critical(f"{blog_md}: title-only post (no prose beyond '# Title') refused for -to prod")
+
+    warnings: list[str] = []
+    if title_only:
+        warnings.append(f"{blog_md}: title-only post (no prose beyond '# Title') -- deploying anyway")
+    for img in images:
+        if img.name not in notes:
+            warnings.append(f"{img}: no note ({img.name}.md) -- deploying without a caption")
+    for message in warnings:
+        warn(message)
+
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    post_text = build_post_text(title_line, raw_lines[1:], today, images, notes)
+    files = [f"profiles/{oper}/blog/{slug}.md"] + [f"profiles/{oper}/blog/{slug}/{img.name}" for img in images]
+
+    if args.dry_run:
+        print("----- post -----")
+        sys.stdout.write(post_text)
+        print("----- post -----")
+        print("would write:")
+        for f in files:
+            print(f"  {f}")
+        if args.to == "prod":
+            print_release_procedure()
+            return 3
+        return 1 if (warnings or WARNINGS) else 0
+
+    if args.to == "prod":
+        print_release_procedure()
+        return 3
+
+    return real_deploy(resume, oper, slug, title, post_text, images, args.no_pr, warnings)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- the boundary: 1 means "deployed with warnings" here, so a crash must not exit 1
+        raise SystemExit(fail_critical(f"{type(exc).__name__}: {exc}"))
