@@ -1,0 +1,6 @@
+$ hee pve deploy pve/services/meme-factory.yaml --dry-run    # from a fleet-ops checkout, against the live node
+hee-pve-deploy: DRY RUN, would run: pvesh create /nodes/pve/lxc -vmid 123 -hostname tcos-mf-marge -ostemplate local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst -cores 2 -memory 2048 -rootfs ssd1:16 -net0 name=eth0,bridge=vmbr0,ip=dhcp -unprivileged 1 -start 1 -mp0 /data/storage,mp=/data/storage
+hee-pve-deploy: DRY RUN, would unpack tools/meme-factory/ (56 tracked files, 1520 KiB tar) -> /opt/meme-factory/ via: pct exec 123 -- env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -c 'mkdir -p /opt/meme-factory && tar -xf - -C /opt/meme-factory --strip-components=2'
+hee-pve-deploy: DRY RUN, would push pve/meme-factory/meme-factory.service -> /etc/systemd/system/meme-factory.service (mode 0644) via: pct exec 123 -- env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -c 'mkdir -p /etc/systemd/system && cat > /etc/systemd/system/meme-factory.service && chmod 0644 /etc/systemd/system/meme-factory.service'
+hee-pve-deploy: DRY RUN, would run pve/meme-factory/provision.sh via: pct exec 123 -- env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -s < pve/meme-factory/provision.sh
+hee-pve-deploy: DRY RUN complete -- nothing was created or changed.

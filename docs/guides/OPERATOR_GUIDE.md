@@ -174,3 +174,26 @@ model behind it: unprivileged by default, fine-grained privileges
 granted only when the machine identity reasons a specific task needs
 them — not the human ceding real control, since physical/electrical
 authority still sits with them regardless of OS-level group membership.
+
+## Deploying a lab container from a manifest: `hee pve deploy`
+
+One YAML per service under fleet-ops `pve/services/`; `hee pve deploy
+MANIFEST --dry-run` prints every command it would run against the node, and
+without `--dry-run` applies it, idempotent by hostname. `--help` is the
+manual and documents every key. Two keys landed 2026-09-19 that a new
+service usually needs:
+
+- **`mounts:`** lends a directory of the pve host to the container as a bind
+  mount, `{host: /data/storage, ct: /data/storage[, ro: true]}`. It is the
+  only way an unprivileged LXC gets shared storage; the host mounts or serves
+  it and lends the directory. Inside the container host uids are shifted, so
+  reading needs the world-read bit and writing a world-writable or
+  range-owned directory.
+- **`files:` with a directory `src`** ships every file git tracks under it as
+  one tar (`git archive HEAD`), unpacked at `dst`. This is how a service's
+  code reaches a container when the repo is private and the container holds
+  no credential. Updating the service is then a redeploy until the service
+  has its own App grant.
+
+Real run, the meme-factory container:
+[`examples/hee-pve-deploy-output.md`](../../examples/hee-pve-deploy-output.md).
