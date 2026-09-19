@@ -843,7 +843,7 @@ def _tar_tracked(root, src, i):
         sys.exit(f"hee-pve-deploy: files[{i}] '{rel}' is a directory git does not track (or is empty) -- "
                  f"only committed trees are shipped.")
     n = len(r.stdout.splitlines())
-    a = subprocess.run(["git", "-C", root, "archive", "--format=tar", f"--prefix=", "HEAD", "--", rel],
+    a = subprocess.run(["git", "-C", root, "archive", "--format=tar", "--prefix=", "HEAD", "--", rel],
                        capture_output=True)
     if a.returncode != 0:
         sys.exit(f"hee-pve-deploy: git archive of '{rel}' failed: {a.stderr.decode(errors='replace')}")
