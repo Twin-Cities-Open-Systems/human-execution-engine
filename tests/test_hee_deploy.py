@@ -454,10 +454,13 @@ class StoreGateTests(unittest.TestCase):
 
     def test_ci_example_against_sample_fixture(self):
         """The docstring's `# ci` line: the shipped sample fixture, a fresh
-        MNTPATH, -dry-run, no network. The sample deliberately ships an
-        image note with no binary image (WARNING), so this is not
-        necessarily exit 0 -- it must simply run every gate and refuse to
-        touch anything."""
+        MNTPATH, -dry-run, no network. The fixture is complete (note AND
+        image), because `hee check examples` fails CI on any non-zero exit
+        and the first cut's image-less fixture exited 1 with the WARNING
+        and turned the stable workflow red (2026-09-19). The WARNING path
+        is exercised in test_image_without_binary_warns against a temp
+        directory, not here. This must run every gate, exit 0, and touch
+        nothing."""
         with tempfile.TemporaryDirectory() as tmp:
             mnt = make_mntpath(Path(tmp))
             fixture = ROOT / "tests" / "fixtures" / "deploy-store" / "sample"
