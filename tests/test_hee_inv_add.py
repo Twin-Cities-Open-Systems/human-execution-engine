@@ -163,7 +163,7 @@ class TestAdd(unittest.TestCase):
         (self.home / ".hee" / "index" / "_.yaml").unlink()
         self.assertEqual(self.run_add(planned()).returncode, 3)
         env = dict(os.environ, HOME=str(self.home))
-        self.assertEqual(subprocess.run(["sh", str(TOOL), "add"], capture_output=True, env=env).returncode, 3)
+        self.assertEqual(subprocess.run(["sh", str(TOOL), "add"], capture_output=True, env=env).returncode, 3, check=False)
 
     def test_allowed_values_come_from_the_contract(self):
         v = hee_inv.contract_values()
