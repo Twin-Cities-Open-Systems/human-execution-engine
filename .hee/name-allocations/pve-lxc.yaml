@@ -38,6 +38,10 @@ lois:
   allocated_at: '2026-08-24T14:18:43+00:00'
   pool: family-guy
   scope: pve-lxc
+marge:
+  allocated_at: '2026-09-19T14:57:00+00:00'
+  pool: simpsons
+  scope: pve-lxc
 meg:
   allocated_at: '2026-08-24T14:18:43+00:00'
   pool: family-guy
