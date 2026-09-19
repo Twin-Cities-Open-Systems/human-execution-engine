@@ -70,9 +70,10 @@ NOT IN V1
   existing post, deleting images.
 
 EXAMPLES
-  hee deploy blog ./my-new-blog -dry-run
-  hee deploy blog ./my-new-blog -oper alice -to lab
-  hee deploy blog ./my-new-blog -to prod
+  $ hee deploy blog tests/fixtures/deploy-blog/my-new-blog -oper alice -resume tests/fixtures/deploy-blog/resume -dry-run   # ci
+  hee deploy blog ./my-new-blog -dry-run                # every gate, the assembled post, nothing written
+  hee deploy blog ./my-new-blog -oper alice -to lab     # build, lab, PR
+  hee deploy blog ./my-new-blog -to prod                # prints the release procedure, exit 3
   hee deploy help
 """
 
@@ -111,13 +112,28 @@ RELEASE_PROCEDURE = (
 )
 
 
+# A tokenized remote (https://x-access-token:ghp_...@github.com/...) comes
+# back verbatim in git's stderr on a failed push or fetch; every message
+# passes through these two, so the userinfo is dropped here, once.
+CREDS_RE = re.compile(r"(://)[^/@\s]+@")
+
+# Every WARNING printed anywhere, so the exit code can say 1 when one was
+# printed -- not only the gate warnings main() collects.
+WARNINGS: list[str] = []
+
+
+def _safe(text: str) -> str:
+    return CREDS_RE.sub(r"\1***@", text)
+
+
 def fail_critical(msg: str) -> int:
-    print(f"❌ CRITICAL hee-deploy: {msg}", file=sys.stderr)
+    print(f"❌ CRITICAL hee-deploy: {_safe(msg)}", file=sys.stderr)
     return 2
 
 
 def warn(msg: str) -> None:
-    print(f"⚠️ WARNING hee-deploy: {msg}", file=sys.stderr)
+    WARNINGS.append(msg)
+    print(f"⚠️ WARNING hee-deploy: {_safe(msg)}", file=sys.stderr)
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -163,7 +179,7 @@ def collect_notes(dir_path: Path) -> dict[str, Path]:
 
 
 def note_alt_caption(note_path: Path) -> tuple[str, str]:
-    lines = note_path.read_text().splitlines()
+    lines = note_path.read_text(encoding="utf-8").splitlines()
     i = 0
     while i < len(lines) and not lines[i].strip():
         i += 1
@@ -260,72 +276,71 @@ def real_deploy(
     if switch.returncode != 0:
         return fail_critical(f"{resume}: git switch -c {branch} origin/main failed: {switch.stderr.strip()}")
 
-    post_dir = resume / "profiles" / oper / "blog"
-    post_dir.mkdir(parents=True, exist_ok=True)
-    (post_dir / f"{slug}.md").write_text(post_text)
+    committed = False
+    try:
+        post_dir = resume / "profiles" / oper / "blog"
+        post_dir.mkdir(parents=True, exist_ok=True)
+        (post_dir / f"{slug}.md").write_text(post_text, encoding="utf-8")
 
-    image_dir = post_dir / slug
-    image_dir.mkdir(parents=True, exist_ok=True)
-    copied = []
-    for img in images:
-        dest = image_dir / img.name
-        shutil.copyfile(img, dest)
-        copied.append(dest)
+        image_dir = post_dir / slug
+        if images:  # an empty directory is not tracked and would only linger
+            image_dir.mkdir(parents=True, exist_ok=True)
+        copied = []
+        for img in images:
+            dest = image_dir / img.name
+            shutil.copyfile(img, dest)
+            copied.append(dest)
 
-    hee_on_path = shutil.which("hee") is not None
-    # hee exif brand reads the branding card from $HEE_BRANDING; the org's
-    # lives in tcos-audit. Pass it explicitly when the env is unset, so a
-    # fresh host brands the same way kiosk does (measured 2026-09-19: with
-    # neither, brand exits 1 "no branding file").
-    branding = os.environ.get("HEE_BRANDING") or str(Path.home() / "git" / "tcos-audit" / "policy" / "branding.card.v1.yaml")
-    brand_cmd = ["hee", "exif", "brand"] + (["--branding", branding] if Path(branding).is_file() else [])
-    for dest in copied:
-        if not hee_on_path:
-            warn(f"{dest}: hee exif not on PATH -- image not branded")
-            continue
-        brand = subprocess.run(brand_cmd + [str(dest)], capture_output=True, text=True, check=False)
-        if brand.returncode != 0:
-            warn(f"{dest}: hee exif brand failed: {brand.stderr.strip()}")
+        hee_on_path = shutil.which("hee") is not None
+        # hee exif brand reads the branding card from $HEE_BRANDING; the org's
+        # lives in tcos-audit. Pass it explicitly when the env is unset, so a
+        # fresh host brands the same way kiosk does (measured 2026-09-19: with
+        # neither, brand exits 1 "no branding file").
+        branding = os.environ.get("HEE_BRANDING") or str(Path.home() / "git" / "tcos-audit" / "policy" / "branding.card.v1.yaml")
+        brand_cmd = ["hee", "exif", "brand"] + (["--branding", branding] if Path(branding).is_file() else [])
+        for dest in copied:
+            if not hee_on_path:
+                warn(f"{dest}: hee exif not on PATH -- image not branded")
+                continue
+            brand = subprocess.run(brand_cmd + [str(dest)], capture_output=True, text=True, check=False)
+            if brand.returncode != 0:
+                warn(f"{dest}: hee exif brand failed: {brand.stderr.strip()}")
 
-    build = subprocess.run(["./convert.sh"], cwd=resume, capture_output=True, text=True, check=False)
-    if build.returncode != 0:
-        return fail_critical(f"{resume}: ./convert.sh failed -- nothing deployed:\n{build.stderr.strip()}")
+        build = subprocess.run(["./convert.sh"], cwd=resume, capture_output=True, text=True, check=False)
+        if build.returncode != 0:
+            return fail_critical(f"{resume}: ./convert.sh failed -- nothing deployed:\n{build.stderr.strip()}")
 
-    profile_path = resume / "profiles" / oper / "profile.json"
-    profile = json.loads(profile_path.read_text())
-    media_routing = profile.get("meta", {}).get("media_routing", "")
-    if not media_routing:
-        return fail_critical(f"{profile_path}: no meta.media_routing")
-    prefix = media_routing.split(".")[0]
+        profile_path = resume / "profiles" / oper / "profile.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        media_routing = profile.get("meta", {}).get("media_routing", "")
+        if not media_routing:
+            return fail_critical(f"{profile_path}: no meta.media_routing")
+        prefix = media_routing.split(".")[0]
 
-    # The media tree is keyed by the oper slug (media/touchy-claude/dist);
-    # the HOST by the routing prefix (touchy.media.lab.tcos.us). Measured
-    # 2026-09-19; SPEC step 6 said <prefix> for both until then.
-    page = resume / "media" / oper / "dist" / "blog" / slug / "index.html"
-    if not page.is_file():
-        return fail_critical(f"{page}: missing after build -- media/bin/media-item.py root should have copied it")
-    for img in images:
-        beside = page.parent / img.name
-        if not beside.is_file():
-            return fail_critical(
-                f"{beside}: missing beside {page} -- media/bin/media-item.py root should have copied it"
-            )
+        # The media tree is keyed by the oper slug (media/touchy-claude/dist);
+        # the HOST by the routing prefix (touchy.media.lab.tcos.us). Measured
+        # 2026-09-19; SPEC step 6 said <prefix> for both until then.
+        page = resume / "media" / oper / "dist" / "blog" / slug / "index.html"
+        if not page.is_file():
+            return fail_critical(f"{page}: missing after build -- media/bin/media-item.py root should have copied it")
+        for img in images:
+            beside = page.parent / img.name
+            if not beside.is_file():
+                return fail_critical(
+                    f"{beside}: missing beside {page} -- media/bin/media-item.py root should have copied it"
+                )
 
-    deploy = subprocess.run(["media/bin/deploy.sh", oper, "lab"], cwd=resume, capture_output=True, text=True, check=False)
-    if deploy.returncode != 0:
-        return fail_critical(f"media/bin/deploy.sh {oper} lab failed:\n{deploy.stderr.strip()}")
+        deploy = subprocess.run(["media/bin/deploy.sh", oper, "lab"], cwd=resume, capture_output=True, text=True, check=False)
+        if deploy.returncode != 0:
+            return fail_critical(f"media/bin/deploy.sh {oper} lab failed:\n{deploy.stderr.strip()}")
 
-    review_url = f"https://{prefix}.media.lab.tcos.us/blog/{slug}/"
-    print(f"✅ OK hee-deploy: lab updated -- {review_url}")
+        review_url = f"https://{prefix}.media.lab.tcos.us/blog/{slug}/"
 
-    if no_pr:
-        print(f"ℹ️  NOTE hee-deploy: -no-pr -- branch {branch} left local, not pushed")
-    else:
+        # The record is the commit, with or without a PR: only the post and
+        # its files, never the build's tracked outputs.
         add = subprocess.run(
             ["git", "add", f"profiles/{oper}/blog/{slug}.md", f"profiles/{oper}/blog/{slug}/"],
-            cwd=resume,
-            capture_output=True,
-            text=True, check=False,
+            cwd=resume, capture_output=True, text=True, check=False,
         )
         if add.returncode != 0:
             return fail_critical(f"{resume}: git add failed: {add.stderr.strip()}")
@@ -334,41 +349,58 @@ def real_deploy(
         )
         if commit.returncode != 0:
             return fail_critical(f"{resume}: git commit failed: {commit.stderr.strip()}")
-        push = subprocess.run(
-            ["git", "push", "-u", "origin", branch], cwd=resume, capture_output=True, text=True, check=False
-        )
-        if push.returncode != 0:
-            return fail_critical(f"{resume}: git push failed: {push.stderr.strip()}")
-        pr = subprocess.run(
-            [
-                "gh", "pr", "create", "--base", "main", "--head", branch, "--assignee", "@me",
-                "--title", f"blog({oper}): {title}",
-                "--body", f"Live on lab: {review_url}\n\nThis PR is the git record.",
-            ],
-            cwd=resume,
-            capture_output=True,
-            text=True, check=False,
-        )
-        if pr.returncode != 0:
-            return fail_critical(f"{resume}: gh pr create failed: {pr.stderr.strip()}")
-        print(pr.stdout.strip())
-        # convert.sh rewrites tracked build outputs (tiles, dist/, resume
-        # pages). They are regenerated every build and are not this post's
-        # change, so put the tree back; otherwise the next run refuses as
-        # dirty. With -no-pr the post files are uncommitted, so nothing is
-        # touched.
-        restore = subprocess.run(["git", "checkout", "--", "."], cwd=resume, capture_output=True, text=True, check=False)
-        if restore.returncode != 0:
-            warn(f"{resume}: could not restore the build outputs: {restore.stderr.strip()}")
+        committed = True
 
-    back = subprocess.run(["git", "switch", prev], cwd=resume, capture_output=True, text=True, check=False)
-    if back.returncode != 0:
-        warn(f"{resume}: could not switch back to {prev}: {back.stderr.strip()}")
+        if no_pr:
+            print(f"ℹ️  NOTE hee-deploy: -no-pr -- branch {branch} committed and left local, not pushed")
+        else:
+            push = subprocess.run(
+                ["git", "push", "-u", "origin", branch], cwd=resume, capture_output=True, text=True, check=False
+            )
+            if push.returncode != 0:
+                return fail_critical(f"{resume}: git push failed: {push.stderr.strip()}")
+            pr = subprocess.run(
+                [
+                    "gh", "pr", "create", "--base", "main", "--head", branch, "--assignee", "@me",
+                    "--title", f"blog({oper}): {title}",
+                    "--body", f"Live on lab: {review_url}\n\nThis PR is the git record.",
+                ],
+                cwd=resume, capture_output=True, text=True, check=False,
+            )
+            if pr.returncode != 0:
+                return fail_critical(f"{resume}: gh pr create failed: {pr.stderr.strip()}")
+            print(pr.stdout.strip())
 
-    return 1 if warnings else 0
+        if warnings or WARNINGS:
+            print(f"⚠️ WARNING hee-deploy: lab updated, with warnings above -- {review_url}")
+            return 1
+        print(f"✅ OK hee-deploy: lab updated -- {review_url}")
+        return 0
+    finally:
+        # Every path out of here, success or refusal, leaves the checkout
+        # the way it was found: the build's tracked outputs restored, the
+        # post files removed unless they were committed, the previous
+        # branch checked out, and an uncommitted branch deleted so the next
+        # run can create it again. git clean is scoped to this post's path.
+        subprocess.run(["git", "checkout", "--", "."], cwd=resume, capture_output=True, text=True, check=False)
+        if not committed:
+            subprocess.run(
+                ["git", "clean", "-fdq", "--", f"profiles/{oper}/blog/{slug}.md", f"profiles/{oper}/blog/{slug}"],
+                cwd=resume, capture_output=True, text=True, check=False,
+            )
+        back = subprocess.run(["git", "switch", prev], cwd=resume, capture_output=True, text=True, check=False)
+        if back.returncode != 0:
+            warn(f"{resume}: could not switch back to {prev}: {back.stderr.strip()}")
+        elif not committed:
+            subprocess.run(["git", "branch", "-D", branch], cwd=resume, capture_output=True, text=True, check=False)
 
 
 def main(argv: list[str]) -> int:
+    # A post is utf-8 whatever the locale says; under LC_ALL=C both streams
+    # default to ascii and a title like "Café" became UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     if help_wanted(argv, VALUE_FLAGS):
         note_ignored(argv, value_flags=VALUE_FLAGS)
         sys.stdout.write(__doc__ or "")
@@ -385,7 +417,7 @@ def main(argv: list[str]) -> int:
     blog_md = dir_path / "blog.md"
     if not blog_md.is_file():
         return fail_critical(f"{blog_md}: not found")
-    raw_lines = blog_md.read_text().splitlines()
+    raw_lines = blog_md.read_text(encoding="utf-8").splitlines()
     if not raw_lines or not TITLE_RE.match(raw_lines[0]):
         found = raw_lines[0] if raw_lines else "(empty file)"
         return fail_critical(f"{blog_md}: line 1 must be '# Title', found: {found!r}")
@@ -403,6 +435,8 @@ def main(argv: list[str]) -> int:
 
     # Gate 3: -oper.
     profiles_dir = resume / "profiles"
+    if args.oper is not None and not SLUG_RE.fullmatch(args.oper):
+        return fail_critical(f"-oper {args.oper!r} is not a slug; must match ^[a-z0-9][a-z0-9-]*$")
     oper, oper_err = resolve_oper(args.oper, profiles_dir)
     if oper is None:
         return fail_critical(oper_err)
@@ -442,7 +476,7 @@ def main(argv: list[str]) -> int:
         if args.to == "prod":
             print_release_procedure()
             return 3
-        return 1 if warnings else 0
+        return 1 if (warnings or WARNINGS) else 0
 
     if args.to == "prod":
         print_release_procedure()
@@ -452,4 +486,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- the boundary: 1 means "deployed with warnings" here, so a crash must not exit 1
+        raise SystemExit(fail_critical(f"{type(exc).__name__}: {exc}"))

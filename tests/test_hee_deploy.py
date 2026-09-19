@@ -4,7 +4,10 @@ Every case drives the tool through subprocess with -dry-run and -resume
 pointing at a temp directory this file builds, so no test needs a real
 git checkout, network, or a real resume repo (SPEC.md's own test contract).
 """
+import importlib.machinery
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -191,6 +194,50 @@ class AssemblyTests(unittest.TestCase):
                 "hee release -promote -repos resume -yes   # prod; the operator's act",
                 r.stdout,
             )
+
+
+class ReviewFindings(unittest.TestCase):
+    """The failing inputs pr-reviewer named (fleet-ops job deploy-blog-review,
+    2026-09-19), each kept as a test."""
+
+    FIX = ROOT / "tests" / "fixtures" / "deploy-blog"
+
+    def test_ci_example_exits_0_with_both_figures(self):
+        r = run("blog", str(self.FIX / "my-new-blog"), "-oper", "alice",
+                "-resume", str(self.FIX / "resume"), "-dry-run", cwd=ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("![a red square](a.png)", r.stdout)
+        self.assertIn("![a blue square](b.png)", r.stdout)
+        self.assertLess(r.stdout.index("a.png"), r.stdout.index("b.png"))
+
+    def test_non_ascii_title_under_c_locale_is_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "cafe"
+            d.mkdir()
+            (d / "blog.md").write_text("# Caf\u00e9\n\nProse.\n", encoding="utf-8")
+            env = dict(os.environ, LC_ALL="C", LANG="C", PYTHONUTF8="0")
+            r = subprocess.run([sys.executable, str(TOOL), "blog", str(d), "-oper", "alice",
+                                "-resume", str(self.FIX / "resume"), "-dry-run"],
+                               capture_output=True, text=True, check=False, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("Caf\u00e9", r.stdout)
+            self.assertNotIn("Traceback", r.stderr)
+
+    def test_oper_that_is_not_a_slug_is_refused(self):
+        r = run("blog", str(self.FIX / "my-new-blog"), "-oper", "../spencer",
+                "-resume", str(self.FIX / "resume"), "-dry-run", cwd=ROOT)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("CRITICAL", r.stderr)
+        self.assertIn("not a slug", r.stderr)
+
+    def test_credentials_in_a_remote_url_are_redacted(self):
+        loader = importlib.machinery.SourceFileLoader("hee_deploy", str(TOOL))
+        spec = importlib.util.spec_from_loader("hee_deploy", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        out = mod._safe("fatal: Authentication failed for 'https://x-access-token:ghp_AbC123@github.com/o/r.git/'")
+        self.assertNotIn("ghp_AbC123", out)
+        self.assertIn("https://***@github.com/o/r.git/", out)
 
 
 if __name__ == "__main__":

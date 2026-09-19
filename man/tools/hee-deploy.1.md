@@ -80,7 +80,8 @@ hee-deploy - publish a directory of markdown + images as a resume blog post
 
 # EXAMPLES
 
-    hee deploy blog ./my-new-blog -dry-run
-    hee deploy blog ./my-new-blog -oper alice -to lab
-    hee deploy blog ./my-new-blog -to prod
+    $ hee deploy blog tests/fixtures/deploy-blog/my-new-blog -oper alice -resume tests/fixtures/deploy-blog/resume -dry-run   # ci
+    hee deploy blog ./my-new-blog -dry-run                # every gate, the assembled post, nothing written
+    hee deploy blog ./my-new-blog -oper alice -to lab     # build, lab, PR
+    hee deploy blog ./my-new-blog -to prod                # prints the release procedure, exit 3
     hee deploy help
