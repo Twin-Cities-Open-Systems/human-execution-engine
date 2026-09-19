@@ -1,0 +1,56 @@
+# path: plans/active/hee-deploy-blog.plan.yaml
+apiVersion: hee/v1
+kind: Plan
+metadata:
+  name: hee-deploy-blog
+  description: "hee deploy blog -to lab -- a directory (blog.md, images, one note per image) becomes a post on <oper>.media.lab.tcos.us in one command; built by the roster agents in their signed scopes, dispatched from flippy, verified on a real machine before any PR opens"
+  labels: { domain: tooling, scope: human-execution-engine, artifact: plan, phase: phase-1-blog-kind }
+  annotations:
+    inuid: null
+    inuid_null_reason: bootstrap
+    created_utc: "2026-09-19T04:40:00Z"
+    source: "operator 2026-09-18 (the workflow, verbatim in fleet-ops pve/agents/jobs/deploy-blog-tool/in/SPEC.md) and 2026-09-19: 'use the service worker agents, make a plan to use them wisely'"
+    dispatcher: "flippy-claude under fleet-ops hee/contracts/spencer.flippy-claude.dispatcher-authority.contract.v1.yaml (ratified, fleet-ops#648)"
+    tickets: "fleet-ops/0129 (jobs), this repo's ticket filed with this plan"
+spec:
+  # "Wisely" is five rules, each of which decides something below.
+  principles:
+    - "scope-fit: every job stays inside its agent's signed roster paths, so no job needs a grant -- ci-triage writes HEE tooling/bin/** and tests/*.py; media-hand writes resume media/**; pr-reviewer reads any repo and writes nothing"
+    - "model-fit: haiku for a 15-line change to a known file, sonnet for a 400-line tool written from a spec, opus only to review both against the rules"
+    - "blind-fit: the containers have no Bash, no node, no network. Agents WRITE; the dispatcher RUNS -- tests, hee check cli, gen-manpages, convert.sh, deploy.sh -- on flippy, before a PR exists"
+    - "budget-fit: every job carries a ceiling and, above $1, a reason measured from the mf-* jobs of 2026-09-19; total agent spend for phase 1 is $4.75 at the ceilings"
+    - "one job, one out/, one PR; parallel where independent, serial where one reads the other's diff; the dispatcher never merges"
+  steps:
+    - step: A-author
+      owner: dispatcher
+      description: "SPEC.md and the three job directories under fleet-ops pve/agents/jobs/deploy-blog-* (tool, images, review), each shipping every input the agent may read; ticket fleet-ops/0129; fleet-ops PR carrying them so the jobs are reviewable before they run"
+      evidence: "fleet-ops#650"
+      status: done
+    - step: B-build
+      owner: agents
+      description: "dispatch deploy-blog-tool (ci-triage, $2.50) and deploy-blog-images (media-hand, $0.75) in parallel with `hee pve dispatch <agent> <jobdir> --wif --cred wif-issuer-lab --ticket 0129` from flippy; both are independent"
+      gate: "each job exits 0 under its ceiling; out/NOTES.md names what the agent could not verify"
+    - step: C-verify-and-pr
+      owner: dispatcher
+      description: "apply out/ to branches: HEE touchy/hee-deploy (tool + tests) and resume touchy/media-item-post-images; on flippy run pytest tests/test_hee_deploy.py, hee check cli \"$PWD/tooling/bin\", hee gen-manpages --write; in resume run ./convert.sh on a fixture post directory and confirm the images land in media/<oper>/dist/blog/<slug>/; open both PRs from out/ with the dispatch record's review block filled"
+      gate: "tests green locally and in CI; hee check cli OK; the fixture's images present beside its page"
+    - step: D-review
+      owner: agents
+      description: "write both PR diffs into deploy-blog-review/in/diffs/ and dispatch it (pr-reviewer, $1.50); the dispatcher addresses every finding with a failing input, and answers style notes in the PR"
+      gate: "review verdict is approve for both PRs, or every request-changes finding is fixed and re-reviewed"
+    - step: E-dogfood
+      owner: dispatcher-and-operator
+      description: "operator merges both PRs (the dispatcher does not); dispatcher runs the operator's exact workflow on flippy as -oper touchy-claude against lab: a directory with blog.md and two PNGs with notes, then a title-only directory, confirming WARNING 1 and a live page at touchy.media.lab.tcos.us/blog/<slug>/; ticket moves idea -> footgun -> dogfood with that evidence"
+      gate: "the URL answers 200 with the post and both figures; title-only deploys with a WARNING line"
+    - step: F-next
+      owner: dispatcher
+      description: "phase 2 as the same shape: the media kind (gallery item from the same directory, media-hand), the meme kind (render through hee meme first), and -to prod beyond printing the release procedure; a backlog-groomer job ($0.25) moves the tickets once the evidence is on disk"
+      status: not-started
+  budget:
+    ceilings_usd: { deploy-blog-tool: 2.50, deploy-blog-images: 0.75, deploy-blog-review: 1.50, backlog-groomer: 0.25 }
+    total_usd: 5.00
+    measured_reference: "mf-web-js (ci-triage, same shape) $2.17; mf-review-code (pr-reviewer, two PRs) $1.53 -- 2026-09-19 dispatch records"
+  what_the_dispatcher_does_not_delegate:
+    - "anything that needs a real machine: running the tool, its tests, convert.sh, deploy.sh over ssh pve, hee exif brand"
+    - "opening PRs, filling dispatch review blocks, answering review findings"
+    - "merging: the operator's act"
