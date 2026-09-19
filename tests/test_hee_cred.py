@@ -286,3 +286,25 @@ class Reseal(unittest.TestCase):
             self.assertIn("WARNING far.gpg: cannot open here", r.stdout)
             r2 = run_tool("-reseal", "far", "-add-recipients", "nobody@test", "-dir", str(secrets), env=env)
             self.assertEqual(r2.returncode, 1); self.assertIn("not in this keyring", r2.stderr)
+
+    def test_reseal_leaves_a_file_alone_when_an_existing_recipient_has_no_public_key_here(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, GNUPGHOME=d)
+            self.gen(env, "mine@test"); self.gen(env, "new@test")
+            other = Path(d) / "other"; other.mkdir(); oenv = dict(os.environ, GNUPGHOME=str(other))
+            self.gen(oenv, "gone@test")
+            pub = subprocess.run(["gpg", "--batch", "--armor", "--export", "gone@test"], env=oenv, capture_output=True, check=False).stdout
+            subprocess.run(["gpg", "--batch", "--import"], input=pub, env=env, check=True, capture_output=True)
+            secrets = Path(d) / "s"; secrets.mkdir()
+            subprocess.run(["gpg", "--batch", "--trust-model", "always", "--encrypt", "--armor", "-r", "mine@test", "-r", "gone@test",
+                            "-o", str(secrets / "two.gpg")], input=b"v\n", env=env, check=True, capture_output=True)
+            subprocess.run(["gpg", "--batch", "--trust-model", "always", "--encrypt", "--armor", "-r", "mine@test",
+                            "-o", str(secrets / "zz.gpg")], input=b"w\n", env=env, check=True, capture_output=True)
+            before = (secrets / "two.gpg").read_bytes()
+            fpr = subprocess.run(["gpg", "--list-keys", "--with-colons", "gone@test"], env=env, capture_output=True, text=True, check=False).stdout.split("fpr:::::::::")[1].split(":")[0]
+            subprocess.run(["gpg", "--batch", "--yes", "--delete-keys", fpr], env=env, check=True, capture_output=True)   # public key gone, recipient still in the file
+            r = run_tool("-reseal", "all", "-add-recipients", "new@test", "-dir", str(secrets), env=env)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("WARNING two.gpg: no public key here for existing recipient", r.stdout)
+            self.assertEqual((secrets / "two.gpg").read_bytes(), before)          # untouched
+            self.assertIn("✅ OK zz.gpg", r.stdout)                                 # and the run went on past it

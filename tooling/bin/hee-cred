@@ -548,6 +548,17 @@ def reseal(account: str, add: str, secrets_dir: Path) -> int:
             print(f"⚠️  WARNING {path.name}: cannot open here, sealed to {', '.join(have) or '(no recipients read)'} -- run this where one of those keys is")
             rc = max(rc, 1)
             continue
+        # Keeping a recipient needs its PUBLIC key here. Without it gpg refuses
+        # the whole encrypt, and dropping the key instead would silently lock
+        # out whoever it belongs to -- so this file waits for an import.
+        # Measured 2026-09-19 on kiosk: lan-gateway-admin.gpg carried two ids
+        # nobody there had a public key for, and the first version of this
+        # mode died on it with six files still unprocessed.
+        unknown = [k for k in have if not keyids_of(k)]
+        if unknown:
+            print(f"⚠️  WARNING {path.name}: no public key here for existing recipient(s) {', '.join(unknown)} -- import them (gpg --import) and re-run; file left as it was")
+            rc = max(rc, 1)
+            continue
         secret = proc.stdout
         tmp = path.with_name(path.name + ".reseal-tmp")
         try:
