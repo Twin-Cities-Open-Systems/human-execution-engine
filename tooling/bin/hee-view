@@ -866,6 +866,20 @@ def jobs_section(args):
         return 3
     recs.sort(key=lambda d: d.get("started_at") or "")
     def n(x): return "" if x is None else x
+    def corrections_count(v):
+        # review.corrections is an integer in the record schema, but three
+        # records written 2026-09-19 carry the prose of what was corrected
+        # instead (deploy-blog-tool, deploy-blog-review x2). Prose that says
+        # "none" is 0; any other prose is at least one correction. A string
+        # summed as an int crashed this whole section (TypeError), which is
+        # why this is a function and not a cast.
+        c = v.get("corrections")
+        if isinstance(c, bool): return int(c)
+        if isinstance(c, int): return c
+        if isinstance(c, str):
+            s = c.strip().lower()
+            return 0 if not s or s.startswith("none") or s == "0" else 1
+        return 0
     rows = []
     for d in recs:
         u = d.get("usage") or {}; v = d.get("review") or {}
@@ -873,14 +887,14 @@ def jobs_section(args):
         rows.append([d.get("job", "")[:40], d.get("agent", ""), (d.get("started_at") or "")[:16], d.get("auth", "key"),
                      f"{d.get('cost_usd') or 0:.3f}", n(d.get("num_turns")), f"{secs // 60}m{secs % 60:02d}s",
                      n(u.get("input_tokens")), n(u.get("output_tokens")), n(u.get("cache_read_input_tokens")),
-                     n(d.get("permission_denials")), n(d.get("exit")), n(v.get("accepted")), n(v.get("corrections")), len(v.get("mistakes") or [])])
+                     n(d.get("permission_denials")), n(d.get("exit")), n(v.get("accepted")), corrections_count(v), len(v.get("mistakes") or [])])
     head = ["job", "agent", "started", "auth", "cost $", "turns", "wall", "in", "out", "cache_read", "denials", "exit", "accepted", "corr", "mistakes"]
     agents = {}
     for d in recs:
         a = agents.setdefault(d.get("agent"), {"jobs": 0, "cost": 0.0, "turns": 0, "out": 0, "mistakes": 0, "corrections": 0, "denials": 0, "failed": 0})
         v = d.get("review") or {}; u = d.get("usage") or {}
         a["jobs"] += 1; a["cost"] += d.get("cost_usd") or 0; a["turns"] += d.get("num_turns") or 0; a["out"] += u.get("output_tokens") or 0
-        a["mistakes"] += len(v.get("mistakes") or []); a["corrections"] += v.get("corrections") or 0; a["denials"] += d.get("permission_denials") or 0
+        a["mistakes"] += len(v.get("mistakes") or []); a["corrections"] += corrections_count(v); a["denials"] += d.get("permission_denials") or 0
         a["failed"] += 1 if (d.get("exit") not in (0, None) or d.get("is_error")) else 0
     # How each node performs next to the others: the same records, grouped by the
     # container that ran them (operator, 2026-09-11: "how is this node performing
