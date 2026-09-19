@@ -116,27 +116,52 @@ the world-read bit, writing needs a world-writable (1777) or
 pve accepts a bind mount only from root@pam, which pvesh over ssh to root
 is. A bind mount is never part of a container backup.
 
+`--reprovision` on a hostname that already exists re-ships every `files:`
+entry through the identical apply_files() a create uses (directory entries
+via the same `git archive HEAD` tar) and re-runs every `provision:` script,
+in place of the plain idempotent skip. Real trigger,
+human-execution-engine#760 (2026-09-19): the only tool path for the normal
+case -- a `provision:` bug found after the container exists -- was `scp`
+the fix to the node and `pct exec` it in by hand, the exact one-liner shape
+this tool exists to retire, on the one flow it had no answer for. It
+resolves the manifest fully first, exactly like create, and NEVER runs
+`pct set`: it cannot touch the container's config, so it cannot touch the
+MAC a DHCP reservation is keyed on or a mount -- those still need a destroy
+and a create. Each `files:` entry is sha256-compared against what a
+`pct exec VMID -- sha256sum` finds already in the container (a directory
+entry compares every file the tar carries, by path relative to `dst`) and
+reported `new`/`changed`/`unchanged` before it is re-shipped, and the
+tool's own exit code is `provision:`'s own. A live `mounts:`/`features:`
+that no longer matches the manifest (`pct config VMID`) is printed as a
+`WARNING` naming the exact `pct set` that would fix it -- computed, never
+run. On a hostname that does not exist yet, `--reprovision` is a no-op: a
+plain create happens, same as without it.
+
 Usage:
   hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
-                 [--anchors FILE] [--addons FILE] [--agent-roster FILE]
+                 [--reprovision] [--anchors FILE] [--addons FILE] [--agent-roster FILE]
 """
-import os
 import argparse
+import hashlib
+import io
 import ipaddress
 import json
+import os
 import re
 import shlex
 import subprocess
 import sys
+import tarfile
 import textwrap
 import time
 
 # library/py lives in this tool's own repo -- derive it from this script's
 # own location, resolved through symlinks, never from the repo the tool
 # happens to be invoked against.
-from pathlib import Path as _Path  # noqa: E402
+from pathlib import Path as _Path
+
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
-from hee_cli import help_wanted, note_ignored  # noqa: E402
+from hee_cli import help_wanted, note_ignored
 
 try:
     import yaml
@@ -362,6 +387,29 @@ def _net0(spec, anchors_path=None):
     return net
 
 
+EXAMPLES = """\
+EXAMPLES:
+  hee-pve-deploy pve/services/bastion.yaml --dry-run
+      Preview a create: every command, every file, every provision script --
+      nothing runs.
+
+  hee-pve-deploy pve/services/bastion.yaml
+      Create it for real. Idempotent by hostname: run again unchanged and it
+      only reports the existing container.
+
+  hee-pve-deploy pve/services/meme-factory.yaml --reprovision --dry-run
+      Preview a reprovision on an EXISTING container: the sha256 diff of
+      every files: entry (new/changed/unchanged), the mounts:/features:
+      WARNING if the live config has drifted from the manifest, and the
+      provision: scripts that would run. Nothing is applied.
+
+  hee-pve-deploy pve/services/meme-factory.yaml --reprovision
+      Re-ship files:, re-run provision:, on a container that already
+      exists. Exit code is provision:'s own. Never touches mounts:/
+      features: -- those still need a destroy and a create.
+"""
+
+
 def main():
     def require(key):
         """Fail loudly rather than invent a storage name.
@@ -387,7 +435,7 @@ def main():
     # published page documented four flags and not one manifest key.
     ap = argparse.ArgumentParser(
         prog="hee-pve-deploy", description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        epilog=EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("manifest", help="pve/services/<name>.yaml -- see the manifest format above")
     ap.add_argument("--node", default="pve")
     ap.add_argument("--host", default="10.0.0.153")
@@ -395,6 +443,17 @@ def main():
                     help="resolve the manifest and print every command that would run "
                          "-- create, add-ons, files, provision -- creating and changing "
                          "nothing. Without it the deploy is applied.")
+    ap.add_argument("--reprovision", action="store_true",
+                    help="on a hostname that ALREADY EXISTS: re-ship every 'files:' entry "
+                         "(sha256-compared against the container first and reported "
+                         "new/changed/unchanged) and re-run every 'provision:' script, "
+                         "instead of the idempotent skip -- exits with provision:'s own "
+                         "exit code. Never runs 'pct set': a live mounts:/features: "
+                         "mismatch against the manifest is printed as a WARNING naming "
+                         "the pct set it would take, and nothing is applied -- that still "
+                         "needs a destroy and a create. On a hostname that does NOT exist "
+                         "yet this flag is a no-op: a plain create happens, same as "
+                         "without it.")
     ap.add_argument("--anchors",
                     default=os.path.expanduser(
                         "~/git/fleet-ops/hee/registries/network-anchors.registry.v1.yaml"),
@@ -428,7 +487,9 @@ def main():
     # Resolve everything the manifest ships BEFORE touching the node. A
     # manifest whose files or scripts are missing fails here, with nothing
     # created, rather than after `pvesh create` has left a container that
-    # is half of what was declared.
+    # is half of what was declared. --reprovision needs this exactly as much
+    # as create does: it re-ships the same files and re-runs the same
+    # provision, so a bad manifest must fail before anything is re-shipped.
     root = _manifest_root(args.manifest)
     files = plan_files(spec, root, args.agent_roster)
     resolver_files = plan_resolver(spec)
@@ -443,10 +504,20 @@ def main():
 
     existing = existing_hostnames(args.host, args.node)
     if hostname in existing:
-        print(f"hee-pve-deploy: '{hostname}' already exists (vmid {existing[hostname]}) -- skipping, idempotent.")
-        print("hee-pve-deploy: nothing was applied. A container an earlier run left half-provisioned is NOT "
-              "repaired by re-running: destroy it and deploy again, or run its provision script by hand.")
+        vmid = existing[hostname]
+        if not args.reprovision:
+            print(f"hee-pve-deploy: '{hostname}' already exists (vmid {vmid}) -- skipping, idempotent.")
+            print("hee-pve-deploy: nothing was applied. A container an earlier run left half-provisioned is NOT "
+                  "repaired by re-running: destroy it and deploy again, or run its provision script by hand.")
+            return
+        reprovision(args.host, vmid, hostname, spec, files, scripts, args.dry_run)
         return
+
+    if args.reprovision:
+        # Acceptance: "--reprovision" is a no-op on a hostname that does not
+        # exist -- a plain create happens, same as without the flag.
+        print(f"hee-pve-deploy: '{hostname}' does not exist yet -- '--reprovision' is a "
+              f"no-op here; creating normally.")
 
     template_storage = spec.get("template_storage", "local")
     ensure_template(args.host, template_storage, spec["template"])
@@ -501,6 +572,185 @@ def main():
 
     if args.dry_run:
         print("hee-pve-deploy: DRY RUN complete -- nothing was created or changed.")
+
+
+# ---------------------------------------------------------------------------
+# --reprovision.
+#
+# human-execution-engine#760: re-ship files: and re-run provision: on a
+# container that already exists, in place of the plain idempotent skip.
+# Never runs `pct set` -- see diff_config. The manifest is already fully
+# resolved by the time main() calls this (files, scripts, same as create).
+# ---------------------------------------------------------------------------
+
+def reprovision(host, vmid, hostname, spec, files, scripts, dry_run):
+    """`--reprovision` on a hostname that already exists (vmid VMID): print
+    the mounts:/features: drift warning, the sha256 diff of every files:
+    entry, re-ship them all, then re-run provision:. Exits with
+    provision:'s own exit code (apply_provision -> _pct_exec_stdin
+    propagates it). Reads (sha256sum, pct config) happen even under
+    --dry-run -- same as existing_hostnames() already does in main() --
+    because a read is not a change; only apply_files/apply_provision honor
+    dry_run by not writing."""
+    print(f"hee-pve-deploy: '{hostname}' already exists (vmid {vmid}) -- reprovisioning "
+          f"('--reprovision': re-shipping files: and re-running provision:, config untouched).")
+
+    for desc, pct_set in diff_config(spec, live_config(host, vmid), vmid):
+        print(f"hee-pve-deploy: WARNING '{hostname}' (vmid {vmid}) {desc} -- not applied, "
+              f"would need: {pct_set}")
+
+    for label, status in diff_files(host, vmid, files):
+        print(f"hee-pve-deploy: files: {label}: {status}")
+
+    apply_files(host, vmid, files, dry_run)
+    apply_provision(host, vmid, scripts, dry_run)
+
+    if dry_run:
+        print(f"hee-pve-deploy: DRY RUN complete -- '{hostname}' (vmid {vmid}) was not changed.")
+
+
+def live_config(host, vmid):
+    """`pct config VMID` parsed into a dict keyed by pve's own config keys.
+    Read-only -- the only use is diff_config's report; this tool never
+    writes through it."""
+    cmd = ["pct", "config", str(vmid)]
+    r = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", f"root@{host}", " ".join(shlex.quote(c) for c in cmd)],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"hee-pve-deploy: pct config {vmid} failed (exit {r.returncode}):\n{r.stderr}")
+    live = {}
+    for line in r.stdout.splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        live[k.strip()] = v.strip()
+    return live
+
+
+def diff_config(spec, live, vmid):
+    """[(description, pct_set_command)] for every mounts:/features:
+    difference between the manifest and LIVE (from live_config(), a real
+    `pct config VMID`). Computes what `pct set` WOULD take and never runs
+    it: config drift needs a destroy and a create, per
+    human-execution-engine#760 -- this only says so.
+
+    Known limitation (see NOTES.md): compares features/mounts as pve
+    renders them literally; a live config carrying extra pve-added fields
+    this tool never sets (e.g. `,backup=0` on an mpN) would show as a
+    difference here even though nothing meaningful changed. Not simulated
+    against a real node -- this agent has no Bash.
+    """
+    diffs = []
+    wanted_feat = _features(spec)
+    live_feat = live.get("features") or None
+    if wanted_feat != live_feat:
+        if wanted_feat:
+            diffs.append((
+                f"features: manifest wants '{wanted_feat}', live is '{live_feat or '(none)'}'",
+                f"pct set {vmid} -features {wanted_feat}"))
+        else:
+            diffs.append((
+                f"features: manifest wants none, live is '{live_feat}'",
+                f"pct set {vmid} -delete features"))
+
+    wanted_mounts = spec.get("mounts") or []
+    for i, m in enumerate(wanted_mounts):
+        want_val = f"{m['host']},mp={m['ct']}" + (",ro=1" if m.get("ro") else "")
+        live_val = live.get(f"mp{i}")
+        if live_val != want_val:
+            diffs.append((
+                f"mp{i}: manifest wants '{want_val}', live is '{live_val or '(none)'}'",
+                f"pct set {vmid} -mp{i} {want_val}"))
+    i = len(wanted_mounts)
+    while f"mp{i}" in live:
+        diffs.append((
+            f"mp{i}: live has '{live[f'mp{i}']}', manifest declares none",
+            f"pct set {vmid} -delete mp{i}"))
+        i += 1
+    return diffs
+
+
+def _sha256_hex(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def _live_sha256(host, vmid, path):
+    """sha256 of PATH inside the container, or None if it is absent.
+    `sha256sum` exits non-zero on a missing path (busybox: 'No such file or
+    directory') -- that failure IS the answer 'no such file', not an error
+    this tool raises."""
+    cmd = _pct(vmid, ["sha256sum", path])
+    r = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", f"root@{host}", " ".join(shlex.quote(c) for c in cmd)],
+        capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.split():
+        return None
+    return r.stdout.split()[0]
+
+
+def _tar_entry_sha256s(tarinfo):
+    """{path relative to dst: sha256} for every regular file the tar
+    carries, stripping the same leading path components
+    `--strip-components` removes at extraction (see _tar_tracked and
+    apply_files), so a key here names the same path a key from
+    _live_dir_sha256s would."""
+    strip = tarinfo["strip"]
+    out = {}
+    with tarfile.open(fileobj=io.BytesIO(tarinfo["tar"])) as tf:
+        for m in tf.getmembers():
+            if not m.isfile():
+                continue
+            rel = "/".join(m.name.split("/")[strip:])
+            out[rel] = _sha256_hex(tf.extractfile(m).read())
+    return out
+
+
+def _live_dir_sha256s(host, vmid, dst):
+    """{path relative to dst: sha256} for every regular file already under
+    dst inside the container, or {} when dst does not exist yet -- same
+    missing-means-nothing contract as _live_sha256."""
+    sh = f"cd {shlex.quote(dst)} 2>/dev/null && find . -type f -exec sha256sum {{}} \\;"
+    cmd = _pct(vmid, ["sh", "-c", sh])
+    r = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", f"root@{host}", " ".join(shlex.quote(c) for c in cmd)],
+        capture_output=True, text=True)
+    out = {}
+    if r.returncode == 0:
+        for line in r.stdout.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                h, p = parts
+                out[p.removeprefix("./")] = h
+    return out
+
+
+def diff_files(host, vmid, files):
+    """[(label, status)] for every files: entry, status one of
+    'new'/'changed'/'unchanged' -- computed by sha256-comparing what would
+    ship against what --reprovision finds already in the container, BEFORE
+    anything is re-shipped, so the report describes the state being
+    replaced. A directory entry is 'new' when none of its tracked files
+    exist yet at dst, 'unchanged' when every one matches, else 'changed'."""
+    report = []
+    for f in files:
+        if f.get("dir"):
+            wanted = _tar_entry_sha256s(f["data"])
+            live = _live_dir_sha256s(host, vmid, f["dst"])
+            if not any(p in live for p in wanted):
+                status = "new"
+            elif all(live.get(p) == h for p, h in wanted.items()):
+                status = "unchanged"
+            else:
+                status = "changed"
+            report.append((f"{f['rel']} -> {f['dst']}/", status))
+        else:
+            data = f["data"] if f["data"] is not None else open(f["src"], "rb").read()
+            wanted = _sha256_hex(data)
+            live = _live_sha256(host, vmid, f["dst"])
+            status = "new" if live is None else ("unchanged" if live == wanted else "changed")
+            report.append((f"{f['rel']} -> {f['dst']}", status))
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -877,9 +1127,15 @@ def _pct(vmid, argv):
     return ["pct", "exec", str(vmid), "--", "env", f"PATH={CONTAINER_PATH}", *argv]
 
 
-def _pct_exec_stdin(host, vmid, argv, data, what, capture=True):
+def _pct_exec_stdin(host, vmid, argv, data, what, capture=True, propagate_exit_code=False):
     """Run ARGV inside the container with DATA on its stdin. Fails loudly
-    with the container's own stderr; never interprets silence."""
+    with the container's own stderr; never interprets silence.
+
+    propagate_exit_code=True (apply_provision only) exits hee-pve-deploy
+    itself with the CONTAINER command's own exit code -- acceptance:
+    "exit code is the provision's" -- rather than the generic exit 1 every
+    other caller (files: pushes) uses; a provision script's exit code is
+    information an operator acts on, not just a pass/fail bit."""
     cmd = _pct(vmid, argv)
     r = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", f"root@{host}",
@@ -887,7 +1143,11 @@ def _pct_exec_stdin(host, vmid, argv, data, what, capture=True):
         input=data, capture_output=capture)
     if r.returncode != 0:
         err = (r.stderr or b"").decode("utf-8", "replace") if capture else ""
-        sys.exit(f"hee-pve-deploy: {what} failed (exit {r.returncode}).\n{err}".rstrip())
+        msg = f"hee-pve-deploy: {what} failed (exit {r.returncode}).\n{err}".rstrip()
+        if propagate_exit_code:
+            print(msg, file=sys.stderr)
+            sys.exit(r.returncode)
+        sys.exit(msg)
     return r.stdout
 
 
@@ -957,7 +1217,7 @@ def apply_provision(host, vmid, scripts, dry_run):
             # of what it did, and it belongs in the operator's terminal
             # as it happens, not summarized afterwards.
             _pct_exec_stdin(host, vmid, ["sh", "-s"], fh.read(),
-                            f"provision: {s['rel']}", capture=False)
+                            f"provision: {s['rel']}", capture=False, propagate_exit_code=True)
         print(f"hee-pve-deploy: {s['rel']} finished.")
 
 
