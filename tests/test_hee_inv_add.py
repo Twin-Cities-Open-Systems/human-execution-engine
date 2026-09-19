@@ -257,6 +257,21 @@ class TestAdd(unittest.TestCase):
         text = (dataset / r.stdout.strip()).read_text()
         self.assertIn("    available: true\n", text)
 
+    def test_kind_stock_with_tcos_repo_is_unknown(self):
+        # Not blocking 19: a stock record must land in a store's dataset,
+        # never tcos-plan-private -- run_add always supplies --tcos-repo.
+        r = self.run_add(stock(), "--kind", "stock")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("datasets", r.stderr)
+        self.assertFalse((self.repo / "inventory").exists())
+
+    def test_add_without_repo_or_dataset_raises_unusable(self):
+        # Not blocking 20: add(doc, repo=None, dataset=None) is a library-only
+        # path (the CLI always supplies one); it must raise Unusable, not
+        # AttributeError, when a caller omits both.
+        with self.assertRaises(hee_inv.Unusable):
+            hee_inv.add(json.dumps(planned()).encode(), home=str(self.home))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,8 @@ def main() -> Status:
     a = ap.parse_args()
     if a.dataset and a.tcos_repo:
         return emit(Status.UNKNOWN, "--dataset and --tcos-repo are mutually exclusive")
+    if a.kind == "stock" and not a.dataset:
+        return emit(Status.UNKNOWN, "stock records live in datasets, not a --tcos-repo: pass --dataset DIR")
     if not a.dataset:
         a.tcos_repo = a.tcos_repo or os.environ.get("TCOS_REPO", str(Path.home() / "git" / "tcos-plan-private"))
     try:
