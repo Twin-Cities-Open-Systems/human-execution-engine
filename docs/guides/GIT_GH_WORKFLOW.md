@@ -89,6 +89,8 @@ directly against `main`.
 
 ## Merging
 
-Merge via `gh pr merge --squash`, or `hee-git-merge` where it is already
-in use. Add `--delete-branch` only for `feature/`-prefixed branches;
+Merge through `hee git merge -r <N> --squash`, never a raw `gh pr merge`
+(HEE_POLICY §2 already showed the tool; this guide said "where it is
+already in use", and that hedge is what let a raw merge happen on
+2026-09-18). Add `--delete-branch` only for `feature/`-prefixed branches;
 identity-prefixed branches are kept post-merge by design.
