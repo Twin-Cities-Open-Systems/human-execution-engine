@@ -1,143 +1,339 @@
 #!/usr/bin/env python3
 # section: 1
-"""hee-url -- real, simple URL shortener with real SQL search.
+"""hee-url -- short links: u.tcos.us/axgoose8/ -> the page it stands for
 
-Real trigger (2026-08-22): "./hee -url -short -sql 'thesis AND punk
-rock' -or -str 1976." Deliberately fresh and minimal, not built on top
-of the old gh/spencerbutler link-shortener-django project -- "no touch
-sb, we make. simple." Own tools, own store, real SQLite (a real SQL
-engine, not a simulation of one) so the -sql framing is literal, not
-metaphorical.
+SYNOPSIS
+  hee-url add URL [--slug SLUG] [--tag T ...] [--note TEXT] [--force]
+  hee-url get SLUG
+  hee-url list
+  hee-url search TERM [TERM ...] [--or]
+  hee-url rm SLUG
+  hee-url build --out DIR
+  hee-url deploy [--dry-run] [--message TEXT]
+  hee-url verify
+  hee-url config [--init [--force]]
+  hee-url [VERB] help
 
-Storage: .hee/urls.db (SQLite), one real table -- hash, url, tags,
-created_at. Search is real SQL LIKE matching over the tags column,
-combined with AND/OR the way the tool is called, not a fabricated
-full-text index.
+  Every verb also takes --store DIR, --base URL, --length N, --infix TEXT
+  and --config FILE, which override the config file for that one run.
 
-Usage:
-  hee-url -short URL [-tags "space separated tags"]
-  hee-url -get HASH
-  hee-url -search TERM [TERM ...] [-or]   # AND by default between terms, -or switches to OR
+DESCRIPTION
+  A URL shortener whose store is a directory of YAML files, one HEE object
+  per short link, kept in git like anything else. Nothing here needs a
+  database or a server: the links are records, and the serving side is a
+  static tree generated from them.
+
+  Slugs are derived, not random. sha256 of the target URL fills the free
+  characters and places the infix, so the same URL shortens to the same
+  slug on every machine and shortening twice changes nothing. By default a
+  slug is 8 characters and contains "goose" -- axgoose8, goose1zk, x7goosem
+  -- because the operator asked that every short link carry it. Both are
+  settings, not rules of the tool.
+
+  A record looks like this (hee lint passes it: the inuid reproduces from
+  its seed, which is the short URL itself):
+
+    apiVersion: hee/v1
+    kind: Card
+    metadata:
+      name: axgoose8
+      labels: {hee.object: "true", hee.tcos/topic: url, artifact: short-link}
+      annotations: {inuid: <sha256>, inuid_seed: https://u.tcos.us/axgoose8/,
+                    inuid_derivation: sha256(inuid_seed), created_utc: ..., author: ...}
+    spec:
+      slug: axgoose8
+      short: https://u.tcos.us/axgoose8/
+      url: https://example.com/some/other-url.html
+      status: 302
+      tags: []
+      note: ""
+
+VERBS
+  add URL        shorten URL; print the short link. --slug picks the slug
+                 by hand (it must still contain the infix); --tag and --note
+                 are for `search`; --force retargets a slug that is taken.
+                 A URL already in the store prints its existing link.
+  get SLUG       print the target of one slug
+  list           every link, one per line: slug, target, when it was made
+  search TERMS   links whose slug, target, tags or note contain every term
+                 (any term with --or); case-insensitive
+  rm SLUG        delete the record. The live site keeps serving the old
+                 redirect until the next deploy.
+  build --out D  write the static tree to D: _redirects (one server-side
+                 redirect per slug, with and without the trailing slash),
+                 <slug>/index.html (the same redirect as a meta refresh, for
+                 a host without _redirects), index.html and 404.html.
+  deploy         build into a temporary directory and ship it as the
+                 Cloudflare Worker named in the config (static assets, the
+                 same path tcos-www uses for tcos.us), then attach the base
+                 hostname to that Worker if it is not already -- Cloudflare
+                 creates the DNS record itself. Needs Node >= 20 and a
+                 token in CLOUDFLARE_API_TOKEN or HEE_CRED_PASS with
+                 Workers Scripts:Edit and DNS:Edit on the zone:
+
+                   hee cred -pass cloudflare-tcos-www -dir ~/git/tcos-www/.hee/secrets -exec hee url deploy
+
+                 --dry-run builds and reports without touching Cloudflare.
+  verify         ask the live host about every record, over the internet:
+                 OK when the server redirects to the recorded target,
+                 WARNING when only the meta refresh would, CRITICAL when it
+                 goes elsewhere or is missing, UNKNOWN when unreachable.
+  config         print the effective settings and where each came from.
+                 --init writes ~/.config/hee/url.yaml with every key
+                 commented out (--force overwrites one that exists).
+
+CONFIGURATION
+  ~/.config/hee/url.yaml, or the file HEE_URL_CONFIG names. Every key is
+  optional. An unknown key is an error, not a no-op.
+
+    base: https://u.tcos.us      the public base of every short link
+    store: ~/git/fleet-ops/hee/urls   where the records live
+    length: 8                    slug length, infix included
+    infix: goose                 text every slug must contain; "" drops it
+    alphabet: abcdefghijklmnopqrstuvwxyz0123456789
+    status: 302                  redirect code (301, 302, 307 or 308)
+    worker: tcos-u               Cloudflare Worker name for deploy
+    compatibility_date: 2026-08-15
+    wrangler: wrangler@4.86.0    the pinned wrangler npx runs
+
+  So `length: 4` with `infix: ""` gives four-character slugs, and
+  `infix: ""` alone keeps eight characters with no required text. A length
+  that leaves no free character beside the infix is refused.
+
+EXAMPLES
+  $ hee-url --store tests/fixtures/urls list                                   # ci
+  $ hee-url --store tests/fixtures/urls get axgoose8                           # ci
+  $ hee-url --store tests/fixtures/urls search example                         # ci
+  $ hee-url --store tests/fixtures/urls build --out "$(mktemp -d)"             # ci
+  $ hee-url --store tests/fixtures/urls --config /dev/null config              # ci
+  $ hee-url --store tests/fixtures/urls deploy --dry-run                       # ci
+  $ hee-url add https://example.com/some/other-url.html
+  $ hee-url add https://tcos.us/people --slug meetgoose --tag people
+  $ hee-url --infix "" --length 4 add https://tcos.us/
+  $ hee cred -pass cloudflare-tcos-www -dir ~/git/tcos-www/.hee/secrets -exec hee url deploy
+  $ hee-url verify
+
+EXIT STATUS
+  0  OK        done; for verify, every link answers correctly
+  1  CRITICAL  a refusal: bad URL or slug, slug taken, missing record,
+               unknown setting, wrangler or Cloudflare error
+  2  CRITICAL  verify found a link that is wrong or missing
+  3  UNKNOWN   usage error, or verify could not reach the host
+
+ENVIRONMENT
+  HEE_URL_CONFIG         config file instead of ~/.config/hee/url.yaml
+  CLOUDFLARE_API_TOKEN   token for deploy; HEE_CRED_PASS is read when
+                         `hee cred -exec` set it
+  CLOUDFLARE_ACCOUNT_ID  skips the account lookup
+
+FILES
+  ~/.config/hee/url.yaml            settings
+  ~/git/fleet-ops/hee/urls/*.yaml   the records (default store)
+
+SEE ALSO
+  hee-cred(1), hee-lint(1), hee-qr(1), library/py/hee_url
 """
-import argparse
-import hashlib
-import sqlite3
+from __future__ import annotations
+
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-# library/py lives in this tool's own repo -- derive it from this script's
-# own location, resolved through symlinks, never from the repo the tool
-# happens to be invoked against.
-from pathlib import Path as _Path  # noqa: E402
-sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "library" / "py"))
-from hee_cli import help_wanted, note_ignored  # noqa: E402
-
-DB_PATH = Path(".hee/urls.db")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+import hee_url as U
+from hee_cli import help_wanted, note_ignored
+from hee_day import local_dates
+from hee_status import ArgumentParser, Status, emit
 
 
-def db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS urls (
-            hash TEXT PRIMARY KEY,
-            url TEXT NOT NULL,
-            tags TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        )
-    """)
-    return conn
+def _cfg(args) -> dict:
+    over = {"store": args.store, "base": args.base, "length": args.length, "infix": args.infix}
+    path = Path(args.config) if args.config else None
+    return U.load_config(path, over)
 
 
-def real_hash(url: str) -> str:
-    # real, deterministic -- same url always gets the same short hash,
-    # not a random one that'd collide/duplicate on re-shortening
-    return hashlib.sha256(url.encode()).hexdigest()[:7]
+def cmd_add(args) -> int:
+    cfg = _cfg(args)
+    rec, created = U.add(args.url, cfg, slug=args.slug, tags=args.tag or [], note=args.note or "",
+                         force=args.force)
+    spec = rec["spec"]
+    print(spec["short"])
+    where = U.record_path(spec["slug"], cfg)
+    # stdout carries only the short link, so `$(hee url add URL)` is usable.
+    emit(Status.OK, f"{'new' if created else 'existing'} {spec['slug']} -> {spec['url']}  ({where})",
+         stream=sys.stderr)
+    return 0
 
 
-def cmd_short(url: str, tags: str):
-    conn = db()
-    h = real_hash(url)
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    conn.execute(
-        "INSERT INTO urls (hash, url, tags, created_at) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(hash) DO UPDATE SET tags=excluded.tags",
-        (h, url, tags, now),
-    )
-    conn.commit()
-    print(f"hee-url: {h} -> {url}" + (f"  [{tags}]" if tags else ""))
+def cmd_get(args) -> int:
+    cfg = _cfg(args)
+    rec = U.load(args.slug, cfg)
+    if rec is None:
+        raise U.UrlError(f"no short link {args.slug!r} in {U.store_dir(cfg)}")
+    print(rec["spec"]["url"])
+    return 0
 
 
-def _local_dates(stamps):
-    """Stamps as the current user's `date` prints them (library/py/hee_day).
-    Operator, 2026-09-11: every hee tool reports time in the user's own format."""
-    import os as _os, sys as _sys
-    lib = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "..", "library", "py")
-    if lib not in _sys.path:
-        _sys.path.insert(0, lib)
-    try:
-        from hee_day import local_dates
-    except ImportError:
-        return list(stamps)
-    return local_dates(stamps)
-
-
-def cmd_get(h: str):
-    conn = db()
-    row = conn.execute("SELECT url, tags, created_at FROM urls WHERE hash = ?", (h,)).fetchone()
-    if not row:
-        sys.exit(f"hee-url: no entry for {h}")
-    url, tags, created = row
-    print(f"{url}" + (f"  [{tags}]" if tags else "") + f"  ({_local_dates([created])[0]})")
-
-
-def cmd_search(terms: list, use_or: bool):
-    conn = db()
-    clauses = " OR ".join(["tags LIKE ? OR url LIKE ?"] * len(terms)) if use_or else \
-              " AND ".join(["(tags LIKE ? OR url LIKE ?)"] * len(terms))
-    params = []
-    for t in terms:
-        like = f"%{t}%"
-        params += [like, like]
-    rows = conn.execute(f"SELECT hash, url, tags FROM urls WHERE {clauses}", params).fetchall()
-    if not rows:
-        joiner = " OR " if use_or else " AND "
-        print(f"hee-url: no match for {joiner.join(terms)!r}", file=sys.stderr)
-        sys.exit(1)
-    for h, url, tags in rows:
-        print(f"{h}: {url}" + (f"  [{tags}]" if tags else ""))
-
-
-def main():
-    ap = argparse.ArgumentParser(prog="hee-url")
-    ap.add_argument("-short", metavar="URL")
-    ap.add_argument("-tags", default="", metavar="TAGS")
-    ap.add_argument("-get", metavar="HASH")
-    ap.add_argument("-search", nargs="+", metavar="TERM")
-    ap.add_argument("-or", dest="use_or", action="store_true")
-    # Contextual help BEFORE argparse parses anything. argparse owns -h and
-    # --help but not the bare `help` verb, and resolves either only after
-    # parsing -- so an unrelated argument errors first and the help never
-    # prints. Measured: 8 tools exited non-zero for --help for exactly this
-    # reason. See library/py/hee_cli.
-    if help_wanted(sys.argv[1:]):
-        note_ignored(sys.argv[1:])
-        ap.print_help()
+def cmd_list(args) -> int:
+    cfg = _cfg(args)
+    recs = U.load_all(cfg)
+    if not recs:
+        emit(Status.OK, f"no links in {U.store_dir(cfg)}")
         return 0
+    stamps = [r["metadata"]["annotations"].get("created_utc", "") for r in recs.values()]
+    shown = local_dates(stamps)
+    width = max(len(s) for s in recs)
+    for (slug, rec), when in zip(recs.items(), shown):
+        print(f"{slug:<{width}}  {rec['spec']['url']}  ({when})")
+    return 0
 
-    args = ap.parse_args()
 
-    if args.short:
-        cmd_short(args.short, args.tags)
-    elif args.get:
-        cmd_get(args.get)
-    elif args.search:
-        cmd_search(args.search, args.use_or)
-    else:
+def cmd_search(args) -> int:
+    cfg = _cfg(args)
+    recs = U.load_all(cfg)
+    hits = U.search(args.term, recs, use_or=args.use_or)
+    if not hits:
+        joiner = " OR " if args.use_or else " AND "
+        emit(Status.WARNING, f"no match for {joiner.join(args.term)!r}")
+        return 1
+    for slug in hits:
+        spec = recs[slug]["spec"]
+        tags = f"  [{' '.join(spec.get('tags') or [])}]" if spec.get("tags") else ""
+        print(f"{slug}: {spec['url']}{tags}")
+    return 0
+
+
+def cmd_rm(args) -> int:
+    cfg = _cfg(args)
+    rec = U.remove(args.slug, cfg)
+    emit(Status.OK, f"removed {args.slug} -> {rec['spec']['url']}; deploy to take it off the site")
+    return 0
+
+
+def cmd_build(args) -> int:
+    cfg = _cfg(args)
+    out = Path(args.out)
+    slugs = U.build(cfg, out)
+    emit(Status.OK, f"{len(slugs)} link(s) -> {out}/_redirects and {len(slugs)} page(s)")
+    return 0
+
+
+def cmd_deploy(args) -> int:
+    cfg = _cfg(args)
+    result = U.deploy(cfg, dry_run=args.dry_run, message=args.message or "",
+                      log=lambda m: print(f"  {m}"))
+    if not result["deployed"]:
+        emit(Status.OK, f"dry run: {len(result['slugs'])} link(s) would deploy as {cfg['worker']}")
+        return 0
+    emit(Status.OK, f"deployed {len(result['slugs'])} link(s) as {cfg['worker']}; run `hee url verify`")
+    return 0
+
+
+def cmd_verify(args) -> int:
+    cfg = _cfg(args)
+    results = U.verify(cfg)
+    if not results:
+        emit(Status.OK, f"nothing to verify in {U.store_dir(cfg)}")
+        return 0
+    worst = Status.OK
+    for level, slug, detail in results:
+        lvl = emit(level, f"{slug}: {detail}")
+        worst = max(worst, lvl, key=lambda s: s.value)
+    counts = {lvl: sum(1 for r in results if r[0] == lvl) for lvl in ("OK", "WARNING", "CRITICAL", "UNKNOWN")}
+    summary = ", ".join(f"{n} {k}" for k, n in counts.items() if n)
+    emit(worst, f"verify: {summary}")
+    return {Status.OK: 0, Status.WARNING: 0, Status.CRITICAL: 2, Status.UNKNOWN: 3}[worst]
+
+
+def cmd_config(args) -> int:
+    path = Path(args.config) if args.config else U.config_path()
+    if args.init:
+        if path.exists() and not args.force:
+            raise U.UrlError(f"{path} exists; --force to overwrite")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(U.default_config_text(), encoding="utf-8")
+        emit(Status.OK, f"wrote {path}")
+        return 0
+    cfg = _cfg(args)
+    from_file = {}
+    if path.is_file():
+        import yaml
+        with open(path, encoding="utf-8") as f:
+            from_file = yaml.safe_load(f) or {}
+    over = {"store": args.store, "base": args.base, "length": args.length, "infix": args.infix}
+    print(f"config: {path}{'' if path.is_file() else '  (absent; defaults)'}")
+    for k in U.DEFAULTS:
+        src = "flag" if over.get(k) is not None else ("file" if k in from_file else "default")
+        print(f"  {k:<19} {cfg[k]!s:<44} {src}")
+    print(f"store resolves to {U.store_dir(cfg)}")
+    return 0
+
+
+def build_parser() -> ArgumentParser:
+    ap = ArgumentParser(prog="hee-url", add_help=False)
+    ap.add_argument("--store")
+    ap.add_argument("--base")
+    ap.add_argument("--length", type=int)
+    ap.add_argument("--infix")
+    ap.add_argument("--config")
+    sub = ap.add_subparsers(dest="verb", required=True)
+
+    p = sub.add_parser("add", add_help=False)
+    p.add_argument("url")
+    p.add_argument("--slug")
+    p.add_argument("--tag", action="append")
+    p.add_argument("--note")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_add)
+
+    p = sub.add_parser("get", add_help=False)
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_get)
+
+    p = sub.add_parser("list", add_help=False)
+    p.set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("search", add_help=False)
+    p.add_argument("term", nargs="+")
+    p.add_argument("--or", dest="use_or", action="store_true")
+    p.set_defaults(fn=cmd_search)
+
+    p = sub.add_parser("rm", add_help=False)
+    p.add_argument("slug")
+    p.set_defaults(fn=cmd_rm)
+
+    p = sub.add_parser("build", add_help=False)
+    p.add_argument("--out", required=True)
+    p.set_defaults(fn=cmd_build)
+
+    p = sub.add_parser("deploy", add_help=False)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--message")
+    p.set_defaults(fn=cmd_deploy)
+
+    p = sub.add_parser("verify", add_help=False)
+    p.set_defaults(fn=cmd_verify)
+
+    p = sub.add_parser("config", add_help=False)
+    p.add_argument("--init", action="store_true")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_config)
+    return ap
+
+
+def main(argv: list[str]) -> int:
+    # Help is answered before anything is parsed, so nothing to the right of
+    # the help token can run. See library/py/hee_cli.
+    if help_wanted(argv):
+        note_ignored(argv)
         print(__doc__)
-        sys.exit(1)
+        return 0
+    args = build_parser().parse_args(argv)
+    try:
+        return args.fn(args)
+    except U.UrlError as e:
+        emit(Status.CRITICAL, str(e))
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))
