@@ -430,8 +430,10 @@ def add(doc_bytes: bytes, repo: Path | None = None, dry_run: bool = False, home:
         root = Path(dataset)
         if not root.is_dir():
             raise Unusable(f"not a directory: {root}")
-    else:
+    elif repo is not None:
         root = repo_guard(repo)
+    else:
+        raise Unusable("either repo or dataset is required")
 
     if kind == "stock":
         r, asset_record = validate_stock(doc, root)

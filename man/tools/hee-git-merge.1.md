@@ -18,8 +18,7 @@ hee-git-merge - Interactive, cross-repo mass review-and-merge for open PRs
 
     options:
       -h, --help            show this help message and exit
-      -r REGEX, --regex REGEX
-                            PR number id/range list (123 / 45-50 / 1,2,3), or a
+      -r, --regex REGEX     PR number id/range list (123 / 45-50 / 1,2,3), or a
                             regex against title+body
       --org ORG
       --author AUTHOR       filter by login, or 'all' for every open PR org-wide
