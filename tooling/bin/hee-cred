@@ -74,6 +74,7 @@ Usage:
   hee-cred -github-app <account> [-registry FILE] [-dir PATH]    # register / check an org's GitHub App
   hee-cred -github-app <account> -key FILE [-force]              # seal its downloaded private key
   hee-cred -run <account> -github-token <grant> -exec CMD [ARGS...]      # CMD gets GH_TOKEN, 1 h, revoked on exit
+  hee-cred -reseal <account>|all -add-recipients "<gpg-id>[,...]" [-dir PATH]   # widen who can open, keep who already can
 
 EXAMPLES
   $ hee cred -github-app github-app-tcos-agents
@@ -148,6 +149,17 @@ signs and seals it to the registry's recipients (-force replaces an existing
 one, for a key rotation). Registered and sealed: it opens the key, asks GitHub what the org's
 installation actually holds, and compares that with the registry's ceiling --
 more than the ceiling is CRITICAL, less is WARNING.
+
+-reseal ACCOUNT (or `all`, every .gpg in the store) opens a credential HERE,
+re-encrypts it to its existing recipients PLUS -add-recipients, checks the
+new file opens, and replaces the old one. Real trigger (2026-09-19): a new
+host agent (claude@flippy) that the operator wants "used a lot" could open
+4 of 17 sealed files, because recipients live in the FILE and every file
+predates the key. The manual pipeline in SEALED_CREDENTIALS.md (list-packets,
+paste ids, gpg --encrypt, verify) is what this does, without the step where
+someone retypes a key id. A file this host cannot open is reported with its
+recipients and skipped (WARNING), never guessed at; an .age file is skipped
+too, since an age header names no recipients. Nothing is printed but ids.
 
 -github-token GRANT, with -run or -pass, changes what the child receives: not
 the key, but one installation token for that grant -- its repositories
@@ -315,7 +327,8 @@ def encrypt_gpg(secret: str, recipient_list: list, out_path: Path):
     # Swept 2026-09-02; this is the only --encrypt site in the org.
     cmd = ["gpg", "--encrypt", "--armor", "--trust-model", "always",
            "--batch", "--yes", *recipient_args, "-o", str(out_path)]
-    proc = subprocess.run(cmd, input=secret.encode(), capture_output=True)
+    data = secret if isinstance(secret, bytes) else secret.encode()
+    proc = subprocess.run(cmd, input=data, capture_output=True)
     if proc.returncode != 0:
         sys.exit(f"hee-cred: gpg encrypt failed: {proc.stderr.decode(errors='replace')}")
 
@@ -479,6 +492,79 @@ def recipient_keyids(path: Path):
         capture_output=True)
     text = (proc.stdout + proc.stderr).decode(errors="replace")
     return re.findall(r"keyid ([0-9A-Fa-f]{8,40})", text)
+
+
+def keyids_of(recipient: str):
+    """Every key id (primary and subkeys) a recipient spec resolves to in
+    this keyring, uppercase -- so `986E73B25D795106`, a fingerprint, or an
+    email all compare against what --list-packets reports (subkey ids)."""
+    proc = subprocess.run(["gpg", "--list-keys", "--with-colons", recipient], capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        return []
+    ids = []
+    for line in proc.stdout.splitlines():
+        f = line.split(":")
+        if f[0] in ("pub", "sub") and len(f) > 4:
+            ids.append(f[4].upper())
+    return ids
+
+
+def reseal(account: str, add: str, secrets_dir: Path) -> int:
+    """Re-encrypt sealed .gpg credentials to their current recipients plus
+    `add`. Opens each file here; a file this host cannot open is skipped with
+    its recipients named. Exit 0 all done, 1 something skipped, 2 a real
+    failure (an added recipient not in the keyring, or a verify mismatch)."""
+    adds = [r.strip() for r in add.split(",") if r.strip()]
+    if not adds:
+        sys.exit("hee-cred: -reseal needs -add-recipients KEYID[,KEYID...]")
+    resolved = {}
+    for r in adds:
+        ids = keyids_of(r)
+        if not ids:
+            sys.exit(f"hee-cred: -add-recipients {r}: not in this keyring -- import its PUBLIC key first (gpg --import)")
+        resolved[r] = ids
+    if account == "all":
+        targets = sorted(secrets_dir.glob("*.gpg"))
+        if not targets:
+            sys.exit(f"hee-cred: no .gpg credentials under {secrets_dir}")
+        for skipped in sorted(secrets_dir.glob("*.age")):
+            print(f"⚠️  WARNING {skipped.name}: age file, recipients are not listed in it -- re-seal by hand")
+    else:
+        targets = [secrets_dir / f"{account}.gpg"]
+        if not targets[0].exists():
+            sys.exit(f"hee-cred: no sealed credential {targets[0]}")
+    rc = 0
+    for path in targets:
+        have = []
+        for k in recipient_keyids(path):
+            if k.upper() not in have:
+                have.append(k.upper())
+        missing = [r for r, ids in resolved.items() if not set(ids) & set(have)]
+        if not missing:
+            print(f"✅ OK {path.name}: already sealed to {', '.join(adds)} (recipients: {', '.join(have)})")
+            continue
+        proc = subprocess.run(["gpg", "--batch", "--decrypt", "--quiet", str(path)], capture_output=True, check=False)
+        if proc.returncode != 0:
+            print(f"⚠️  WARNING {path.name}: cannot open here, sealed to {', '.join(have) or '(no recipients read)'} -- run this where one of those keys is")
+            rc = max(rc, 1)
+            continue
+        secret = proc.stdout
+        tmp = path.with_name(path.name + ".reseal-tmp")
+        try:
+            encrypt_gpg(secret, have + missing, tmp)
+            back = subprocess.run(["gpg", "--batch", "--decrypt", "--quiet", str(tmp)], capture_output=True, check=False)
+            if back.returncode != 0 or back.stdout != secret:
+                tmp.unlink(missing_ok=True)
+                print(f"❌ CRITICAL {path.name}: the re-sealed file does not open to the same value; original kept")
+                rc = 2
+                continue
+            os.replace(tmp, path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+        now = [k.upper() for k in recipient_keyids(path)]
+        print(f"✅ OK {path.name}: {', '.join(have)} -> {', '.join(dict.fromkeys(now))}")
+    return rc
 
 
 def decrypt_age(in_path: Path, identity: str = None) -> str:
@@ -846,6 +932,11 @@ def main():
                     help="with -install-keys: only files named NAME-*.age, installed without the prefix")
     ap.add_argument("-force", action="store_true",
                     help="with -install-keys: replace an existing key that differs")
+    ap.add_argument("-reseal", dest="reseal_account", metavar="ACCOUNT|all",
+                    help="re-encrypt a sealed .gpg credential (or every one in -dir with `all`) to its current "
+                         "recipients plus -add-recipients; opens it here, verifies the new file, keeps the old on any doubt")
+    ap.add_argument("-add-recipients", dest="add_recipients", default="", metavar="KEYID[,KEYID...]",
+                    help="with -reseal: GPG key ids/emails to add (public keys must be in this keyring)")
     ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")
     ap.add_argument("-run", dest="run_account", metavar="ACCOUNT",
                     help="like -pass, but also exports the secret under a variable name "
@@ -905,6 +996,8 @@ def main():
         seal(args.seal_account, args.recipients, secrets_dir, args.genfrom_term, args.blocks, args.root, args.genkey, args.backend, args.passphrase, args.any_kind)
     elif args.install_keys:
         sys.exit(install_keys(secrets_dir, args.account, args.force))
+    elif args.reseal_account:
+        sys.exit(reseal(args.reseal_account, args.add_recipients, secrets_dir))
     elif args.run_account:
         unseal_and_exec(args.run_account, args.exec_cmd or [], secrets_dir,
                         args.var_name, args.identity, args.github_token, registry)

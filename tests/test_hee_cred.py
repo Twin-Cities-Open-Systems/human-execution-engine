@@ -238,3 +238,51 @@ class PassphraseBackend(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Reseal(unittest.TestCase):
+    """-reseal widens a sealed file to a new key and keeps the keys that could already open it."""
+
+    def gen(self, env, uid):
+        subprocess.run(["gpg", "--batch", "--quick-gen-key", "--passphrase", "", uid, "ed25519", "cert,sign", "0"], env=env, check=True, capture_output=True)
+        fpr = subprocess.run(["gpg", "--list-keys", "--with-colons", uid], env=env, capture_output=True, text=True, check=False).stdout.split("fpr:::::::::")[1].split(":")[0]
+        subprocess.run(["gpg", "--batch", "--quick-add-key", "--passphrase", "", fpr, "cv25519", "encr", "0"], env=env, check=True, capture_output=True)
+        return fpr
+
+    def test_reseal_adds_a_recipient_keeps_the_old_ones_and_verifies(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, GNUPGHOME=d)
+            self.gen(env, "old@test"); self.gen(env, "new@test")
+            secrets = Path(d) / "s"; secrets.mkdir()
+            subprocess.run(["gpg", "--batch", "--trust-model", "always", "--encrypt", "--armor", "-r", "old@test", "-o", str(secrets / "tok.gpg")],
+                           input=b"s3cret\n", env=env, check=True, capture_output=True)
+            (secrets / "keep.age").write_bytes(b"age-encryption.org/v1\n")
+            r = run_tool("-reseal", "all", "-add-recipients", "new@test", "-dir", str(secrets), env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("✅ OK tok.gpg", r.stdout); self.assertIn("keep.age", r.stdout)     # age reported, not touched
+            self.assertNotIn("s3cret", r.stdout + r.stderr)
+            # both keys are recipients now, in the file, and the value survived
+            packets = subprocess.run(["gpg", "--list-packets", "--list-only", str(secrets / "tok.gpg")], env=env, capture_output=True, text=True, check=False).stdout
+            self.assertEqual(packets.count("keyid "), 2)
+            out = subprocess.run(["gpg", "--batch", "--quiet", "--decrypt", str(secrets / "tok.gpg")], env=env, capture_output=True, check=False).stdout
+            self.assertEqual(out, b"s3cret\n")
+            # a second run is a no-op that says so
+            r2 = run_tool("-reseal", "tok", "-add-recipients", "new@test", "-dir", str(secrets), env=env)
+            self.assertEqual(r2.returncode, 0); self.assertIn("already sealed to new@test", r2.stdout)
+
+    def test_reseal_skips_what_it_cannot_open_and_refuses_an_unknown_key(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, GNUPGHOME=d)
+            self.gen(env, "mine@test")
+            other = Path(d) / "other"; other.mkdir(); oenv = dict(os.environ, GNUPGHOME=str(other))
+            self.gen(oenv, "theirs@test")
+            pub = subprocess.run(["gpg", "--batch", "--armor", "--export", "theirs@test"], env=oenv, capture_output=True, check=False).stdout
+            subprocess.run(["gpg", "--batch", "--import"], input=pub, env=env, check=True, capture_output=True)
+            secrets = Path(d) / "s"; secrets.mkdir()
+            subprocess.run(["gpg", "--batch", "--trust-model", "always", "--encrypt", "--armor", "-r", "theirs@test", "-o", str(secrets / "far.gpg")],
+                           input=b"x\n", env=env, check=True, capture_output=True)
+            r = run_tool("-reseal", "all", "-add-recipients", "mine@test", "-dir", str(secrets), env=env)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("WARNING far.gpg: cannot open here", r.stdout)
+            r2 = run_tool("-reseal", "far", "-add-recipients", "nobody@test", "-dir", str(secrets), env=env)
+            self.assertEqual(r2.returncode, 1); self.assertIn("not in this keyring", r2.stderr)
