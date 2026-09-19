@@ -30,18 +30,26 @@ spec:
       owner: agents
       description: "dispatch deploy-blog-tool (ci-triage, $2.50) and deploy-blog-images (media-hand, $0.75) in parallel with `hee pve dispatch <agent> <jobdir> --wif --cred wif-issuer-lab --ticket 0129` from flippy; both are independent"
       gate: "each job exits 0 under its ceiling; out/NOTES.md names what the agent could not verify"
+      evidence: "deploy-blog-tool: ci-triage, exit 0, $1.98, 29 turns; deploy-blog-images: media-hand, exit 0, $0.23, 7 turns -- records in fleet-ops .hee/dispatch/ on fleet-ops#650"
+      status: done
     - step: C-verify-and-pr
       owner: dispatcher
       description: "apply out/ to branches: HEE touchy/hee-deploy (tool + tests) and resume touchy/media-item-post-images; on flippy run pytest tests/test_hee_deploy.py, hee check cli \"$PWD/tooling/bin\", hee gen-manpages --write; in resume run ./convert.sh on a fixture post directory and confirm the images land in media/<oper>/dist/blog/<slug>/; open both PRs from out/ with the dispatch record's review block filled"
       gate: "tests green locally and in CI; hee check cli OK; the fixture's images present beside its page"
+      evidence: "human-execution-engine#754 (12 tests, ruff clean, hee check cli OK, hee check examples runs the # ci example); resume#110 (fixture PNG lands beside index.html through convert.sh). Dispatcher corrections named in each commit message"
+      status: done
     - step: D-review
       owner: agents
       description: "write both PR diffs into deploy-blog-review/in/diffs/ and dispatch it (pr-reviewer, $1.50); the dispatcher addresses every finding with a failing input, and answers style notes in the PR"
       gate: "review verdict is approve for both PRs, or every request-changes finding is fixed and re-reviewed"
+      evidence: "first pass: pr-reviewer, $1.42, request changes on both -- eight findings, every one with a failing input, all fixed and kept as tests; second pass ($0.75, confirm-only prompt) dispatched 2026-09-19"
+      status: in-progress
     - step: E-dogfood
       owner: dispatcher-and-operator
       description: "operator merges both PRs (the dispatcher does not); dispatcher runs the operator's exact workflow on flippy as -oper touchy-claude against lab: a directory with blog.md and two PNGs with notes, then a title-only directory, confirming WARNING 1 and a live page at touchy.media.lab.tcos.us/blog/<slug>/; ticket moves idea -> footgun -> dogfood with that evidence"
       gate: "the URL answers 200 with the post and both figures; title-only deploys with a WARNING line"
+      evidence: "prose post: exit 0, 200 at https://touchy.media.lab.tcos.us/blog/deploy-dogfood/, resume#111, 1m10s; title-only: exit 1 with the WARNING line, 200, resume#112; a re-run of an existing slug: CRITICAL 2, checkout back on main and clean. The figures case waits on resume#110 merging, since the tool branches from origin/main"
+      status: in-progress
     - step: F-next
       owner: dispatcher
       description: "phase 2 as the same shape: the media kind (gallery item from the same directory, media-hand), the meme kind (render through hee meme first), and -to prod beyond printing the release procedure; a backlog-groomer job ($0.25) moves the tickets once the evidence is on disk"
@@ -49,6 +57,7 @@ spec:
   budget:
     ceilings_usd: { deploy-blog-tool: 2.50, deploy-blog-images: 0.75, deploy-blog-review: 1.50, backlog-groomer: 0.25 }
     total_usd: 5.00
+    spent_usd: 3.62   # before the second review pass; 4.37 at its ceiling
     measured_reference: "mf-web-js (ci-triage, same shape) $2.17; mf-review-code (pr-reviewer, two PRs) $1.53 -- 2026-09-19 dispatch records"
   what_the_dispatcher_does_not_delegate:
     - "anything that needs a real machine: running the tool, its tests, convert.sh, deploy.sh over ssh pve, hee exif brand"
