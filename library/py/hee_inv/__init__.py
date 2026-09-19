@@ -2,9 +2,14 @@
 
 The contract is hee/contracts/inventory.contract.v1.md. This module is the
 writer behind ``hee inv add``: one ``hee.inventory.asset-request.v1`` JSON
-document in, one ``inventory.asset`` Measure out. The same document is what
-the inventory page's add form submits, so a record typed at a shell and a
-record submitted from a browser are validated by the same code.
+document in, one ``inventory.asset`` Measure out -- or, with ``--kind
+stock``, one ``hee.inventory.stock-request.v1`` document in, one
+``inventory.stock`` Measure out. Both kinds share one validate/render/write
+path (PROMPTING_RULES.md rule 15: extend, do not fork).
+
+The same document is what the inventory page's add form submits, so a
+record typed at a shell and a record submitted from a browser are
+validated by the same code.
 
 The allowed values of inv.sub, inv.bucket and inv.lifecycle are READ FROM
 THE CONTRACT, not copied here. A second list in code is a list that drifts:
@@ -27,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA = "hee.inventory.asset-request.v1"
+SCHEMA_STOCK = "hee.inventory.stock-request.v1"
 MAX_BYTES = 16384
 SOA_REF = "~/.hee/index/_.yaml#hee-soa.v1"
 ORIGIN_SLUG = "Twin-Cities-Open-Systems/tcos-plan-private"
@@ -40,6 +46,13 @@ ROLES = ("wired", "wireless")
 REQUIRED = ("schema", "name", "asset_type", "sub", "bucket", "lifecycle")
 OPTIONAL = ("stableid", "vendor", "model", "serial", "interfaces", "location",
             "specs", "requirements", "refs", "notes", "source", "observed")
+
+# hee.inventory.stock-request.v1 (PLAN.md section 4).
+STOCK_REQUIRED = ("schema", "asset", "qty", "price", "currency")
+STOCK_OPTIONAL = ("unit", "available", "observed", "notes")
+ASSET_REF = re.compile(r"^inv-asset-[a-z0-9-]+$")
+PRICE = re.compile(r"^\d+(\.\d{1,2})?$")
+CURRENCY = re.compile(r"^[A-Z]{3}$")
 
 CONTRACT = Path(__file__).resolve().parents[3] / "hee" / "contracts" / "inventory.contract.v1.md"
 
@@ -60,7 +73,7 @@ def contract_values(path: Path = CONTRACT) -> dict:
         raise Unusable(f"cannot read the inventory contract at {path}: {e.strerror}") from e
     out = {}
     for label in ("inv.sub", "inv.bucket", "inv.lifecycle"):
-        m = re.search(r"^- " + re.escape(label) + r":\s*([^\n(]+)", text, re.M)
+        m = re.search(r"^- " + re.escape(label) + r":\s*([^\n(]+)", text, re.MULTILINE)
         if not m:
             raise Unusable(f"the inventory contract has no '- {label}:' line")
         out[label] = [v.strip() for v in m.group(1).split("|") if v.strip()]
@@ -217,7 +230,7 @@ def q(v) -> str:
 
 
 def render(r: dict) -> tuple[str, str]:
-    """(metadata.name, YAML text) for a validated request."""
+    """(metadata.name, YAML text) for a validated asset request."""
     name = f"inv-asset-{r['sub']}-{r['stableid']}"
     y = [
         "apiVersion: hee/v1",
@@ -272,22 +285,137 @@ def render(r: dict) -> tuple[str, str]:
     return name, "\n".join(y) + "\n"
 
 
+def _asset_labels(text: str) -> dict:
+    """inv.bucket / inv.sub off an asset record's rendered text -- a plain line
+    scan, not a YAML parse: the renderer wrote these two lines as bare tokens
+    (see render()), so this needs no YAML library to read them back."""
+    labels = {}
+    for key in ("inv.bucket", "inv.sub"):
+        m = re.search(r"^    " + re.escape(key) + r": (\S+)$", text, re.MULTILINE)
+        if m:
+            labels[key] = m.group(1)
+    return labels
+
+
+def validate_stock(doc, dataset: Path) -> tuple[dict, dict]:
+    """A checked, normalized stock request, and the {'bucket','sub'} labels of
+    the asset it stocks. Raises Invalid with the first reason found, naming
+    the asset directory searched when the asset is missing."""
+    if not isinstance(doc, dict):
+        raise Invalid("the document must be a JSON object")
+    unknown = sorted(set(doc) - set(STOCK_REQUIRED) - set(STOCK_OPTIONAL))
+    if unknown:
+        raise Invalid(f"unknown field(s): {', '.join(unknown)}")
+    if doc.get("schema") != SCHEMA_STOCK:
+        raise Invalid(f"schema: must be {SCHEMA_STOCK}")
+
+    asset_name = _text(doc, "asset", 80, required=True)
+    if not ASSET_REF.match(asset_name):
+        raise Invalid("asset: must be an inv-asset-<sub>-<stableid> record name")
+    assetdir = dataset / "inventory" / "objects" / "asset"
+    matches = sorted(assetdir.glob(f"*__{asset_name}.yaml")) if assetdir.is_dir() else []
+    if not matches:
+        raise Invalid(f"asset: {asset_name} not found in {assetdir}")
+    labels = _asset_labels(matches[0].read_text(encoding="utf-8"))
+    sub, bucket = labels.get("inv.sub"), labels.get("inv.bucket")
+    if not sub or not bucket:
+        raise Invalid(f"asset: {matches[0]} has no inv.sub/inv.bucket labels")
+    prefix = f"inv-asset-{sub}-"
+    if not asset_name.startswith(prefix):
+        raise Invalid(f"asset: {asset_name} does not match its own inv.sub label ({sub})")
+    stableid_ = asset_name[len(prefix):]
+
+    qty = doc.get("qty")
+    if not isinstance(qty, int) or isinstance(qty, bool) or qty < 0:
+        raise Invalid("qty: must be an integer >= 0")
+
+    unit = _text(doc, "unit", 40) or "each"
+    if not TOKEN.match(unit):
+        raise Invalid("unit: lowercase letters, digits and dashes, starting with a letter or digit, at most 40")
+
+    price = doc.get("price")
+    if not isinstance(price, str) or not PRICE.match(price):
+        raise Invalid("price: a decimal string with at most two places and no sign")
+
+    currency = doc.get("currency")
+    if not isinstance(currency, str) or not CURRENCY.match(currency):
+        raise Invalid("currency: three uppercase letters")
+
+    available = doc.get("available", True)
+    if not isinstance(available, bool):
+        raise Invalid("available: must be true or false")
+
+    notes = _text(doc, "notes", 2000)
+
+    observed = doc.get("observed")
+    if observed is None:
+        observed = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif not isinstance(observed, str) or not OBSERVED.match(observed):
+        raise Invalid("observed: must be UTC in the form 2026-09-12T06:20:50Z")
+
+    r = {
+        "asset": asset_name, "qty": qty, "unit": unit, "price": price, "currency": currency,
+        "available": available, "notes": notes, "observed": observed, "stableid": stableid_,
+    }
+    return r, {"bucket": bucket, "sub": sub}
+
+
+def render_stock(r: dict, asset_record: dict) -> tuple[str, str]:
+    """(metadata.name, YAML text) for a validated stock request."""
+    name = f"inv-stock-{r['stableid']}"
+    y = [
+        "apiVersion: hee/v1",
+        "kind: Measure",
+        "metadata:",
+        f"  name: {name}",
+        "  labels:",
+        '    hee.object: "true"',
+        "    hee.tcos/topic: inventory",
+        f"    inv.bucket: {asset_record['bucket']}",
+        f"    inv.sub: {asset_record['sub']}",
+        "spec:",
+        "  measure: inventory.stock",
+        "  context:",
+        "    soa:",
+        f"      file_ref: {q(SOA_REF)}",
+        "    evidence: []",
+        "  ts:",
+        f"    observed: {q(r['observed'])}",
+        "  stock:",
+        f"    asset: {r['asset']}",
+        f"    qty: {r['qty']}",
+        f"    unit: {r['unit']}",
+        f"    price: {q(r['price'])}",
+        f"    currency: {r['currency']}",
+        f"    available: {'true' if r['available'] else 'false'}",
+        f"    notes: {q(r['notes'])}",
+    ]
+    return name, "\n".join(y) + "\n"
+
+
 def repo_guard(repo: Path) -> Path:
     """The dataset repo, resolved -- or Unusable. Same checks as hee-inv's repo_guard_tcos."""
     repo = repo.resolve()
-    top = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    top = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
     if top.returncode != 0:
         raise Unusable(f"not a git repository: {repo}")
     if Path(top.stdout.strip()).resolve() != repo:
         raise Unusable(f"not the top of a repository: {repo} (top is {top.stdout.strip()})")
-    origin = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True, text=True)
+    origin = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True, text=True, check=False)
     if origin.returncode != 0 or ORIGIN_SLUG not in origin.stdout:
         raise Unusable(f"origin is not {ORIGIN_SLUG}: {origin.stdout.strip() or 'no origin remote'}")
     return repo
 
 
-def add(doc_bytes: bytes, repo: Path, dry_run: bool = False, home: str | None = None) -> tuple[str, str]:
-    """Validate, render and write one record. Returns (repo-relative path, YAML)."""
+def add(doc_bytes: bytes, repo: Path | None = None, dry_run: bool = False, home: str | None = None,
+        dataset: Path | None = None, kind: str = "asset") -> tuple[str, str]:
+    """Validate, render and write one record. Returns (dataset-relative path, YAML).
+
+    With ``dataset``, the record root is ``dataset/inventory/objects/<kind>/``
+    and ``repo_guard`` is not run -- a dataset need not be a git repository.
+    ``dataset`` must already exist as a directory (Unusable otherwise).
+    Without ``dataset``, ``repo`` is resolved through ``repo_guard`` as before.
+    """
     anchor = Path(home or os.path.expanduser("~")) / ".hee" / "index" / "_.yaml"
     if not anchor.is_file():
         raise Unusable(f"missing SOA anchor: {anchor}")
@@ -297,17 +425,29 @@ def add(doc_bytes: bytes, repo: Path, dry_run: bool = False, home: str | None = 
         doc = json.loads(doc_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         raise Invalid(f"not valid UTF-8 JSON: {e}") from e
-    r = validate(doc, contract_values())
-    repo = repo_guard(repo)
-    name, text = render(r)
-    objdir = repo / "inventory" / "objects" / "asset"
+
+    if dataset is not None:
+        root = Path(dataset)
+        if not root.is_dir():
+            raise Unusable(f"not a directory: {root}")
+    else:
+        root = repo_guard(repo)
+
+    if kind == "stock":
+        r, asset_record = validate_stock(doc, root)
+        name, text = render_stock(r, asset_record)
+    else:
+        r = validate(doc, contract_values())
+        name, text = render(r)
+
+    objdir = root / "inventory" / "objects" / kind
     existing = sorted(objdir.glob(f"*__{name}.yaml")) if objdir.is_dir() else []
     if existing:
-        raise Invalid(f"{name} already exists: {existing[0].relative_to(repo)}")
-    rel = f"inventory/objects/asset/{tsz(r['observed'])}__{name}.yaml"
+        raise Invalid(f"{name} already exists: {existing[0].relative_to(root)}")
+    rel = f"inventory/objects/{kind}/{tsz(r['observed'])}__{name}.yaml"
     if not dry_run:
         objdir.mkdir(parents=True, exist_ok=True)
-        tmp = repo / (rel + ".tmp")
+        tmp = root / (rel + ".tmp")
         tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, repo / rel)
+        os.replace(tmp, root / rel)
     return rel, text

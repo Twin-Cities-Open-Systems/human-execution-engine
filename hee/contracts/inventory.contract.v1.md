@@ -44,6 +44,7 @@ Basement is the current macro location (v1 default):
 
 - inventory.purchase: inv-purchase-`vendor`-`tsz`
 - inventory.stock:    inv-stock-`vendor`-<purchase_tsz>-lNN-`slug`
+- inventory.stock, keyed to an asset: inv-stock-`stableid` (see "Stock records")
 - inventory.asset:    inv-asset-`sub`-`stableid`
 
 `stableid` never changes over the life of an asset. It is, in order:
@@ -82,6 +83,31 @@ inventory page's add form submits.
 
 A planned asset carries no evidence. It is not an unknown: its bucket and
 sub are known, so the unknown gates below do not apply to it.
+
+## Stock records
+
+`spec.stock` for `inventory.stock` records keyed to an asset (a store's
+catalog offer, as opposed to the purchase-derived `inv-stock-vendor-...`
+form above). Rendered by `hee inv add --kind stock` from a
+`hee.inventory.stock-request.v1` JSON document, in the same dataset as the
+asset it stocks.
+
+- asset (MUST): the `metadata.name` of an `inventory.asset` record already
+  present in the same dataset -- `hee inv add` refuses the document, naming
+  the asset directory searched, when no such record exists
+- qty (MUST): integer >= 0, what is on hand before orders
+- unit (MAY): a token, default `each`
+- price (MUST): a decimal string with at most 2 places and no sign
+- currency (MUST): three uppercase letters (ISO 4217)
+- available (MAY): true or false, default true -- false hides the item from
+  customers but keeps it in the owner view
+- notes (MAY)
+
+`metadata.labels.inv.bucket` and `inv.sub` are copied from the asset record
+being stocked, not re-entered. One stock record per asset: a second stock
+record naming the same asset is refused, the same way a duplicate asset
+record name is. `metadata.name` is `inv-stock-<stableid>`, the asset's own
+stableid (see Naming).
 
 ## Evidence
 

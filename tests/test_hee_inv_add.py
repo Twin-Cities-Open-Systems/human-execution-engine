@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = ROOT / "tooling" / "bin" / "hee-inv"
 sys.path.insert(0, str(ROOT / "library" / "py"))
-import hee_inv  # noqa: E402
+import hee_inv
 
 try:
     import yaml
@@ -33,6 +33,16 @@ def planned(**over):
         "requirements": ["Six ports", 'Intel NICs, "i226"'],
         "refs": ["https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/544"],
         "source": {"via": "cli"}, "notes": "no: not a boolean",
+    }
+    doc.update(over)
+    return doc
+
+
+def stock(**over):
+    doc = {
+        "schema": "hee.inventory.stock-request.v1", "asset": "inv-asset-electronics-athena",
+        "qty": 40, "unit": "each", "price": "2.50", "currency": "USD", "available": True,
+        "observed": OBS, "notes": None,
     }
     doc.update(over)
     return doc
@@ -59,7 +69,21 @@ class TestAdd(unittest.TestCase):
         f.write_text(doc if isinstance(doc, str) else json.dumps(doc))
         env = dict(os.environ, HOME=str(self.home), HEE_STATUS_STYLE="plain")
         return subprocess.run(["sh", str(TOOL), "add", "--json", str(f), "--tcos-repo", str(repo or self.repo), *extra],
-                              capture_output=True, text=True, env=env)
+                              capture_output=True, text=True, env=env, check=False)
+
+    def run_dataset(self, dataset, doc, *extra):
+        f = Path(self.tmp.name) / "doc.json"
+        f.write_text(doc if isinstance(doc, str) else json.dumps(doc))
+        env = dict(os.environ, HOME=str(self.home), HEE_STATUS_STYLE="plain")
+        return subprocess.run(["sh", str(TOOL), "add", "--json", str(f), "--dataset", str(dataset), *extra],
+                              capture_output=True, text=True, env=env, check=False)
+
+    def dataset_with_asset(self):
+        dataset = Path(self.tmp.name) / "store"
+        dataset.mkdir()
+        r = self.run_dataset(dataset, planned())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return dataset
 
     def test_planned_record_written_and_path_printed(self):
         r = self.run_add(planned())
@@ -139,13 +163,99 @@ class TestAdd(unittest.TestCase):
         (self.home / ".hee" / "index" / "_.yaml").unlink()
         self.assertEqual(self.run_add(planned()).returncode, 3)
         env = dict(os.environ, HOME=str(self.home))
-        self.assertEqual(subprocess.run(["sh", str(TOOL), "add"], capture_output=True, env=env).returncode, 3)
+        self.assertEqual(subprocess.run(["sh", str(TOOL), "add"], capture_output=True, env=env, check=False).returncode, 3)
 
     def test_allowed_values_come_from_the_contract(self):
         v = hee_inv.contract_values()
         self.assertIn("electronics", v["inv.sub"])
         self.assertEqual(v["inv.lifecycle"], ["planned", "ordered", "received", "in_service", "repurpose", "retired"])
         self.assertEqual(v["inv.bucket"], ["consumable", "durable", "commodity", "unknown"])
+
+    # -- --dataset --
+
+    def test_dataset_writes_without_a_git_repo(self):
+        dataset = Path(self.tmp.name) / "store"
+        dataset.mkdir()
+        r = self.run_dataset(dataset, planned())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rel = "inventory/objects/asset/20260912t062050z__inv-asset-electronics-athena.yaml"
+        self.assertEqual(r.stdout.strip(), rel)
+        self.assertTrue((dataset / rel).is_file())
+        self.assertFalse((dataset / ".git").exists())
+
+    def test_dataset_missing_directory_is_unknown(self):
+        missing = Path(self.tmp.name) / "nope"
+        r = self.run_dataset(missing, planned())
+        self.assertEqual(r.returncode, 3)
+        self.assertIn(str(missing), r.stderr)
+
+    # -- --kind stock --
+
+    def test_stock_renders_with_labels_from_the_asset(self):
+        dataset = self.dataset_with_asset()
+        r = self.run_dataset(dataset, stock(), "--kind", "stock")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rel = "inventory/objects/stock/20260912t062050z__inv-stock-athena.yaml"
+        self.assertEqual(r.stdout.strip(), rel)
+        text = (dataset / rel).read_text()
+        self.assertEqual(text, (
+            "apiVersion: hee/v1\n"
+            "kind: Measure\n"
+            "metadata:\n"
+            "  name: inv-stock-athena\n"
+            "  labels:\n"
+            '    hee.object: "true"\n'
+            "    hee.tcos/topic: inventory\n"
+            "    inv.bucket: durable\n"
+            "    inv.sub: electronics\n"
+            "spec:\n"
+            "  measure: inventory.stock\n"
+            "  context:\n"
+            "    soa:\n"
+            '      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"\n'
+            "    evidence: []\n"
+            "  ts:\n"
+            f'    observed: "{OBS}"\n'
+            "  stock:\n"
+            "    asset: inv-asset-electronics-athena\n"
+            "    qty: 40\n"
+            "    unit: each\n"
+            '    price: "2.50"\n'
+            "    currency: USD\n"
+            "    available: true\n"
+            "    notes: null\n"
+        ))
+
+    def test_stock_for_missing_asset_is_critical(self):
+        dataset = Path(self.tmp.name) / "store"
+        dataset.mkdir()
+        r = self.run_dataset(dataset, stock(asset="inv-asset-electronics-ghost"), "--kind", "stock")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn(str(dataset / "inventory" / "objects" / "asset"), r.stderr)
+
+    def test_second_stock_for_the_same_asset_is_critical(self):
+        dataset = self.dataset_with_asset()
+        self.assertEqual(self.run_dataset(dataset, stock(), "--kind", "stock").returncode, 0)
+        r = self.run_dataset(dataset, stock(observed="2026-09-13T00:00:00Z"), "--kind", "stock")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("already exists", r.stderr)
+
+    def test_price_currency_qty_validation(self):
+        dataset = self.dataset_with_asset()
+        for over, word in [({"price": "2.505"}, "price:"), ({"price": "-1"}, "price:"),
+                           ({"currency": "usd"}, "currency:"), ({"qty": "3"}, "qty:")]:
+            r = self.run_dataset(dataset, stock(**over), "--kind", "stock")
+            self.assertEqual(r.returncode, 2, (over, r.stderr))
+            self.assertIn(word, r.stderr)
+
+    def test_available_defaults_true(self):
+        dataset = self.dataset_with_asset()
+        doc = stock()
+        del doc["available"]
+        r = self.run_dataset(dataset, doc, "--kind", "stock")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = (dataset / r.stdout.strip()).read_text()
+        self.assertIn("    available: true\n", text)
 
 
 if __name__ == "__main__":
