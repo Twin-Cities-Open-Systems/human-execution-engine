@@ -89,10 +89,16 @@ loaded, read this file directly rather than assume it did.
 
 8. **Commit format and merge flow.** Conventional Commits
    (`type(scope): concise imperative description`; `feat`/`fix`/`chore`/`docs`)
-   for every commit and PR title. Merge via `gh pr merge --squash`; add
-   `--delete-branch` only for `feature/`-prefixed branches -- `touchy/`-prefixed
-   branches are kept post-merge as an audit trail by design (see HEE Policy
-   §2). Absorbed from the org's old `WORKFLOW.md`, 2026-08-27.
+   for every commit and PR title. Merge through the org's own tool, never a
+   raw `gh pr merge`: `hee git merge -r <N> --squash`, adding
+   `--delete-branch` only for `feature/`-prefixed branches --
+   identity-prefixed branches (`touchy/`, `flippy/`, ...) are kept post-merge
+   as an audit trail by design (see HEE Policy §2). The tool orders
+   dependent PRs, refuses a blind bulk merge, and is the same surface rule 15
+   requires for everything else; operator, 2026-09-18, on seeing a raw
+   `gh pr merge`: "we have tools for hee git-merge, you know this?" Absorbed
+   from the org's old `WORKFLOW.md`, 2026-08-27; merge tool made the rule
+   2026-09-18.
 9. **Issue hierarchy.** Epic (org roadmap, multi-repo, spans quarters) ->
    Feature (one discrete capability) -> Sub-issue (PR-bound tactical work,
    keeps its own labels -- labels don't inherit from the parent).
