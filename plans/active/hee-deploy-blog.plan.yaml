@@ -10,7 +10,7 @@ metadata:
     inuid_null_reason: bootstrap
     created_utc: "2026-09-19T04:40:00Z"
     source: "operator 2026-09-18 (the workflow, verbatim in fleet-ops pve/agents/jobs/deploy-blog-tool/in/SPEC.md) and 2026-09-19: 'use the service worker agents, make a plan to use them wisely'"
-    dispatcher: "flippy-claude under fleet-ops hee/contracts/spencer.flippy-claude.dispatcher-authority.contract.v1.yaml (ratified, fleet-ops#648)"
+    dispatcher: "flippy-claude under fleet-ops hee/contracts/spencer.flippy-claude.dispatcher-authority.contract.v1.yaml (ratified, fleet-ops#648)"   # hee-check:refs-ok -- a fleet-ops path, correct there
     tickets: "fleet-ops/0129 (jobs), this repo's ticket filed with this plan"
 spec:
   # "Wisely" is five rules, each of which decides something below.
