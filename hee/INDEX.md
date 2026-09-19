@@ -92,6 +92,12 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
+<summary>▪ Plan (1)</summary>
+
+- 🟢 [OK] `plans/active/hee-deploy-blog.plan.yaml`
+
+</details>
+<details>
 <summary>🗂️ Registry (7)</summary>
 
 - 🟢 [OK] `hee/registries/connect-targets.registry.v1.yaml`
