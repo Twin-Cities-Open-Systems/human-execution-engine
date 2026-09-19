@@ -87,6 +87,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # library/py lives in this tool's own repo -- derive from this script's own
@@ -124,6 +125,18 @@ WARNINGS: list[str] = []
 
 def _safe(text: str) -> str:
     return CREDS_RE.sub(r"\1***@", text)
+
+
+_T0 = time.monotonic()
+
+
+def stage(msg: str) -> None:
+    """One line per slow step, to stderr, flushed. The operator's first real
+    run (2026-09-19) sat silent for three minutes -- convert.sh renders every
+    post, deploy.sh minifies and streams the whole media tree to ct107 --
+    with no sign anything was happening. Not a verdict, so no status word;
+    the elapsed time is the point."""
+    print(f"⏳ hee-deploy [{time.monotonic() - _T0:5.0f}s] {msg}", file=sys.stderr, flush=True)
 
 
 def fail_critical(msg: str) -> int:
@@ -271,11 +284,13 @@ def real_deploy(
         # (pr-reviewer, second pass, 2026-09-19). Refuse before anything moves.
         return fail_critical(f"{resume}: checkout is detached (no branch to return to); check out a branch first")
 
+    stage(f"fetching origin/main in {resume}")
     fetch = subprocess.run(["git", "fetch", "origin", "main"], cwd=resume, capture_output=True, text=True, check=False)
     if fetch.returncode != 0:
         return fail_critical(f"{resume}: git fetch origin main failed: {fetch.stderr.strip()}")
 
     branch = f"blog/{oper}-{slug}"
+    stage(f"branching: {branch} from origin/main")
     switch = subprocess.run(
         ["git", "switch", "-c", branch, "origin/main"], cwd=resume, capture_output=True, text=True, check=False
     )
@@ -313,6 +328,7 @@ def real_deploy(
             if brand.returncode != 0:
                 warn(f"{dest}: hee exif brand failed: {brand.stderr.strip()}")
 
+        stage("building: ./convert.sh renders every post and card (about a minute)")
         build = subprocess.run(["./convert.sh"], cwd=resume, capture_output=True, text=True, check=False)
         if build.returncode != 0:
             return fail_critical(f"{resume}: ./convert.sh failed -- nothing deployed:\n{build.stderr.strip()}")
@@ -337,12 +353,14 @@ def real_deploy(
                     f"{beside}: missing beside {page} -- media/bin/media-item.py root should have copied it"
                 )
 
+        stage(f"deploying: media/bin/deploy.sh {oper} lab -- minify, then stream the media tree to ct107 over ssh pve (a minute or more for a tree with galleries)")
         deploy = subprocess.run(["media/bin/deploy.sh", oper, "lab"], cwd=resume, capture_output=True, text=True, check=False)
         if deploy.returncode != 0:
             return fail_critical(f"media/bin/deploy.sh {oper} lab failed:\n{deploy.stderr.strip()}")
 
         review_url = f"https://{prefix}.media.lab.tcos.us/blog/{slug}/"
 
+        stage("recording: commit the post on its branch" + ("" if no_pr else ", push, open the pull request"))
         # The record is the commit, with or without a PR: only the post and
         # its files, never the build's tracked outputs.
         add = subprocess.run(
