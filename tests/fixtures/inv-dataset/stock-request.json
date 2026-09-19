@@ -1,0 +1,11 @@
+{
+  "schema": "hee.inventory.stock-request.v1",
+  "asset": "inv-asset-sundry-widget",
+  "qty": 10,
+  "unit": "each",
+  "price": "5.00",
+  "currency": "USD",
+  "available": true,
+  "observed": "2026-09-19T20:00:00Z",
+  "notes": null
+}

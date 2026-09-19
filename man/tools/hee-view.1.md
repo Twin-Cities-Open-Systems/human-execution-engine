@@ -76,7 +76,7 @@ hee-view - hee-view: one command, the whole real picture -- pve node, every
                             reports the difference. WARNING exit (1) when there is
                             something unread, so it drives a watch or a status
                             line.
-      --job JID, -job JID   one dispatched agent job, by id or unique prefix: the
+      --job, -job JID       one dispatched agent job, by id or unique prefix: the
                             dispatch record and results when finished; while
                             running, the container's cgroup, the claude process
                             and out/ read from the pve host

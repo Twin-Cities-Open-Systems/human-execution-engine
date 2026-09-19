@@ -1,0 +1,31 @@
+apiVersion: hee/v1
+kind: Measure
+metadata:
+  name: inv-asset-sundry-widget
+  labels:
+    hee.object: "true"
+    hee.tcos/topic: inventory
+    inv.bucket: commodity
+    inv.sub: sundry
+    inv.lifecycle: in_service
+spec:
+  measure: inventory.asset
+  context:
+    soa:
+      file_ref: "~/.hee/index/_.yaml#hee-soa.v1"
+    evidence: []
+  ts:
+    observed: "2026-09-19T20:00:00Z"
+  asset:
+    name: "Widget"
+    asset_type: sundry
+    lifecycle: in_service
+    stableid: widget
+    vendor: null
+    model: null
+    serial: null
+    specs: {}
+    interfaces: []
+    requirements: []
+    refs: []
+    notes: null

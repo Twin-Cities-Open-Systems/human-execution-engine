@@ -10,8 +10,7 @@ hee-exif - hee-exif command
 
 # DESCRIPTION
 
-                    {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif}
-                    ...
+                    {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif} ...
 
     positional arguments:
       {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif}
