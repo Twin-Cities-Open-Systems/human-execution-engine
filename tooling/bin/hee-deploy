@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # section: 1
-"""hee-deploy -- publish a directory of markdown + images as a resume blog post
+"""hee-deploy -- publish a directory of markdown + images as a resume blog
+post, or a store directory as the live store on the lab
 
 SYNOPSIS
   hee deploy blog [DIR] [-oper SLUG] [-to lab|prod] [-dry-run] [-no-pr] [-resume PATH]
-  hee deploy help | blog help
+  hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run]
+  hee deploy help | blog help | store help
 
 DESCRIPTION
   Turns a directory shaped like:
@@ -22,7 +24,18 @@ DESCRIPTION
   with `./convert.sh`, pushed to lab with `media/bin/deploy.sh <oper> lab`,
   and a PR that records what is already live. DIR defaults to `.`.
 
-  DIR is the unit of input:
+  `hee deploy store` turns a store directory (a catalog: a store.yaml, one
+  inventory asset + stock record per item, one image and note per item)
+  into the live store on the lab: `rsync -rlt --delete --chmod=D2775,F664` the directory to
+  `$MNTPATH/store/<slug>/` (the share the store host also mounts), a
+  `POST /api/owner/reload` to pick up the new dataset, and a `GET /health`
+  to confirm the service is serving it. DIR defaults to `.`; the slug
+  defaults to DIR's basename. `-to prod` (phase 1, same as blog) only
+  prints the release procedure. `-dry-run` runs every gate and shows the
+  rsync plan (`--itemize-changes -n`) without touching the share, running
+  the reload, or requiring `STORE_OWNER_TOKEN`.
+
+  DIR is the unit of input for blog:
 
     blog.md               line 1 `# Title` (required); line 2 may be
                            `**Date:** YYYY-MM-DD`; then prose. Markdown
@@ -39,16 +52,37 @@ DESCRIPTION
   tool refuses and lists the profiles it found -- it never guesses a
   person.
 
+  DIR is the unit of input for store (one directory per store; a deployed
+  store lives at `$MNTPATH/store/<slug>/`):
+
+    store.yaml                                                 the store: name (required), tagline,
+                                                                currency, pickup, owner, policy
+    inventory/objects/asset/<tsz>__inv-asset-<sub>-<id>.yaml    one per item, `hee inv add --dataset DIR`
+    inventory/objects/stock/<tsz>__inv-stock-<id>.yaml          one per item on offer, naming its asset
+    images/<stableid>.<png|jpg|jpeg|gif|webp>                   the item's picture, keyed by stableid
+    images/<stableid>.<ext>.md                                  its note: first non-empty line is the
+                                                                 alt text, the rest the caption
+
+  An item is the pair (asset, stock); the stableid ties asset, stock and
+  image together. An asset with no stock record is not for sale. A stock
+  record whose asset is missing is refused, never silently dropped.
+
   -oper       which person's blog; default: $USER if it is a profile
   -to         lab|prod, default lab. prod (phase 1) only prints the
               release procedure and does nothing else.
-  -dry-run    run every gate, print the assembled post between
-              `----- post -----` markers and the files that would be
-              written, write nothing, create no branch, run nothing
-  -no-pr      leave the branch local after deploying to lab, no PR
-  -resume     path to the resume checkout, default ~/git/resume
+  -slug       (store only) the store's slug; default DIR's basename,
+              lowercased
+  -url        (store only) the running store's base URL; default
+              https://store.lab.tcos.us
+  -dry-run    run every gate, print what would be written (blog: the
+              assembled post between `----- post -----` markers and the
+              files; store: the rsync plan between `----- rsync -----`
+              markers), write nothing, touch nothing, run nothing
+  -no-pr      (blog only) leave the branch local after deploying to lab,
+              no PR
+  -resume     (blog only) path to the resume checkout, default ~/git/resume
 
-GATES (in order, each with its exit code)
+GATES for blog (in order, each with its exit code)
   DIR missing, or no blog.md, or line 1 not '# Title'    CRITICAL 2, refuse
   slug not slug-safe                                     CRITICAL 2, refuse
   -oper not a profile dir with profile.json              CRITICAL 2, refuse, lists profiles
@@ -59,6 +93,21 @@ GATES (in order, each with its exit code)
   -to prod                                                UNKNOWN 3, prints the release
                                                           procedure, does nothing
 
+GATES for store (in order, each with its exit code)
+  no store.yaml, or store.yaml has no 'name'             CRITICAL 2, refuse
+  slug not slug-safe                                     CRITICAL 2, refuse
+  no asset record, or no stock record                    CRITICAL 2, refuse, names the missing kind
+  a stock record whose 'asset' names no asset in DIR     CRITICAL 2, refuse, names the stock file
+  an item (has stock) with no image                      WARNING 1, deploys anyway
+  an image with no note                                  WARNING 1, deploys anyway
+  -to prod                                                UNKNOWN 3, prints the release
+                                                          procedure, does nothing
+  STORE_OWNER_TOKEN unset (real deploy only, not -dry-run)  CRITICAL 2, refuse before rsync,
+                                                             names the variable
+  $MNTPATH/store not a writable directory                CRITICAL 2, refuse before rsync
+  rsync exits non-zero                                   CRITICAL 2, refuse, nothing reloaded
+  the reload's 'unloadable' list is non-empty            CRITICAL 2, printed one per line
+
 EXIT STATUS
   0  OK -- deployed (or dry-run completed) clean
   1  WARNING -- deployed (or dry-run completed) anyway
@@ -67,13 +116,18 @@ EXIT STATUS
 
 NOT IN V1
   media and meme kinds, -to prod beyond printing the procedure, editing an
-  existing post, deleting images.
+  existing blog post or store item, deleting images, more than one store
+  per service instance, notifications, payment.
 
 EXAMPLES
   $ hee deploy blog tests/fixtures/deploy-blog/my-new-blog -oper alice -resume tests/fixtures/deploy-blog/resume -dry-run   # ci
+  $ M=$(mktemp -d) && mkdir -p "$M/store" && MNTPATH="$M" hee deploy store tests/fixtures/deploy-store/sample -slug sample -dry-run   # ci
   hee deploy blog ./my-new-blog -dry-run                # every gate, the assembled post, nothing written
   hee deploy blog ./my-new-blog -oper alice -to lab     # build, lab, PR
   hee deploy blog ./my-new-blog -to prod                # prints the release procedure, exit 3
+  hee deploy store ./ian -to lab                        # rsync, reload, health
+  hee deploy store ./ian -dry-run                       # every gate, the rsync plan, nothing touched
+  hee deploy store ./ian -to prod                       # prints the release procedure, exit 3
   hee deploy help
 """
 
@@ -87,7 +141,8 @@ import re
 import shutil
 import subprocess
 import sys
-import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 # library/py lives in this tool's own repo -- derive from this script's own
@@ -100,10 +155,17 @@ sys.path.insert(
 from hee_cli import help_wanted, note_ignored
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
-VALUE_FLAGS = ("-oper", "--oper", "-to", "--to", "-resume", "--resume")
+VALUE_FLAGS = (
+    "-oper", "--oper", "-to", "--to", "-resume", "--resume",
+    "-slug", "--slug", "-url", "--url",
+)
 SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 TITLE_RE = re.compile(r"^#\s+\S")
+
+DEFAULT_STORE_URL = "https://store.lab.tcos.us"
+RELOAD_TIMEOUT_S = 30
+HEALTH_TIMEOUT_S = 30
 
 # Verbatim, per SPEC's "-to prod (phase 1)" section -- do not reflow.
 RELEASE_PROCEDURE = (
@@ -111,6 +173,9 @@ RELEASE_PROCEDURE = (
     "hee release -cut -repos resume -yes       # release commit + PR; merging it is the sign-off",
     "hee release -promote -repos resume -yes   # prod; the operator's act",
 )
+
+STATUS_ICON = {"OK": "✅", "WARNING": "⚠️", "CRITICAL": "❌", "UNKNOWN": "⚪"}
+STATUS_CODE = {"OK": 0, "WARNING": 1, "CRITICAL": 2, "UNKNOWN": 3}
 
 
 # A tokenized remote (https://x-access-token:ghp_...@github.com/...) comes
@@ -125,18 +190,6 @@ WARNINGS: list[str] = []
 
 def _safe(text: str) -> str:
     return CREDS_RE.sub(r"\1***@", text)
-
-
-_T0 = time.monotonic()
-
-
-def stage(msg: str) -> None:
-    """One line per slow step, to stderr, flushed. The operator's first real
-    run (2026-09-19) sat silent for three minutes -- convert.sh renders every
-    post, deploy.sh minifies and streams the whole media tree to ct107 --
-    with no sign anything was happening. Not a verdict, so no status word;
-    the elapsed time is the point."""
-    print(f"⏳ hee-deploy [{time.monotonic() - _T0:5.0f}s] {msg}", file=sys.stderr, flush=True)
 
 
 def fail_critical(msg: str) -> int:
@@ -164,13 +217,15 @@ def build_parser() -> argparse.ArgumentParser:
     # ever built, so a missing dependency or a malformed flag elsewhere on
     # the line can never stop `help` from working.
     parser = _ArgumentParser(prog="hee-deploy", add_help=False)
-    parser.add_argument("kind", choices=["blog"])
+    parser.add_argument("kind", choices=["blog", "store"])
     parser.add_argument("dir", nargs="?", default=".")
     parser.add_argument("-oper", "--oper", dest="oper", default=None)
     parser.add_argument("-to", "--to", dest="to", choices=["lab", "prod"], default="lab")
     parser.add_argument("-dry-run", "--dry-run", dest="dry_run", action="store_true")
     parser.add_argument("-no-pr", "--no-pr", dest="no_pr", action="store_true")
     parser.add_argument("-resume", "--resume", dest="resume", default="~/git/resume")
+    parser.add_argument("-slug", "--slug", dest="slug", default=None)
+    parser.add_argument("-url", "--url", dest="url", default=None)
     return parser
 
 
@@ -284,19 +339,11 @@ def real_deploy(
         # (pr-reviewer, second pass, 2026-09-19). Refuse before anything moves.
         return fail_critical(f"{resume}: checkout is detached (no branch to return to); check out a branch first")
 
-    # Lab is a directory on pve's NFS export, mounted on every lab host; no
-    # ssh, no pve (operator, 2026-09-19). Refuse before the minute-long build
-    # when it is not there.
-    lab_www = Path(os.environ.get("HEE_LAB_WWW") or "/data/storage/lab/www")
-    if not lab_www.is_dir():
-        return fail_critical(f"lab share not mounted at {lab_www} -- mount pve's /data/storage (fstab: 10.0.0.153:/ /data/storage nfs4), or set HEE_LAB_WWW")
-    stage(f"fetching origin/main in {resume}")
     fetch = subprocess.run(["git", "fetch", "origin", "main"], cwd=resume, capture_output=True, text=True, check=False)
     if fetch.returncode != 0:
         return fail_critical(f"{resume}: git fetch origin main failed: {fetch.stderr.strip()}")
 
     branch = f"blog/{oper}-{slug}"
-    stage(f"branching: {branch} from origin/main")
     switch = subprocess.run(
         ["git", "switch", "-c", branch, "origin/main"], cwd=resume, capture_output=True, text=True, check=False
     )
@@ -334,7 +381,6 @@ def real_deploy(
             if brand.returncode != 0:
                 warn(f"{dest}: hee exif brand failed: {brand.stderr.strip()}")
 
-        stage("building: ./convert.sh renders every post and card (about a minute)")
         build = subprocess.run(["./convert.sh"], cwd=resume, capture_output=True, text=True, check=False)
         if build.returncode != 0:
             return fail_critical(f"{resume}: ./convert.sh failed -- nothing deployed:\n{build.stderr.strip()}")
@@ -359,14 +405,12 @@ def real_deploy(
                     f"{beside}: missing beside {page} -- media/bin/media-item.py root should have copied it"
                 )
 
-        stage(f"deploying: media/bin/deploy.sh {oper} lab -- minify, then rsync the stage into {lab_www}")
         deploy = subprocess.run(["media/bin/deploy.sh", oper, "lab"], cwd=resume, capture_output=True, text=True, check=False)
         if deploy.returncode != 0:
             return fail_critical(f"media/bin/deploy.sh {oper} lab failed:\n{deploy.stderr.strip()}")
 
         review_url = f"https://{prefix}.media.lab.tcos.us/blog/{slug}/"
 
-        stage("recording: commit the post on its branch" + ("" if no_pr else ", push, open the pull request"))
         # The record is the commit, with or without a PR: only the post and
         # its files, never the build's tracked outputs.
         add = subprocess.run(
@@ -433,19 +477,7 @@ def real_deploy(
             subprocess.run(["git", "branch", "-D", branch], cwd=resume, capture_output=True, text=True, check=False)
 
 
-def main(argv: list[str]) -> int:
-    # A post is utf-8 whatever the locale says; under LC_ALL=C both streams
-    # default to ascii and a title like "Café" became UnicodeEncodeError.
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8", errors="replace")
-    if help_wanted(argv, VALUE_FLAGS):
-        note_ignored(argv, value_flags=VALUE_FLAGS)
-        sys.stdout.write(__doc__ or "")
-        return 0
-
-    args = build_parser().parse_args(argv)
-
+def deploy_blog(args: argparse.Namespace) -> int:
     dir_path = Path(args.dir)
     resume = Path(args.resume).expanduser()
 
@@ -521,6 +553,245 @@ def main(argv: list[str]) -> int:
         return 3
 
     return real_deploy(resume, oper, slug, title, post_text, images, args.no_pr, warnings)
+
+
+# ---------------------------------------------------------------------------
+# store kind
+# ---------------------------------------------------------------------------
+
+def yaml_scan(text: str, path: list[str]) -> str | None:
+    """Best-effort scalar lookup for a dotted block path (e.g.
+    ["metadata", "name"] or ["spec", "stock", "asset"]) in a small,
+    known-shape YAML document.
+
+    Not a general YAML parser -- stdlib only, per SPEC's language ladder,
+    and the documents this tool reads (store.yaml, hee_inv's rendered
+    asset/stock records) are always plain nested "key: value" blocks, never
+    a list at a path this tool needs. Tracks nesting purely by indentation.
+    """
+    stack: list[tuple[int, str]] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        key, _, rest = stripped.partition(":")
+        key = key.strip()
+        value = rest.strip()
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        stack.append((indent, key))
+        if value and [k for _, k in stack] == path:
+            return value.strip("\"'")
+    return None
+
+
+def find_records(dir_path: Path, kind: str) -> list[Path]:
+    """YAML files under inventory/objects/<kind>/, sorted by filename."""
+    records_dir = dir_path / "inventory" / "objects" / kind
+    if not records_dir.is_dir():
+        return []
+    return sorted(p for p in records_dir.glob("*.yaml") if p.is_file())
+
+
+def print_rsync_plan(rsync_output: str) -> None:
+    print("----- rsync -----")
+    sys.stdout.write(rsync_output)
+    if not rsync_output.endswith("\n"):
+        print()
+    print("----- rsync -----")
+
+
+def run_rsync(dir_path: Path, target: Path, dry_run: bool) -> subprocess.CompletedProcess:
+    # Not -a: the lab share squashes every writer to 1000:1005 and refuses chgrp
+    # (rsync exit 23), and -p would keep a 600 mode the store container, which
+    # reads the share as nobody, cannot open. Measured on ct124, 2026-09-19.
+    # -rlt plus --chmod gives group-writable dirs and world-readable files.
+    cmd = ["rsync", "-rlt", "--delete", "--chmod=D2775,F664", "--itemize-changes"]
+    if dry_run:
+        cmd.append("-n")
+    cmd += [f"{dir_path}/", f"{target}/"]
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+
+def post_reload(url: str, token: str) -> dict:
+    """POST /api/owner/reload -- PLAN.md section 3's HTTP contract."""
+    req = urllib.request.Request(
+        url.rstrip("/") + "/api/owner/reload",
+        method="POST",
+        headers={"Authorization": f"Bearer {token}"},
+        data=b"",
+    )
+    with urllib.request.urlopen(req, timeout=RELOAD_TIMEOUT_S) as resp:
+        return json.loads(resp.read())
+
+
+def get_health(url: str) -> dict:
+    """GET /health -- PLAN.md section 3's HTTP contract."""
+    req = urllib.request.Request(url.rstrip("/") + "/health", method="GET")
+    with urllib.request.urlopen(req, timeout=HEALTH_TIMEOUT_S) as resp:
+        return json.loads(resp.read())
+
+
+def print_health(health: dict) -> int:
+    """Print `<status> <check>: <note>` per check, return the overall
+    status's exit code (the WARNING/CRITICAL/UNKNOWN floor)."""
+    checks = health.get("checks", {})
+    for name in sorted(checks):
+        info = checks[name]
+        status = info.get("status", "UNKNOWN") if isinstance(info, dict) else "UNKNOWN"
+        note = info.get("note", "") if isinstance(info, dict) else str(info)
+        icon = STATUS_ICON.get(status, STATUS_ICON["UNKNOWN"])
+        print(f"{icon} {status} {name}: {note}")
+    overall = health.get("status", "UNKNOWN")
+    return STATUS_CODE.get(overall, STATUS_CODE["UNKNOWN"])
+
+
+def deploy_store(args: argparse.Namespace) -> int:
+    dir_path = Path(args.dir)
+
+    # Gate 1: store.yaml present with 'name'.
+    if not dir_path.is_dir():
+        return fail_critical(f"no such directory: {dir_path}")
+    store_yaml = dir_path / "store.yaml"
+    if not store_yaml.is_file():
+        return fail_critical(f"{store_yaml}: not found")
+    store_text = store_yaml.read_text(encoding="utf-8")
+    name = yaml_scan(store_text, ["name"])
+    if not name:
+        return fail_critical(f"{store_yaml}: missing required 'name'")
+
+    # Gate 2: slug.
+    slug = args.slug if args.slug else dir_path.resolve().name.lower()
+    if not SLUG_RE.fullmatch(slug):
+        return fail_critical(f"slug {slug!r} is not valid; must match ^[a-z0-9][a-z0-9-]*$")
+
+    # Gate 3: at least one asset record and one stock record.
+    asset_paths = find_records(dir_path, "asset")
+    stock_paths = find_records(dir_path, "stock")
+    if not asset_paths:
+        return fail_critical(f"{dir_path}: no asset records under inventory/objects/asset/")
+    if not stock_paths:
+        return fail_critical(f"{dir_path}: no stock records under inventory/objects/stock/")
+
+    assets_by_name: dict[str, Path] = {}
+    for asset_path in asset_paths:
+        asset_name = yaml_scan(asset_path.read_text(encoding="utf-8"), ["metadata", "name"])
+        if asset_name:
+            assets_by_name[asset_name] = asset_path
+
+    # Gate 4: every stock record's asset names an asset file in DIR.
+    items: list[tuple[Path, str]] = []  # (stock_path, stableid)
+    for stock_path in stock_paths:
+        stock_text = stock_path.read_text(encoding="utf-8")
+        asset_ref = yaml_scan(stock_text, ["spec", "stock", "asset"])
+        if not asset_ref or asset_ref not in assets_by_name:
+            return fail_critical(
+                f"{stock_path}: stock record names asset {asset_ref!r}, not found in {dir_path}"
+            )
+        stock_name = yaml_scan(stock_text, ["metadata", "name"]) or ""
+        stableid = stock_name.removeprefix("inv-stock-")
+        items.append((stock_path, stableid))
+
+    # Gate 5 / 6: an item with stock and no image; an image with no note.
+    images_dir = dir_path / "images"
+    warnings: list[str] = []
+    for stock_path, stableid in items:
+        image_path = None
+        if stableid:
+            for ext in IMAGE_EXTS:
+                candidate = images_dir / f"{stableid}{ext}"
+                if candidate.is_file():
+                    image_path = candidate
+                    break
+        if image_path is None:
+            warnings.append(
+                f"{stock_path}: item {stableid!r} has stock but no image under {images_dir}/"
+            )
+            continue
+        note_path = image_path.with_name(image_path.name + ".md")
+        if not note_path.is_file():
+            warnings.append(f"{image_path}: no note ({note_path.name}) -- deploying without a caption")
+    for message in warnings:
+        warn(message)
+
+    # Gate: -to prod (phase 1, same as blog).
+    if args.to == "prod":
+        print_release_procedure()
+        return 3
+
+    mntpath = Path(os.environ.get("MNTPATH", "/data/storage"))
+    store_root = mntpath / "store"
+    target = store_root / slug
+    url = args.url or DEFAULT_STORE_URL
+
+    if not args.dry_run:
+        # Refuse before rsync, per SPEC: a real deploy with nothing to
+        # authorize the reload with is not a partial success.
+        token = os.environ.get("STORE_OWNER_TOKEN", "")
+        if not token:
+            return fail_critical("STORE_OWNER_TOKEN not set in the environment; refusing before rsync")
+
+    if not store_root.is_dir() or not os.access(store_root, os.W_OK):
+        return fail_critical(f"{store_root}: not a writable directory")
+
+    rsync = run_rsync(dir_path, target, args.dry_run)
+    if rsync.returncode != 0:
+        return fail_critical(f"rsync {dir_path}/ {target}/ failed (exit {rsync.returncode}): {rsync.stderr.strip()}")
+
+    if args.dry_run:
+        print_rsync_plan(rsync.stdout)
+        return 1 if (warnings or WARNINGS) else 0
+
+    print_rsync_plan(rsync.stdout)
+
+    rc = 1 if (warnings or WARNINGS) else 0
+
+    try:
+        reload_result = post_reload(url, token)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        # Never print the token: only the exception's own message, which
+        # urllib does not fill with request headers.
+        return fail_critical(f"{url}/api/owner/reload: {type(exc).__name__}: {exc}")
+
+    reload_items = reload_result.get("items", 0)
+    print(f"reloaded: {reload_items} items")
+    unloadable = reload_result.get("unloadable") or []
+    if unloadable:
+        for entry in unloadable:
+            print(f"❌ CRITICAL hee-deploy: unloadable: {entry}", file=sys.stderr)
+        rc = max(rc, 2)
+
+    try:
+        health = get_health(url)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return fail_critical(f"{url}/health: {type(exc).__name__}: {exc}")
+
+    health_rc = print_health(health)
+    rc = max(rc, health_rc)  # the health status is a floor on the exit code
+
+    icon = STATUS_ICON.get({0: "OK", 1: "WARNING", 2: "CRITICAL", 3: "UNKNOWN"}[rc], STATUS_ICON["UNKNOWN"])
+    label = {0: "OK", 1: "WARNING", 2: "CRITICAL", 3: "UNKNOWN"}[rc]
+    print(f"{icon} {label} hee-deploy: {slug} deployed -- {url}", file=sys.stderr if rc >= 2 else sys.stdout)
+    return rc
+
+
+def main(argv: list[str]) -> int:
+    # A post is utf-8 whatever the locale says; under LC_ALL=C both streams
+    # default to ascii and a title like "Café" became UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    if help_wanted(argv, VALUE_FLAGS):
+        note_ignored(argv, value_flags=VALUE_FLAGS)
+        sys.stdout.write(__doc__ or "")
+        return 0
+
+    args = build_parser().parse_args(argv)
+
+    if args.kind == "blog":
+        return deploy_blog(args)
+    return deploy_store(args)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+name: "Ian's"
+tagline: "Cash only. Order here, pay when you pick up."
+currency: USD
+pickup:
+  where: "the shop counter"
+  hours: "Sat 10-2"
+  note: "Bring cash. We hold an order for 24 hours."
+owner:
+  name: "Ian"
+policy: "cash only; no payment is taken online; the total shown is what you pay at pickup"
