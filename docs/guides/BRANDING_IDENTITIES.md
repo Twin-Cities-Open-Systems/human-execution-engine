@@ -105,6 +105,6 @@ want opposite things and one file cannot be both.
 
 ## Working on the share
 
-Write to a copy, never in place. An in-place edit across the `nuc1-pool`
+Write to a copy, never in place. An in-place edit across the NFS share (the lab's `/data/storage`, formerly `nuc1-pool`)
 NFS mount can truncate the file before it fails, and a scanned photo has no
 second original.
