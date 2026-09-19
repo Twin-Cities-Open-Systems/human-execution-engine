@@ -28,7 +28,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🃏 Card (24)</summary>
+<summary>🃏 Card (26)</summary>
 
 - 🟢 [OK] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
 - 🟢 [OK] `hee/cards/attribution-standing.method.card.v1.yaml`
@@ -54,6 +54,8 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`
 - 🟢 [OK] `library/branding/personal.example.card.v1.yaml`
 - 🟢 [OK] `release.card.v1.yaml`
+- 🟢 [OK] `tests/fixtures/urls/axgoose8.yaml`
+- 🟢 [OK] `tests/fixtures/urls/goose2xf.yaml`
 
 </details>
 <details>

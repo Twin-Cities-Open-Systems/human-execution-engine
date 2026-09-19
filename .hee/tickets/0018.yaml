@@ -1,0 +1,12 @@
+id: 0018
+created_at: '2026-09-19T19:04:00Z'
+description: 'hee url: URL shortener on u.tcos.us -- YAML store, goose slugs, ~/.config/hee/url.yaml,
+  deploy as a static-assets Worker and verify over the internet'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-19T19:04:00Z'
+source: operator, flippy session 2026-09-19
+tags:
+- tooling

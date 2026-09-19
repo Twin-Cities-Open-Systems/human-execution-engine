@@ -1,0 +1,23 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: goose2xf
+  description: short link https://u.tcos.us/goose2xf/ -> https://tcos.us/people
+  labels:
+    hee.object: 'true'
+    hee.tcos/topic: url
+    artifact: short-link
+  annotations:
+    inuid: a21bff7458b6b9a32529da9318557374fb6bc55d98af5ba63ea398861c20bcd2
+    inuid_seed: https://u.tcos.us/goose2xf/
+    inuid_derivation: sha256(inuid_seed)
+    created_utc: '2026-09-19T19:00:40Z'
+    author: claude
+spec:
+  slug: goose2xf
+  short: https://u.tcos.us/goose2xf/
+  url: https://tcos.us/people
+  status: 302
+  tags:
+  - people
+  note: ''

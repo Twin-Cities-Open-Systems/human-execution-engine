@@ -1,0 +1,23 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: axgoose8
+  description: short link https://u.tcos.us/axgoose8/ -> https://example.com/some/other-url.html
+  labels:
+    hee.object: 'true'
+    hee.tcos/topic: url
+    artifact: short-link
+  annotations:
+    inuid: 9cb36514f6c2f30acca149aa028f42db2a82c9a66ec8659d23adf34d2f331ef2
+    inuid_seed: https://u.tcos.us/axgoose8/
+    inuid_derivation: sha256(inuid_seed)
+    created_utc: '2026-09-19T19:00:40Z'
+    author: claude
+spec:
+  slug: axgoose8
+  short: https://u.tcos.us/axgoose8/
+  url: https://example.com/some/other-url.html
+  status: 302
+  tags:
+  - example
+  note: the operator's own example, 2026-09-19
