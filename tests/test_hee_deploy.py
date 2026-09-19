@@ -458,7 +458,7 @@ class StoreGateTests(unittest.TestCase):
         image), because `hee check examples` fails CI on any non-zero exit
         and the first cut's image-less fixture exited 1 with the WARNING
         and turned the stable workflow red (2026-09-19). The WARNING path
-        is exercised in test_image_without_binary_warns against a temp
+        is exercised in test_item_with_no_image_exits_1_with_warning against a temp
         directory, not here. This must run every gate, exit 0, and touch
         nothing."""
         with tempfile.TemporaryDirectory() as tmp:
