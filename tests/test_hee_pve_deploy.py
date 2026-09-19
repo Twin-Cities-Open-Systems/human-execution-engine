@@ -11,9 +11,10 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import io
-import os
-import sys
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -170,6 +171,46 @@ class TestFilesAndProvision(unittest.TestCase):
         self.assertIn("chmod 0644", text)
         self.assertIn("DRY RUN, would run pve/x/p.sh via: pct exec 999 -- env PATH="
                       "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -s", text)
+
+
+class TestDirectoryFiles(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        (self.root / "svc" / "sub").mkdir(parents=True)
+        (self.root / "svc" / "app.py").write_text("print(1)\n")
+        (self.root / "svc" / "sub" / "x.txt").write_text("x\n")
+        (self.root / "svc" / "untracked.tmp").write_text("no\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "svc/app.py", "svc/sub/x.txt"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"], check=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_directory_ships_tracked_files_only_as_one_tar(self):
+        files = deploy.plan_files({"files": [{"src": "svc", "dst": "/opt/svc"}]}, self.root)
+        self.assertEqual(len(files), 1)
+        f = files[0]
+        self.assertTrue(f["dir"]); self.assertEqual(f["data"]["files"], 2); self.assertEqual(f["data"]["strip"], 1)
+        import tarfile
+        names = sorted(m.name for m in tarfile.open(fileobj=io.BytesIO(f["data"]["tar"])).getmembers() if m.isfile())
+        self.assertEqual(names, ["svc/app.py", "svc/sub/x.txt"])   # untracked.tmp is not there
+
+    def test_directory_refuses_mode_and_untracked(self):
+        with self.assertRaises(SystemExit):
+            deploy.plan_files({"files": [{"src": "svc", "dst": "/opt/svc", "mode": "0755"}]}, self.root)
+        (self.root / "loose").mkdir(); (self.root / "loose" / "a").write_text("a")
+        with self.assertRaises(SystemExit):
+            deploy.plan_files({"files": [{"src": "loose", "dst": "/opt/loose"}]}, self.root)
+
+    def test_dry_run_prints_the_unpack_and_never_connects(self):
+        files = deploy.plan_files({"files": [{"src": "svc", "dst": "/opt/svc"}]}, self.root)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            deploy.apply_files("invalid.", "999", files, dry_run=True)
+        self.assertIn("would unpack svc/ (2 tracked files", out.getvalue())
+        self.assertIn("tar -xf - -C /opt/svc --strip-components=1", out.getvalue())
 
 
 class TestMounts(unittest.TestCase):

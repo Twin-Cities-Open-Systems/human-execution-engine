@@ -70,6 +70,7 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       agent: ci-triage                  # agent roster role, only for a container that runs an agent
       files:                            # committed files pushed INTO the container
         - {src: pve/lab-dhcp/dnsmasq.conf, dst: /etc/dnsmasq.conf, mode: "0644"}
+        - {src: tools/meme-factory, dst: /opt/meme-factory}   # a committed DIRECTORY, shipped as one tar
         - {generate: agent-roster-model, dst: /etc/claude-code/managed-settings.d/50-model.json, mode: "0644"}
       provision:                        # committed POSIX sh scripts run inside it
         - pve/lab-dhcp/provision.sh
@@ -83,7 +84,14 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
 
     `files:` and `provision:` paths are relative to the root of the repo the
     manifest lives in (git rev-parse --show-toplevel), never to the current
-    directory and never absolute: a manifest names what it ships, and what it
+    directory and never absolute. A `src` that is a directory is shipped whole:
+    every file git tracks under it (`git ls-files`, so nothing untracked, no
+    results/, no .git) goes over as one tar and is unpacked at `dst`. Real
+    trigger (2026-09-19): the meme-factory service is a tree in a PRIVATE repo,
+    and a container holds no repository credential, so the deploy is the only
+    honest way the code gets there; the previous shape was a hand `pct push` per
+    file or a clone with a credential the container must not have. `mode` is
+    refused on a directory entry (git's own modes travel in the tar): a manifest names what it ships, and what it
     ships is under review beside it. Real trigger (2026-09-10): the only
     precedent for configuring what runs INSIDE a container was a README of
     `pct exec N -- sh -c "cat > /etc/..."` one-liners (fleet-ops
