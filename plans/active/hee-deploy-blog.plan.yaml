@@ -42,8 +42,8 @@ spec:
       owner: agents
       description: "write both PR diffs into deploy-blog-review/in/diffs/ and dispatch it (pr-reviewer, $1.50); the dispatcher addresses every finding with a failing input, and answers style notes in the PR"
       gate: "review verdict is approve for both PRs, or every request-changes finding is fixed and re-reviewed"
-      evidence: "first pass: pr-reviewer, $1.42, request changes on both -- eight findings, every one with a failing input, all fixed and kept as tests; second pass ($0.75, confirm-only prompt) dispatched 2026-09-19"
-      status: in-progress
+      evidence: "first pass: pr-reviewer, $1.42, request changes on both -- eight findings, every one with a failing input, all fixed and kept as tests; second pass, confirm-only prompt: all eight FIXED with file:line, resume#110 approve, HEE#754 approve once one new one-line defect (detached checkout) was fixed -- fixed the same hour"
+      status: done
     - step: E-dogfood
       owner: dispatcher-and-operator
       description: "operator merges both PRs (the dispatcher does not); dispatcher runs the operator's exact workflow on flippy as -oper touchy-claude against lab: a directory with blog.md and two PNGs with notes, then a title-only directory, confirming WARNING 1 and a live page at touchy.media.lab.tcos.us/blog/<slug>/; ticket moves idea -> footgun -> dogfood with that evidence"
@@ -57,7 +57,7 @@ spec:
   budget:
     ceilings_usd: { deploy-blog-tool: 2.50, deploy-blog-images: 0.75, deploy-blog-review: 1.50, backlog-groomer: 0.25 }
     total_usd: 5.00
-    spent_usd: 3.62   # before the second review pass; 4.37 at its ceiling
+    spent_usd: 4.28   # four jobs, measured from the dispatch records on fleet-ops#650
     measured_reference: "mf-web-js (ci-triage, same shape) $2.17; mf-review-code (pr-reviewer, two PRs) $1.53 -- 2026-09-19 dispatch records"
   what_the_dispatcher_does_not_delegate:
     - "anything that needs a real machine: running the tool, its tests, convert.sh, deploy.sh over ssh pve, hee exif brand"
