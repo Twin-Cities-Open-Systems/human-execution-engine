@@ -1,0 +1,25 @@
+id: '0017'
+created_at: '2026-09-19T04:37:28Z'
+description: 'hee deploy: the blog kind -- tooling/bin/hee-deploy, built by ci-triage
+  as fleet-ops job deploy-blog-tool from pve/agents/jobs/deploy-blog-tool/in/SPEC.md;
+  plan plans/active/hee-deploy-blog.plan.yaml; jobs and dispatch records in fleet-ops
+  (ticket fleet-ops/0129, PR fleet-ops#650)'
+status: open
+stage: dogfood
+stage_history:
+- stage: idea
+  at: '2026-09-19T04:37:28Z'
+- stage: footgun
+  at: '2026-09-19T13:39:50Z'
+  why: 'footgun: pr-reviewer found eight defects with failing inputs in HEE#754 and
+    resume#110; all fixed, each kept as a test where -dry-run reaches it'
+- stage: dogfood
+  at: '2026-09-19T13:39:50Z'
+  why: 'dogfood: two real runs from flippy to lab 2026-09-19 (resume#111, #112), the
+    title-only WARNING measured; figures case waits on resume#110'
+source: operator 2026-09-18/19, see the plan's annotations
+ref: https://github.com/Twin-Cities-Open-Systems/fleet-ops/pull/650
+tags:
+- tooling
+- deploy
+- blog
