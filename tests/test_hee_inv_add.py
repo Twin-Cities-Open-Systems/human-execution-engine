@@ -69,14 +69,14 @@ class TestAdd(unittest.TestCase):
         f.write_text(doc if isinstance(doc, str) else json.dumps(doc))
         env = dict(os.environ, HOME=str(self.home), HEE_STATUS_STYLE="plain")
         return subprocess.run(["sh", str(TOOL), "add", "--json", str(f), "--tcos-repo", str(repo or self.repo), *extra],
-                              capture_output=True, text=True, env=env)
+                              capture_output=True, text=True, env=env, check=False)
 
     def run_dataset(self, dataset, doc, *extra):
         f = Path(self.tmp.name) / "doc.json"
         f.write_text(doc if isinstance(doc, str) else json.dumps(doc))
         env = dict(os.environ, HOME=str(self.home), HEE_STATUS_STYLE="plain")
         return subprocess.run(["sh", str(TOOL), "add", "--json", str(f), "--dataset", str(dataset), *extra],
-                              capture_output=True, text=True, env=env)
+                              capture_output=True, text=True, env=env, check=False)
 
     def dataset_with_asset(self):
         dataset = Path(self.tmp.name) / "store"
@@ -163,7 +163,7 @@ class TestAdd(unittest.TestCase):
         (self.home / ".hee" / "index" / "_.yaml").unlink()
         self.assertEqual(self.run_add(planned()).returncode, 3)
         env = dict(os.environ, HOME=str(self.home))
-        self.assertEqual(subprocess.run(["sh", str(TOOL), "add"], capture_output=True, env=env).returncode, 3, check=False)
+        self.assertEqual(subprocess.run(["sh", str(TOOL), "add"], capture_output=True, env=env, check=False).returncode, 3)
 
     def test_allowed_values_come_from_the_contract(self):
         v = hee_inv.contract_values()
