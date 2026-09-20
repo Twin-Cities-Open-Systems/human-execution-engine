@@ -1,9 +1,17 @@
-.TH HEE-SCROB 1 "2026-08-22" "HEE" "User Commands"
+.TH HEE-SCROB 1 "2026-09-20" "HEE" "User Commands"
 .SH NAME
 hee-scrob \- terse now-playing scrobble, real Plex source
 .SH SYNOPSIS
 .B hee scrob
-[\fB\-server\fR \fIURL\fR] [\fB\-current\-only\fR]
+[\fB\-server\fR \fIURL\fR] [\fB\-current\-only\fR] [\fB\-player\fR \fINAME\fR]
+.br
+.B hee scrob \-players
+.br
+.B hee scrob \-claim
+.I NAME
+.br
+.B hee scrob \-unclaim
+.I NAME
 .SH DESCRIPTION
 Queries a real Plex server's
 .B /status/sessions
@@ -27,10 +35,63 @@ the player's connecting IP, falling back to Plex's own self\-reported
 title if that fails. A local override file,
 .BR ~/.config/hee/device-names.txt ,
 takes priority over both when present.
+.SH WHICH PLAYER
+A Plex server reports
+.I every
+session on it, so on a shared server "what is playing" is a question, not
+a fact. This tool used to answer it with whichever session Plex listed
+first, which is how an operator watching on their own laptop was told
+about a paused episode on somebody else's desktop.
+.PP
+Claim your players once and it reports yours:
+.PP
+.RS
+.nf
+hee scrob \-players        # seen now + known to the server, claimed marked
+hee scrob \-claim flippy   # writes `claim = flippy` in the rc file
+hee scrob \-player flippy  # this once, whatever the rc says
+.fi
+.RE
+.PP
+A claim matches a player's stable id, the title Plex reports, or the
+friendly name
+.B device\-names.txt
+gives it, ignoring case and surrounding space. Two players can share a
+title (a Plexamp and a Plex for Linux both called \fBflippy\fR): claiming
+the title takes both on purpose, claiming the id takes exactly one.
+.PP
+Among the sessions left after claiming, one that is actually
+.B playing
+beats one that is
+.BR paused .
+With claims set and none of them playing, this tool says so and reports
+nothing \(em silence beats scrobbling a stranger's show. With no claims at
+all it reports whatever is playing and says on stderr how to make the
+choice yours.
 .SH OPTIONS
 .TP
 .BI \-server " URL"
-Plex server base URL (default \fBhttps://plex.crooked.tcos.us\fR).
+Plex server base URL. Default: \fBserver =\fR in the rc file, else
+\fBhttps://plex.crooked.tcos.us\fR. The flag beats both.
+.TP
+.B \-players
+List the players with a session right now and the ones the server knows
+from the account's devices, marking the claimed ones with \fB*\fR, then
+stop. The id in brackets is what to claim when two players share a name.
+.TP
+.BI \-claim " NAME"
+Claim a player by name or id: writes one \fBclaim =\fR line in the rc
+file, creating it with its header, then stops. Claiming twice is a
+message, not a duplicate line.
+.TP
+.BI \-unclaim " NAME"
+Remove a claim written by
+.BR \-claim ,
+leaving every other line as it is, then stop.
+.TP
+.BI \-player " NAME"
+Report this player only, this once, whatever the rc file claims. A name
+that matches no session is a message on stderr, not another player's show.
 .TP
 .B \-current\-only
 Skip the \(+-5s subtitle context, print only the exact\-moment line.
@@ -259,6 +320,30 @@ HEE_CRED_DIR="$HOME/.hee/secrets" hee cred \-pass plex\-token \\
 That never prints the token and never places it in shell history. It does
 put it in plaintext on disk at mode 0600, which is a real downgrade from
 sealed and a deliberate trade for a context where gpg cannot run.
+.SH FILES
+.TP
+.B ~/.config/hee/scrob.rc
+Which players are yours.
+.B "key = value"
+lines with
+.B #
+comments, the same shape as
+.BR device\-names.txt ,
+because a second syntax for a second file in the same directory is a
+second thing to remember. Keys:
+.B claim
+(repeatable) and
+.BR server .
+Written by
+.B \-claim
+and
+.BR \-unclaim ,
+and safe to edit by hand.
+.TP
+.B ~/.config/hee/device-names.txt
+.B "raw = Friendly"
+per line: a human name for a player, used in the output and matchable by
+a claim.
 .SH ORGANIZATION
 Twin Cities Open Systems \- Operations LLC
 .br
