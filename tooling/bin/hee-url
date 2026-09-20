@@ -14,6 +14,10 @@ SYNOPSIS
   hee-url config [--init [--force]]
   hee-url [VERB] help
 
+  The first version's spelling still works: -short URL, -get SLUG,
+  -search TERM..., -tags "a b" and -or are read as add, get, search,
+  --tag and --or. The old .hee/urls.db it wrote is not read.
+
   Every verb also takes --store DIR, --base URL, --length N, --infix TEXT
   and --config FILE, which override the config file for that one run.
 
@@ -320,6 +324,23 @@ def build_parser() -> ArgumentParser:
     return ap
 
 
+LEGACY = {"-short": "add", "-get": "get", "-search": "search", "-or": "--or"}
+
+
+def legacy(argv: list[str]) -> list[str]:
+    """The 2026-08-22 spelling, rewritten. Operator, 2026-09-19, typed
+    `hee url -short URL` from memory and got the old tool's hash back."""
+    out: list[str] = []
+    it = iter(argv)
+    for a in it:
+        if a == "-tags":
+            for t in next(it, "").split():
+                out += ["--tag", t]
+        else:
+            out.append(LEGACY.get(a, a))
+    return out
+
+
 def main(argv: list[str]) -> int:
     # Help is answered before anything is parsed, so nothing to the right of
     # the help token can run. See library/py/hee_cli.
@@ -327,7 +348,7 @@ def main(argv: list[str]) -> int:
         note_ignored(argv)
         print(__doc__)
         return 0
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(legacy(argv))
     try:
         return args.fn(args)
     except U.UrlError as e:

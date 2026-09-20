@@ -213,6 +213,19 @@ class Cli(unittest.TestCase):
             self.assertIn("UNKNOWN", err)
             self.assertIn("1 UNKNOWN", err)
 
+    def test_old_spelling_still_works(self):
+        with tempfile.TemporaryDirectory() as store:
+            rc, out, err = self.run_tool("--store", store, "-short", EXAMPLE, "-tags", "a b")
+            self.assertEqual(rc, 0, err)
+            self.assertTrue(out.strip().startswith("https://u.tcos.us/"), out)
+            self.assertIn("goose", out)
+            slug = out.strip().rstrip("/").rsplit("/", 1)[1]
+            rc, out, _ = self.run_tool("--store", store, "-get", slug)
+            self.assertEqual((rc, out.strip()), (0, EXAMPLE))
+            rc, out, _ = self.run_tool("--store", store, "-search", "nothing", "a", "-or")
+            self.assertEqual(rc, 0)
+            self.assertIn(slug, out)
+
     def test_fixture_store(self):
         rc, out, _ = self.run_tool("--store", str(ROOT / "tests/fixtures/urls"), "get", "axgoose8")
         self.assertEqual((rc, out.strip()), (0, EXAMPLE))
