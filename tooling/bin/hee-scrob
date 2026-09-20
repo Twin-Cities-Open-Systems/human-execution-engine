@@ -12,6 +12,14 @@ the real subtitle line active at the exact playback position from the
 real .srt sitting next to the media file. No invented dialogue --
 if there's no real .srt, there's no subtitle line in the output.
 
+Real extension (2026-09-20): music too. A track's lyric line comes
+from the .lrc sitting next to the audio file -- the sidecar Plex
+itself reads (it ignores embedded tags), which is what the
+managed-media-stack subtearium item writes from LRCLIB. The .srt
+lookup gained .lrc as a fallback for video as well; .srt wins when
+both exist. An .lrc with no timestamps is plain lyrics, not a timed
+cue, so it yields nothing -- same rule as a silent gap.
+
 Real fix (2026-08-22, same session): TV episodes were only showing the
 episode's own title ("LASIK Instinct"), silently dropping the real
 show name and season/episode -- Plex's `title` attribute on an
@@ -443,11 +451,44 @@ def _srt_dialogue(block: str, ts_re) -> str:
     return " ".join(dialogue).strip()
 
 
+LRC_TS_RE = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
+LRC_LAST_LINE_MS = 5000   # an LRC line has no end; the last one gets this long
+
+
+def _lrc_blocks(text: str):
+    """Timed lyric lines as (start_ms, end_ms, text), the same shape .srt
+    parsing yields, so every lookup above it stays one code path. LRC
+    gives a start per line and no end: a line ends where the next one
+    begins, and the last line gets LRC_LAST_LINE_MS. One line may carry
+    several timestamps (a repeated chorus) -- each becomes its own block.
+    `[ar:]`/`[ti:]`/`[offset:]` header tags carry no timestamp and are
+    skipped; a file that is nothing but header and untimed text is plain
+    lyrics, and yields no blocks at all."""
+    starts = []
+    for raw in text.splitlines():
+        stamps = list(LRC_TS_RE.finditer(raw))
+        if not stamps:
+            continue
+        words = LRC_TS_RE.sub("", raw).strip()
+        for m in stamps:
+            mm, ss, frac = m.group(1), m.group(2), m.group(3) or "0"
+            ms = (int(mm) * 60 + int(ss)) * 1000 + int(frac.ljust(3, "0")[:3])
+            starts.append((ms, words))
+    starts.sort(key=lambda t: t[0])
+    blocks = []
+    for i, (start, words) in enumerate(starts):
+        end = starts[i + 1][0] if i + 1 < len(starts) else start + LRC_LAST_LINE_MS
+        blocks.append((start, max(end - 1, start), words))
+    return blocks
+
+
 def _srt_blocks(srt_path: Path):
     text = srt_path.read_text(errors="replace")
     ts_re = re.compile(
         r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})"
     )
+    if srt_path.suffix.lower() == ".lrc":
+        return _lrc_blocks(text), ts_re
     parsed = []
     for block in text.split("\n\n"):
         m = ts_re.search(block)
@@ -495,8 +536,11 @@ def srt_context(srt_path: Path, offset_ms: int, current_only: bool = False):
 
 
 def find_srt(media_file: str):
+    """The sidecar beside the media file, first real one wins: .en.srt,
+    .srt, then .lrc -- the lyric sidecar Plex reads for music, and a
+    fallback for video too. Same directory, same stem, like Plex."""
     p = Path(media_file)
-    for candidate in [p.with_suffix(".en.srt"), p.with_suffix(".srt")]:
+    for candidate in [p.with_suffix(".en.srt"), p.with_suffix(".srt"), p.with_suffix(".lrc")]:
         if candidate.exists():
             return candidate
     return None
@@ -597,12 +641,13 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
             return device_names[raw]
         return raw
 
-    if video is not None:
-        year = video.get("year") or video.get("parentYear") or ""
-        offset = int(video.get("viewOffset") or 0)
-        part = video.find("./Media/Part")
+    def sidecar_line(el, offset):
+        """(local_file, line) for what is playing: the media path mapped
+        to something that exists here, and the real sidecar line at this
+        moment -- .srt for video, .lrc for a track, nothing invented."""
         srt_text = None
         local_file = None
+        part = el.find("./Media/Part")
         if part is not None:
             media_file = part.get("file")
             if media_file:
@@ -616,6 +661,12 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
                         srt_text = srt_context(srt_path, offset, current_only)
                 else:
                     warn_unresolved(media_file, mappings)
+        return local_file, srt_text
+
+    if video is not None:
+        year = video.get("year") or video.get("parentYear") or ""
+        offset = int(video.get("viewOffset") or 0)
+        local_file, srt_text = sidecar_line(video, offset)
 
         if video.get("type") == "episode":
             show = video.get("grandparentTitle") or "?"
@@ -637,7 +688,9 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
         album = track.get("parentTitle") or ""
         year = track.get("parentYear") or track.get("year") or ""
         offset = int(track.get("viewOffset") or 0)
-        return {"kind": "track", "artist": artist, "title": title, "album": album, "year": year, "ts": fmt_ts(offset), "device": device_name(track)}
+        local_file, lyric = sidecar_line(track, offset)
+        return {"kind": "track", "artist": artist, "title": title, "album": album, "year": year, "ts": fmt_ts(offset), "line": lyric,
+                "device": device_name(track), "file": local_file, "offset_ms": offset}
 
     return None
 
@@ -646,12 +699,12 @@ def format_line(r):
     """Build the real np: line from a now_playing() result -- shared by
     stdout printing and Discord posting, one real formatting path."""
     dev = f" ({r['device']})" if r.get("device") else ""
+    line = f' -- {r["line"]}' if r.get("line") else ""
     if r["kind"] == "track":
         yr = f" ({r['year']})" if r["year"] else ""
         alb = f" [{r['album']}]" if r["album"] else ""
-        return f"np: {r['artist']} - {r['title']}{yr}{alb} @ {r['ts']}{dev}"
+        return f"np: {r['artist']} - {r['title']}{yr}{alb} @ {r['ts']}{line}{dev}"
     yr = f" ({r['year']})" if r["year"] else ""
-    line = f' -- {r["line"]}' if r["line"] else ""
     return f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}"
 
 
@@ -722,7 +775,7 @@ def main():
     ap.add_argument("-claim", metavar="NAME", help=f"claim a player by name or id -- writes one `claim =` line in {RC_FILE} -- and stop")
     ap.add_argument("-unclaim", metavar="NAME", help="drop a claim written by -claim, and stop")
     ap.add_argument("-player", metavar="NAME", help="report this player only, this once, whatever the rc file claims")
-    ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
+    ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle or lyric line (.srt, else .lrc beside the file), no before/after context")
     ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
     ap.add_argument("-to", metavar="TARGET", choices=["meme"], help="hand what is playing to another tool: `meme` writes a meme-factory quote job for this file and moment (hee meme quote --file --at)")
     ap.add_argument("-job", metavar="NAME", default="np", help="with -to meme: the job's name (default np)")
