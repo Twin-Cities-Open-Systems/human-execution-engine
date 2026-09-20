@@ -140,7 +140,14 @@ class ToMeme(unittest.TestCase):
                             "offset_ms": 90500, "line": "rum ham"}, "np", hee="/bin/hee")
         self.assertEqual(rc, 0)
         self.assertEqual(calls, [["/bin/hee", "meme", "quote", "--file", "/data/media/TV/x.mkv", "--at", "00:01:30.500",
-                                  "--job", "np", "--caption", "rum ham"]])
+                                  "--job", "np", "--gif", "--dur", "2.0", "--caption", "rum ham"]])
+
+    def test_dur_is_passed_through(self):
+        m = _load()
+        calls = []
+        with mock.patch.object(m.subprocess, "call", side_effect=lambda cmd: calls.append(cmd) or 0):
+            m.to_meme({"kind": "video", "title": "x", "ts": "0", "file": "/f.mkv", "offset_ms": 0, "line": None}, "np", hee="/bin/hee", dur=4.5)
+        self.assertIn("--dur", calls[0]); self.assertEqual(calls[0][calls[0].index("--dur") + 1], "4.5")
 
     def test_a_track_or_a_file_not_here_is_refused_without_calling_anything(self):
         m = _load()

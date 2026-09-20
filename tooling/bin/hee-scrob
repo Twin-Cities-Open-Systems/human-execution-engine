@@ -446,7 +446,7 @@ def format_line(r):
     return f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}"
 
 
-def to_meme(r, name, hee=None):
+def to_meme(r, name, hee=None, dur=2.0):
     """Hand what is playing to `hee meme quote --file --at --job`: the local
     file and the moment. hee meme looks the cue up itself (the sidecar,
     else the episode's own stream) and writes the job; the line scrob saw
@@ -462,7 +462,10 @@ def to_meme(r, name, hee=None):
         return 1
     hee = hee or shutil.which("hee") or str(Path(__file__).resolve().parent / "hee")
     at = f"{fmt_ts(r['offset_ms'])}.{r['offset_ms'] % 1000:03d}"   # the exact moment, millis kept
-    cmd = [hee, "meme", "quote", "--file", r["file"], "--at", at, "--job", name]
+    # -dur: the GIF's seconds centred on the moment; hee meme caps it at the
+    # file's length (operator, 2026-09-19: "currently very short like 1 second.
+    # should default to 2 seconds and -dur N")
+    cmd = [hee, "meme", "quote", "--file", r["file"], "--at", at, "--job", name, "--gif", "--dur", str(dur)]
     line = (r.get("line") or "").strip()
     if line:
         cmd += ["--caption", line]
@@ -513,6 +516,7 @@ def main():
     ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
     ap.add_argument("-to", metavar="TARGET", choices=["meme"], help="hand what is playing to another tool: `meme` writes a meme-factory quote job for this file and moment (hee meme quote --file --at)")
     ap.add_argument("-job", metavar="NAME", default="np", help="with -to meme: the job's name (default np)")
+    ap.add_argument("-dur", metavar="N", type=float, default=2.0, help="with -to meme: the GIF's length in seconds, centred on the moment, capped at the file's length (default 2)")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -556,7 +560,9 @@ def main():
     line = format_line(r)
     if args.to == "meme":
         print(line)
-        return to_meme(r, args.job)
+        if args.dur <= 0:
+            sys.exit("hee-scrob: -dur wants seconds above 0")
+        return to_meme(r, args.job, dur=args.dur)
     if args.discord:
         post_discord(line)
     else:
