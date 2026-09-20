@@ -17,6 +17,7 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     hee mail check   [DOMAIN]
     hee mail domain  list | add DOMAIN | handoff DOMAIN
     hee mail login   NAME[@DOMAIN]
+    hee mail relay   show | set -label L -host H [-port P] -user U -cred ACCOUNT | clear
     hee mail help
 
 
@@ -81,6 +82,25 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     clipboard tool's stdin and nowhere else. Clear the clipboard afterwards;
     the tool says how.
 
+    relay is the exchanger's own way out. A cloud host usually cannot reach
+    port 25, 465 or 587 outbound (DigitalOcean blocks all three on every
+    droplet), so mail for a foreign domain queues forever unless it is handed
+    to a provider on an alternate submission port -- 2525 is the one the
+    industry settled on, and it is open where the others are not.
+
+    relay set writes two things: relay.conf in the host package (the label,
+    host and port -- public, committed) and one row in the box's relaycreds
+    table (the password, opened from a sealed credential and pushed over ssh,
+    never printed). Seal the provider's key first, at a terminal:
+
+        hee cred -seal relay-sendgrid -recipients <keyid>,<keyid>
+        hee mail relay set -label sendgrid -host smtp.sendgrid.net \
+            -port 2525 -user apikey -cred relay-sendgrid
+
+    Then deploy: the outbound action is rebuilt from relay.conf on the next
+    bin/push.sh, and falls back to a direct relay if the row is missing --
+    so a half-done change queues mail rather than losing it.
+
 
 # OPTIONS
 
@@ -90,6 +110,11 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     -target root@HOST override the address in the package's droplet.conf
     -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
     -write            with record: write the file (default prints it)
+    -label L          with relay set: the smarthost's label in the creds table
+    -host H           with relay set: the provider's SMTP host
+    -port P           with relay set: its port (default 2525)
+    -user U           with relay set: the username the provider expects
+    -cred ACCOUNT     with relay set: the sealed credential holding the password
     -dry-run          with add/passwd: run every check, change nothing
 
 
@@ -105,6 +130,7 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     $ hee mail add spencer@hee.run -recipients 18602F28834DBB05
     $ hee mail domain handoff hee.run
     $ hee mail login spencer
+    $ hee mail relay show
     $ hee mail list
     $ hee mail add spencer -recipients 18602F28834DBB05,01C9F82A7582A4DC
     $ hee mail alias postmaster@tcosagent.com spencer@tcosagent.com

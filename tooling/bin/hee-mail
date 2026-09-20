@@ -53,6 +53,7 @@ SYNOPSIS
   hee mail check   [DOMAIN]
   hee mail domain  list | add DOMAIN | handoff DOMAIN
   hee mail login   NAME[@DOMAIN]
+  hee mail relay   show | set -label L -host H [-port P] -user U -cred ACCOUNT | clear
   hee mail help
 
 DESCRIPTION
@@ -114,6 +115,25 @@ DESCRIPTION
   clipboard tool's stdin and nowhere else. Clear the clipboard afterwards;
   the tool says how.
 
+  relay is the exchanger's own way out. A cloud host usually cannot reach
+  port 25, 465 or 587 outbound (DigitalOcean blocks all three on every
+  droplet), so mail for a foreign domain queues forever unless it is handed
+  to a provider on an alternate submission port -- 2525 is the one the
+  industry settled on, and it is open where the others are not.
+
+  relay set writes two things: relay.conf in the host package (the label,
+  host and port -- public, committed) and one row in the box's relaycreds
+  table (the password, opened from a sealed credential and pushed over ssh,
+  never printed). Seal the provider's key first, at a terminal:
+
+      hee cred -seal relay-sendgrid -recipients <keyid>,<keyid>
+      hee mail relay set -label sendgrid -host smtp.sendgrid.net \
+          -port 2525 -user apikey -cred relay-sendgrid
+
+  Then deploy: the outbound action is rebuilt from relay.conf on the next
+  bin/push.sh, and falls back to a direct relay if the row is missing --
+  so a half-done change queues mail rather than losing it.
+
 OPTIONS
   -recipients IDS   with add/passwd: GPG key ids or emails, comma separated
   -pkg DIR          the mail host package (default: $HEE_MAIL_PKG, else
@@ -121,6 +141,11 @@ OPTIONS
   -target root@HOST override the address in the package's droplet.conf
   -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
   -write            with record: write the file (default prints it)
+  -label L          with relay set: the smarthost's label in the creds table
+  -host H           with relay set: the provider's SMTP host
+  -port P           with relay set: its port (default 2525)
+  -user U           with relay set: the username the provider expects
+  -cred ACCOUNT     with relay set: the sealed credential holding the password
   -dry-run          with add/passwd: run every check, change nothing
 
 EXAMPLES
@@ -129,6 +154,7 @@ EXAMPLES
   $ hee mail add spencer@hee.run -recipients 18602F28834DBB05
   $ hee mail domain handoff hee.run
   $ hee mail login spencer
+  $ hee mail relay show
   $ hee mail list
   $ hee mail add spencer -recipients 18602F28834DBB05,01C9F82A7582A4DC
   $ hee mail alias postmaster@tcosagent.com spencer@tcosagent.com
@@ -468,6 +494,64 @@ do_login() {
   return 0
 }
 
+do_relay() {
+  ACT=${1:-show}
+  resolve_pkg
+  CONF="$PKG/relay.conf"
+  case $ACT in
+    show)
+      if [ -f "$CONF" ]; then
+        say "relay.conf ($CONF):"; grep -v -E '^\s*(#|$)' "$CONF" | sed 's/^/  /'
+      else
+        say "no $CONF -- outbound is a direct relay"
+      fi
+      say "rows on the box:"
+      $SSH "$TARGET" 'cut -f1 /etc/smtpd/relaycreds 2>/dev/null | sed "s/^/  /"; [ -s /etc/smtpd/relaycreds ] || echo "  (none)"'
+      say "outbound action in force:"
+      $SSH "$TARGET" 'grep -E "^action \"outbound\"" /etc/smtpd.conf | sed "s/^/  /"'
+      ;;
+    set)
+      [ -n "${RLABEL:-}" ] || die "relay set needs -label"
+      [ -n "${RHOST:-}" ]  || die "relay set needs -host"
+      [ -n "${RUSER:-}" ]  || die "relay set needs -user"
+      [ -n "${RCRED:-}" ]  || die "relay set needs -cred ACCOUNT (seal it first: hee cred -seal $RCRED -recipients ...)"
+      RPORT=${RPORT:-2525}
+      [ -f "$STORE/$RCRED.gpg" ] || die "no $STORE/$RCRED.gpg -- seal the provider's key first: hee cred -seal $RCRED -recipients <keyid>,<keyid>"
+      hee cred -pass "$RCRED" -dir "$STORE" -exec true 2>/dev/null \
+        || die "$RCRED does not open with this keyring -- run this where one of its recipients' keys lives"
+      # The password reaches the box on ssh's stdin and nowhere else. SC2016
+      # is deliberate: $HEE_CRED_PASS expands in the CHILD shell, not here.
+      # shellcheck disable=SC2016
+      hee cred -pass "$RCRED" -dir "$STORE" -exec sh -c 'printf "%s" "$HEE_CRED_PASS"' \
+        | $SSH "$TARGET" "set -e; p=\$(cat); \
+            grep -v '^${RLABEL}[[:space:]]' /etc/smtpd/relaycreds > /etc/smtpd/relaycreds.new 2>/dev/null || true; \
+            printf '%s\t%s:%s\n' '$RLABEL' '$RUSER' \"\$p\" >> /etc/smtpd/relaycreds.new; \
+            chmod 0640 /etc/smtpd/relaycreds.new; chown root:opensmtpd /etc/smtpd/relaycreds.new; \
+            mv /etc/smtpd/relaycreds.new /etc/smtpd/relaycreds; echo ok" | grep -qx ok \
+        || die "writing the relay row on $TARGET failed"
+      _base=$(basename "$CONF")
+      {
+        printf '# %s -- the outbound smarthost. Written by "hee mail relay set".\n' "$_base"
+        printf '# The PASSWORD is not here: it is sealed as %s and lives on the\n' "$RCRED"
+        printf '# box in /etc/smtpd/relaycreds, which is never committed.\n'
+        printf 'RELAY_LABEL=%s\nRELAY_HOST=%s\nRELAY_PORT=%s\nRELAY_USER=%s\nRELAY_CRED=%s\n' \
+          "$RLABEL" "$RHOST" "$RPORT" "$RUSER" "$RCRED"
+      } > "$CONF"
+      ok "relay row '$RLABEL' set on $TARGET, and $CONF written"
+      say "deploy it:  $PKG/bin/push.sh    then send a test and read the log"
+      ;;
+    clear)
+      [ -n "${RLABEL:-}" ] || die "relay clear needs -label"
+      $SSH "$TARGET" "grep -v '^${RLABEL}[[:space:]]' /etc/smtpd/relaycreds > /etc/smtpd/relaycreds.new 2>/dev/null || true; \
+        chmod 0640 /etc/smtpd/relaycreds.new; chown root:opensmtpd /etc/smtpd/relaycreds.new; \
+        mv /etc/smtpd/relaycreds.new /etc/smtpd/relaycreds; echo ok" | grep -qx ok || die "clearing '$RLABEL' failed"
+      rm -f "$CONF"
+      ok "relay '$RLABEL' cleared and $CONF removed -- outbound returns to a direct relay on the next push"
+      ;;
+    *) die "relay: unknown action $ACT (show, set, clear)" ;;
+  esac
+}
+
 do_check() {
   D=${1:-$DOMAIN}
   resolve_pkg
@@ -497,6 +581,11 @@ while [ $# -gt 0 ]; do
     -target)     TARGET=${2:-}; shift ;;
     -domain)     DOMAIN=${2:-}; shift ;;
     -write)      WRITEFLAG=1 ;;
+    -label)      RLABEL=${2:-}; shift ;;
+    -host)       RHOST=${2:-}; shift ;;
+    -port)       RPORT=${2:-}; shift ;;
+    -user)       RUSER=${2:-}; shift ;;
+    -cred)       RCRED=${2:-}; shift ;;
     -dry-run)    DRYRUN=1 ;;
     -*)          die "unknown option $1" ;;
     *)           if [ -z "$A1" ]; then A1=$1; else A2=$1; fi ;;
@@ -515,6 +604,7 @@ case $ACTION in
   record)   do_record "$WRITEFLAG" ;;
   domain)   do_domain "${A1:-list}" "${A2:-}" ;;
   login)    [ -n "$A1" ] || die "login needs NAME"; do_login "$A1" ;;
+  relay)    do_relay "${A1:-show}" ;;
   check)    do_check "${A1:-}" ;;
   *)        crit "unknown action $ACTION"; usage_exit 3 ;;
 esac
