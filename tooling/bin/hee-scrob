@@ -393,11 +393,14 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
         offset = int(video.get("viewOffset") or 0)
         part = video.find("./Media/Part")
         srt_text = None
+        local_file = None
         if part is not None:
             media_file = part.get("file")
             if media_file:
                 mappings = parse_path_map(os.environ.get(PATH_MAP_VAR, ""))
                 local_file, exists = resolve_media_file(media_file, mappings)
+                if not exists:
+                    local_file = None
                 if exists:
                     srt_path = find_srt(local_file)
                     if srt_path:
@@ -412,10 +415,12 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
             se = f"s{int(season):02d}e{int(episode):02d}" if season and episode else ""
             ep_title = video.get("title") or ""
             display = f"{show} {se} - {ep_title}".strip() if ep_title else f"{show} {se}".strip()
-            return {"kind": "video", "title": display, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video)}
+            return {"kind": "video", "title": display, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video),
+                    "file": local_file, "offset_ms": offset}
 
         title = video.get("title") or "?"
-        return {"kind": "video", "title": title, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video)}
+        return {"kind": "video", "title": title, "year": year, "ts": fmt_ts(offset), "line": srt_text, "device": device_name(video),
+                    "file": local_file, "offset_ms": offset}
 
     if track is not None:
         artist = track.get("grandparentTitle") or track.get("originalTitle") or "?"
@@ -439,6 +444,30 @@ def format_line(r):
     yr = f" ({r['year']})" if r["year"] else ""
     line = f' -- {r["line"]}' if r["line"] else ""
     return f"np: {r['title']}{yr} @ {r['ts']}{line}{dev}"
+
+
+def to_meme(r, name, hee=None):
+    """Hand what is playing to `hee meme quote --file --at --job`: the local
+    file and the moment. hee meme looks the cue up itself (the sidecar,
+    else the episode's own stream) and writes the job; the line scrob saw
+    rides along as the caption for a silent moment. Operator, 2026-09-19:
+    "pipe from hee scrob to hee meme ... hee scrob -to meme would be ideal,
+    so oper doesn't even need a pipe". Returns the exit code of hee meme,
+    whose own words are the output."""
+    if r.get("kind") != "video":
+        print("hee-scrob: -to meme wants a video; what is playing is a track", file=sys.stderr)
+        return 1
+    if not r.get("file"):
+        print(f"hee-scrob: -to meme needs the file locally and it is not here ({PATH_MAP_VAR}?)", file=sys.stderr)
+        return 1
+    hee = hee or shutil.which("hee") or str(Path(__file__).resolve().parent / "hee")
+    at = f"{fmt_ts(r['offset_ms'])}.{r['offset_ms'] % 1000:03d}"   # the exact moment, millis kept
+    cmd = [hee, "meme", "quote", "--file", r["file"], "--at", at, "--job", name]
+    line = (r.get("line") or "").strip()
+    if line:
+        cmd += ["--caption", line]
+    print(f"hee-scrob: {r['title']} @ {r['ts']} -> hee meme quote --file ... --at {at} --job {name}")
+    return subprocess.call(cmd)
 
 
 def post_discord(text):
@@ -482,6 +511,8 @@ def main():
     ap.add_argument("-server", default=DEFAULT_SERVER)
     ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
     ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
+    ap.add_argument("-to", metavar="TARGET", choices=["meme"], help="hand what is playing to another tool: `meme` writes a meme-factory quote job for this file and moment (hee meme quote --file --at)")
+    ap.add_argument("-job", metavar="NAME", default="np", help="with -to meme: the job's name (default np)")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -523,6 +554,9 @@ def main():
         return
 
     line = format_line(r)
+    if args.to == "meme":
+        print(line)
+        return to_meme(r, args.job)
     if args.discord:
         post_discord(line)
     else:
@@ -530,4 +564,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
