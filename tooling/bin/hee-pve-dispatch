@@ -642,6 +642,11 @@ def read_result(results_dir):
             out["cost_usd"] = doc.get("total_cost_usd", doc.get("cost_usd"))
             u = doc.get("usage") or {}
             out["usage"] = {k: u.get(k) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+            # the cache-write split by TTL: 1-hour writes cost 2x input, 5-minute writes 1.25x.
+            # Recorded so the ledger shows which TTL a job paid for (promptCacheTtl in managed-settings.json).
+            cc = u.get("cache_creation") or {}
+            out["usage"]["ephemeral_1h_input_tokens"] = cc.get("ephemeral_1h_input_tokens")
+            out["usage"]["ephemeral_5m_input_tokens"] = cc.get("ephemeral_5m_input_tokens")
             out["duration_ms"] = doc.get("duration_ms"); out["duration_api_ms"] = doc.get("duration_api_ms"); out["subtype"] = doc.get("subtype")
             den = doc.get("permission_denials") or []
             out["permission_denials"] = len(den); out["denied_tools"] = sorted({x.get("tool_name") for x in den if x.get("tool_name")})

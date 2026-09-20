@@ -119,7 +119,9 @@ class TestJob(unittest.TestCase):
     def test_extract_results_refuses_escaping_members(self):
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as t:
-            for name, body in (("out/result.json", b'{"type":"result","total_cost_usd":0.12,"num_turns":3,"result":"done"}'),
+            for name, body in (("out/result.json", (b'{"type":"result","total_cost_usd":0.12,"num_turns":3,"result":"done",'
+                                                    b'"usage":{"input_tokens":10,"cache_creation_input_tokens":8179,'
+                                                    b'"cache_creation":{"ephemeral_1h_input_tokens":8179,"ephemeral_5m_input_tokens":0}}}')),
                                ("out/exit", b"0\n"), ("../evil", b"x")):
                 info = tarfile.TarInfo(name); info.size = len(body); t.addfile(info, io.BytesIO(body))
         dest = os.path.join(self.tmp.name, "res")
@@ -128,6 +130,8 @@ class TestJob(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "evil")))
         res = d.read_result(dest)
         self.assertEqual((res["exit"], res["cost_usd"], res["num_turns"], res["result"]), (0, 0.12, 3, "done"))
+        # the cache-write TTL split is carried into the ledger, so a 2x (1h) write is visible as such
+        self.assertEqual((res["usage"]["ephemeral_1h_input_tokens"], res["usage"]["ephemeral_5m_input_tokens"]), (8179, 0))
 
     def test_dry_run_never_ships_and_needs_no_key(self):
         self._write("name: convert\nbudget_usd: 1\n")

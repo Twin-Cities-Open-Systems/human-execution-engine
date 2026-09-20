@@ -802,7 +802,8 @@ def job_section(args):
         if r.get("usage"):
             u = r["usage"]
             print(f"  tokens     in {u.get('input_tokens')}  out {u.get('output_tokens')}  "
-                  f"cache_read {u.get('cache_read_input_tokens')}  cache_create {u.get('cache_creation_input_tokens')}")
+                  f"cache_read {u.get('cache_read_input_tokens')}  cache_create {u.get('cache_creation_input_tokens')}  "
+                  f"(1h {u.get('ephemeral_1h_input_tokens')}  5m {u.get('ephemeral_5m_input_tokens')})")
         if r.get("cgroup"):
             c = r["cgroup"]
             print(f"  container  peak {c.get('peak_mb')} MB  cpu {c.get('cpu_s')} s  net in {c.get('net_in_mb')} MB out {c.get('net_out_mb')} MB")
