@@ -1,4 +1,4 @@
-.TH MT-LOGO-RENDER 1 "2026-08-22" "HEE" "User Commands"
+.TH MT-LOGO-RENDER 1 "2026-09-19" "HEE" "User Commands"
 .SH NAME
 mt-logo-render \- real Pillow renderer for the mt-logo recipe schema
 .SH SYNOPSIS
@@ -7,6 +7,8 @@ mt-logo-render \- real Pillow renderer for the mt-logo recipe schema
 .B \-o
 .I OUT.png
 [\fB\-\-no\-qr\fR]
+[\fB\-\-qr\-payload\fR \fITEXT\fR]
+[\fB\-\-qr\-primary\fR]
 .br
 .B render.py
 .B \-\-read\-anchor
@@ -23,6 +25,32 @@ This is the real, missing pixel\-rendering half of the vendored
 .B upstream/mt\-logo\-render
 (recipe.rs), which only ever defined the data model, never the actual
 rendering code.
+.SH DEPENDENCIES
+Pillow and
+.B qrcode
+are imported at module level, so both are required before even
+\fB\-\-help\fR will run \-\- without them the tool traces back on
+import rather than printing usage. On Debian:
+.B python3\-pil
+and
+.BR python3\-qrcode ,
+no pip needed.
+.B zbar\-tools
+is not needed to render, only to verify a render.
+.SH QR SIZING
+The QR is drawn at an exact integer number of pixels per module and is
+.B never
+resampled; it is padded out to its target size inside the white
+quiet\-zone box. Before 2026\-09\-19 it was drawn oversized and then
+shrunk to the target with NEAREST, which at a fractional factor drops
+module rows unevenly \-\- the PNG still looked like a QR and silently
+did not decode, and not even monotonically in canvas size (issue 774).
+.PP
+Two pixels per module is the floor, measured against zbarimg: at one
+pixel per module a decode is luck. A small canvas therefore gets a QR
+taking a larger share of it than the nominal 22%, and if not even one
+pixel per module fits, the QR is omitted and the reason is printed on
+stderr rather than a code being drawn that cannot be scanned.
 .SH RECIPE SCHEMA
 .TP
 .B shape
@@ -60,6 +88,23 @@ Output path. Required unless \fB\-\-read\-anchor\fR.
 .B \-\-no\-qr
 Skip the scannable QR corner badge.
 .TP
+.BI \-\-qr\-payload " TEXT"
+Put
+.I TEXT
+in the QR instead of the recipe's anchor URL. Default, and the
+behaviour when the flag is absent:
+\fBhttps://spencer.blog.tcos.us/?hash=\fR\fIRECIPE_ID\fR. Used for
+payloads that are not the anchor, such as the keyhole token
+\fBHK1:\fR\fIkid\fR\fB:\fR\fIhalf_a\fR.
+.TP
+.B \-\-qr\-primary
+Inverse layout: the QR becomes the main element, centered and filling
+most of the canvas, and the rendered logo becomes the corner badge.
+For a token scanned off a phone, where the default 22%\-of\-canvas
+corner QR is not a usable target. The badge is placed beside the QR,
+never over its modules. Absent this flag the layout is exactly the
+default one.
+.TP
 .BI \-\-read\-anchor " OUT.png"
 Read the embedded recipe/hash back out instead of rendering. Same as
 .BR hee-qr (1)'s
@@ -69,6 +114,8 @@ PNG\-metadata path.
 .nf
 render.py hee\-recipe.json \-o hee\-logo.png
 render.py \-\-read\-anchor hee\-logo.png
+render.py hee\-recipe.json \-o token.png \-\-qr\-primary \\
+    \-\-qr\-payload "HK1:KID:HALFA"
 .fi
 .RE
 .SH VERIFICATION
@@ -76,6 +123,11 @@ render.py \-\-read\-anchor hee\-logo.png
 .nf
 sha256sum OUT.png       real, reproducible, bit\-for\-bit across runs
 zbarimg \-\-raw OUT.png   scans the real QR out of the pixels
+
+tests/test_rrr_qr.py renders at 128..1024 and asserts zbarimg reads
+back exactly the payload that went in. It needs python3\-qrcode and
+zbar\-tools, skips when either is absent, and runs in CI where both
+are installed.
 .fi
 .RE
 .SH ORGANIZATION

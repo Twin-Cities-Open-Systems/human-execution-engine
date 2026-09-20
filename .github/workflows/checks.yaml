@@ -163,6 +163,48 @@ jobs:
               printf '%s\n' "$f"
             fi
           done)"
-          echo "checking library/py, tools/ and $(printf '%s\n' "$files" | wc -l) Python tools"
+          echo "checking library/py, library/rrr/src, tools/ and $(printf '%s\n' "$files" | wc -l) Python tools"
           # shellcheck disable=SC2086
-          ruff check --isolated --select E9,F library/py tools $files
+          ruff check --isolated --select E9,F library/py library/rrr/src tools $files
+
+  # GREEN on this PR, so it blocks. Issue 774: mt-logo-render's QR was
+  # fractionally downscaled with NEAREST and silently stopped decoding at
+  # some canvas sizes -- measured on flippy, 320 scanned while the larger
+  # 384 and 448 did not. Nothing caught it because nothing ever read a
+  # rendered PNG back. This job does: it renders at a spread of sizes and
+  # asserts zbarimg returns exactly the payload that went in.
+  #
+  # The dependencies are all Debian/Ubuntu packages -- no pip, and no pipx
+  # venv either, because the test shells out to a python3 that must be able
+  # to import qrcode and PIL, and apt's python3-pytest runs under the same
+  # interpreter that apt's python3-qrcode installs into.
+  qr-roundtrip:
+    name: pytest (standard, Python) -- the rendered QR decodes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the renderer's and the reader's real dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-qrcode python3-pil python3-pytest zbar-tools
+
+      # Printed rather than assumed, same reason as the shellcheck job:
+      # a runner image change shows up in the log, not as a silent skip.
+      - name: Versions
+        run: |
+          zbarimg --version
+          python3 -c "import PIL, qrcode; print('pillow', PIL.__version__)"
+          python3 -m pytest --version
+
+      # A SKIP here is a failure. The test skips itself when qrcode or
+      # zbarimg is missing, which is honest on a laptop and a lie in CI --
+      # this job exists precisely to have them installed.
+      - name: QR round trip -- render, then read the pixels back
+        run: |
+          set -o pipefail
+          python3 -m pytest tests/test_rrr_qr.py -q -rs | tee /tmp/qr-roundtrip.log
+          if grep -qi skipped /tmp/qr-roundtrip.log; then
+            echo "::error::the QR round trip SKIPPED -- qrcode or zbarimg missing on the runner"
+            exit 1
+          fi

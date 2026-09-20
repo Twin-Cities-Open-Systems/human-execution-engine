@@ -15,6 +15,12 @@ real schema/constraints already validated in recipe.rs:
   glyph:  unicode string, centered (drawn instead of label if both given)
 
 Output: real RGBA (32-bit color, 8 bits/channel) PNG.
+
+DEPENDENCIES, both imported at module level and therefore required
+before even `--help` will run: Pillow and `qrcode` (Debian:
+python3-pil, python3-qrcode -- no pip needed). `zbar-tools` is not
+needed to render, only to verify a render, which tests/test_rrr_qr.py
+does with zbarimg.
 """
 import argparse
 import hashlib
@@ -41,7 +47,6 @@ def parse_color(spec: str, default=(200, 200, 200, 255)):
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
         return (r, g, b, 255)
     # named -- let PIL resolve it, real error if it can't
-    rgb = ImageDraw.ImageDraw(Image.new("RGBA", (1, 1))).getdraw = None  # noop, keep lints quiet
     from PIL import ImageColor
     r, g, b = ImageColor.getrgb(spec)
     return (r, g, b, 255)
@@ -257,28 +262,157 @@ def read_anchor(png_path: str) -> dict:
 
 
 
-def draw_qr(canvas: Image.Image, payload: str):
-    """Real, scannable QR -- survives any format/bit-depth change
-    since it's pixels, not metadata (2026-08-22, real ask: "qr code
-    inspired", "even 8bit"). Own clean quiet-zone box so it stays
-    scannable regardless of what's under it -- a QR overlaid directly
-    on a busy fill pattern loses contrast and stops decoding, that's
-    not a hypothetical, it's how the format actually works."""
-    w, h = canvas.size
-    qr_px = max(int(min(w, h) * 0.22), 21)
-    qr = qrcode.QRCode(border=2, box_size=max(1, qr_px // 25))
+QR_BORDER = 2          # quiet-zone modules the qrcode library itself draws
+CORNER_FRACTION = 0.22  # QR as a corner badge: fraction of the short side
+BADGE_FRACTION = 0.22   # --qr-primary: the logo, shrunk to a corner badge
+                        # (the QR then gets everything the badge strip leaves)
+# Measured on flippy with zbarimg 0.23.93 (2026-09-19): at one pixel per
+# module a decode is a coin flip -- a 45-module payload read at a 128px
+# canvas while a 33-module one did not, and the same 33-module payload
+# failed at 256 and passed at 192. Two pixels per module decoded at every
+# size tried. So two is the floor, and a QR is allowed to take more of the
+# canvas than its nominal fraction rather than become unscannable.
+MIN_MODULE_PX = 2
+
+
+def build_qr(payload: str, target_px: int, border: int = QR_BORDER,
+             min_module_px: int = MIN_MODULE_PX) -> Image.Image:
+    """A QR drawn at an exact integer number of pixels per module, and
+    NEVER resampled.
+
+    The bug this replaces (issue 774): the old code picked
+    `box_size = max(1, qr_px // 25)` from a magic divisor, drew a QR
+    of whatever size that produced, and then `.resize()`d it to the
+    target with NEAREST. The scale factor was never an integer, so
+    NEAREST -- which only preserves hard module edges at integer
+    factors -- dropped roughly one module row in three, unevenly.
+    The PNG still looked like a QR and simply did not decode, and
+    whether it decoded was not even monotonic in canvas size: 320
+    scanned while 384 and 448 did not.
+
+    So: size from the real module count, draw once, return it at its
+    natural size. The caller PADS to the target inside the white
+    quiet-zone box; nothing is ever scaled. That means the returned
+    image can be LARGER than `target_px` on a small canvas (one pixel
+    per module is the floor) -- a slightly bigger QR that scans beats
+    an exactly-sized one that does not."""
+    sized = qrcode.QRCode(border=border, box_size=1)
+    sized.add_data(payload)
+    sized.make(fit=True)
+    modules = sized.modules_count + 2 * border
+    box = max(min_module_px, target_px // modules)
+
+    # Built a second time at the real box_size rather than mutating the
+    # first one's box_size after make() -- that works on the qrcode
+    # release here but is not contract, and this must not depend on it.
+    qr = qrcode.QRCode(version=sized.version, border=border, box_size=box)
     qr.add_data(payload)
     qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
-    qr_img = qr_img.resize((qr_px, qr_px), Image.NEAREST)  # NEAREST -- QR modules must stay hard-edged, no AA blur
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+    # make_image draws modules * box px exactly -- no resize, ever. Checked,
+    # because the whole bug was an image that was not the size it claimed.
+    if img.size != (modules * box, modules * box):
+        raise RuntimeError(f"qrcode drew {img.size}, expected "
+                           f"{modules * box}x{modules * box} -- refusing to resample")
+    return img
 
-    pad = int(qr_px * 0.08)
-    box = Image.new("RGBA", (qr_px + pad * 2, qr_px + pad * 2), (255, 255, 255, 255))
-    box.paste(qr_img, (pad, pad))
 
-    x = w - box.width - int(w * 0.03)
-    y = h - box.height - int(h * 0.03)
+def quiet_box(qr_img: Image.Image, target_px: int) -> Image.Image:
+    """The QR's own white box: the library's quiet zone plus a real
+    white margin, so the code keeps its contrast whatever it lands on
+    -- a QR composited straight onto a busy fill stops decoding, which
+    is how the format works, not a hypothetical.
+
+    The QR is PADDED out to `target_px` inside this box rather than
+    being resized to it, which is the whole fix. The box never shrinks
+    below the QR plus its margin, so a QR that had to grow to keep one
+    pixel per module keeps its white surround."""
+    qr_px = qr_img.width
+    pad = max(1, int(qr_px * 0.08))
+    side = max(qr_px + pad * 2, target_px)
+    box = Image.new("RGBA", (side, side), (255, 255, 255, 255))
+    box.paste(qr_img, ((side - qr_px) // 2, (side - qr_px) // 2))
+    return box
+
+
+def fit_qr_box(payload: str, target_px: int, max_w: int, max_h: int):
+    """The largest honest QR box that fits: two pixels per module if the
+    canvas allows, one if it must (and it says so, because that is the
+    size zbarimg reads only by luck), None if not even that fits."""
+    for min_px in (MIN_MODULE_PX, 1):
+        box = quiet_box(build_qr(payload, target_px, min_module_px=min_px), target_px)
+        if box.width <= max_w and box.height <= max_h:
+            if min_px < MIN_MODULE_PX:
+                print("mt-logo-render: this canvas only fits one pixel per QR "
+                      "module -- it may not scan; render larger", file=sys.stderr)
+            return box
+    return None
+
+
+def draw_qr(canvas: Image.Image, payload: str) -> bool:
+    """Real, scannable QR -- survives any format/bit-depth change
+    since it's pixels, not metadata (2026-08-22, real ask: "qr code
+    inspired", "even 8bit"). Corner badge, bottom-right, over its own
+    white quiet-zone box. Returns False and says so on stderr if even
+    a one-pixel-per-module QR will not fit the canvas, rather than
+    compositing something that cannot be scanned."""
+    w, h = canvas.size
+    target = max(int(min(w, h) * CORNER_FRACTION), 21)
+    box = fit_qr_box(payload, target, w, h)
+    if box is None:
+        print(f"mt-logo-render: no scannable QR for this payload fits a "
+              f"{w}x{h} canvas -- QR omitted", file=sys.stderr)
+        return False
+    x = max(0, w - box.width - int(w * 0.03))
+    y = max(0, h - box.height - int(h * 0.03))
     canvas.alpha_composite(box, (x, y))
+    return True
+
+
+def draw_qr_primary(canvas: Image.Image, payload: str) -> Image.Image:
+    """The inverse layout: the QR is the main element and the rendered
+    logo becomes the corner badge. A customer-facing pickup token is
+    scanned off a phone, where a 22%-of-canvas corner QR is not a
+    usable target; the keyhole payload in fleet-ops#109 needs this.
+
+    The badge sits BELOW the QR's white box, never on top of it. A
+    logo composited over live modules is damage the error correction
+    may or may not absorb, which is the same coin-flip this change
+    exists to remove.
+
+    Returns a NEW canvas -- the logo is consumed as the badge -- so the
+    default layout above is untouched."""
+    w, h = canvas.size
+    margin = max(2, int(min(w, h) * 0.03))
+    badge_px = max(int(min(w, h) * BADGE_FRACTION), 8)
+    # Reserve the badge strip first, so the QR is sized into what is left.
+    # 0.84 leaves room for the box's own white margin, which quiet_box adds
+    # around the QR -- ask for the full space and the box overflows it.
+    avail = min(w - 2 * margin, h - badge_px - 3 * margin)
+    box = fit_qr_box(payload, max(int(avail * 0.84), 21), avail, avail)
+    if box is None:
+        # No QR fits beside a badge. Try the whole canvas instead; the
+        # overlap check below then drops the badge and says so.
+        room = min(w, h) - 2 * margin
+        box = fit_qr_box(payload, max(int(room * 0.84), 21), w, h)
+    if box is None:
+        print(f"mt-logo-render: --qr-primary has no scannable QR that fits a "
+              f"{w}x{h} canvas -- left as the plain logo", file=sys.stderr)
+        return canvas
+
+    out = Image.new("RGBA", (w, h), (255, 255, 255, 255))
+    qr_y = margin if box.height + margin <= h else max(0, (h - box.height) // 2)
+    out.alpha_composite(box, (max(0, (w - box.width) // 2), qr_y))
+
+    badge_y = h - badge_px - margin
+    if badge_y >= qr_y + box.height:
+        # LANCZOS, not NEAREST: this is the logo artwork, not QR modules.
+        badge = canvas.resize((badge_px, badge_px), Image.LANCZOS)
+        out.alpha_composite(badge, (max(0, w - badge_px - margin), badge_y))
+    else:
+        print(f"mt-logo-render: --qr-primary at {w}x{h} has no room for the "
+              f"logo badge beside the QR -- badge omitted", file=sys.stderr)
+    return out
 
 
 def main():
@@ -287,6 +421,12 @@ def main():
     ap.add_argument("-o", "--out", help="output PNG path")
     ap.add_argument("--read-anchor", metavar="PNG", help="read the real embedded recipe/hash back out of a rendered PNG")
     ap.add_argument("--no-qr", action="store_true", help="skip the scannable QR corner badge")
+    ap.add_argument("--qr-payload", metavar="TEXT",
+                    help="put TEXT in the QR instead of the recipe's anchor URL "
+                         "(default: https://spencer.blog.tcos.us/?hash=RECIPE_ID)")
+    ap.add_argument("--qr-primary", action="store_true",
+                    help="inverse layout -- the QR is the main element and the logo "
+                         "becomes the corner badge (for a scanned-off-a-phone token)")
     args = ap.parse_args()
 
     if args.read_anchor:
@@ -302,8 +442,11 @@ def main():
     anchor = embed_anchor(img, recipe)
     _canon_json, rid = canonical_json_and_id(recipe)
     if not args.no_qr:
-        qr_payload = f"https://spencer.blog.tcos.us/?hash={rid}"
-        draw_qr(img, qr_payload)
+        qr_payload = args.qr_payload or f"https://spencer.blog.tcos.us/?hash={rid}"
+        if args.qr_primary:
+            img = draw_qr_primary(img, qr_payload)
+        else:
+            draw_qr(img, qr_payload)
     img.save(args.out, pnginfo=anchor)
     print(f"{args.out} {img.size[0]}x{img.size[1]} {img.mode}")
 
