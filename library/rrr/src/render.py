@@ -264,8 +264,15 @@ def read_anchor(png_path: str) -> dict:
 
 QR_BORDER = 2          # quiet-zone modules the qrcode library itself draws
 CORNER_FRACTION = 0.22  # QR as a corner badge: fraction of the short side
-BADGE_FRACTION = 0.22   # --qr-primary: the logo, shrunk to a corner badge
-                        # (the QR then gets everything the badge strip leaves)
+# --qr-primary: the QR's white quiet-zone box targets this share of the
+# short side and is CENTERED on both axes. 0.68 is not arbitrary -- the
+# logo badge has to sit in a corner clear of that box, and a centered box
+# of side S leaves a corner gap of (1 - S) / 2 per axis. At 0.68 that gap
+# is 0.16, which fits a 0.13 badge plus the same 0.03 margin the default
+# layout insets its QR by. Raise the box and the badge has nowhere to go
+# that is not on top of the quiet zone.
+PRIMARY_BOX_FRACTION = 0.68
+PRIMARY_BADGE_FRACTION = 0.13
 # Measured on flippy with zbarimg 0.23.93 (2026-09-19): at one pixel per
 # module a decode is a coin flip -- a 45-module payload read at a 128px
 # canvas while a 33-module one did not, and the same 33-module payload
@@ -375,43 +382,47 @@ def draw_qr_primary(canvas: Image.Image, payload: str) -> Image.Image:
     scanned off a phone, where a 22%-of-canvas corner QR is not a
     usable target; the keyhole payload in fleet-ops#109 needs this.
 
-    The badge sits BELOW the QR's white box, never on top of it. A
-    logo composited over live modules is damage the error correction
-    may or may not absorb, which is the same coin-flip this change
-    exists to remove.
+    The QR's white quiet-zone box -- box, not bare module grid, so the
+    white padding is part of what is centered -- is centered on both
+    axes, and the badge goes in the bottom-right corner, sized from the
+    gap the centered box actually leaves so it never touches the quiet
+    zone. A logo composited over live modules is damage the error
+    correction may or may not absorb, which is the same coin flip this
+    change exists to remove.
 
     Returns a NEW canvas -- the logo is consumed as the badge -- so the
     default layout above is untouched."""
     w, h = canvas.size
-    margin = max(2, int(min(w, h) * 0.03))
-    badge_px = max(int(min(w, h) * BADGE_FRACTION), 8)
-    # Reserve the badge strip first, so the QR is sized into what is left.
-    # 0.84 leaves room for the box's own white margin, which quiet_box adds
-    # around the QR -- ask for the full space and the box overflows it.
-    avail = min(w - 2 * margin, h - badge_px - 3 * margin)
-    box = fit_qr_box(payload, max(int(avail * 0.84), 21), avail, avail)
+    margin = max(2, int(min(w, h) * 0.03))  # the default layout's 3% inset
+    short = min(w, h)
+    # 0.84: quiet_box adds ~8% of the QR as white margin on each side, so
+    # ask for a QR that leaves room for it inside the target BOX size.
+    target = max(int(short * PRIMARY_BOX_FRACTION * 0.84), 21)
+    box = fit_qr_box(payload, target, w - 2 * margin, h - 2 * margin)
     if box is None:
-        # No QR fits beside a badge. Try the whole canvas instead; the
-        # overlap check below then drops the badge and says so.
-        room = min(w, h) - 2 * margin
-        box = fit_qr_box(payload, max(int(room * 0.84), 21), w, h)
+        # Nothing fits inside the margins; try the bare canvas before giving up.
+        box = fit_qr_box(payload, target, w, h)
     if box is None:
         print(f"mt-logo-render: --qr-primary has no scannable QR that fits a "
               f"{w}x{h} canvas -- left as the plain logo", file=sys.stderr)
         return canvas
 
     out = Image.new("RGBA", (w, h), (255, 255, 255, 255))
-    qr_y = margin if box.height + margin <= h else max(0, (h - box.height) // 2)
-    out.alpha_composite(box, (max(0, (w - box.width) // 2), qr_y))
+    x, y = (w - box.width) // 2, (h - box.height) // 2
+    out.alpha_composite(box, (max(0, x), max(0, y)))
 
-    badge_y = h - badge_px - margin
-    if badge_y >= qr_y + box.height:
+    # The badge is whatever the corner gap holds with the same margin --
+    # computed from the placed box, so it cannot overlap the quiet zone.
+    badge_px = min(int(short * PRIMARY_BADGE_FRACTION),
+                   w - margin - (x + box.width),
+                   h - margin - (y + box.height))
+    if badge_px >= 8:
         # LANCZOS, not NEAREST: this is the logo artwork, not QR modules.
         badge = canvas.resize((badge_px, badge_px), Image.LANCZOS)
-        out.alpha_composite(badge, (max(0, w - badge_px - margin), badge_y))
+        out.alpha_composite(badge, (w - badge_px - margin, h - badge_px - margin))
     else:
-        print(f"mt-logo-render: --qr-primary at {w}x{h} has no room for the "
-              f"logo badge beside the QR -- badge omitted", file=sys.stderr)
+        print(f"mt-logo-render: --qr-primary at {w}x{h} leaves no corner clear "
+              f"of the QR's quiet zone -- logo badge omitted", file=sys.stderr)
     return out
 
 

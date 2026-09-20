@@ -64,6 +64,27 @@ if ZBAR is None:
     WHY.append("zbarimg not installed (Debian: zbar-tools)")
 
 
+# Where the ink is, measured in a subprocess for the same reason the
+# renders are: the interpreter running pytest may have no PIL. Everything
+# is flattened onto white first, so a transparent logo background cannot
+# read as dark.
+BBOX = """
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGBA")
+bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+bg.alpha_composite(im)
+g = bg.convert("L").point(lambda v: 255 if v < 100 else 0)
+print(g.size[0], g.size[1], *(g.getbbox() or (0, 0, 0, 0)))
+"""
+
+# A logo with no dark ink in it, so the dark bounding box of a
+# --qr-primary render is the QR's module grid and nothing else. #F2A900
+# has luminance 171 of 255; the shipped hee-recipe.json would not do,
+# its #8B1E3F body and near-black label are both below the threshold.
+PALE_LOGO = {"shape": "hex", "base_color": "#F2A900", "fill": "solid"}
+
+
 def decode(png: Path) -> str:
     """What a scanner actually gets out of the pixels, or "" if nothing.
     zbarimg exits 4 when it finds no barcode at all -- the exact failure
@@ -81,9 +102,9 @@ class QrRoundTrip(unittest.TestCase):
         self.recipe = json.loads(RECIPE.read_text())
         self.n = 0
 
-    def render(self, size, *args):
-        recipe = dict(self.recipe, size=f"{size}x{size}")
-        path = self.dir / f"r-{size}.json"
+    def render(self, size, *args, recipe=None):
+        recipe = dict(recipe or self.recipe, size=f"{size}x{size}")
+        path = self.dir / f"r-{size}-{self.n}.json"
         path.write_text(json.dumps(recipe))
         self.n += 1
         out = self.dir / f"o-{size}-{self.n}.png"
@@ -138,6 +159,42 @@ class QrRoundTrip(unittest.TestCase):
         primary = self.render(512, "--qr-primary", "--qr-payload", KEYHOLE)
         self.assertNotEqual(default.read_bytes(), primary.read_bytes())
         self.assertEqual(decode(default), decode(primary))
+
+    def dark_bbox(self, png):
+        """(canvas_w, canvas_h, left, top, right, bottom) of the dark ink."""
+        r = subprocess.run([PY, "-c", BBOX, str(png)],
+                           capture_output=True, text=True, check=True)
+        return tuple(int(v) for v in r.stdout.split())
+
+    def test_qr_primary_is_centred_on_both_axes(self):
+        """Measured, not eyeballed. The first cut of --qr-primary pinned
+        the QR to the top margin and it took a human opening the PNG to
+        notice: at 512 the block sat at y 55..320 of 512. A layout
+        regression has to fail here, not at a counter."""
+        off = []
+        for size in SIZES:
+            png = self.render(size, "--qr-primary", "--qr-payload", KEYHOLE,
+                              recipe=PALE_LOGO)
+            w, h, left, top, right, bottom = self.dark_bbox(png)
+            margins = (left, w - right, top, h - bottom)
+            # 2px: the box is centred with integer division, and its own
+            # white quiet zone is symmetric, so nothing here can drift more.
+            if abs(margins[0] - margins[1]) > 2 or abs(margins[2] - margins[3]) > 2:
+                off.append(f"{size}: left {margins[0]} right {margins[1]} "
+                           f"top {margins[2]} bottom {margins[3]}")
+        self.assertEqual(off, [], "sizes whose --qr-primary QR is not centred")
+
+    def test_qr_primary_fills_a_real_share_of_the_canvas(self):
+        """The point of the mode: not the default 22% corner badge."""
+        small = []
+        for size in SIZES:
+            png = self.render(size, "--qr-primary", "--qr-payload", KEYHOLE,
+                              recipe=PALE_LOGO)
+            w, h, left, top, right, bottom = self.dark_bbox(png)
+            share = (right - left) / w
+            if share < 0.40:
+                small.append(f"{size}: {share:.0%}")
+        self.assertEqual(small, [], "sizes where --qr-primary's QR is under 40% of the canvas")
 
     def test_no_qr_draws_none(self):
         self.assertEqual(decode(self.render(512, "--no-qr")), "")

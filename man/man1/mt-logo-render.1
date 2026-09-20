@@ -51,6 +51,27 @@ pixel per module a decode is luck. A small canvas therefore gets a QR
 taking a larger share of it than the nominal 22%, and if not even one
 pixel per module fits, the QR is omitted and the reason is printed on
 stderr rather than a code being drawn that cannot be scanned.
+.SH QR PRIMARY LAYOUT
+With \fB\-\-qr\-primary\fR the QR's white quiet\-zone box targets
+.B 68%
+of the canvas's short side. Because a module is a whole number of
+pixels and is never resampled, the box as drawn lands between about
+57% and 68% of that side, and the dark module grid inside it covers
+roughly 45\-50% of the canvas \-\- the balance is quiet zone, which
+the format requires.
+.PP
+That box \-\- the box, not the bare module grid, so its white padding
+is included \-\- is
+.B centered on both axes,
+to within the pixel that integer division can cost. Measured at
+512x512 with a 57\-character payload: dark grid x 140..372, y
+140..372, so left, right, top and bottom margins are all 140.
+.PP
+The logo badge is 13% of the short side, in the bottom\-right corner,
+inset by the same 3% the default layout insets its QR by. It is sized
+from the gap the centered box actually leaves, so it never touches the
+quiet zone; where no corner is clear of the box the badge is omitted
+and says so on stderr.
 .SH RECIPE SCHEMA
 .TP
 .B shape
@@ -98,12 +119,12 @@ payloads that are not the anchor, such as the keyhole token
 \fBHK1:\fR\fIkid\fR\fB:\fR\fIhalf_a\fR.
 .TP
 .B \-\-qr\-primary
-Inverse layout: the QR becomes the main element, centered and filling
-most of the canvas, and the rendered logo becomes the corner badge.
-For a token scanned off a phone, where the default 22%\-of\-canvas
-corner QR is not a usable target. The badge is placed beside the QR,
-never over its modules. Absent this flag the layout is exactly the
-default one.
+Inverse layout: the QR becomes the main element and the rendered logo
+becomes the corner badge. For a token scanned off a phone, where the
+default 22%\-of\-canvas corner QR is not a usable target. Absent this
+flag the layout is exactly the default one. See
+.B QR PRIMARY LAYOUT
+below for the share of the canvas it targets and where the badge goes.
 .TP
 .BI \-\-read\-anchor " OUT.png"
 Read the embedded recipe/hash back out instead of rendering. Same as
