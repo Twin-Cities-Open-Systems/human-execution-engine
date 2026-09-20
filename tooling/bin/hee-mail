@@ -1,0 +1,521 @@
+#!/bin/sh
+# section: 8
+# Flippy Claude <flippy@tcosagent.com>
+# hee-mail -- mailboxes, aliases and master access on the fleet's mail exchanger.
+#
+# Changes a live mail host (accounts, Maildirs, dovecot and smtpd tables), so
+# section 8, not 1. The operational half was proven as
+# fleet-ops hosts/mx1-tcosagent-com/bin/mail-account.sh during the
+# mx1.tcosagent.com build (2026-09-19); this is that logic on the `hee`
+# surface, where `hee list` finds it, plus the record inv.lab reads.
+set -eu
+
+# Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
+# onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
+HEE_SELF="$0"
+if command -v realpath >/dev/null 2>&1; then
+  HEE_SELF="$(realpath "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+elif command -v readlink >/dev/null 2>&1; then
+  HEE_SELF="$(readlink -f -- "$HEE_SELF" 2>/dev/null || echo "$HEE_SELF")"
+fi
+TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
+
+DEFAULT_PKG="$HOME/git/fleet-ops/hosts/mx1-tcosagent-com"
+PKG=${HEE_MAIL_PKG:-$DEFAULT_PKG}
+DOMAIN=${HEE_MAIL_DOMAIN:-tcosagent.com}
+TARGET=""
+RECIPIENTS=""
+DRYRUN=0
+
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '✅ OK %s\n' "$*"; }
+warn() { printf '⚠️  WARNING %s\n' "$*"; RC=1; }
+crit() { printf '❌ CRITICAL %s\n' "$*" >&2; }
+die()  { crit "$*"; exit 2; }
+usage_exit() { usage; exit "${1:-0}"; }
+RC=0
+
+usage() {
+cat <<'USAGE'
+hee-mail -- mailboxes, aliases and master access on the fleet's mail exchanger
+
+SYNOPSIS
+  hee mail list
+  hee mail add     NAME[@DOMAIN] -recipients KEYID[,KEYID...]
+  hee mail passwd  NAME[@DOMAIN] -recipients KEYID[,KEYID...]
+  hee mail alias   ADDR TARGET
+  hee mail unalias ADDR
+  hee mail master  NAME[@DOMAIN]
+  hee mail unmaster NAME[@DOMAIN]
+  hee mail record  [-write]
+  hee mail check   [DOMAIN]
+  hee mail domain  list | add DOMAIN | handoff DOMAIN
+  hee mail login   NAME[@DOMAIN]
+  hee mail help
+
+DESCRIPTION
+  One mailbox is three things that must agree: a row in the mail host's
+  virtual table (where the address goes), a credential in two files on that
+  host (smtpd for submission, dovecot for IMAP), and a sealed password
+  someone can actually open. This tool keeps them in step; doing it by hand
+  is how a password works on 587 and not on 993.
+
+  The mail host is named by a package directory -- the fleet-ops
+  hosts/<mx>/ tree that carries droplet.conf (its address), known_hosts
+  (its pinned key) and tables/ (its domains and virtuals). Default:
+  ~/git/fleet-ops/hosts/mx1-tcosagent-com, or $HEE_MAIL_PKG.
+
+  add generates a password with hee-pwgen, seals it to -recipients as
+  mail-<name> in the package repo's .hee/secrets, hashes it ON the mail
+  host with `smtpctl encrypt`, writes that hash to both credential files,
+  and creates the Maildir owned by vmail. The plaintext is held in one
+  shell variable, handed to gpg and to ssh on stdin, and never printed,
+  never in argv, never in a file. passwd is the same thing for an address
+  that already exists -- a rotation.
+
+  Seal to every key that has a real reason to open it: the mailbox owner's
+  personal key AND the per-host key of each machine they read mail from
+  (HEE_POLICY §24). A password sealed only to a key that lives on another
+  machine is a password nobody can use where they are.
+
+  master makes an account a dovecot master user: it then opens any mailbox
+  as "<mailbox>*<master>" with its own password, and dovecot logs every
+  such login. No password is generated or changed, and nothing is copied.
+  This is how an operator reads the fleet's mail without holding anyone
+  else's credential.
+
+  record renders the mailbox list as YAML under the package's repo
+  (mail/accounts.<domain>.yaml). It holds addresses, kinds and recipients
+  -- never a password or a hash. inv.lab already syncs fleet-ops, so the
+  record is how mail identities reach the inventory rather than a second
+  API to keep alive.
+
+  domain add takes a zone this exchanger should receive for: a line in
+  tables/domains, a catch-all row in tables/virtuals, and a records file
+  under the repo's dns/ carrying MX, SPF, DKIM and DMARC for it. Nothing is
+  published -- bin/dns-records.sh does that, per zone, and bin/push.sh
+  deploys the tables. One shared DKIM key signs every domain, because
+  filter-dkimsign takes one key and many domains.
+
+  domain handoff is for selling. A domain is worth more with its mail
+  working, and a buyer must not receive the key that signs everyone else's:
+  it prints the zone's records, its addresses, and the exact steps to cut it
+  over -- starting with a FRESH per-domain DKIM key, because the shared one
+  can never leave this fleet. Operator, 2026-09-19: "once we (if we) sell a
+  domain and it's mail it should be fully configured to hand off. we build
+  businesses to sell, that is our deal."
+
+  login is for the human at the keyboard: it opens that mailbox's sealed
+  password, puts it on the clipboard, and prints the server settings to type
+  into a mail client. The password is never printed, never written to a
+  file, and never passed on a command line -- it goes from gpg into the
+  clipboard tool's stdin and nowhere else. Clear the clipboard afterwards;
+  the tool says how.
+
+OPTIONS
+  -recipients IDS   with add/passwd: GPG key ids or emails, comma separated
+  -pkg DIR          the mail host package (default: $HEE_MAIL_PKG, else
+                    ~/git/fleet-ops/hosts/mx1-tcosagent-com)
+  -target root@HOST override the address in the package's droplet.conf
+  -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
+  -write            with record: write the file (default prints it)
+  -dry-run          with add/passwd: run every check, change nothing
+
+EXAMPLES
+  $ hee mail help                                          # ci
+  $ hee mail domain add hee.run
+  $ hee mail add spencer@hee.run -recipients 18602F28834DBB05
+  $ hee mail domain handoff hee.run
+  $ hee mail login spencer
+  $ hee mail list
+  $ hee mail add spencer -recipients 18602F28834DBB05,01C9F82A7582A4DC
+  $ hee mail alias postmaster@tcosagent.com spencer@tcosagent.com
+  $ hee mail master spencer
+  $ hee mail record -write
+
+EXIT STATUS
+  Nagios plugin convention.
+  0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN (usage)
+USAGE
+}
+
+# ---------------------------------------------------------------- plumbing
+resolve_pkg() {
+  [ -d "$PKG" ] || die "no mail host package at $PKG (-pkg DIR, or \$HEE_MAIL_PKG)"
+  [ -f "$PKG/tables/virtuals" ] || die "$PKG has no tables/virtuals -- is it a mail host package?"
+  REPO=$(cd "$PKG/../.." && pwd)
+  STORE=${HEE_CRED_DIR:-$REPO/.hee/secrets}
+  KNOWN="$PKG/known_hosts"
+  if [ -z "$TARGET" ]; then
+    # shellcheck disable=SC1091
+    [ -f "$PKG/droplet.conf" ] && . "$PKG/droplet.conf"
+    TARGET="root@${DROPLET_IPV4:-}"
+  fi
+  [ "$TARGET" != "root@" ] || die "no mail host address: $PKG/droplet.conf has no DROPLET_IPV4, and -target was not given"
+  [ -s "$KNOWN" ] || die "$KNOWN is empty -- the mail host's key is not pinned; ssh-keyscan -t ed25519 <ip> >> $KNOWN"
+  SSH="ssh -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes"
+}
+
+# full address from a bare name
+addr_of() { case $1 in *@*) printf '%s' "$1" ;; *) printf '%s@%s' "$1" "$DOMAIN" ;; esac; }
+name_of() { printf '%s' "${1%%@*}"; }
+
+# ---------------------------------------------------------------- actions
+do_list() {
+  resolve_pkg
+  say "mail host: $TARGET   package: $PKG"
+  $SSH "$TARGET" 'printf "submission (smtpd):\n"; sed "s/^/  /; s/\t.*//" /etc/smtpd/credentials 2>/dev/null;
+    printf "imap (dovecot):\n"; cut -d: -f1 /etc/dovecot/users 2>/dev/null | sed "s/^/  /";
+    printf "master users:\n"; cut -d: -f1 /etc/dovecot/master-users 2>/dev/null | sed "s/^/  /"' \
+    || die "cannot read the mail host"
+  say "virtual table ($PKG/tables/virtuals):"
+  grep -v -E '^\s*(#|$)' "$PKG/tables/virtuals" | sed 's/^/  /'
+}
+
+do_add() {
+  ADDR=$(addr_of "$1"); NAME=$(name_of "$ADDR")
+  resolve_pkg
+  [ -n "$RECIPIENTS" ] || die "-recipients KEYID[,KEYID...] is required -- whose keys may open mail-$NAME.gpg"
+  command -v hee-pwgen >/dev/null 2>&1 || command -v hee >/dev/null || die "hee-pwgen is not on PATH"
+  grep -q "^${ADDR}[[:space:]]" "$PKG/tables/virtuals" \
+    || die "$ADDR has no row in $PKG/tables/virtuals -- add '$ADDR      vmail' there first, and deploy it"
+  for r in $(printf '%s' "$RECIPIENTS" | tr ',' ' '); do
+    gpg --list-keys "$r" >/dev/null 2>&1 || die "-recipients $r: no public key in this keyring"
+  done
+  $SSH "$TARGET" 'command -v smtpctl >/dev/null' || die "smtpctl not on $TARGET -- is it provisioned?"
+  if [ "$DRYRUN" = 1 ]; then
+    ok "dry run: would seal $STORE/mail-$NAME.gpg to $RECIPIENTS and set $ADDR on $TARGET"
+    return 0
+  fi
+
+  pw=$(hee pwgen 32) || die "hee pwgen failed"
+  [ ${#pw} -ge 32 ] || die "hee pwgen returned something short"
+
+  mkdir -p "$STORE"
+  rargs=""; for r in $(printf '%s' "$RECIPIENTS" | tr ',' ' '); do rargs="$rargs -r $r"; done
+  # The generated-secret exemption of HEE_POLICY §24: straight into gpg on
+  # stdin, the same call hee-cred makes, never through a terminal or a file.
+  # shellcheck disable=SC2086
+  printf '%s' "$pw" | gpg --batch --yes --trust-model always --encrypt --armor $rargs -o "$STORE/mail-$NAME.gpg" \
+    || die "gpg seal failed"
+  ok "sealed $STORE/mail-$NAME.gpg to $RECIPIENTS"
+
+  printf '%s' "$pw" | $SSH "$TARGET" "set -e; h=\$(smtpctl encrypt); \
+    grep -v '^${ADDR}[[:space:]]' /etc/smtpd/credentials > /etc/smtpd/credentials.new || true; \
+    printf '%s\t%s\n' '$ADDR' \"\$h\" >> /etc/smtpd/credentials.new; \
+    chmod 0640 /etc/smtpd/credentials.new; chown root:opensmtpd /etc/smtpd/credentials.new; \
+    mv /etc/smtpd/credentials.new /etc/smtpd/credentials; \
+    grep -v '^${ADDR}:' /etc/dovecot/users > /etc/dovecot/users.new || true; \
+    printf '%s:{CRYPT}%s\n' '$ADDR' \"\$h\" >> /etc/dovecot/users.new; \
+    chmod 0640 /etc/dovecot/users.new; chown root:dovecot /etc/dovecot/users.new; \
+    mv /etc/dovecot/users.new /etc/dovecot/users; \
+    if grep -q '^${ADDR}:' /etc/dovecot/master-users 2>/dev/null; then \
+      grep -v '^${ADDR}:' /etc/dovecot/master-users > /etc/dovecot/master-users.new || true; \
+      grep '^${ADDR}:' /etc/dovecot/users >> /etc/dovecot/master-users.new; \
+      chmod 0640 /etc/dovecot/master-users.new; chown root:dovecot /etc/dovecot/master-users.new; \
+      mv /etc/dovecot/master-users.new /etc/dovecot/master-users; fi; \
+    smtpctl update table credentials >/dev/null; \
+    d=\$(printf '%s' '$ADDR' | cut -d@ -f2); u=\$(printf '%s' '$ADDR' | cut -d@ -f1); \
+    for p in /var/mail/vhosts/\$d /var/mail/vhosts/\$d/\$u /var/mail/vhosts/\$d/\$u/Maildir \
+             /var/mail/vhosts/\$d/\$u/Maildir/new /var/mail/vhosts/\$d/\$u/Maildir/cur /var/mail/vhosts/\$d/\$u/Maildir/tmp; do \
+      install -d -o vmail -g vmail -m 0700 \"\$p\"; chown vmail:vmail \"\$p\"; done; \
+    echo ok" | grep -qx ok || die "setting $ADDR on $TARGET failed"
+  unset pw
+  ok "$ADDR: submission + imap credentials set, Maildir present (a master-user entry, if any, was refreshed)"
+  say "open it:  hee cred -pass mail-$NAME -dir $STORE -exec ..."
+}
+
+do_alias() {
+  A=$(addr_of "$1"); B=$(addr_of "$2")
+  resolve_pkg
+  V="$PKG/tables/virtuals"
+  if grep -q "^${A}[[:space:]]" "$V"; then
+    die "$A already has a row in $V -- edit or remove it first (this tool never rewrites a row it did not make)"
+  fi
+  printf '%s      %s\n' "$A" "$B" >> "$V"
+  ok "$A -> $B appended to $V"
+  say "deploy it:  $PKG/bin/push.sh   (the table is read from the repo, not edited on the box)"
+}
+
+do_unalias() {
+  A=$(addr_of "$1")
+  resolve_pkg
+  V="$PKG/tables/virtuals"
+  grep -q "^${A}[[:space:]]" "$V" || die "$A has no row in $V"
+  grep -v "^${A}[[:space:]]" "$V" > "$V.new" && mv "$V.new" "$V"
+  ok "$A removed from $V"
+  say "deploy it:  $PKG/bin/push.sh"
+}
+
+do_master() {
+  ADDR=$(addr_of "$2"); ACT=$1
+  resolve_pkg
+  $SSH "$TARGET" "set -e; \
+    grep -v '^${ADDR}:' /etc/dovecot/master-users > /etc/dovecot/master-users.new 2>/dev/null || true; \
+    if [ '$ACT' = master ]; then grep '^${ADDR}:' /etc/dovecot/users >> /etc/dovecot/master-users.new || { echo nosuch; exit 0; }; fi; \
+    chmod 0640 /etc/dovecot/master-users.new; chown root:dovecot /etc/dovecot/master-users.new; \
+    mv /etc/dovecot/master-users.new /etc/dovecot/master-users; echo ok" > /tmp/.heemail.$$ 2>&1 || { rm -f /tmp/.heemail.$$; die "$ACT $ADDR failed"; }
+  if grep -qx nosuch /tmp/.heemail.$$; then rm -f /tmp/.heemail.$$; die "$ADDR is not a mailbox account on $TARGET"; fi
+  rm -f /tmp/.heemail.$$
+  ok "$ACT $ADDR -- master users now: $($SSH "$TARGET" 'cut -d: -f1 /etc/dovecot/master-users 2>/dev/null | paste -sd,')"
+  [ "$ACT" = master ] && say "read any mailbox as:  <mailbox>@$DOMAIN*$ADDR  with $ADDR's own password"
+  return 0
+}
+
+do_record() {
+  WRITE=${1:-0}
+  resolve_pkg
+  OUT="$REPO/mail/accounts.$DOMAIN.yaml"
+  masters=$($SSH "$TARGET" 'cut -d: -f1 /etc/dovecot/master-users 2>/dev/null | paste -sd,' 2>/dev/null || true)
+  {
+    printf '# %s -- mailboxes on %s, rendered by "hee mail record". Do not hand-edit.\n' "mail/accounts.$DOMAIN.yaml" "$DOMAIN"
+    printf '# Addresses, kinds and the keys each password is sealed to. Never a password,\n'
+    printf '# never a hash. inv.lab syncs this repo, so this file is how mail identities\n'
+    printf '# reach the inventory.\n'
+    printf 'apiVersion: hee/v1\nkind: Registry\nmetadata:\n  name: mail-accounts-%s\n' "$DOMAIN"
+    printf '  labels:\n    mail.domain: %s\n    mail.host: %s\n' "$DOMAIN" "$(basename "$PKG")"
+    printf 'spec:\n  generated: %s\n  mailboxes:\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    grep -v -E '^\s*(#|$)' "$PKG/tables/virtuals" | sed 's/[[:space:]]*#.*$//' | while read -r a t; do
+      [ -n "${t:-}" ] || continue
+      n=$(name_of "$a")
+      case $t in
+        vmail)
+          seal="none"
+          [ -f "$STORE/mail-$n.gpg" ] && seal=$(gpg --list-packets --list-only "$STORE/mail-$n.gpg" 2>/dev/null | sed -n 's/.*keyid \([0-9A-F]*\).*/\1/p' | paste -sd,)
+          m=false
+          case ",$masters," in *",$a,"*) m=true ;; esac
+          printf '    - address: %s\n      kind: mailbox\n      sealed_to: [%s]\n      master: %s\n' "$a" "$seal" "$m"
+          ;;
+        *)
+          case $a in
+            @*) printf '    - address: "%s"\n      kind: catch-all\n      delivers_to: %s\n' "$a" "$t" ;;
+            *)  printf '    - address: %s\n      kind: alias\n      delivers_to: %s\n' "$a" "$t" ;;
+          esac
+          ;;
+      esac
+    done
+  } > "/tmp/.heemail-rec.$$"
+  if [ "$WRITE" = 1 ]; then
+    mkdir -p "$(dirname "$OUT")"
+    mv "/tmp/.heemail-rec.$$" "$OUT"
+    ok "wrote $OUT ($(grep -c '^    - address:' "$OUT") entries) -- commit it; inv.lab picks it up on its next sync"
+  else
+    cat "/tmp/.heemail-rec.$$"; rm -f "/tmp/.heemail-rec.$$"
+    say "# (nothing written -- add -write)"
+  fi
+}
+
+DOMAIN_RECORDS_TEMPLATE() {
+  _d=$1
+  cat <<REC
+# $_d -- the records mx1 needs for this zone, published by
+# hosts/<mx>/bin/dns-records.sh -zone $_d. This file is the source; the zone
+# is the copy. Rendered by "hee mail domain add".
+#
+# TYPE  NAME  PRIORITY  CONTENT...   ("@" is the apex, "-" means no priority)
+# Every record is published DNS-only: mail is not HTTP.
+#
+# MX and DKIM only, deliberately. RECEIVING mail needs the MX and nothing
+# else; SPF and DMARC govern SENDING. Measured 2026-09-19 before publishing
+# anything: some of these zones already carry "v=spf1 -all" with DMARC
+# "p=reject; adkim=s; aspf=s" -- the strongest possible "this domain sends
+# no mail" assertion -- and a template that wrote p=none over that would be
+# a real downgrade performed by a tool nobody asked to weaken anything.
+# Uncomment the two below for a domain this exchanger actually SENDS as,
+# and only then.
+
+MX     @                10  $MXHOST
+$DKIMLINE
+# TXT    @                -   v=spf1 mx -all
+# TXT    _dmarc           -   v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN; fo=1
+REC
+}
+
+do_domain() {
+  ACT=${1:-list}
+  D=${2:-}
+  resolve_pkg
+  DOMAINS_FILE="$PKG/tables/domains"
+  V="$PKG/tables/virtuals"
+  MXHOST=$(grep -v -E '^\s*(#|$)' "$DOMAINS_FILE" | grep '^mx1\.' | head -1)
+  [ -n "$MXHOST" ] || MXHOST="mx1.$DOMAIN"
+
+  case $ACT in
+    list)
+      say "domains this exchanger receives for ($DOMAINS_FILE):"
+      grep -v -E '^\s*(#|$)' "$DOMAINS_FILE" | sed 's/^/  /'
+      say "records files present:"
+      for f in "$REPO"/dns/*.records; do [ -e "$f" ] && printf '  %s\n' "$(basename "$f")"; done
+      ;;
+    add)
+      [ -n "$D" ] || die "domain add needs a DOMAIN"
+      grep -qx "$D" "$DOMAINS_FILE" && { ok "$D is already in $DOMAINS_FILE"; } || printf '%s\n' "$D" >> "$DOMAINS_FILE"
+      if grep -q "^@${D}[[:space:]]" "$V"; then
+        ok "$D already has a catch-all row in $V"
+      else
+        printf '\n# %s -- catch-all, added by "hee mail domain add"\n@%s             spencer@%s\n' "$D" "$D" "$DOMAIN" >> "$V"
+        ok "catch-all @$D -> spencer@$DOMAIN appended to $V"
+      fi
+      REC="$REPO/dns/$D.records"
+      if [ -f "$REC" ]; then
+        ok "$REC already exists, left alone"
+      else
+        DKIMLINE="# TXT    mx1._domainkey   -   v=DKIM1; k=rsa; p=...   (provision.sh prints the shared key's line)"
+        if [ -f "$REPO/dns/$DOMAIN.records" ]; then
+          _l=$(grep -E '^TXT[[:space:]]+mx1\._domainkey' "$REPO/dns/$DOMAIN.records" | head -1)
+          [ -n "$_l" ] && DKIMLINE=$_l
+        fi
+        mkdir -p "$REPO/dns"
+        DOMAIN_RECORDS_TEMPLATE "$D" > "$REC"
+        ok "wrote $REC (MX -> $MXHOST, DKIM; SPF and DMARC commented -- sending only)"
+      fi
+      say "next: $PKG/bin/push.sh   then   hee cred -pass cf-dns-token -exec $PKG/bin/dns-records.sh -zone $D -dry-run"
+      ;;
+    handoff)
+      [ -n "$D" ] || die "domain handoff needs a DOMAIN"
+      grep -qx "$D" "$DOMAINS_FILE" || die "$D is not a domain this exchanger serves"
+      say "── handing off $D ────────────────────────────────────────────"
+      say ""
+      say "1. A DKIM key of its own. The shared key signs every other domain"
+      say "   we own and must never leave this fleet. On the mail host:"
+      say "     openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \\"
+      say "       -out /etc/smtpd/dkim/$D.key"
+      say "     chmod 0640 /etc/smtpd/dkim/$D.key; chgrp _dkimsign /etc/smtpd/dkim/$D.key"
+      say "     openssl pkey -in /etc/smtpd/dkim/$D.key -pubout -outform DER | openssl base64 -A"
+      say "   Publish that as mx1._domainkey.$D, give the buyer the private half,"
+      say "   and drop -d $D from the shared signer."
+      say ""
+      say "2. Addresses that exist on $D today:"
+      grep -E "@${D}([[:space:]]|\$)" "$V" | sed 's/^/     /' || say "     (none)"
+      say ""
+      say "3. Records the buyer must recreate (or keep, pointed at their own MX):"
+      if [ -f "$REPO/dns/$D.records" ]; then grep -v -E '^\s*(#|$)' "$REPO/dns/$D.records" | sed 's/^/     /'; else say "     (no records file)"; fi
+      say ""
+      say "4. Mail already delivered for $D lives in the catch-all mailbox, not"
+      say "   under $D -- export what belongs to them before cutting over:"
+      say "     doveadm search -u spencer@$DOMAIN mailbox INBOX to $D"
+      say ""
+      say "5. Then, in order: remove $D from $DOMAINS_FILE and its rows from $V,"
+      say "   $PKG/bin/push.sh, and let the buyer publish their own MX."
+      say "──────────────────────────────────────────────────────────────"
+      ;;
+    *) die "domain: unknown action $ACT (list, add, handoff)" ;;
+  esac
+}
+
+do_login() {
+  ADDR=$(addr_of "$1"); NAME=$(name_of "$ADDR")
+  resolve_pkg
+  [ -f "$STORE/mail-$NAME.gpg" ] || die "no $STORE/mail-$NAME.gpg -- is this mailbox yours, and is the store checked out?"
+  MX=$(grep -v -E '^\s*(#|$)' "$PKG/tables/domains" | grep '^mx1\.' | head -1)
+  [ -n "$MX" ] || MX="mx1.$DOMAIN"
+  CLIP=""
+  for c in wl-copy xclip pbcopy; do command -v "$c" >/dev/null 2>&1 && { CLIP=$c; break; }; done
+
+  # Prove the credential opens BEFORE involving the clipboard, so a clipboard
+  # failure can never be reported as "your key cannot open this". The first
+  # version did exactly that: wl-copy failed for want of a Wayland display
+  # and the message blamed the keyring -- rule 2's misattributed silence, in
+  # the one place where the honest answer matters most.
+  hee cred -pass "mail-$NAME" -dir "$STORE" -exec true \
+    || die "that credential does not open with this keyring -- it is sealed to the mailbox owner's keys, and this is not one of them"
+
+  if [ -z "$CLIP" ]; then
+    warn "no clipboard tool found (wl-copy, xclip, pbcopy) -- the password stays sealed. Hand it to a client directly:"
+    say  "    hee cred -pass mail-$NAME -dir $STORE -exec <your client>"
+  else
+    # BOTH selections, deliberately. X11 and Wayland keep two: CLIPBOARD
+    # (ctrl-v) and PRIMARY (middle click, shift-insert). Filling only
+    # CLIPBOARD is why an operator pasting with shift-insert gets nothing
+    # and reasonably concludes the tool did not work. Measured 2026-09-19.
+    # SC2016 below is deliberate: $HEE_CRED_PASS must expand in the CHILD
+    # shell hee-cred starts, never in this one -- double quotes would put the
+    # secret in this process and in a command's argv.
+    # shellcheck disable=SC2016
+    case $CLIP in
+      wl-copy) _c='printf %s "$HEE_CRED_PASS" | wl-copy && printf %s "$HEE_CRED_PASS" | wl-copy --primary' ;;
+      xclip)   _c='printf %s "$HEE_CRED_PASS" | xclip -selection clipboard && printf %s "$HEE_CRED_PASS" | xclip -selection primary' ;;
+      pbcopy)  _c='printf %s "$HEE_CRED_PASS" | pbcopy' ;;
+    esac
+    if hee cred -pass "mail-$NAME" -dir "$STORE" -exec sh -c "$_c"; then
+      ok "password for $ADDR is on the clipboard AND the primary selection ($CLIP). It was never printed."
+      say "  paste with ctrl-v, or middle click / shift-insert."
+    else
+      warn "the credential opened but $CLIP failed -- on a headless or non-graphical shell there is no display to copy into."
+      say  "  set XDG_RUNTIME_DIR and WAYLAND_DISPLAY for this session, or hand it to a client directly:"
+      say  "    hee cred -pass mail-$NAME -dir $STORE -exec <your client>"
+      CLIP=""
+    fi
+  fi
+  say ""
+  say "  webmail   https://$MX/            log in as $NAME"
+  say "  IMAP      $MX:993   SSL/TLS, PLAIN, user $ADDR"
+  say "  SMTP      $MX:587   STARTTLS, PLAIN, user $ADDR"
+  masters=$($SSH "$TARGET" 'cut -d: -f1 /etc/dovecot/master-users 2>/dev/null | paste -sd,' 2>/dev/null || true)
+  case ",$masters," in
+    *",$ADDR,"*) say ""; say "  $ADDR is a master user: open anyone's mailbox by logging in as"; say "  <mailbox>*$ADDR with this same password." ;;
+  esac
+  if [ -n "$CLIP" ]; then
+    say ""
+    case $CLIP in
+      wl-copy) say "  clear it when done:  wl-copy --clear; wl-copy --primary --clear" ;;
+      xclip)   say "  clear it when done:  printf '' | xclip -selection clipboard; printf '' | xclip -selection primary" ;;
+      *)       say "  clear it when done:  printf '' | $CLIP" ;;
+    esac
+  fi
+  return 0
+}
+
+do_check() {
+  D=${1:-$DOMAIN}
+  resolve_pkg
+  [ -x "$PKG/bin/check.sh" ] || die "$PKG/bin/check.sh is missing -- it is the external check this wraps"
+  "$PKG/bin/check.sh" "$D"
+}
+
+# ---------------------------------------------------------------- dispatch
+[ $# -gt 0 ] || usage_exit 3
+# The help token wins wherever it appears, and what it discarded is named on
+# stderr -- silence there is how someone types `hee mail help -dry-run` and
+# cannot tell whether anything ran (cli.help.shfn.bash).
+for _a in "$@"; do
+  case $_a in
+    -h|--help|help)
+      command -v hee_help_note_ignored >/dev/null 2>&1 && hee_help_note_ignored "$@"
+      usage_exit 0 ;;
+  esac
+done
+ACTION=$1; shift
+
+A1=""; A2=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    -recipients) RECIPIENTS=${2:-}; shift ;;
+    -pkg)        PKG=${2:-}; shift ;;
+    -target)     TARGET=${2:-}; shift ;;
+    -domain)     DOMAIN=${2:-}; shift ;;
+    -write)      WRITEFLAG=1 ;;
+    -dry-run)    DRYRUN=1 ;;
+    -*)          die "unknown option $1" ;;
+    *)           if [ -z "$A1" ]; then A1=$1; else A2=$1; fi ;;
+  esac
+  shift
+done
+WRITEFLAG=${WRITEFLAG:-0}
+
+case $ACTION in
+  list)     do_list ;;
+  add|passwd) [ -n "$A1" ] || die "$ACTION needs NAME"; do_add "$A1" ;;
+  alias)    [ -n "$A2" ] || die "alias needs ADDR and TARGET"; do_alias "$A1" "$A2" ;;
+  unalias)  [ -n "$A1" ] || die "unalias needs ADDR"; do_unalias "$A1" ;;
+  master)   [ -n "$A1" ] || die "master needs NAME"; do_master master "$A1" ;;
+  unmaster) [ -n "$A1" ] || die "unmaster needs NAME"; do_master unmaster "$A1" ;;
+  record)   do_record "$WRITEFLAG" ;;
+  domain)   do_domain "${A1:-list}" "${A2:-}" ;;
+  login)    [ -n "$A1" ] || die "login needs NAME"; do_login "$A1" ;;
+  check)    do_check "${A1:-}" ;;
+  *)        crit "unknown action $ACTION"; usage_exit 3 ;;
+esac
+exit $RC

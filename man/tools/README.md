@@ -30,6 +30,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-inv`](hee-inv.1.md)
 - [`hee-lg`](hee-lg.1.md)
 - [`hee-lint`](hee-lint.1.md)
+- [`hee-mail`](hee-mail.1.md)
 - [`hee-name`](hee-name.1.md)
 - [`hee-print`](hee-print.1.md)
 - [`hee-procmail`](hee-procmail.1.md)

@@ -8,7 +8,7 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
 
     hee-pve-deploy [-h] [--node NODE] [--host HOST] [--dry-run]
       hee-pve-deploy MANIFEST.yaml [--node pve] [--host 10.0.0.153] [--dry-run]
-                     [--anchors FILE] [--addons FILE] [--agent-roster FILE]
+                     [--reprovision] [--anchors FILE] [--addons FILE] [--agent-roster FILE]
 
     positional arguments:
       manifest              pve/services/<name>.yaml -- see the manifest format
@@ -22,6 +22,17 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
                             would run -- create, add-ons, files, provision --
                             creating and changing nothing. Without it the deploy
                             is applied.
+      --reprovision         on a hostname that ALREADY EXISTS: re-ship every
+                            'files:' entry (sha256-compared against the container
+                            first and reported new/changed/unchanged) and re-run
+                            every 'provision:' script, instead of the idempotent
+                            skip -- exits with provision:'s own exit code. Never
+                            runs 'pct set': a live mounts:/features: mismatch
+                            against the manifest is printed as a WARNING naming
+                            the pct set it would take, and nothing is applied --
+                            that still needs a destroy and a create. On a hostname
+                            that does NOT exist yet this flag is a no-op: a plain
+                            create happens, same as without it.
       --anchors ANCHORS     registry of roles whose address may be pinned. A
                             manifest that declares address or hwaddr must name a
                             role listed there; anything else has its address
@@ -35,9 +46,10 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
                             files entries; it must be ratified and its .asc must
                             verify, or nothing is rendered.
 
+
 # DESCRIPTION
 
-                          [--anchors ANCHORS] [--addons ADDONS]
+                          [--reprovision] [--anchors ANCHORS] [--addons ADDONS]
                           [--agent-roster AGENT_ROSTER]
                           manifest
 
@@ -154,3 +166,46 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
     100000-range-owned directory on the host, and this tool chmods nothing.
     pve accepts a bind mount only from root@pam, which pvesh over ssh to root
     is. A bind mount is never part of a container backup.
+
+    `--reprovision` on a hostname that already exists re-ships every `files:`
+    entry through the identical apply_files() a create uses (directory entries
+    via the same `git archive HEAD` tar) and re-runs every `provision:` script,
+    in place of the plain idempotent skip. Real trigger,
+    human-execution-engine#760 (2026-09-19): the only tool path for the normal
+    case -- a `provision:` bug found after the container exists -- was `scp`
+    the fix to the node and `pct exec` it in by hand, the exact one-liner shape
+    this tool exists to retire, on the one flow it had no answer for. It
+    resolves the manifest fully first, exactly like create, and NEVER runs
+    `pct set`: it cannot touch the container's config, so it cannot touch the
+    MAC a DHCP reservation is keyed on or a mount -- those still need a destroy
+    and a create. Each `files:` entry is sha256-compared against what a
+    `pct exec VMID -- sha256sum` finds already in the container (a directory
+    entry compares every file the tar carries, by path relative to `dst`) and
+    reported `new`/`changed`/`unchanged` before it is re-shipped, and the
+    tool's own exit code is `provision:`'s own. A live `mounts:`/`features:`
+    that no longer matches the manifest (`pct config VMID`) is printed as a
+    `WARNING` naming the exact `pct set` that would fix it -- computed, never
+    run. On a hostname that does not exist yet, `--reprovision` is a no-op: a
+    plain create happens, same as without it.
+
+
+# EXAMPLES
+
+    hee-pve-deploy pve/services/bastion.yaml --dry-run
+        Preview a create: every command, every file, every provision script --
+        nothing runs.
+
+    hee-pve-deploy pve/services/bastion.yaml
+        Create it for real. Idempotent by hostname: run again unchanged and it
+        only reports the existing container.
+
+    hee-pve-deploy pve/services/meme-factory.yaml --reprovision --dry-run
+        Preview a reprovision on an EXISTING container: the sha256 diff of
+        every files: entry (new/changed/unchanged), the mounts:/features:
+        WARNING if the live config has drifted from the manifest, and the
+        provision: scripts that would run. Nothing is applied.
+
+    hee-pve-deploy pve/services/meme-factory.yaml --reprovision
+        Re-ship files:, re-run provision:, on a container that already
+        exists. Exit code is provision:'s own. Never touches mounts:/
+        features: -- those still need a destroy and a create.

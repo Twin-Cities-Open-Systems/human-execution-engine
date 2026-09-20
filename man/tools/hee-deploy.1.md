@@ -2,16 +2,18 @@
 
 # NAME
 
-hee-deploy - publish a directory of markdown + images as a resume blog post
+hee-deploy - publish a directory of markdown + images as a resume blog
 
 # SYNOPSIS
 
     hee deploy blog [DIR] [-oper SLUG] [-to lab|prod] [-dry-run] [-no-pr] [-resume PATH]
-    hee deploy help | blog help
+    hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run]
+    hee deploy help | blog help | store help
 
 
 # DESCRIPTION
 
+    post, or a store directory as the live store on the lab
 
       Turns a directory shaped like:
 
@@ -28,7 +30,18 @@ hee-deploy - publish a directory of markdown + images as a resume blog post
       with `./convert.sh`, pushed to lab with `media/bin/deploy.sh <oper> lab`,
       and a PR that records what is already live. DIR defaults to `.`.
 
-      DIR is the unit of input:
+      `hee deploy store` turns a store directory (a catalog: a store.yaml, one
+      inventory asset + stock record per item, one image and note per item)
+      into the live store on the lab: `rsync -rlt --delete --chmod=D2775,F664` the directory to
+      `$MNTPATH/store/<slug>/` (the share the store host also mounts), a
+      `POST /api/owner/reload` to pick up the new dataset, and a `GET /health`
+      to confirm the service is serving it. DIR defaults to `.`; the slug
+      defaults to DIR's basename. `-to prod` (phase 1, same as blog) only
+      prints the release procedure. `-dry-run` runs every gate and shows the
+      rsync plan (`--itemize-changes -n`) without touching the share, running
+      the reload, or requiring `STORE_OWNER_TOKEN`.
+
+      DIR is the unit of input for blog:
 
         blog.md               line 1 `# Title` (required); line 2 may be
                                `**Date:** YYYY-MM-DD`; then prose. Markdown
@@ -45,16 +58,37 @@ hee-deploy - publish a directory of markdown + images as a resume blog post
       tool refuses and lists the profiles it found -- it never guesses a
       person.
 
+      DIR is the unit of input for store (one directory per store; a deployed
+      store lives at `$MNTPATH/store/<slug>/`):
+
+        store.yaml                                                 the store: name (required), tagline,
+                                                                    currency, pickup, owner, policy
+        inventory/objects/asset/<tsz>__inv-asset-<sub>-<id>.yaml    one per item, `hee inv add --dataset DIR`
+        inventory/objects/stock/<tsz>__inv-stock-<id>.yaml          one per item on offer, naming its asset
+        images/<stableid>.<png|jpg|jpeg|gif|webp>                   the item's picture, keyed by stableid
+        images/<stableid>.<ext>.md                                  its note: first non-empty line is the
+                                                                     alt text, the rest the caption
+
+      An item is the pair (asset, stock); the stableid ties asset, stock and
+      image together. An asset with no stock record is not for sale. A stock
+      record whose asset is missing is refused, never silently dropped.
+
       -oper       which person's blog; default: $USER if it is a profile
       -to         lab|prod, default lab. prod (phase 1) only prints the
                   release procedure and does nothing else.
-      -dry-run    run every gate, print the assembled post between
-                  `----- post -----` markers and the files that would be
-                  written, write nothing, create no branch, run nothing
-      -no-pr      leave the branch local after deploying to lab, no PR
-      -resume     path to the resume checkout, default ~/git/resume
+      -slug       (store only) the store's slug; default DIR's basename,
+                  lowercased
+      -url        (store only) the running store's base URL; default
+                  https://store.lab.tcos.us
+      -dry-run    run every gate, print what would be written (blog: the
+                  assembled post between `----- post -----` markers and the
+                  files; store: the rsync plan between `----- rsync -----`
+                  markers), write nothing, touch nothing, run nothing
+      -no-pr      (blog only) leave the branch local after deploying to lab,
+                  no PR
+      -resume     (blog only) path to the resume checkout, default ~/git/resume
 
-    GATES (in order, each with its exit code)
+    GATES for blog (in order, each with its exit code)
       DIR missing, or no blog.md, or line 1 not '# Title'    CRITICAL 2, refuse
       slug not slug-safe                                     CRITICAL 2, refuse
       -oper not a profile dir with profile.json              CRITICAL 2, refuse, lists profiles
@@ -64,6 +98,21 @@ hee-deploy - publish a directory of markdown + images as a resume blog post
       an image with no note                                  WARNING 1, deploys anyway
       -to prod                                                UNKNOWN 3, prints the release
                                                               procedure, does nothing
+
+    GATES for store (in order, each with its exit code)
+      no store.yaml, or store.yaml has no 'name'             CRITICAL 2, refuse
+      slug not slug-safe                                     CRITICAL 2, refuse
+      no asset record, or no stock record                    CRITICAL 2, refuse, names the missing kind
+      a stock record whose 'asset' names no asset in DIR     CRITICAL 2, refuse, names the stock file
+      an item (has stock) with no image                      WARNING 1, deploys anyway
+      an image with no note                                  WARNING 1, deploys anyway
+      -to prod                                                UNKNOWN 3, prints the release
+                                                              procedure, does nothing
+      STORE_OWNER_TOKEN unset (real deploy only, not -dry-run)  CRITICAL 2, refuse before rsync,
+                                                                 names the variable
+      $MNTPATH/store not a writable directory                CRITICAL 2, refuse before rsync
+      rsync exits non-zero                                   CRITICAL 2, refuse, nothing reloaded
+      the reload's 'unloadable' list is non-empty            CRITICAL 2, printed one per line
 
 
 # EXIT STATUS
@@ -75,13 +124,18 @@ hee-deploy - publish a directory of markdown + images as a resume blog post
 
     NOT IN V1
       media and meme kinds, -to prod beyond printing the procedure, editing an
-      existing post, deleting images.
+      existing blog post or store item, deleting images, more than one store
+      per service instance, notifications, payment.
 
 
 # EXAMPLES
 
     $ hee deploy blog tests/fixtures/deploy-blog/my-new-blog -oper alice -resume tests/fixtures/deploy-blog/resume -dry-run   # ci
+    $ M=$(mktemp -d) && mkdir -p "$M/store" && MNTPATH="$M" hee deploy store tests/fixtures/deploy-store/sample -slug sample -dry-run   # ci
     hee deploy blog ./my-new-blog -dry-run                # every gate, the assembled post, nothing written
     hee deploy blog ./my-new-blog -oper alice -to lab     # build, lab, PR
     hee deploy blog ./my-new-blog -to prod                # prints the release procedure, exit 3
+    hee deploy store ./ian -to lab                        # rsync, reload, health
+    hee deploy store ./ian -dry-run                       # every gate, the rsync plan, nothing touched
+    hee deploy store ./ian -to prod                       # prints the release procedure, exit 3
     hee deploy help
