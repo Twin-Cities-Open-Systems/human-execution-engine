@@ -11,7 +11,9 @@ by busybox httpd out of a directory, and there is nothing there to run a build.
 Every file also holds to the same four rules:
 
 - **It works alone.** No file needs any other file in this directory. Include
-  one, include all six, in any order.
+  one, include all of them, in any order. The one exception is stated where it
+  applies: `qr.js` uses `qr-jsqr.js` when it is present, and says so rather
+  than pretending otherwise when it is not.
 - **It does nothing if its markup is absent.** A page that includes `table.js`
   but has no `[data-tc-table]` or `table.tc-table` pays for one `querySelectorAll`
   and stops.
@@ -32,6 +34,8 @@ Every file also holds to the same four rules:
 | `library/js/table.js` | Sort any column, filter across every field as you type | `[data-tc-table]`, `table.tc-table` |
 | `library/js/links.js` | External links open a new tab, safely | every `a[href]` |
 | `library/js/freshness.js` | How old a page's source is, as a pill and a hue; stale after 12h by default | `[data-tc-epoch]` |
+| `library/js/qr.js` | Read a QR code out of a `<video>`, `<canvas>`, `<img>` or `ImageData` | none -- called, never auto-wired |
+| `library/js/qr-jsqr.js` | Vendored jsQR 1.4.0, the fallback decoder `qr.js` uses (`UPSTREAM.md`) | none |
 
 ### freshness.js
 
@@ -61,6 +65,58 @@ committed) reads `○ UNKNOWN · not committed`.
 
 Operator brief, 2026-09-10: "standardize on a freshness that works, changes
 color (hue) when stale (12h is stale, default)".
+
+### qr.js
+
+```html
+<script src="js/qr-jsqr.js"></script>   <!-- the vendored decoder, first -->
+<script src="js/qr.js"></script>
+```
+
+```js
+const text = await heeQrScan(videoEl);   // string, or null for "no QR in this frame"
+```
+
+The one entry point is `heeQrScan(source, [opts])`, where `source` is a
+`<video>`, `<canvas>`, `<img>`, `ImageBitmap` or `ImageData`. It resolves to
+the decoded text or to `null`, and rejects for exactly one reason: there is no
+decoder on the page at all.
+
+**Why it exists.** `BarcodeDetector` is the right decoder where it is real,
+and it is not real in most places we run. Measured on flippy 2026-09-19,
+Chrome 153 on Debian 13, on an HTTPS page: `typeof BarcodeDetector` is
+`"undefined"`. Firefox has never shipped it. So `heeQrScan` prefers the
+platform when it genuinely supports `qr_code`, and otherwise uses the vendored
+jsQR underneath -- and the caller never has to ask which. `heeQrBackend()`
+reports which one answered (`"platform"`, `"vendored"`, `"none"`, or
+`"unknown"` before the first scan), for a status line; it is not something to
+branch on.
+
+The rest of the surface:
+
+| Call | Does |
+| --- | --- |
+| `heeQrScan(source, [opts])` | the entry point, above. `opts.maxSide` caps the long side before decoding (default 1280, `0` disables); `opts.backend: "vendored"` skips the platform path |
+| `heeQrDecode(imageData)` | the vendored decoder alone, synchronous, `string` or `null` |
+| `heeQrAvailable()` | is there any decoder here at all |
+| `heeQrBackend()` | which one answered |
+
+Also published as `TC.qr.{scan,decode,available,backend}`.
+
+**It owns no camera.** No `getUserMedia`, no permission prompt, no `<video>`,
+no UI. Every page wants its own camera UI, and a decoder that also held the
+camera could not be tested without one -- which is why `test.html` can check
+this component with two checked-in QR images and no hardware.
+
+Big frames are scaled down before decoding: a phone hands over 1920x1080 or
+more, jsQR is O(pixels), and a scan loop runs several times a second.
+Measured in headless Chrome, a 1600px frame scaled to 640 still decodes the
+same string.
+
+`qr-jsqr.js` is jsQR 1.4.0, Apache-2.0, vendored byte-identical from the
+published npm tarball. Its license is checked in beside it as
+`library/js/qr-jsqr.LICENSE.txt`, and its provenance -- upstream, version,
+commit, URL and hashes -- is recorded in `library/js/UPSTREAM.md`.
 
 ### hovercard.js
 

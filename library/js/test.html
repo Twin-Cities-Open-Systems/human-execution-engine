@@ -249,6 +249,26 @@
     </table>
   </section>
 
+  <section class="panel">
+    <h2>qr.js</h2>
+    <p class="hint">
+      Two real QR codes, checked in as <code>data:</code> URIs so this page needs no
+      network and no camera. The self-checks above decode both and compare the result
+      with the payload they were generated from, character for character.
+      <code>qr.js</code> owns no camera on purpose &mdash; pixels in, text out &mdash;
+      so everything it does is testable without one.
+    </p>
+    <ul class="plain">
+      <li><img id="qr-fixture-hk1" alt="QR code encoding a pickup payload" width="132" height="132"
+               src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIQAAACECAIAAADeJhTwAAACO0lEQVR42u3dwY6DMAyEYVjt+79y99pDkWLZU1j4/mPVpqQjz+AEyv56vTZcgx8/ATFADGKAGMQAMYgBYhADxCAGiAFiEAOf+K1+YN/38YN431N5H7/z+soxH42TmJfKYFMgxhMzo+OJ1ew5ek/nsyvHnJ6XymBTIMYTM6PqlVW/ro6Z6BWm5qUy2BSIITPmqfYHK2tTKgPEIAbumRkrfUNnb0NlgBjEwPmZkfDoozFXXp/KlW9mj8pgUyDGnTMjvX+QyICz5qUy2BSIcQP2q63hdDLgm/vVKoNNgRj6jJk+4MijO9dBJXqIzn0e1bmrDDYFYugz5nuLFRJev/I7pNfHVAabAjHulhnVc+2q109dazu1xlW9t1yfwaZADJkx47P/pS9Z+a7EHFUGmwIxntJnTPUliTWf9P3kU8esMtgUiPH0PiNxnt65HreTAfoMNgViPJyx+zOqHt25zmoqJzq5kliLUxlsCsS4W5+R2A/onMt39swTOdTpRVQGmwIx7pYZiZ7jrNzq4FpbNgViyIwLHFCgb5jKm3QWqgw2BWJcnMs9p6/zvZ17Kaae96cy2BSIITNmzqOnMqAzzpTvJ57noTLYFIhx58xIZEC6V5jqmVw3xaZADJlxPlN9w9Ra1jef6aQy2BSIITNmOOu/rTr/gagy2BSIITNq5+yJcdL3kFezyn+HsCkQQ2bU/HeKRA+RyAaVwaZAjAeyX/m5dSoDxAAxiAFiEAPEIAaIQQwQgxggBjFADGzb9gfEbaIJJ60EswAAAABJRU5ErkJggg==">
+        &mdash; a counter pickup payload, <code>HK1:KID12345:HALFAHALFA</code></li>
+      <li><img id="qr-fixture-text" alt="QR code encoding a line of text" width="148" height="148"
+               src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJQAAACUCAIAAAD6XpeDAAACzklEQVR42u3dy27DQAxD0bro//9yuiuyKWBF4nicnLs0EiMxIRGcl4/H4/GFe/LtERAPxAPxiAfigXggHvFAPBCPeCAeiAfivTs/1S8cxzH+I57nFJ/vf+b6md82df+Vz0HlaZsgHq73vE6PrvrTFGd87sznVz4HladtgnjYy/OqvbvqDdVM1slt1Vy48jmoPG0TxMNenrdbJqvms+f7dPxS5YF4xAPPm+SMF3ay6VReVHkgHvHwnp6X9oMpHzqTIzs+utIXVZ62CeJhnecl1i52vCo9n7fDc1B52iaIh9etZLfxus56zupcYNXnjG2CeCDeZ+W8zjrGzjzclJ918llizLOTR1Wetgni4fqcV81J6f3g6T3vU/A8bRPEw145b2VOSq+rnPKwlXlX5WmbIB7W5byV821Tc3JTZ5VNZcep/Q8qT9sE8ZDNeYm9AZ3vVvetd/7X1Diwc1hAPOLh3jkv4ZGd7FV+EAvPmJ7KfCpP2wTxsC7nTeWt/3p99Xonz1XX16wcw1R52iaIh2s8Lz2vNuUlnTNWEvsKVB6IRzzcz/OqXtjxj+r1KQ+bGr9N+6LK0zZBPKzzvE4m64yRVj048c68xB55ladtgnjYy/MSZ1dO+d9U/uvk1+p/V3naJoiHe+S8qm91/GZqjjBxDufUngqVp22CeIgS35OemDNLnJ+SyGGdvfAqT9sE8XC958V/0MIzTRJnm6XPGlV52iaIh5eJ7FWYykOJrHZmnLNzRozKA/GIh/fJeVO9Pn02dOfclsSZoioPxCMe7pfzpnyoep+pdSjp/1j1P2Ob2iaIh/t53hSJcc7EWsqpOT/vVdA2QTx8rud1MlYih3V8Oj0vqPK0TRAP13heeu4q/W689F46+/NAPOLh3p6XWMM59b69Kf9L5zxjm9omiIdlbLc/DyqPeCAeiAfiEQ/EA/GIB+KBeCAe8UA8EA9//AIWAERAKiCcuwAAAABJRU5ErkJggg==">
+        &mdash; plain text, <code>library/js qr.js self-check</code></li>
+    </ul>
+    <p class="hint" id="qr-readout">decoding&hellip;</p>
+  </section>
+
 </main>
 
 <script src="links.js"></script>
@@ -257,6 +277,11 @@
 <script src="arrange.js"></script>
 <script src="freshness.js"></script>
 <script src="table.js"></script>
+<!-- qr-jsqr.js is the vendored decoder (library/js/UPSTREAM.md); it must load
+     BEFORE qr.js, which uses it as its fallback when the platform has no
+     BarcodeDetector -- which is the case in every browser on this host. -->
+<script src="qr-jsqr.js"></script>
+<script src="qr.js"></script>
 <script>
 /* Self-checks. Real assertions against the live DOM after the components have
  * run -- not a claim in a comment that they work. */
@@ -474,6 +499,137 @@
      * look broken while it is in fact working. */
     render();
     hovercardChecks(render);
+    qrChecks(render);
+  }
+
+  /* qr.js. Decoding is asynchronous (the platform probe is a promise, and an
+   * <img> may not have painted yet), so these fill in after the first render
+   * the same way the hovercard's do. The fixtures are checked-in QR codes,
+   * so there is nothing here that needs a camera or a network. */
+  var QR_HK1 = "HK1:KID12345:HALFAHALFA";
+  var QR_TEXT = "library/js qr.js self-check";
+
+  function qrChecks(done) {
+    function imageDataOf(img, w, h) {
+      var c = document.createElement("canvas");
+      c.width = w || img.naturalWidth;
+      c.height = h || img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      return c.getContext("2d").getImageData(0, 0, c.width, c.height);
+    }
+
+    function ready(img) {
+      return (img && img.complete && img.naturalWidth) ? Promise.resolve(img)
+        : new Promise(function (resolve) {
+            img.addEventListener("load", function () { resolve(img); });
+            img.addEventListener("error", function () { resolve(img); });
+          });
+    }
+
+    var hk1 = document.getElementById("qr-fixture-hk1");
+    var txt = document.getElementById("qr-fixture-text");
+
+    Promise.all([ready(hk1), ready(txt)]).then(function () {
+      check("qr: a decoder is available on this page", function () {
+        return window.heeQrAvailable() === true || "heeQrAvailable() is false";
+      });
+      check("qr: the vendored decoder loaded", function () {
+        return typeof window.jsQR === "function" || "window.jsQR is " + (typeof window.jsQR);
+      });
+      check("qr: heeQrDecode reads a pickup payload out of an ImageData", function () {
+        var got = window.heeQrDecode(imageDataOf(hk1));
+        return got === QR_HK1 || "decoded " + JSON.stringify(got);
+      });
+      check("qr: heeQrDecode reads plain text, character for character", function () {
+        var got = window.heeQrDecode(imageDataOf(txt));
+        return got === QR_TEXT || "decoded " + JSON.stringify(got);
+      });
+      check("qr: heeQrDecode returns null on an image with no QR in it", function () {
+        var c = document.createElement("canvas");
+        c.width = 120; c.height = 120;
+        var ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 120, 120);
+        var got = window.heeQrDecode(ctx.getImageData(0, 0, 120, 120));
+        return got === null || "decoded " + JSON.stringify(got) + " out of a blank square";
+      });
+      check("qr: heeQrDecode refuses anything that is not an ImageData", function () {
+        return window.heeQrDecode(null) === null && window.heeQrDecode("HK1:x:y") === null
+          && window.heeQrDecode({ width: 2, height: 2 }) === null;
+      });
+
+      var scans = [];
+
+      scans.push(window.heeQrScan(hk1).then(function (got) {
+        check("qr: heeQrScan decodes straight from an <img>", function () {
+          return got === QR_HK1 || "decoded " + JSON.stringify(got);
+        });
+        check("qr: heeQrBackend names the decoder that answered", function () {
+          var b = window.heeQrBackend();
+          return b === "platform" || b === "vendored" || "backend reads " + JSON.stringify(b);
+        });
+        document.getElementById("qr-readout").textContent =
+          "decoded " + JSON.stringify(got) + " using the " + window.heeQrBackend() + " decoder";
+      }));
+
+      scans.push(window.heeQrScan(txt, { backend: "vendored" }).then(function (got) {
+        check("qr: the vendored path can be asked for by name", function () {
+          return (got === QR_TEXT && window.heeQrBackend() === "vendored")
+            || "decoded " + JSON.stringify(got) + " via " + window.heeQrBackend();
+        });
+      }));
+
+      /* A <video> before its first frame, and a 0x0 canvas, both report no
+       * pixels. That is the normal state for the first moments of a camera
+       * scan loop and must resolve null rather than reject -- a rejection
+       * there is what makes a scanner give up before the user has aimed. */
+      scans.push(window.heeQrScan(document.createElement("video")).then(function (got) {
+        check("qr: a source with no pixels yet resolves null, not an error", function () {
+          return got === null || "resolved " + JSON.stringify(got);
+        });
+      }, function (err) {
+        check("qr: a source with no pixels yet resolves null, not an error", function () {
+          return "rejected with " + (err && err.message ? err.message : String(err));
+        });
+      }));
+
+      /* Big frames are scaled down before decoding, because a scan loop runs
+       * this several times a second. The fixture is drawn at 1600px to prove
+       * the scaled path still decodes the same string. */
+      var big = document.createElement("canvas");
+      big.width = 1600; big.height = 1600;
+      big.getContext("2d").imageSmoothingEnabled = false;
+      big.getContext("2d").drawImage(hk1, 0, 0, 1600, 1600);
+      scans.push(window.heeQrScan(big, { backend: "vendored", maxSide: 640 }).then(function (got) {
+        check("qr: a 1600px frame scaled to 640 still decodes the same string", function () {
+          return got === QR_HK1 || "decoded " + JSON.stringify(got);
+        });
+      }));
+
+      /* With both decoders taken away, heeQrScan must REJECT rather than
+       * resolve null: "no decoder on this page" is a fact the caller has to
+       * tell the user about, and a null would read as "no QR in frame" and
+       * spin forever. */
+      scans.push((function () {
+        var realJsQR = window.jsQR;
+        var realBD = window.BarcodeDetector;
+        try { window.jsQR = undefined; window.BarcodeDetector = undefined; } catch (e) { /* frozen */ }
+        return window.heeQrScan(hk1).then(function (got) {
+          check("qr: with no decoder at all, heeQrScan rejects rather than resolving null", function () {
+            return "resolved " + JSON.stringify(got);
+          });
+        }, function (err) {
+          check("qr: with no decoder at all, heeQrScan rejects rather than resolving null", function () {
+            return /no QR decoder|not loaded/.test(String(err && err.message)) ||
+              "rejected with " + String(err && err.message);
+          });
+        }).then(function () {
+          window.jsQR = realJsQR;
+          window.BarcodeDetector = realBD;
+        });
+      })());
+
+      return Promise.all(scans);
+    }).then(done, done);
   }
 
   /* The hovercard actually fetches, so these cannot be synchronous. They are
