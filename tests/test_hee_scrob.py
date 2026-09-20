@@ -287,3 +287,74 @@ class TestListPlayers(unittest.TestCase):
         self.assertEqual(len(playing), 3)
         self.assertEqual(known, [])
         self.assertIn("nothing claimed yet", d.format_players(playing, known, []))
+LRC = """[ar: Bad Religion]
+[ti: We're Only Gonna Die]
+[offset: 0]
+[00:01.50]Early man walked away
+[00:04.00][00:30.00]As modern man took control
+[00:07.25]Their minds weren't all the same
+"""
+
+PLAIN_LRC = """[ar: Joji]
+[ti: If It Only Gets Better]
+If it only gets better from here
+Then what's there to change about it?
+"""
+
+
+class TestLrcSidecar(unittest.TestCase):
+    """The .lrc beside a music file is the lyric sidecar Plex reads and the
+    subtearium stack item writes. It parses into the same (start, end, text)
+    blocks .srt does, so srt_context and every lookup above it stay one path."""
+
+    def test_timed_lines_become_blocks_that_end_where_the_next_begins(self):
+        blocks = d._lrc_blocks(LRC)
+        self.assertEqual([b[0] for b in blocks], [1500, 4000, 7250, 30000])
+        self.assertEqual(blocks[0][1], 3999)
+        self.assertEqual(blocks[0][2], "Early man walked away")
+
+    def test_a_line_with_two_timestamps_is_two_blocks_of_the_same_words(self):
+        blocks = d._lrc_blocks(LRC)
+        self.assertEqual(blocks[1][2], "As modern man took control")
+        self.assertEqual(blocks[3][2], "As modern man took control")
+
+    def test_the_last_line_lasts_the_fixed_tail_not_forever(self):
+        blocks = d._lrc_blocks(LRC)
+        self.assertEqual(blocks[-1][1], 30000 + d.LRC_LAST_LINE_MS - 1)
+
+    def test_header_tags_and_untimed_text_yield_no_blocks(self):
+        self.assertEqual(d._lrc_blocks(PLAIN_LRC), [])
+
+    def test_context_at_a_moment_reads_the_lrc_like_an_srt(self):
+        with tempfile.TemporaryDirectory() as t:
+            lrc = os.path.join(t, "track.lrc")
+            with open(lrc, "w") as f:
+                f.write(LRC)
+            self.assertEqual(d.srt_context(d.Path(lrc), 2000, current_only=True), "Early man walked away")
+            self.assertEqual(d.srt_context(d.Path(lrc), 2000), "Early man walked away / As modern man took control")
+
+    def test_plain_lyrics_are_not_a_timed_cue_so_the_line_is_empty(self):
+        with tempfile.TemporaryDirectory() as t:
+            lrc = os.path.join(t, "track.lrc")
+            with open(lrc, "w") as f:
+                f.write(PLAIN_LRC)
+            self.assertIsNone(d.srt_context(d.Path(lrc), 2000))
+
+    def test_find_srt_falls_back_to_lrc_and_srt_still_wins(self):
+        with tempfile.TemporaryDirectory() as t:
+            media = os.path.join(t, "track.flac")
+            lrc = os.path.join(t, "track.lrc")
+            open(media, "w").close()
+            open(lrc, "w").close()
+            self.assertEqual(str(d.find_srt(media)), lrc)
+            srt = os.path.join(t, "track.srt")
+            open(srt, "w").close()
+            self.assertEqual(str(d.find_srt(media)), srt)
+
+    def test_a_track_line_prints_its_lyric_the_way_video_prints_dialogue(self):
+        r = {"kind": "track", "artist": "Bad Religion", "title": "We're Only Gonna Die", "album": "How Could Hell Be Any Worse?",
+             "year": "1982", "ts": "00:00:02", "line": "Early man walked away", "device": None}
+        self.assertEqual(d.format_line(r),
+                         "np: Bad Religion - We're Only Gonna Die (1982) [How Could Hell Be Any Worse?] @ 00:00:02 -- Early man walked away")
+        r["line"] = None
+        self.assertEqual(d.format_line(r), "np: Bad Religion - We're Only Gonna Die (1982) [How Could Hell Be Any Worse?] @ 00:00:02")

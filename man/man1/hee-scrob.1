@@ -30,6 +30,15 @@ sitting next to the media file. No invented dialogue \-\- if there's
 no real .srt, there's no subtitle line in the output, and a moment
 that genuinely falls in a silent gap prints nothing, correctly.
 .PP
+For a music track, the same lookup reads the
+.B .lrc
+sitting next to the audio file \-\- the lyric sidecar Plex itself reads
+(it ignores embedded tags), which the managed\-media\-stack
+.B subtearium
+item writes from LRCLIB. The sidecar is found in this order: \fB.en.srt\fR,
+\fB.srt\fR, \fB.lrc\fR, so video gains .lrc as a fallback too. An .lrc with
+no timestamps is plain lyrics, not a timed cue, and yields nothing.
+.PP
 Device names: real hostname of the playing device via reverse DNS on
 the player's connecting IP, falling back to Plex's own self\-reported
 title if that fails. A local override file,
@@ -94,7 +103,7 @@ Report this player only, this once, whatever the rc file claims. A name
 that matches no session is a message on stderr, not another player's show.
 .TP
 .B \-current\-only
-Skip the \(+-5s subtitle context, print only the exact\-moment line.
+Skip the \(+-5s subtitle or lyric context, print only the exact\-moment line.
 .SH AUTHENTICATION
 Never hardcoded, never printed. The token is resolved in this order and
 the first hit wins, so the plain
@@ -177,6 +186,8 @@ something that does,
 says so on stderr, naming the path and the mappings it tried; stdout stays
 the scrobble line. A path that resolves but has no sidecar
 .B .srt
+or
+.B .lrc
 stays quiet. human\-execution\-engine#670.
 .SH EXAMPLES
 The plain form. No wrapper, no environment: the sealed
