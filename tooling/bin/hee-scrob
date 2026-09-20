@@ -54,8 +54,27 @@ bash alias is invisible to cron, to `ssh host cmd`, to CI, and to
 irssi's EXEC -- which is this tool's whole point). hee-scrob already
 knows which account it needs; holding that here is the fix.
 
+Which player: a Plex server reports EVERY session on it, so on a shared
+server "what is playing" is a question, not a fact. This tool used to
+answer it with whichever session came first, which is how the operator
+watching on flippy got told about someone else's show. Claim your players
+once and it reports yours:
+
+  hee-scrob -players              # seen now + known to the server, claimed ones marked
+  hee-scrob -claim flippy         # writes `claim = flippy` in ~/.config/hee/scrob.rc
+  hee-scrob -player flippy        # this once, whatever the rc says
+
+A claim matches a player's id, the title Plex reports, or its friendly
+name from device-names.txt. Two players can share a title (a Plexamp and
+a Plex for Linux both called "flippy"): claiming the title takes both,
+claiming the id takes exactly one. With claims set and none of them
+playing, this says so and reports nothing -- silence beats scrobbling a
+stranger's show. With no claims at all it reports whatever is playing and
+says how to make the choice yours.
+
 Usage:
   hee-scrob [-server URL]
+  hee-scrob -players | -claim NAME | -unclaim NAME | -player NAME
   hee-scrob -discord   # post the same real line to Discord instead of stdout
 
 Discord posting (real trigger, 2026-08-29, Spencer direct: "yes hee
@@ -94,6 +113,21 @@ DEFAULT_TOKEN_FILE = Path.home() / ".config" / "hee" / "plex-token"
 CRED_ACCOUNT = "plex-token"
 DISCORD_ACCOUNT = "discord-webhook-scrob"
 DEVICE_NAMES_FILE = Path.home() / ".config" / "hee" / "device-names.txt"
+# The rc file: which players on this Plex are MINE. Operator, 2026-09-20:
+# "currently the app only seems to take the first our last player it sees
+# (ie I am playing on flippy but hee scrob shows the media from another
+# player on the network). should be able to scan the seen and/or known
+# network clients and 'claim' the ones you want to scrob. maybe an rc file
+# for this". One `claim = ` line per player, matched against the player's
+# machineIdentifier, its title, or its device-names.txt friendly name.
+RC_FILE = Path.home() / ".config" / "hee" / "scrob.rc"
+RC_HEADER = """# hee-scrob rc -- which players on this Plex server are yours.
+# One `claim =` per player: its id, its title, or its friendly name from
+# device-names.txt. `hee scrob -players` lists what is seen and known;
+# `hee scrob -claim NAME` adds a line here. With no claims at all, scrob
+# takes whatever is playing, which on a shared server is a coin toss.
+# `server =` overrides the default Plex; the -server flag beats both.
+"""
 # HEE#670: Plex's `file` attribute is a path as the CONTAINER sees it, not
 # this host. Per-oper in heerc, e.g. HEE_SCROB_PATH_MAP="/data=/srv/media".
 PATH_MAP_VAR = "HEE_SCROB_PATH_MAP"
@@ -231,6 +265,171 @@ def read_device_names() -> dict:
     return mapping
 
 
+def read_rc(path=None) -> dict:
+    """The rc file as {"claims": [str], "server": str|None}. Same shape as
+    device-names.txt (key = value, '#' comments), because a second syntax
+    for a second file in the same directory is a second thing to remember."""
+    rc = {"claims": [], "server": None}
+    path = Path(path) if path else RC_FILE
+    try:
+        text = path.read_text()
+    except OSError:
+        return rc
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line or "=" not in line:
+            continue
+        key, value = (x.strip() for x in line.split("=", 1))
+        if not value:
+            continue
+        if key == "claim":
+            rc["claims"].append(value)
+        elif key == "server":
+            rc["server"] = value
+    return rc
+
+
+def write_claim(name: str, remove: bool = False, path=None) -> str:
+    """Add or remove one `claim =` line, keeping every other line as it is.
+    Returns what happened, in the tool's own words."""
+    path = Path(path) if path else RC_FILE
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        lines = []
+    def is_claim(line, value):
+        bare = line.split("#", 1)[0].strip()
+        return "=" in bare and [x.strip() for x in bare.split("=", 1)] == ["claim", value]
+    if remove:
+        kept = [ln for ln in lines if not is_claim(ln, name)]
+        if len(kept) == len(lines):
+            return f"hee-scrob: {name} was not claimed in {path}"
+        lines = kept
+        what = f"hee-scrob: unclaimed {name} in {path}"
+    else:
+        if any(is_claim(ln, name) for ln in lines):
+            return f"hee-scrob: {name} is already claimed in {path}"
+        if not lines:
+            lines = RC_HEADER.rstrip("\n").splitlines()
+        lines.append(f"claim = {name}")
+        what = f"hee-scrob: claimed {name} in {path}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+    return what
+
+
+def player_of(el, device_names):
+    """One session's player as data: its stable id, the title Plex reports,
+    the friendly name device-names.txt gives it, product and state."""
+    p = el.find("Player") if el is not None else None
+    if p is None:
+        return {}
+    title = p.get("title") or ""
+    return {"id": p.get("machineIdentifier") or "", "title": title,
+            "name": device_names.get(title, title), "product": p.get("product") or p.get("platform") or "",
+            "address": p.get("address") or "", "state": (p.get("state") or "").lower(),
+            "user": (el.find("User").get("title") if el.find("User") is not None else "") or ""}
+
+
+def claimed(player: dict, claims) -> bool:
+    """Does this player answer to any claim? A claim matches its id, the
+    title Plex reports, or its device-names.txt friendly name -- case and
+    surrounding space ignored. Two players can share a title (a Plexamp
+    and a Plex for Linux both called 'flippy'), so a claim by title takes
+    both on purpose; claim the id to take exactly one."""
+    if not claims:
+        return False
+    fields = {str(player.get(k) or "").strip().lower() for k in ("id", "title", "name")}
+    fields.discard("")
+    return any(str(c).strip().lower() in fields for c in claims)
+
+
+def choose_session(sessions, claims, want=None):
+    """The session to report, and why -- (element, player, note).
+
+    Plex returns every session on the server in its own order, so
+    `find("Video")` reported whoever happened to be first: the operator
+    watching on flippy saw someone else's show. Order here is deliberate:
+    a -player argument narrows first, then the rc's claims, and among what
+    is left a player actually PLAYING beats one that is paused."""
+    pairs = [(el, p) for el, p in sessions]
+    note = None
+    if want:
+        narrowed = [(el, p) for el, p in pairs if claimed(p, [want])]
+        if not narrowed:
+            seen = ", ".join(sorted({p["name"] or p["id"] for _, p in pairs})) or "nothing"
+            return None, None, f"hee-scrob: no session on a player matching {want!r} (playing now: {seen})"
+        pairs = narrowed
+    elif claims:
+        narrowed = [(el, p) for el, p in pairs if claimed(p, claims)]
+        if not narrowed and pairs:
+            seen = ", ".join(sorted({f"{p['name']} [{p['id']}]" for _, p in pairs}))
+            return None, None, (f"hee-scrob: {len(pairs)} session(s) playing, none on a claimed player: {seen}\n"
+                                f"hee-scrob: `hee scrob -players` lists them; `hee scrob -claim NAME` claims one")
+        pairs = narrowed
+    elif len(pairs) > 1:
+        note = (f"hee-scrob: {len(pairs)} players are playing and none is claimed -- reporting the one that is playing.\n"
+                f"hee-scrob: `hee scrob -players` lists them; `hee scrob -claim NAME` makes the choice yours ({RC_FILE})")
+    if not pairs:
+        return None, None, note
+    pairs.sort(key=lambda ep: 0 if ep[1].get("state") == "playing" else 1)
+    return pairs[0][0], pairs[0][1], note
+
+
+def list_players(server, token, device_names, claims, fetch=None):
+    """Every player: the ones with a session right now, then the ones this
+    server knows from the account's devices. Claimed ones are marked. The
+    id is what a claim should use when two players share a title."""
+    fetch = fetch or (lambda path: _get_xml(server, token, path))
+    rows, seen_ids = [], set()
+    root = fetch("/status/sessions")
+    for el in list(root.findall("Video")) + list(root.findall("Track")):
+        p = player_of(el, device_names)
+        if not p:
+            continue
+        seen_ids.add(p["id"])
+        rows.append({**p, "where": "playing now", "claimed": claimed(p, claims)})
+    known = []
+    try:
+        for d in fetch("/devices").findall("Device"):
+            cid = d.get("clientIdentifier") or ""
+            if not cid or cid in seen_ids:
+                continue
+            title = d.get("name") or ""
+            p = {"id": cid, "title": title, "name": device_names.get(title, title),
+                 "product": d.get("platform") or "", "address": "", "state": "", "user": ""}
+            known.append({**p, "where": "known", "claimed": claimed(p, claims),
+                          "created": int(d.get("createdAt") or 0)})
+    except (ET.ParseError, OSError, ValueError):
+        pass   # the account's device list is a convenience; the live sessions are the point
+    known.sort(key=lambda r: -r["created"])
+    claimed_known = [r for r in known if r["claimed"]]
+    rest = [r for r in known if not r["claimed"]]
+    return rows, claimed_known + rest
+
+
+def format_players(playing, known, claims, limit=20):
+    out = []
+
+    def mark(r):
+        return "*" if r["claimed"] else " "
+
+    out.append("PLAYING NOW" if playing else "PLAYING NOW: nothing")
+    for r in playing:
+        out.append(f" {mark(r)} {r['name'] or '(no name)'}  [{r['id']}]  {r['product']}  {r['state']}"
+                   + (f"  user {r['user']}" if r["user"] else "") + (f"  {r['address']}" if r["address"] else ""))
+    shown = known[:limit]
+    out.append(f"KNOWN TO THIS SERVER ({len(known)} device(s)" + (f", {limit} shown)" if len(known) > limit else ")"))
+    for r in shown:
+        out.append(f" {mark(r)} {r['name'] or '(no name)'}  [{r['id']}]  {r['product']}")
+    out.append("")
+    out.append(f"* = claimed in {RC_FILE}" if claims else f"nothing claimed yet ({RC_FILE} does not list a claim)")
+    out.append("claim one by name or by id:  hee scrob -claim NAME   (hee scrob -unclaim NAME to drop it)")
+    if not claims:
+        out.append("with no claims scrob reports whichever player is playing, which on a shared server is a coin toss")
+    return "\n".join(out)
+
+
 def fmt_ts(ms: int) -> str:
     s = max(ms, 0) // 1000
     h, s = divmod(s, 3600)
@@ -354,15 +553,25 @@ def warn_unresolved(media_file: str, mappings):
     )
 
 
-def now_playing(server: str, token: str, device_names: dict, current_only: bool = False):
-    url = f"{server}/status/sessions?X-Plex-Token={token}"
-    req = urllib.request.Request(url, headers={"Accept": "application/xml"})
+def _get_xml(server: str, token: str, path: str):
+    sep = "&" if "?" in path else "?"
+    req = urllib.request.Request(f"{server}{path}{sep}X-Plex-Token={token}", headers={"Accept": "application/xml"})
     with urllib.request.urlopen(req, timeout=10) as r:
-        body = r.read()
-    root = ET.fromstring(body)
+        return ET.fromstring(r.read())
 
-    video = root.find("Video")
-    track = root.find("Track")
+
+def now_playing(server: str, token: str, device_names: dict, current_only: bool = False,
+                claims=None, want=None, say=None):
+    root = _get_xml(server, token, "/status/sessions")
+    sessions = [(el, player_of(el, device_names)) for el in (list(root.findall("Video")) + list(root.findall("Track")))]
+    sessions = [(el, p) for el, p in sessions if p]
+    chosen, _player, note = choose_session(sessions, claims or [], want)
+    if note:
+        (say or (lambda m: print(m, file=sys.stderr)))(note)
+    if chosen is None:
+        return None
+    video = chosen if chosen.tag == "Video" else None
+    track = chosen if chosen.tag == "Track" else None
 
     def device_name(el):
         """Real hostname of the playing device, not just Plex's
@@ -372,18 +581,18 @@ def now_playing(server: str, token: str, device_names: dict, current_only: bool 
         records, same real gap as everything else tonight). Then check
         the local device-names.txt override for a real human-assigned
         friendly name over whatever raw value came out of either path."""
-        player = el.find("Player")
-        if player is None:
+        p = el.find("Player")
+        if p is None:
             return None
         raw = None
-        address = player.get("address")
+        address = p.get("address")
         if address:
             try:
                 raw = socket.gethostbyaddr(address)[0]
             except (socket.herror, socket.gaierror):
                 pass
         if not raw:
-            raw = player.get("title")
+            raw = p.get("title")
         if raw and raw in device_names:
             return device_names[raw]
         return raw
@@ -508,7 +717,11 @@ def main():
             f'  export {PATH_MAP_VAR}="/data=/srv/media"\n'
         ),
     )
-    ap.add_argument("-server", default=DEFAULT_SERVER)
+    ap.add_argument("-server", default=None, help=f"the Plex server (default: `server =` in {RC_FILE}, else {DEFAULT_SERVER})")
+    ap.add_argument("-players", action="store_true", help="list the players with a session right now and the ones this server knows, marking the claimed ones, and stop")
+    ap.add_argument("-claim", metavar="NAME", help=f"claim a player by name or id -- writes one `claim =` line in {RC_FILE} -- and stop")
+    ap.add_argument("-unclaim", metavar="NAME", help="drop a claim written by -claim, and stop")
+    ap.add_argument("-player", metavar="NAME", help="report this player only, this once, whatever the rc file claims")
     ap.add_argument("-current-only", action="store_true", help="only the exact-moment subtitle line, no before/after context")
     ap.add_argument("-discord", action="store_true", help="post to Discord (webhook URL from $HEE_CRED_PASS) instead of stdout")
     ap.add_argument("-to", metavar="TARGET", choices=["meme"], help="hand what is playing to another tool: `meme` writes a meme-factory quote job for this file and moment (hee meme quote --file --at)")
@@ -524,6 +737,13 @@ def main():
         return 0
 
     args = ap.parse_args()
+
+    if args.claim or args.unclaim:
+        print(write_claim(args.claim or args.unclaim, remove=bool(args.unclaim)))
+        return 0
+
+    rc = read_rc()
+    server = args.server or rc["server"] or DEFAULT_SERVER
 
     token = read_token()
     if not token:
@@ -541,8 +761,16 @@ def main():
 
     device_names = read_device_names()
 
+    if args.players:
+        try:
+            playing, known = list_players(server, token, device_names, rc["claims"])
+        except (OSError, ET.ParseError, ValueError) as e:
+            sys.exit(f"hee-scrob: fetch failed: {e}")
+        print(format_players(playing, known, rc["claims"]))
+        return 0
+
     try:
-        r = now_playing(args.server, token, device_names, args.current_only)
+        r = now_playing(server, token, device_names, args.current_only, claims=rc["claims"], want=args.player)
     except Exception as e:
         sys.exit(f"hee-scrob: fetch failed: {e}")
 
