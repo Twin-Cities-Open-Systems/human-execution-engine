@@ -3,16 +3,18 @@
 .TH "HEE\-DEPLOY" "1" "" "" "HEE Tools"
 .SH NAME
 hee\-deploy \- publish a directory of markdown + images as a resume blog
-post
 .SH SYNOPSIS
 .IP
 .EX
 hee deploy blog [DIR] [\-oper SLUG] [\-to lab|prod] [\-dry\-run] [\-no\-pr] [\-resume PATH]
-hee deploy help | blog help
+hee deploy store [DIR] [\-slug S] [\-to lab|prod] [\-url URL] [\-dry\-run]
+hee deploy help | blog help | store help
 .EE
 .SH DESCRIPTION
 .IP
 .EX
+post, or a store directory as the live store on the lab
+
   Turns a directory shaped like:
 
     mkdir my\-new\-blog && cd my\-new\-blog
@@ -28,7 +30,18 @@ hee deploy help | blog help
   with \[ga]./convert.sh\[ga], pushed to lab with \[ga]media/bin/deploy.sh <oper> lab\[ga],
   and a PR that records what is already live. DIR defaults to \[ga].\[ga].
 
-  DIR is the unit of input:
+  \[ga]hee deploy store\[ga] turns a store directory (a catalog: a store.yaml, one
+  inventory asset + stock record per item, one image and note per item)
+  into the live store on the lab: \[ga]rsync \-rlt \-\-delete \-\-chmod=D2775,F664\[ga] the directory to
+  \[ga]$MNTPATH/store/<slug>/\[ga] (the share the store host also mounts), a
+  \[ga]POST /api/owner/reload\[ga] to pick up the new dataset, and a \[ga]GET /health\[ga]
+  to confirm the service is serving it. DIR defaults to \[ga].\[ga]; the slug
+  defaults to DIR\[aq]s basename. \[ga]\-to prod\[ga] (phase 1, same as blog) only
+  prints the release procedure. \[ga]\-dry\-run\[ga] runs every gate and shows the
+  rsync plan (\[ga]\-\-itemize\-changes \-n\[ga]) without touching the share, running
+  the reload, or requiring \[ga]STORE_OWNER_TOKEN\[ga].
+
+  DIR is the unit of input for blog:
 
     blog.md               line 1 \[ga]# Title\[ga] (required); line 2 may be
                            \[ga]**Date:** YYYY\-MM\-DD\[ga]; then prose. Markdown
@@ -45,16 +58,37 @@ hee deploy help | blog help
   tool refuses and lists the profiles it found \-\- it never guesses a
   person.
 
+  DIR is the unit of input for store (one directory per store; a deployed
+  store lives at \[ga]$MNTPATH/store/<slug>/\[ga]):
+
+    store.yaml                                                 the store: name (required), tagline,
+                                                                currency, pickup, owner, policy
+    inventory/objects/asset/<tsz>__inv\-asset\-<sub>\-<id>.yaml    one per item, \[ga]hee inv add \-\-dataset DIR\[ga]
+    inventory/objects/stock/<tsz>__inv\-stock\-<id>.yaml          one per item on offer, naming its asset
+    images/<stableid>.<png|jpg|jpeg|gif|webp>                   the item\[aq]s picture, keyed by stableid
+    images/<stableid>.<ext>.md                                  its note: first non\-empty line is the
+                                                                 alt text, the rest the caption
+
+  An item is the pair (asset, stock); the stableid ties asset, stock and
+  image together. An asset with no stock record is not for sale. A stock
+  record whose asset is missing is refused, never silently dropped.
+
   \-oper       which person\[aq]s blog; default: $USER if it is a profile
   \-to         lab|prod, default lab. prod (phase 1) only prints the
               release procedure and does nothing else.
-  \-dry\-run    run every gate, print the assembled post between
-              \[ga]\-\-\-\-\- post \-\-\-\-\-\[ga] markers and the files that would be
-              written, write nothing, create no branch, run nothing
-  \-no\-pr      leave the branch local after deploying to lab, no PR
-  \-resume     path to the resume checkout, default \[ti]/git/resume
+  \-slug       (store only) the store\[aq]s slug; default DIR\[aq]s basename,
+              lowercased
+  \-url        (store only) the running store\[aq]s base URL; default
+              https://store.lab.tcos.us
+  \-dry\-run    run every gate, print what would be written (blog: the
+              assembled post between \[ga]\-\-\-\-\- post \-\-\-\-\-\[ga] markers and the
+              files; store: the rsync plan between \[ga]\-\-\-\-\- rsync \-\-\-\-\-\[ga]
+              markers), write nothing, touch nothing, run nothing
+  \-no\-pr      (blog only) leave the branch local after deploying to lab,
+              no PR
+  \-resume     (blog only) path to the resume checkout, default \[ti]/git/resume
 
-GATES (in order, each with its exit code)
+GATES for blog (in order, each with its exit code)
   DIR missing, or no blog.md, or line 1 not \[aq]# Title\[aq]    CRITICAL 2, refuse
   slug not slug\-safe                                     CRITICAL 2, refuse
   \-oper not a profile dir with profile.json              CRITICAL 2, refuse, lists profiles
@@ -64,6 +98,21 @@ GATES (in order, each with its exit code)
   an image with no note                                  WARNING 1, deploys anyway
   \-to prod                                                UNKNOWN 3, prints the release
                                                           procedure, does nothing
+
+GATES for store (in order, each with its exit code)
+  no store.yaml, or store.yaml has no \[aq]name\[aq]             CRITICAL 2, refuse
+  slug not slug\-safe                                     CRITICAL 2, refuse
+  no asset record, or no stock record                    CRITICAL 2, refuse, names the missing kind
+  a stock record whose \[aq]asset\[aq] names no asset in DIR     CRITICAL 2, refuse, names the stock file
+  an item (has stock) with no image                      WARNING 1, deploys anyway
+  an image with no note                                  WARNING 1, deploys anyway
+  \-to prod                                                UNKNOWN 3, prints the release
+                                                          procedure, does nothing
+  STORE_OWNER_TOKEN unset (real deploy only, not \-dry\-run)  CRITICAL 2, refuse before rsync,
+                                                             names the variable
+  $MNTPATH/store not a writable directory                CRITICAL 2, refuse before rsync
+  rsync exits non\-zero                                   CRITICAL 2, refuse, nothing reloaded
+  the reload\[aq]s \[aq]unloadable\[aq] list is non\-empty            CRITICAL 2, printed one per line
 .EE
 .SH EXIT STATUS
 .IP
@@ -75,14 +124,19 @@ GATES (in order, each with its exit code)
 
 NOT IN V1
   media and meme kinds, \-to prod beyond printing the procedure, editing an
-  existing post, deleting images.
+  existing blog post or store item, deleting images, more than one store
+  per service instance, notifications, payment.
 .EE
 .SH EXAMPLES
 .IP
 .EX
 $ hee deploy blog tests/fixtures/deploy\-blog/my\-new\-blog \-oper alice \-resume tests/fixtures/deploy\-blog/resume \-dry\-run   # ci
+$ M=$(mktemp \-d) && mkdir \-p \[dq]$M/store\[dq] && MNTPATH=\[dq]$M\[dq] hee deploy store tests/fixtures/deploy\-store/sample \-slug sample \-dry\-run   # ci
 hee deploy blog ./my\-new\-blog \-dry\-run                # every gate, the assembled post, nothing written
 hee deploy blog ./my\-new\-blog \-oper alice \-to lab     # build, lab, PR
 hee deploy blog ./my\-new\-blog \-to prod                # prints the release procedure, exit 3
+hee deploy store ./ian \-to lab                        # rsync, reload, health
+hee deploy store ./ian \-dry\-run                       # every gate, the rsync plan, nothing touched
+hee deploy store ./ian \-to prod                       # prints the release procedure, exit 3
 hee deploy help
 .EE
