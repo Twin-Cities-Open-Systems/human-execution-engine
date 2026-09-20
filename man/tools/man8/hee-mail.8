@@ -16,6 +16,8 @@ hee mail master  NAME[\[at]DOMAIN]
 hee mail unmaster NAME[\[at]DOMAIN]
 hee mail record  [\-write]
 hee mail check   [DOMAIN]
+hee mail domain  list | add DOMAIN | handoff DOMAIN
+hee mail login   NAME[\[at]DOMAIN]
 hee mail help
 .EE
 .SH DESCRIPTION
@@ -56,6 +58,28 @@ record renders the mailbox list as YAML under the package\[aq]s repo
 \-\- never a password or a hash. inv.lab already syncs fleet\-ops, so the
 record is how mail identities reach the inventory rather than a second
 API to keep alive.
+
+domain add takes a zone this exchanger should receive for: a line in
+tables/domains, a catch\-all row in tables/virtuals, and a records file
+under the repo\[aq]s dns/ carrying MX, SPF, DKIM and DMARC for it. Nothing is
+published \-\- bin/dns\-records.sh does that, per zone, and bin/push.sh
+deploys the tables. One shared DKIM key signs every domain, because
+filter\-dkimsign takes one key and many domains.
+
+domain handoff is for selling. A domain is worth more with its mail
+working, and a buyer must not receive the key that signs everyone else\[aq]s:
+it prints the zone\[aq]s records, its addresses, and the exact steps to cut it
+over \-\- starting with a FRESH per\-domain DKIM key, because the shared one
+can never leave this fleet. Operator, 2026\-09\-19: \[dq]once we (if we) sell a
+domain and it\[aq]s mail it should be fully configured to hand off. we build
+businesses to sell, that is our deal.\[dq]
+
+login is for the human at the keyboard: it opens that mailbox\[aq]s sealed
+password, puts it on the clipboard, and prints the server settings to type
+into a mail client. The password is never printed, never written to a
+file, and never passed on a command line \-\- it goes from gpg into the
+clipboard tool\[aq]s stdin and nowhere else. Clear the clipboard afterwards;
+the tool says how.
 .EE
 .SH OPTIONS
 .IP
@@ -78,6 +102,10 @@ Nagios plugin convention.
 .IP
 .EX
 $ hee mail help                                          # ci
+$ hee mail domain add hee.run
+$ hee mail add spencer\[at]hee.run \-recipients 18602F28834DBB05
+$ hee mail domain handoff hee.run
+$ hee mail login spencer
 $ hee mail list
 $ hee mail add spencer \-recipients 18602F28834DBB05,01C9F82A7582A4DC
 $ hee mail alias postmaster\[at]tcosagent.com spencer\[at]tcosagent.com
