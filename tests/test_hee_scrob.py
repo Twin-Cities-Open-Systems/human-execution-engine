@@ -126,3 +126,25 @@ class TestResolveOutcomes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ToMeme(unittest.TestCase):
+    """-to meme hands the file and the moment to hee meme quote --file --at;
+    it does not search, and it refuses what it cannot hand over."""
+
+    def test_builds_the_hee_meme_command_with_file_moment_job_and_caption(self):
+        m = _load()
+        calls = []
+        with mock.patch.object(m.subprocess, "call", side_effect=lambda cmd: calls.append(cmd) or 0):
+            rc = m.to_meme({"kind": "video", "title": "Show s01e01 - Pilot", "ts": "0:01:30", "file": "/data/media/TV/x.mkv",
+                            "offset_ms": 90500, "line": "rum ham"}, "np", hee="/bin/hee")
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [["/bin/hee", "meme", "quote", "--file", "/data/media/TV/x.mkv", "--at", "00:01:30.500",
+                                  "--job", "np", "--caption", "rum ham"]])
+
+    def test_a_track_or_a_file_not_here_is_refused_without_calling_anything(self):
+        m = _load()
+        with mock.patch.object(m.subprocess, "call") as call:
+            self.assertEqual(m.to_meme({"kind": "track"}, "np", hee="/bin/hee"), 1)
+            self.assertEqual(m.to_meme({"kind": "video", "title": "x", "ts": "0", "file": None, "offset_ms": 0}, "np", hee="/bin/hee"), 1)
+        call.assert_not_called()
