@@ -31,7 +31,7 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     is how a password works on 587 and not on 993.
 
     The mail host is named by a package directory -- the fleet-ops
-    hosts/<mx>/ tree that carries droplet.conf (its address), known_hosts
+    hosts/<mx>/ tree that carries node.conf (its address), known_hosts
     (its pinned key) and tables/ (its domains and virtuals). Default:
     ~/git/fleet-ops/hosts/mx1-tcosagent-com, or $HEE_MAIL_PKG.
 
@@ -107,7 +107,7 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     -recipients IDS   with add/passwd: GPG key ids or emails, comma separated
     -pkg DIR          the mail host package (default: $HEE_MAIL_PKG, else
                       ~/git/fleet-ops/hosts/mx1-tcosagent-com)
-    -target root@HOST override the address in the package's droplet.conf
+    -target root@HOST override the address in the package's node.conf
     -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
     -write            with record: write the file (default prints it)
     -label L          with relay set: the smarthost's label in the creds table
