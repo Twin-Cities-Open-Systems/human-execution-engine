@@ -64,7 +64,7 @@ DESCRIPTION
   is how a password works on 587 and not on 993.
 
   The mail host is named by a package directory -- the fleet-ops
-  hosts/<mx>/ tree that carries droplet.conf (its address), known_hosts
+  hosts/<mx>/ tree that carries node.conf (its address), known_hosts
   (its pinned key) and tables/ (its domains and virtuals). Default:
   ~/git/fleet-ops/hosts/mx1-tcosagent-com, or $HEE_MAIL_PKG.
 
@@ -138,7 +138,7 @@ OPTIONS
   -recipients IDS   with add/passwd: GPG key ids or emails, comma separated
   -pkg DIR          the mail host package (default: $HEE_MAIL_PKG, else
                     ~/git/fleet-ops/hosts/mx1-tcosagent-com)
-  -target root@HOST override the address in the package's droplet.conf
+  -target root@HOST override the address in the package's node.conf
   -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
   -write            with record: write the file (default prints it)
   -label L          with relay set: the smarthost's label in the creds table
@@ -176,10 +176,10 @@ resolve_pkg() {
   KNOWN="$PKG/known_hosts"
   if [ -z "$TARGET" ]; then
     # shellcheck disable=SC1091
-    [ -f "$PKG/droplet.conf" ] && . "$PKG/droplet.conf"
-    TARGET="root@${DROPLET_IPV4:-}"
+    [ -f "$PKG/node.conf" ] && . "$PKG/node.conf"
+    TARGET="root@${NODE_IPV4:-}"
   fi
-  [ "$TARGET" != "root@" ] || die "no mail host address: $PKG/droplet.conf has no DROPLET_IPV4, and -target was not given"
+  [ "$TARGET" != "root@" ] || die "no mail host address: $PKG/node.conf has no NODE_IPV4, and -target was not given"
   [ -s "$KNOWN" ] || die "$KNOWN is empty -- the mail host's key is not pinned; ssh-keyscan -t ed25519 <ip> >> $KNOWN"
   SSH="ssh -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes"
 }
