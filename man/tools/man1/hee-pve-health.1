@@ -6,19 +6,21 @@ hee\-pve\-health \- hee\-pve\-health command
 .SH SYNOPSIS
 .IP
 .EX
-hee\-pve\-health [\-h] {status,inventory,map,drift,warn} ...
+hee\-pve\-health [\-h] {status,inventory,map,drift,templates,warn} ...
 .EE
 .SH DESCRIPTION
 .IP
 .EX
 positional arguments:
-  {status,inventory,map,drift,warn}
+  {status,inventory,map,drift,templates,warn}
     status              node, storage overcommit and per\-container state
     inventory           the container table, rendered from the pve API
     map                 topology on four axes: \-src (where the facts come
                         from), \-out (what shape), \-diff (which comparison),
                         \-archive (which revisions)
     drift               do the committed artifacts still match the machine?
+    templates           do the node\[aq]s templates match the ones the registry
+                        declares?
     warn                exit 1 on real overcommit or a container that is not
                         running
 
