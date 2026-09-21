@@ -410,6 +410,35 @@ class StoreGateTests(unittest.TestCase):
             self.assertIn("⚠️ WARNING", r.stderr)
             self.assertIn("no image", r.stderr)
 
+    def test_missing_image_is_one_summary_line_and_list_missing_names_each(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            mnt = make_mntpath(tmp)
+            store_dir = make_store(tmp, slug="no-image", with_image=False)
+            r = run("store", str(store_dir), "-dry-run", env=self._env(mnt))
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertEqual(r.stderr.count("⚠️ WARNING"), 1, r.stderr)
+            self.assertNotIn("inv-stock-abc123.yaml", r.stderr)
+            r = run("store", str(store_dir), "-dry-run", "-list-missing", env=self._env(mnt))
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn("inv-stock-abc123.yaml", r.stderr)
+            self.assertIn("'abc123'", r.stderr)
+
+    def test_rsync_plan_never_deletes_images_already_on_the_share(self):
+        # The catalog's photographs live on the share, not in the checkout
+        # (fleet-ops#734): a deploy from a checkout without them must not
+        # itemize them for deletion.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            mnt = make_mntpath(tmp)
+            store_dir = make_store(tmp, slug="shared-images", with_image=False)
+            deployed_images = mnt / "store" / "shared-images" / "images"
+            deployed_images.mkdir(parents=True)
+            (deployed_images / "abc123.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            r = run("store", str(store_dir), "-dry-run", env=self._env(mnt))
+            self.assertIn("----- rsync -----", r.stdout)
+            self.assertNotIn("deleting", r.stdout, r.stdout)
+
     def test_full_valid_directory_exits_0_with_rsync_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

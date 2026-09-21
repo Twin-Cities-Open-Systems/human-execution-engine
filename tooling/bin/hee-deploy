@@ -100,8 +100,9 @@ GATES for store (in order, each with its exit code)
   slug not slug-safe                                     CRITICAL 2, refuse
   no asset record, or no stock record                    CRITICAL 2, refuse, names the missing kind
   a stock record whose 'asset' names no asset in DIR     CRITICAL 2, refuse, names the stock file
-  an item (has stock) with no image                      WARNING 1, deploys anyway
-  an image with no note                                  WARNING 1, deploys anyway
+  an item (has stock) with no image                      WARNING 1, deploys anyway; one summary
+                                                          line per kind, -list-missing names each
+  an image with no note                                  WARNING 1, deploys anyway; same
   -to prod                                                UNKNOWN 3, prints the release
                                                           procedure, does nothing
   STORE_OWNER_TOKEN unset (real deploy only, not -dry-run)  CRITICAL 2, refuse before rsync,
@@ -701,9 +702,8 @@ def deploy_store(args: argparse.Namespace) -> int:
 
     # Gate 5 / 6: an item with stock and no image; an image with no note.
     images_dir = dir_path / "images"
-    warnings: list[str] = []
-    missing_images = []
-    missing_notes = []
+    no_image: list[str] = []
+    no_note: list[str] = []
     for stock_path, stableid in items:
         image_path = None
         if stableid:
@@ -713,31 +713,23 @@ def deploy_store(args: argparse.Namespace) -> int:
                     image_path = candidate
                     break
         if image_path is None:
-            missing_images.append(f"{stableid!r}")
-            warnings.append(
-                f"{stock_path}: item {stableid!r} has stock but no image under {images_dir}/"
-            )
+            no_image.append(f"{stock_path}: item {stableid!r} has stock but no image under {images_dir}/")
             continue
         note_path = image_path.with_name(image_path.name + ".md")
         if not note_path.is_file():
-            missing_notes.append(f"{image_path.name}")
-            warnings.append(f"{image_path}: no note ({note_path.name}) -- deploying without a caption")
-
-    # Print summary or details based on --list-missing flag
-    if missing_images:
-        if args.list_missing:
-            for msg in warnings:
-                if "no image" in msg:
-                    warn(msg)
-        else:
-            warn(f"{len(missing_images)} items without images (use --list-missing to see all)")
-    if missing_notes:
-        if args.list_missing:
-            for msg in warnings:
-                if "no note" in msg:
-                    warn(msg)
-        else:
-            warn(f"{len(missing_notes)} images without notes (use --list-missing to see all)")
+            no_note.append(f"{image_path}: no note ({note_path.name}) -- deploying without a caption")
+    warnings = no_image + no_note
+    # One line per kind unless asked: a store whose photographs live on the
+    # share and not in the checkout (stores/wbu, 96 items) said the same
+    # thing 96 times, and anything that mattered scrolled off the screen.
+    if args.list_missing:
+        for message in warnings:
+            warn(message)
+    else:
+        if no_image:
+            warn(f"{len(no_image)} item(s) with stock but no image under {images_dir}/ -- -list-missing names each")
+        if no_note:
+            warn(f"{len(no_note)} image(s) with no note, deploying without captions -- -list-missing names each")
 
     # Gate: -to prod (phase 1, same as blog).
     if args.to == "prod":
