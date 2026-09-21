@@ -54,6 +54,7 @@ SYNOPSIS
   hee mail domain  list | add DOMAIN | handoff DOMAIN
   hee mail login   NAME[@DOMAIN]
   hee mail relay   show | set -label L -host H [-port P] -user U -cred ACCOUNT | clear
+  hee mail send    -from ADDR -to ADDR[,ADDR] -subject S [-body FILE] [options]
   hee mail help
 
 DESCRIPTION
@@ -134,6 +135,26 @@ DESCRIPTION
   bin/push.sh, and falls back to a direct relay if the row is missing --
   so a half-done change queues mail rather than losing it.
 
+  send submits ONE message, authenticated, with the certificate verified.
+  It is here rather than in each caller because three separate things had
+  started to grow their own submission code -- the exchanger's own
+  flow-check.py, CI, and the store service's order notice -- and every copy
+  is a fresh chance to get TLS verification or credential handling subtly
+  wrong. The body is read from stdin and the password from MAIL_PASSWORD,
+  so neither is ever visible in `ps`:
+
+      hee cred -pass mail-store -exec sh -c \
+        'MAIL_PASSWORD="$HEE_CRED_PASS" hee mail send \
+           -from store@tcos.app -to orders@tcos.app -subject "order 260921-001"' \
+        < notice.txt
+
+  Port 587 (STARTTLS) is the default and 465 (implicit TLS) works the same
+  way. Port 25 is REFUSED: it is the port between exchangers, it carries no
+  credential, and a fleet host reaching for it is nearly always a mistake
+  that would deliver by accident and then be filed as spam. -dry-run prints
+  the exact message including the body -- which is the one place someone is
+  checking what a customer would actually receive -- and opens no socket.
+
 OPTIONS
   -recipients IDS   with add/passwd: GPG key ids or emails, comma separated
   -pkg DIR          the mail host package (default: $HEE_MAIL_PKG, else
@@ -142,11 +163,32 @@ OPTIONS
   -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
   -write            with record: write the file (default prints it)
   -label L          with relay set: the smarthost's label in the creds table
-  -host H           with relay set: the provider's SMTP host
-  -port P           with relay set: its port (default 2525)
-  -user U           with relay set: the username the provider expects
+  -host H           with relay set: the provider's SMTP host; with send: the
+                    exchanger to submit to (default mx1.tcosagent.com)
+  -port P           with relay set: its port (default 2525); with send: 587
+                    STARTTLS (default) or 465 implicit TLS. 25 is refused
+  -user U           with relay set: the username the provider expects; with
+                    send: the submission username (default: the -from address)
   -cred ACCOUNT     with relay set: the sealed credential holding the password
-  -dry-run          with add/passwd: run every check, change nothing
+  -from ADDR        with send: the envelope and header sender. Required
+  -to ADDR[,ADDR]   with send: recipients, comma separated. Required
+  -subject S        with send: the subject. Required
+  -body FILE        with send: the body (default: stdin, and `-` means stdin)
+  -reply-to ADDR    with send: a Reply-To header
+  -name NAME        with send: a display name for the sender
+  -header NAME=V    with send: one extra header, repeatable. A value with a
+                    newline is refused -- that is header injection
+  -json             with send: print the envelope as JSON instead of a line
+  -dry-run          with add/passwd: run every check, change nothing.
+                    With send: print the whole message, open no socket
+
+ENVIRONMENT
+  MAIL_PASSWORD     with send: the submission password. Never an argument --
+                    an argument is visible in `ps` to every user on the box
+  HEE_MAIL_HOST     with send: default for -host
+  HEE_MAIL_PORT     with send: default for -port
+  HEE_MAIL_PKG      default for -pkg
+  HEE_MAIL_DOMAIN   default for -domain
 
 EXAMPLES
   $ hee mail help                                          # ci
@@ -160,6 +202,7 @@ EXAMPLES
   $ hee mail alias postmaster@tcosagent.com spencer@tcosagent.com
   $ hee mail master spencer
   $ hee mail record -write
+  $ echo hi | hee mail send -from ci@tcosagent.com -to spencer@tcosagent.com -subject test -dry-run
 
 EXIT STATUS
   Nagios plugin convention.
@@ -552,6 +595,47 @@ do_relay() {
   esac
 }
 
+# send is the one verb that touches no mail HOST -- no ssh, no package, no
+# tables. It talks to the exchanger as any mail client would, which is why it
+# needs none of resolve_pkg's machinery and works from a container that holds
+# nothing but this checkout.
+do_send() {
+  [ -n "${MFROM:-}" ]    || die "send needs -from ADDR"
+  [ -n "${MTO:-}" ]      || die "send needs -to ADDR[,ADDR]"
+  [ -n "${MSUBJECT:-}" ] || die "send needs -subject SUBJECT"
+  [ -d "$TOOL_ROOT/library/py/hee_smtp" ] \
+    || die "$TOOL_ROOT/library/py/hee_smtp is missing -- send is a thin wrapper over it"
+  command -v python3 >/dev/null 2>&1 || die "python3 is required by send"
+
+  set -- -from "$MFROM" -to "$MTO" -subject "$MSUBJECT"
+  [ -z "${RHOST:-}" ]     || set -- "$@" -host "$RHOST"
+  [ -z "${RPORT:-}" ]     || set -- "$@" -port "$RPORT"
+  [ -z "${RUSER:-}" ]     || set -- "$@" -user "$RUSER"
+  [ -z "${MREPLYTO:-}" ]  || set -- "$@" -reply-to "$MREPLYTO"
+  [ -z "${MNAME:-}" ]     || set -- "$@" -name "$MNAME"
+  [ "${MJSON:-0}" = 0 ]   || set -- "$@" -json
+  [ "$DRYRUN" = 0 ]       || set -- "$@" -dry-run
+  # -header is repeatable, so it accumulates newline-separated and is split
+  # back here. A header value cannot contain a newline (the library refuses
+  # one as injection), so the separator cannot be forged from inside a value.
+  if [ -n "${MHEADERS:-}" ]; then
+    _oifs=$IFS
+    IFS='
+'
+    for _h in $MHEADERS; do set -- "$@" -header "$_h"; done
+    IFS=$_oifs
+  fi
+
+  if [ -n "${MBODY:-}" ] && [ "$MBODY" != "-" ]; then
+    [ -r "$MBODY" ] || die "-body $MBODY is not readable"
+    PYTHONPATH="$TOOL_ROOT/library/py${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -m hee_smtp "$@" < "$MBODY"
+  else
+    PYTHONPATH="$TOOL_ROOT/library/py${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -m hee_smtp "$@"
+  fi
+}
+
 do_check() {
   D=${1:-$DOMAIN}
   resolve_pkg
@@ -586,6 +670,15 @@ while [ $# -gt 0 ]; do
     -port)       RPORT=${2:-}; shift ;;
     -user)       RUSER=${2:-}; shift ;;
     -cred)       RCRED=${2:-}; shift ;;
+    -from)       MFROM=${2:-}; shift ;;
+    -to)         MTO=${2:-}; shift ;;
+    -subject)    MSUBJECT=${2:-}; shift ;;
+    -body)       MBODY=${2:-}; shift ;;
+    -reply-to)   MREPLYTO=${2:-}; shift ;;
+    -name)       MNAME=${2:-}; shift ;;
+    -header)     MHEADERS="${MHEADERS:-}${MHEADERS:+
+}${2:-}"; shift ;;
+    -json)       MJSON=1 ;;
     -dry-run)    DRYRUN=1 ;;
     -*)          die "unknown option $1" ;;
     *)           if [ -z "$A1" ]; then A1=$1; else A2=$1; fi ;;
@@ -605,6 +698,7 @@ case $ACTION in
   domain)   do_domain "${A1:-list}" "${A2:-}" ;;
   login)    [ -n "$A1" ] || die "login needs NAME"; do_login "$A1" ;;
   relay)    do_relay "${A1:-show}" ;;
+  send)     do_send ;;
   check)    do_check "${A1:-}" ;;
   *)        crit "unknown action $ACTION"; usage_exit 3 ;;
 esac
