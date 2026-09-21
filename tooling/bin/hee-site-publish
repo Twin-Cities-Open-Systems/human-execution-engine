@@ -12,13 +12,21 @@
 # into a real, current copy of resume/dist/ before deploying the whole
 # tree, never deploys a partial directory.
 #
+# The add-into-the-tree dance is required ONLY because that one tree is
+# shared by four domains. `--site NAME` targets a DEDICATED project (one
+# project, one domain, nothing else in it), where the atomic replace is
+# the correct semantic rather than a footgun: the files named on the
+# command line are the whole site.
+#
 # Usage:
 #   hee-site-publish --add <file> [--add <file> ...] [--dry-run]
+#   hee-site-publish --site NAME --index <file> [--add <file> ...] [--dry-run]
 #
 # Requires: real sealed Cloudflare API token at
-# <resume-repo>/.hee/secrets/cloudflare-tcos-www.gpg (hee-cred -pass,
-# path resolved relative to the resume repo since hee-cred's storage
-# dir is CWD-relative).
+# <tcos-www-repo>/.hee/secrets/cloudflare-tcos-www.gpg (hee-cred -pass,
+# path resolved relative to THAT repo since hee-cred's storage dir is
+# CWD-relative -- the token is named for tcos-www, not for the deploy
+# target).
 # Resolve through symlinks before deriving TOOL_ROOT -- tools are symlinked
 # onto PATH from ~/.local/bin, where a bare `dirname "$0"` finds no library/.
 SELF="$0"
@@ -34,25 +42,28 @@ TOOL_ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
 
 usage() {
   cat <<'USAGE'
-hee-site-publish -- add files into resume/dist/ and deploy the whole tree
+hee-site-publish -- publish files to a Cloudflare Pages site and deploy it
 
 SYNOPSIS
   hee-site-publish --add FILE [--add FILE ...] [--dry-run]
   hee-site-publish --post FILE.md [--oper SLUG] [--no-pr] [--dry-run]
+  hee-site-publish --site NAME --index FILE [--add FILE ...] [--dry-run]
+  hee-site-publish --site list
   hee-site-publish help
 
 DESCRIPTION
-  Publishes to the resume Cloudflare Pages project, which serves four
-  domains from one deployed tree -- spencer.blog.tcos.us,
+  With no --site, publishes to the resume Cloudflare Pages project, which
+  serves four domains from one deployed tree -- spencer.blog.tcos.us,
   touchy.blog.tcos.us, blog.tcos.us and media.tcos.us -- personalized
   client-side by index.html reading window.location.hostname. There is no
   server-side routing.
 
-  Why this tool exists: `wrangler pages deploy` is a full-tree ATOMIC
-  REPLACE, not an incremental upload. Deploying a directory holding only
-  new files would delete everything else already live across all four
-  domains. This tool only ADDS files into a current copy of resume/dist/
-  and then deploys the whole tree -- it never deploys a partial directory.
+  Why the --add dance exists: `wrangler pages deploy` is a full-tree
+  ATOMIC REPLACE, not an incremental upload. Deploying a directory holding
+  only new files would delete everything else already live across all four
+  domains. So this tool only ADDS files into a current copy of
+  resume/dist/ and then deploys the whole tree -- it never deploys a
+  partial directory.
 
     --add       a file to add to the tree; repeatable
     --post      publish one blog post: copy FILE.md into the resume repo at
@@ -67,13 +78,35 @@ DESCRIPTION
     --no-pr     skip the PR (leaves the post uncommitted on a branch)
     --dry-run   show what would deploy, deploy nothing
 
+DEDICATED SITES (--site)
+  A dedicated site is one Cloudflare Pages project serving one domain and
+  nothing else. There is no shared tree to preserve, so the atomic replace
+  is the correct semantic rather than a footgun: **the files you name are
+  the whole site**, and anything previously deployed and not named again is
+  gone. That is the difference from the resume path above, and it is why
+  --index is required rather than inferred.
+
+    --site NAME  which dedicated site (`--site list` names them)
+    --index FILE the file served at the site's root, as index.html
+    --add FILE   another file, published under its own basename; repeatable
+
+  Known sites:
+
+    beer    beer.tcos.us    project `beer`    TCLUG meetup material
+
+  To add one, add a line to the `site_project` case in this script and
+  attach the domain to the project (tcos-www/CLOUDFLARE_SETUP.md has the
+  API calls and the three token permissions it takes).
+
   Requires a sealed Cloudflare API token at
-  <resume-repo>/.hee/secrets/cloudflare-tcos-www.gpg, read via `hee-cred
-  -pass`. The path is relative to the resume repo, since hee-cred's
-  storage directory is CWD-relative.
+  <tcos-www-repo>/.hee/secrets/cloudflare-tcos-www.gpg, read via `hee-cred
+  -pass`. The path is relative to the tcos-www repo -- hee-cred's storage
+  directory is CWD-relative and the token is named for that repo, not for
+  whatever this deploys.
 
 EXIT STATUS
   0 deployed (or dry-run completed)   1 usage or credential error
+  2 build failed, nothing deployed
 USAGE
 }
 
@@ -92,12 +125,53 @@ FILES=""
 POSTS=""
 OPER=""
 MAKE_PR=1
+SITE=""
+INDEX=""
+
+# The dedicated sites. One line per site; the domain is here only so a
+# refusal and the success line can name the real URL.
+site_project() {
+  case "$1" in
+    beer) echo "beer beer.tcos.us" ;;
+    *)    return 1 ;;
+  esac
+}
+SITE_NAMES="beer"
+
+# wrangler 4 requires Node >= 22. Debian 13 ships Node 20, where an
+# unpinned `npx wrangler` resolves to 4 and refuses to start with
+# "Wrangler requires at least Node.js v22.0.0" -- measured on flippy
+# 2026-09-21, which broke every deploy path in this tool. Pick the newest
+# major this node can actually run rather than pinning one forever.
+node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+if [ "${node_major:-0}" -ge 22 ] 2>/dev/null; then WRANGLER="wrangler"; else WRANGLER="wrangler@3"; fi
+
+# With CLOUDFLARE_ACCOUNT_ID unset, wrangler enumerates accounts through
+# /memberships -- which this token has no permission for, so every deploy
+# dies with "A request to the Cloudflare API (/memberships) failed.
+# Authentication error [code: 10000]" (measured on flippy 2026-09-21).
+# /accounts DOES work with it, so the id is resolved here and handed over,
+# and wrangler never makes the call. Run inside the hee-cred -exec shell,
+# where $HEE_CRED_PASS is the token; the id is not a secret.
+#
+# shellcheck disable=SC2016  # deliberate: a fragment for the -exec shell.
+# $HEE_CRED_PASS must NOT expand in THIS process -- expanding it here is
+# precisely what would put the token on a command line.
+CF_ACCOUNT_SNIPPET='
+  acct="${CLOUDFLARE_ACCOUNT_ID:-}"
+  [ -n "$acct" ] || acct=$(curl -fsS -H "Authorization: Bearer $HEE_CRED_PASS" \
+      https://api.cloudflare.com/client/v4/accounts 2>/dev/null \
+    | grep -o "\"id\":\"[0-9a-f]\{32\}\"" | head -1 | cut -d\" -f4)
+  [ -n "$acct" ] || { echo "hee-site-publish: could not resolve the Cloudflare account id (token lacks /accounts, or the API is unreachable)" >&2; exit 2; }
+'
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --add) shift; FILES="$FILES $1" ;;
     --post) shift; POSTS="$POSTS $1" ;;
     --oper) shift; OPER="$1" ;;
+    --site) shift; SITE="$1" ;;
+    --index) shift; INDEX="$1" ;;
     --no-pr) MAKE_PR=0 ;;
     --dry-run) DRY_RUN=1 ;;
     *) echo "hee-site-publish: unknown arg: $1" >&2; exit 1 ;;
@@ -105,7 +179,67 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-[ -n "$FILES$POSTS" ] || { echo "hee-site-publish: need at least one --add <file> or --post <file.md>" >&2; exit 1; }
+if [ "$SITE" = list ]; then
+  for s in $SITE_NAMES; do
+    sp=$(site_project "$s")
+    printf '%-8s %-16s project %s\n' "$s" "${sp##* }" "${sp%% *}"
+  done
+  exit 0
+fi
+
+if [ -n "$SITE" ]; then
+  site_project "$SITE" >/dev/null 2>&1 || {
+    echo "hee-site-publish: unknown --site '$SITE' -- known: $SITE_NAMES (see '--site list')" >&2; exit 1; }
+  [ -z "$POSTS" ] || { echo "hee-site-publish: --post is the resume blog; it cannot be combined with --site" >&2; exit 1; }
+  # Required, never inferred: on a dedicated site the named files ARE the
+  # whole site, so "which one is the front page" is not something to guess.
+  [ -n "$INDEX" ] || { echo "hee-site-publish: --site needs --index <file> (the file served at the site root)" >&2; exit 1; }
+else
+  [ -z "$INDEX" ] || { echo "hee-site-publish: --index is only meaningful with --site" >&2; exit 1; }
+  [ -n "$FILES$POSTS" ] || { echo "hee-site-publish: need at least one --add <file> or --post <file.md>" >&2; exit 1; }
+fi
+
+# ---- --site: a dedicated project, one domain, nothing else in the tree.
+# The named files are assembled into a fresh directory and that directory
+# IS the deploy -- no copy of a live tree to preserve, because nothing
+# else lives here.
+if [ -n "$SITE" ]; then
+  sp=$(site_project "$SITE")
+  PROJECT="${sp%% *}"; DOMAIN="${sp##* }"
+  [ -f "$INDEX" ] || { echo "hee-site-publish: not a real file: $INDEX" >&2; exit 1; }
+  for f in $FILES; do
+    [ -f "$f" ] || { echo "hee-site-publish: not a real file: $f" >&2; exit 1; }
+  done
+
+  echo "site: $SITE -> https://$DOMAIN (Cloudflare Pages project '$PROJECT')"
+  echo "  index: $INDEX -> index.html"
+  for f in $FILES; do echo "  add:   $f -> $(basename "$f")"; done
+  echo "  NOTE: a dedicated site is replaced wholesale -- anything previously"
+  echo "        deployed and not named above will be gone."
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "dry-run: not deploying."
+    exit 0
+  fi
+
+  TREE=$(mktemp -d) || { echo "hee-site-publish: mktemp failed" >&2; exit 1; }
+  trap 'rm -rf "$TREE"' EXIT INT TERM
+  cp "$INDEX" "$TREE/index.html" || exit 1
+  for f in $FILES; do cp "$f" "$TREE/$(basename "$f")" || exit 1; done
+
+  # --branch is the project's real production branch, for the same reason
+  # the resume deploy below hardcodes it: without it wrangler infers a
+  # branch from the local checkout and can silently deploy to a PREVIEW
+  # environment while the custom domain keeps serving the old production.
+  cd "$HOME/git/tcos-www"
+  "$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
+    $CF_ACCOUNT_SNIPPET
+    CLOUDFLARE_ACCOUNT_ID=\"\$acct\" CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" \
+      npx --yes $WRANGLER pages deploy '$TREE' --project-name '$PROJECT' --branch main
+  " || { echo "hee-site-publish: deploy failed -- https://$DOMAIN still serves what it served before" >&2; exit 2; }
+  echo "✅ OK $SITE deployed -- https://$DOMAIN"
+  exit 0
+fi
 
 # ---- --post: the drop-an-md-and-publish path (Spencer, 2026-09-05: "I'd
 # like a place I can just drop an md file and a script will publish").
@@ -170,7 +304,9 @@ fi
 # always deploys for real, regardless of whatever branch is checked out.
 cd "$HOME/git/tcos-www"
 "$HOME/git/human-execution-engine/tooling/bin/hee-cred" -pass cloudflare-tcos-www -exec sh -c "
-  cd '$RESUME_DIR' && CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" npx wrangler pages deploy dist --project-name resume --branch main
+  $CF_ACCOUNT_SNIPPET
+  cd '$RESUME_DIR' && CLOUDFLARE_ACCOUNT_ID=\"\$acct\" CLOUDFLARE_API_TOKEN=\"\$HEE_CRED_PASS\" \
+    npx --yes $WRANGLER pages deploy dist --project-name resume --branch main
 "
 
 # ---- --post: git catches up. Never a direct commit to main (rule 1) --
