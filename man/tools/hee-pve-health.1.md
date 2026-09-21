@@ -6,18 +6,21 @@ hee-pve-health - hee-pve-health command
 
 # SYNOPSIS
 
-    hee-pve-health [-h] {status,inventory,map,drift,templates,warn} ...
+    hee-pve-health [-h]
 
 # DESCRIPTION
 
+                          {status,inventory,map,drift,snmp,templates,warn} ...
+
     positional arguments:
-      {status,inventory,map,drift,templates,warn}
+      {status,inventory,map,drift,snmp,templates,warn}
         status              node, storage overcommit and per-container state
         inventory           the container table, rendered from the pve API
         map                 topology on four axes: -src (where the facts come
                             from), -out (what shape), -diff (which comparison),
                             -archive (which revisions)
         drift               do the committed artifacts still match the machine?
+        snmp                emit TCOS-MIB fleetTable for the SNMP agent to serve
         templates           do the node's templates match the ones the registry
                             declares?
         warn                exit 1 on real overcommit or a container that is not

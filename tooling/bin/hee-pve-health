@@ -20,6 +20,10 @@ Usage:
                     comparison runs (none|sub|add|both), -archive ranges over
                     the committed history of the map block.
                     --term, --proposed and --diff still work as aliases.
+  hee-pve-health snmp [--host IP] [--node NAME] [--out PATH] [--repo PATH] [--json]
+                 -- emit TCOS-MIB (PEN 66550) fleetTable as a sorted
+                    OID/type/value table for the SNMP agent to serve. Joins
+                    the roles git declares with the containers the node has.
   hee-pve-health templates [--host IP] [--node NAME] [--json] [--registry PATH]
                  -- compare the node's templates against the ones the
                     registry declares, in BOTH directions, and name any
@@ -1475,6 +1479,250 @@ def _load_templates(path):
     return {k: (v or {}) for k, v in declared.items()}, None
 
 
+# ---------------------------------------------------------------- fleetTable
+#
+# TCOS-MIB (PEN 66550) fleetTable, declared since the module was written and
+# served by nothing. Build order is fleet-ops#434.
+#
+#   ownerFleetOrg .1.3.6.1.4.1.66550.1
+#   fleetTable                        .1
+#   fleetEntry                          .1
+#   columns  fleetIndex(1) fleetRole(2) fleetHostname(3) fleetVmid(4)
+#            fleetAddress(5) fleetState(6) fleetAnchor(7)
+#
+# fleetIndex is MAX-ACCESS not-accessible, so it is never emitted as a value.
+# An index column that answers a GET is a walk that returns the index twice.
+_FLEET_ENTRY = ".1.3.6.1.4.1.66550.1.1.1"
+
+# Column -> (number, pass-protocol type). The pass protocol has a short type
+# list; HeeStatus and TruthValue are both INTEGER enumerations on the wire, so
+# they go out as `integer` and the MIB supplies the names to a reader.
+_FLEET_COLUMNS = (
+    ("fleetRole", 2, "string"),
+    ("fleetHostname", 3, "string"),
+    ("fleetVmid", 4, "integer"),
+    ("fleetAddress", 5, "string"),
+    ("fleetState", 6, "integer"),
+    ("fleetAnchor", 7, "integer"),
+)
+
+_TRUE, _FALSE = 1, 2          # TruthValue, from SNMPv2-TC
+
+
+def oid_sortkey(oid: str) -> str:
+    """An OID as a string that sorts in OID order.
+
+    Lexicographic string order is WRONG for OIDs: ".10" sorts before ".9",
+    so a GETNEXT implemented with a string compare walks the table in the
+    wrong order and can loop. Zero-padding every arc to a fixed width makes
+    string order and numeric order the same thing, which lets the agent-side
+    handler stay a few lines of awk instead of needing a parser.
+
+    10 digits covers a sub-identifier's full unsigned 32-bit range
+    (4294967295), so nothing can overflow the padding and re-order the file.
+    """
+    return ".".join(f"{int(a):010d}" for a in oid.strip(".").split("."))
+
+
+def _services_roles(repo):
+    """{role: hostname} from pve/services/*.yaml. (roles, error).
+
+    The manifest FILENAME is the role -- "THE IDENTITY ... as declared in the
+    agent roster, e.g. ci-triage or haproxy" (fleetRole's DESCRIPTION) -- and
+    the `hostname:` inside it is what `hee name` allocated. A manifest that
+    declares no hostname yields "", which the MIB pairs with fleetState
+    unknown(3): declared, nothing allocated yet.
+    """
+    d = os.path.join(repo, "pve", "services")
+    if not os.path.isdir(d):
+        return None, f"no service manifests at {d}"
+    try:
+        import yaml
+    except ImportError:
+        return None, "pyyaml not available"
+    roles = {}
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith(".yaml"):
+            continue            # soju.md / thesis-engine.md are prose beside the manifest
+        try:
+            doc = yaml.safe_load(open(os.path.join(d, fn), encoding="utf-8")) or {}
+        except Exception as e:
+            return None, f"pve/services/{fn} did not parse: {e}"
+        roles[fn[:-5]] = (doc.get("hostname") or "") if isinstance(doc, dict) else ""
+    if not roles:
+        return None, f"no service manifests found in {d}"
+    return roles, None
+
+
+def _anchor_roles(repo):
+    """(set-of-anchor-roles, error) from the ratified network-anchors registry.
+
+    That registry's own parent_thesis is issue:434@fleet-ops -- this table --
+    and it is GPG-ratified, so it is the declared source for fleetAnchor
+    rather than anything re-derived here.
+
+    KNOWN DISCREPANCY, surfaced rather than silently resolved: fleetAnchor's
+    DESCRIPTION defines true(1) as "pinned by a DHCP reservation on a MAC",
+    but the registry pins its four anchors three different ways -- `mac`
+    (resolver, hypervisor-api), `address` (lab-dhcp, static in its manifest)
+    and `role` (lab-gateway, deliberately a role and not a box). Reading the
+    MIB literally would make two ratified anchors false(2). This returns
+    "the role is an anchor", which is what the registry ratified and what
+    fleetAnchor's own second paragraph describes ("the roles that discovery
+    bootstraps FROM"). The MIB DESCRIPTION wants a revision to match; that is
+    an operator call, not this tool's.
+    """
+    p = os.path.join(repo, "hee", "registries", "network-anchors.registry.v1.yaml")
+    if not os.path.isfile(p):
+        return None, f"no anchors registry at {p}"
+    try:
+        import yaml
+    except ImportError:
+        return None, "pyyaml not available"
+    try:
+        doc = yaml.safe_load(open(p, encoding="utf-8")) or {}
+    except Exception as e:
+        return None, f"network-anchors registry did not parse: {e}"
+    anchors = (doc.get("spec", {}) or {}).get("anchors")
+    if not isinstance(anchors, dict) or not anchors:
+        return None, "network-anchors registry declares no `spec.anchors`"
+    return anchors, None
+
+
+def is_anchor(role, hostname, anchors):
+    """Is this role one of the ratified anchors?
+
+    Three spellings have to be accepted, because the registry uses all three,
+    and matching on the registry key alone silently drops half of them:
+
+      lab-dhcp        key == role
+      resolver        current_role_holder "ns1" == role
+      hypervisor-api  current_role_holder "pve"     -- not a container at all
+      lab-gateway     pinned by role, no holder     -- not a container at all
+
+    A holder may name the allocated HOSTNAME rather than the role, so both
+    are checked. Measured 2026-09-21: key-only matching marked lab-dhcp as
+    the fleet's only anchor and left the resolver false(2).
+    """
+    if role in anchors:
+        return True
+    for entry in anchors.values():
+        if not isinstance(entry, dict):
+            continue
+        holder = entry.get("current_role_holder")
+        if holder and (holder == role or (hostname and holder == hostname)):
+            return True
+    return False
+
+
+def fleet_rows(roles, anchors, declared_templates, measured):
+    """The join, as a list of dicts in fleetRole order.
+
+    `measured` is {hostname: {vmid, status, template, address}} read off the
+    node. The table is the join of what git declares with what the node has,
+    and it deliberately lists roles that SHOULD exist as well as those that
+    DO -- fleetTable's DESCRIPTION: "A role declared but not yet built appears
+    with fleetState unknown(3), which makes the build queue visible as a query
+    against the inventory rather than as a separate mechanism."
+
+    Row order is fleetRole, so the table is reproducible. fleetIndex itself
+    "carries no meaning of its own and is not stable across a rebuild"; making
+    it deterministic anyway costs nothing and keeps a diff of two walks
+    readable.
+    """
+    rows = []
+    for i, role in enumerate(sorted(roles), start=1):
+        hostname = roles[role] or ""
+        # Declared hostname first, then the role name. Eight containers on
+        # this node predate `hee name` and still run under their plain role
+        # name while their manifest declares an allocated tcos-* one -- the
+        # hostname_mismatch that makes `hee pve deploy` want to build a
+        # second container beside the running one. Joining on the declared
+        # name alone reported all eight as vmid 0 / unknown(3), i.e. a walk
+        # claiming eight running services did not exist. Measured 2026-09-21.
+        matched_by = None
+        m = None
+        if hostname and hostname in measured:
+            m, matched_by = measured[hostname], "hostname"
+        elif role in measured:
+            m, matched_by = measured[role], "role"
+
+        if m is None:
+            # Declared, not built. Zero is not a legal Proxmox VMID (the range
+            # starts at 100), which is why the MIB gives it this meaning.
+            rows.append({"index": i, "role": role, "hostname": hostname,
+                         "vmid": 0, "address": "",
+                         "state": Status.UNKNOWN.value,
+                         "anchor": _TRUE if is_anchor(role, hostname, anchors) else _FALSE,
+                         "matched_by": None})
+            continue
+
+        if m.get("template"):
+            # Stopped by definition. ok(0) when the registry declares it,
+            # warning(1) when it does not -- the same rule `templates` and
+            # `warn` apply, so the three cannot disagree about one container.
+            state = Status.OK if m.get("name") in declared_templates else Status.WARNING
+        elif m.get("status") == "running":
+            state = Status.OK
+        else:
+            state = Status.WARNING
+        # git and the machine disagree about this role's identity. The service
+        # is up, so this is not critical, but it is not clean either: it is
+        # the condition under which a redeploy forks the container.
+        if matched_by == "role" and hostname and hostname != role:
+            state = max(state, Status.WARNING, key=lambda s: s.value)
+
+        rows.append({"index": i, "role": role, "hostname": hostname,
+                     "vmid": int(m.get("vmid") or 0),
+                     "address": m.get("address") or "",
+                     "state": state.value,
+                     "anchor": _TRUE if is_anchor(role, hostname, anchors) else _FALSE,
+                     "matched_by": matched_by})
+    return rows
+
+
+def undeclared_containers(roles, measured):
+    """Container names the node has that no service manifest declares.
+
+    fleetTable is keyed on declared role, so these can have no row: a
+    container nobody declared is structurally invisible in it. That is a
+    property of the MIB's design, not an oversight, but a count that is
+    never reported would make the table look complete when it is not.
+    Measured 2026-09-21: mx1 (ct108) and tcos-gopher-gateway (ct109) both
+    run with no manifest at all.
+    """
+    claimed = set()
+    for role, hostname in roles.items():
+        if hostname and hostname in measured:
+            claimed.add(hostname)
+        elif role in measured:
+            claimed.add(role)
+    return sorted(set(measured) - claimed)
+
+
+def fleet_table_lines(rows):
+    """Rows -> sorted `sortkey\\toid\\ttype\\tvalue` lines for the agent.
+
+    One flat, pre-sorted file is the whole interface to the SNMP side. The
+    expensive half (pvesh, git, the join) happens here on a timer; the agent
+    side only ever does a lookup in a sorted file. net-snmp gives a pass
+    handler a short timeout and blocks the WHOLE agent while it waits, and
+    `pvesh get /cluster/resources` measured 0.70s on this node -- far too slow
+    to run inside a GET. Cache-and-serve is not an optimisation here, it is
+    the only shape that works.
+    """
+    out = []
+    for r in rows:
+        for key, col, typ in _FLEET_COLUMNS:
+            oid = f"{_FLEET_ENTRY}.{col}.{r['index']}"
+            val = r[{"fleetRole": "role", "fleetHostname": "hostname",
+                     "fleetVmid": "vmid", "fleetAddress": "address",
+                     "fleetState": "state", "fleetAnchor": "anchor"}[key]]
+            out.append(f"{oid_sortkey(oid)}\t{oid}\t{typ}\t{val}")
+    out.sort()
+    return out
+
+
 def _template_findings(lxcs, declared):
     """[(Status, text)] comparing the node against the registry, both ways.
 
@@ -1552,6 +1800,66 @@ def cmd_templates(args):
         sys.stdout.flush()
         sys.stderr.flush()
     return _worst(findings)
+
+
+def cmd_snmp(args):
+    """Emit fleetTable for the SNMP agent to serve.
+
+    Fails closed on every source. A table built from a registry that could not
+    be read is not a smaller table, it is a WRONG one: every role in the unread
+    file silently becomes "not declared", and a walk then reports a fleet that
+    does not exist. UNKNOWN(3) and no output is the honest answer.
+    """
+    roles, err = _services_roles(args.repo)
+    if err:
+        return emit(Status.UNKNOWN, f"snmp: {err}")
+    anchors, err = _anchor_roles(args.repo)
+    if err:
+        return emit(Status.UNKNOWN, f"snmp: {err}")
+    declared_templates, err = _load_templates(args.registry)
+    if err:
+        return emit(Status.UNKNOWN, f"snmp: {err}")
+
+    rows_raw, _dns = _container_rows(args)
+    lxcs = gather(args.host, args.node)[3]
+    tmpl = {c["name"]: bool(c.get("template")) for c in lxcs}
+    measured = {}
+    for vmid, name, ip, state in rows_raw:
+        # _container_rows yields the literal "dhcp" when no address could be
+        # read. That is not an address: fleetAddress is measured state, and
+        # the MIB spells an unmeasured one as the empty string.
+        measured[name] = {"vmid": vmid, "status": state, "name": name,
+                          "address": "" if ip == "dhcp" else ip,
+                          "template": tmpl.get(name, False)}
+
+    rows = fleet_rows(roles, anchors, declared_templates, measured)
+    orphans = undeclared_containers(roles, measured)
+    if args.json:
+        print(json.dumps({"rows": rows, "undeclared_containers": orphans}))
+        return Status.OK
+
+    lines = fleet_table_lines(rows)
+    if args.out:
+        # Write-then-rename: the agent may read this file at any moment, and a
+        # half-written table is a walk that stops in the middle of a row.
+        tmp = args.out + ".new"
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, args.out)
+        built = sum(1 for r in rows if r["vmid"])
+        drift = sum(1 for r in rows if r.get("matched_by") == "role")
+        msg = (f"snmp: {len(rows)} role(s), {built} built, "
+               f"{len(lines)} cell(s) -> {args.out}")
+        if drift:
+            msg += f"; {drift} matched by role name, not declared hostname"
+        # fleetTable cannot represent these, so say so rather than let the
+        # table read as a complete picture of the node.
+        if orphans:
+            msg += f"; {len(orphans)} container(s) with no manifest: {', '.join(orphans)}"
+        return emit(Status.WARNING if (drift or orphans) else Status.OK, msg)
+    print("\n".join(lines))
+    return Status.OK
 
 
 def cmd_warn(args):
@@ -1750,6 +2058,19 @@ an exfiltration.
                    default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
                    help=argparse.SUPPRESS)
 
+    sn = sub.add_parser("snmp",
+                        help="emit TCOS-MIB fleetTable for the SNMP agent to serve")
+    sn.add_argument("--host", default="10.0.0.153")
+    sn.add_argument("--node", default="pve")
+    sn.add_argument("--json", action="store_true",
+                    help="the joined rows, before they become OIDs")
+    sn.add_argument("--out", default=None,
+                    help="write the table here atomically instead of to stdout")
+    sn.add_argument("--repo", default=os.path.expanduser("~/git/fleet-ops"),
+                    help="fleet-ops checkout holding pve/services and the registries")
+    sn.add_argument("--registry", default=_TEMPLATES_REGISTRY)
+    sn.add_argument("--dns", default=None, help=argparse.SUPPRESS)
+
     t = sub.add_parser("templates",
                        help="do the node's templates match the ones the registry declares?")
     t.add_argument("--host", default="10.0.0.153")
@@ -1775,7 +2096,7 @@ an exfiltration.
     args = ap.parse_args()
     return {"status": cmd_status, "inventory": cmd_inventory,
             "warn": cmd_warn, "map": cmd_map, "drift": cmd_drift,
-            "templates": cmd_templates}[args.cmd](args)
+            "templates": cmd_templates, "snmp": cmd_snmp}[args.cmd](args)
 
 
 if __name__ == "__main__":
