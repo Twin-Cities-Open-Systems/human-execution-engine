@@ -5,7 +5,7 @@ post, or a store directory as the live store on the lab
 
 SYNOPSIS
   hee deploy blog [DIR] [-oper SLUG] [-to lab|prod] [-dry-run] [-no-pr] [-resume PATH]
-  hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run]
+  hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run] [-list-missing]
   hee deploy help | blog help | store help
 
 DESCRIPTION
@@ -74,13 +74,15 @@ DESCRIPTION
               lowercased
   -url        (store only) the running store's base URL; default
               https://store.lab.tcos.us
-  -dry-run    run every gate, print what would be written (blog: the
-              assembled post between `----- post -----` markers and the
-              files; store: the rsync plan between `----- rsync -----`
-              markers), write nothing, touch nothing, run nothing
-  -no-pr      (blog only) leave the branch local after deploying to lab,
-              no PR
-  -resume     (blog only) path to the resume checkout, default ~/git/resume
+  -dry-run      run every gate, print what would be written (blog: the
+                assembled post between `----- post -----` markers and the
+                files; store: the rsync plan between `----- rsync -----`
+                markers), write nothing, touch nothing, run nothing
+  -no-pr        (blog only) leave the branch local after deploying to lab,
+                no PR
+  -list-missing (store only) print all items without images/notes instead of
+                a summary count
+  -resume       (blog only) path to the resume checkout, default ~/git/resume
 
 GATES for blog (in order, each with its exit code)
   DIR missing, or no blog.md, or line 1 not '# Title'    CRITICAL 2, refuse
@@ -223,6 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-to", "--to", dest="to", choices=["lab", "prod"], default="lab")
     parser.add_argument("-dry-run", "--dry-run", dest="dry_run", action="store_true")
     parser.add_argument("-no-pr", "--no-pr", dest="no_pr", action="store_true")
+    parser.add_argument("-list-missing", "--list-missing", dest="list_missing", action="store_true")
     parser.add_argument("-resume", "--resume", dest="resume", default="~/git/resume")
     parser.add_argument("-slug", "--slug", dest="slug", default=None)
     parser.add_argument("-url", "--url", dest="url", default=None)
@@ -696,6 +699,8 @@ def deploy_store(args: argparse.Namespace) -> int:
     # Gate 5 / 6: an item with stock and no image; an image with no note.
     images_dir = dir_path / "images"
     warnings: list[str] = []
+    missing_images = []
+    missing_notes = []
     for stock_path, stableid in items:
         image_path = None
         if stableid:
@@ -705,15 +710,31 @@ def deploy_store(args: argparse.Namespace) -> int:
                     image_path = candidate
                     break
         if image_path is None:
+            missing_images.append(f"{stableid!r}")
             warnings.append(
                 f"{stock_path}: item {stableid!r} has stock but no image under {images_dir}/"
             )
             continue
         note_path = image_path.with_name(image_path.name + ".md")
         if not note_path.is_file():
+            missing_notes.append(f"{image_path.name}")
             warnings.append(f"{image_path}: no note ({note_path.name}) -- deploying without a caption")
-    for message in warnings:
-        warn(message)
+
+    # Print summary or details based on --list-missing flag
+    if missing_images:
+        if args.list_missing:
+            for msg in warnings:
+                if "no image" in msg:
+                    warn(msg)
+        else:
+            warn(f"{len(missing_images)} items without images (use --list-missing to see all)")
+    if missing_notes:
+        if args.list_missing:
+            for msg in warnings:
+                if "no note" in msg:
+                    warn(msg)
+        else:
+            warn(f"{len(missing_notes)} images without notes (use --list-missing to see all)")
 
     # Gate: -to prod (phase 1, same as blog).
     if args.to == "prod":
