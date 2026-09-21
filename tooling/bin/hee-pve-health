@@ -20,10 +20,16 @@ Usage:
                     comparison runs (none|sub|add|both), -archive ranges over
                     the committed history of the map block.
                     --term, --proposed and --diff still work as aliases.
+  hee-pve-health templates [--host IP] [--node NAME] [--json] [--registry PATH]
+                 -- compare the node's templates against the ones the
+                    registry declares, in BOTH directions, and name any
+                    stopped non-template guest as cruft.
   hee-pve-health warn [--host IP] [--node NAME] [--overcommit-max N]
+                      [--registry PATH]
                  -- exit 1 if real overcommit ratio (allocated/pool)
                     exceeds N (default 3.0x), or any container isn't
-                    'running', otherwise exit 0 silently.
+                    'running', or a guest carries template=1 without being
+                    in the registry; otherwise exit 0 silently.
 """
 import argparse
 import os
@@ -66,6 +72,15 @@ _CRED_DIR = os.environ.get("HEE_PVE_CRED_DIR", "")
 _SSL_CTX = ssl.create_default_context()
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
+
+# Which PVE guests are allowed to carry `template: 1`. Registry lives in
+# fleet-ops beside the other fleet-state registries, not here: which templates
+# this org keeps is fleet state, not doctrine -- the same reasoning that moved
+# container-addons out of this repo on 2026-09-10. Overridable for a second
+# checkout or a test fixture; the default matches `--roster` below.
+_TEMPLATES_REGISTRY = os.environ.get(
+    "HEE_PVE_TEMPLATES_REGISTRY",
+    os.path.expanduser("~/git/fleet-ops/hee/registries/pve-templates.registry.v1.yaml"))
 
 
 def _token_api_json(host, path):
@@ -1429,6 +1444,116 @@ def cmd_status(args):
               f"net in/out {t['netin_mb']}/{t['netout_mb']}MB")
 
 
+def _load_templates(path):
+    """(templates, error) from the pve-templates registry.
+
+    Same contract as _load_roster, for the same reason: every failure is an
+    error string, never an empty dict. "The file did not parse" and "the
+    registry declares no templates" are different facts, and a check that
+    cannot tell them apart reports a clean fleet when it has read nothing.
+    That is rule 16's fail-closed rule, and the exact shape of the
+    namespace-audit failure -- "OK, no naming ambiguity across 17 repo(s)"
+    every day while its token was empty and it had read none of them.
+
+    Keyed by template hostname: the key is what the registry and the node
+    both reference, and unlike vmid it survives a rebuild.
+    """
+    if not os.path.isfile(path):
+        return None, f"no template registry at {path}"
+    try:
+        import yaml
+    except ImportError:
+        return None, "pyyaml not available"
+    try:
+        doc = yaml.safe_load(open(path, encoding="utf-8")) or {}
+    except Exception as e:
+        return None, f"{os.path.basename(path)} did not parse: {e}"
+    spec = doc.get("spec", {}) or {}
+    declared = spec.get("templates")
+    if not isinstance(declared, dict):
+        return None, f"{os.path.basename(path)} declares no `spec.templates` mapping"
+    return {k: (v or {}) for k, v in declared.items()}, None
+
+
+def _template_findings(lxcs, declared):
+    """[(Status, text)] comparing the node against the registry, both ways.
+
+    Both directions are checked because they are different facts. An
+    undeclared template on the node is a guest somebody converted and walked
+    away from. A declared template with no guest is one that is gone --
+    possibly deleted by accident, possibly never built. A registry read in
+    only one direction cannot tell those apart.
+
+    A non-template guest sitting stopped is cruft. `warn` already reports it
+    as "not running", which is true and says nothing about whether anyone
+    meant it; naming it cruft is what makes it actionable.
+    """
+    findings = []
+    live = {c["name"]: c for c in lxcs if c.get("template")}
+
+    for name, c in sorted(live.items()):
+        if name not in declared:
+            findings.append((Status.WARNING,
+                             f"lxc {c['vmid']} {name}: carries template=1 but is not in "
+                             f"the registry -- undeclared template"))
+            continue
+        want = declared[name].get("vmid")
+        # Compare as strings. pvesh returns vmid as an int over the HTTPS API
+        # and as a string over the SSH path, so an int-vs-int comparison
+        # reports a mismatch between 112 and "112" depending only on how the
+        # tool reached the node. Measured 2026-09-21.
+        if want is not None and str(want) != str(c["vmid"]):
+            findings.append((Status.WARNING,
+                             f"lxc {c['vmid']} {name}: registry declares vmid {want}, "
+                             f"node says {c['vmid']}"))
+        else:
+            findings.append((Status.OK, f"lxc {c['vmid']} {name}: declared template"))
+
+    for name in sorted(set(declared) - set(live)):
+        want = declared[name].get("vmid", "?")
+        findings.append((Status.WARNING,
+                         f"{name} (vmid {want}): declared template, not present on the node"))
+
+    for c in sorted(lxcs, key=lambda x: x["vmid"]):
+        if c.get("template") or c["status"] == "running":
+            continue
+        findings.append((Status.WARNING,
+                         f"lxc {c['vmid']} {c['name']}: stopped and not a template -- cruft"))
+
+    return findings
+
+
+def _worst(findings):
+    return max((s for s, _ in findings), key=lambda s: s.value, default=Status.OK)
+
+
+def cmd_templates(args):
+    lxcs = gather(args.host, args.node)[3]
+    declared, err = _load_templates(args.registry)
+    if err:
+        return emit(Status.UNKNOWN, f"templates: {err}")
+
+    findings = _template_findings(lxcs, declared)
+    if args.json:
+        print(json.dumps([{"status": s.name, "detail": t} for s, t in findings]))
+        return _worst(findings)
+
+    # Status is an icon AND a text label, never color alone (rule 11).
+    #
+    # Flush both streams after every line. emit() sends OK to stdout and
+    # WARNING to stderr, and the two are buffered differently -- so a reader
+    # merging them with 2>&1 sees the report out of order, with the OK lines
+    # arriving last. A status list whose order depends on buffering is the
+    # kind of detail that makes a monitor look untrustworthy. Measured
+    # 2026-09-21: the declared-template OK line printed after both cruft
+    # WARNINGs.
+    for level, text in findings:
+        emit(level, text)
+        sys.stdout.flush()
+        sys.stderr.flush()
+    return _worst(findings)
+
+
 def cmd_warn(args):
     node_status, rootdir_storages, allocated_by_storage, lxcs = gather(args.host, args.node)
     bad = []
@@ -1437,9 +1562,27 @@ def cmd_warn(args):
         ratio = allocated / s["total"] if s["total"] else 0
         if ratio > args.overcommit_max:
             bad.append(f"storage {sname}: {ratio:.2f}x overcommit (max {args.overcommit_max})")
+
+    # A DECLARED template is skipped, as before -- it is stopped by definition.
+    # An undeclared one used to be skipped too, so a guest could be converted
+    # to a template and drop out of this check entirely, silently. Skipping on
+    # a flag the guest sets about itself is not an exemption anyone reviewed;
+    # skipping on the registry is.
+    declared, reg_err = _load_templates(args.registry)
+    if reg_err:
+        # Fail closed: if we cannot read which templates were sanctioned, none
+        # are exempt, and the reason is printed rather than swallowed.
+        print(f"WARN: template registry unreadable, no template is exempt: {reg_err}",
+              file=sys.stderr)
+        declared = {}
+
     for c in lxcs:
         if c.get("template"):
-            continue  # a template never runs
+            if c["name"] in declared:
+                continue
+            bad.append(f"lxc {c['vmid']} {c['name']}: template=1 but undeclared "
+                       f"-- not in the template registry")
+            continue
         if c["status"] != "running":
             bad.append(f"lxc {c['vmid']} {c['name']}: status={c['status']}, not running")
     if bad:
@@ -1607,10 +1750,18 @@ an exfiltration.
                    default=os.path.expanduser("~/git/fleet-ops/hee/registries/agent-roster.registry.v1.yaml"),
                    help=argparse.SUPPRESS)
 
+    t = sub.add_parser("templates",
+                       help="do the node's templates match the ones the registry declares?")
+    t.add_argument("--host", default="10.0.0.153")
+    t.add_argument("--node", default="pve")
+    t.add_argument("--json", action="store_true")
+    t.add_argument("--registry", default=_TEMPLATES_REGISTRY)
+
     w = sub.add_parser("warn", help="exit 1 on real overcommit or a container that is not running")
     w.add_argument("--host", default="10.0.0.153")
     w.add_argument("--node", default="pve")
     w.add_argument("--overcommit-max", type=float, default=3.0)
+    w.add_argument("--registry", default=_TEMPLATES_REGISTRY)
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after
     # parsing -- so an unrelated argument errors first and the help never
@@ -1623,7 +1774,8 @@ an exfiltration.
 
     args = ap.parse_args()
     return {"status": cmd_status, "inventory": cmd_inventory,
-            "warn": cmd_warn, "map": cmd_map, "drift": cmd_drift}[args.cmd](args)
+            "warn": cmd_warn, "map": cmd_map, "drift": cmd_drift,
+            "templates": cmd_templates}[args.cmd](args)
 
 
 if __name__ == "__main__":
