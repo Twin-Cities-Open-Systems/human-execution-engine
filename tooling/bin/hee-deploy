@@ -610,7 +610,10 @@ def run_rsync(dir_path: Path, target: Path, dry_run: bool) -> subprocess.Complet
     # (rsync exit 23), and -p would keep a 600 mode the store container, which
     # reads the share as nobody, cannot open. Measured on ct124, 2026-09-19.
     # -rlt plus --chmod gives group-writable dirs and world-readable files.
-    cmd = ["rsync", "-rlt", "--delete", "--chmod=D2775,F664", "--itemize-changes"]
+    # --filter='protect images/***' keeps images on the share even if they're
+    # gitignored in the source repo (issue #734).
+    cmd = ["rsync", "-rlt", "--delete", "--chmod=D2775,F664",
+           "--filter=protect images/***", "--itemize-changes"]
     if dry_run:
         cmd.append("-n")
     cmd += [f"{dir_path}/", f"{target}/"]
