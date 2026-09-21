@@ -43,6 +43,7 @@ import io
 import re
 import json
 import ssl
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -119,14 +120,79 @@ def _token_api_json(host, path):
         return None
 
 
-def pvesh_json(host, path):
-    """The pve API first, ssh second.
+def _own_addresses():
+    """Every address this machine answers on, plus the loopback names.
 
-    Reversed 2026-09-08. Operator: "should be using the api for pve anyway" --
-    and the old order made ssh load-bearing, so clearing known_hosts took the
-    whole tool down while the "fallback" had never worked. The API needs no
-    host key and no shell on the node.
+    Used only to decide whether `host` means "here". Read from `ip -o addr`
+    rather than from a hostname lookup, because the question is which
+    addresses are configured on this box, and DNS can answer that wrongly in
+    both directions.
     """
+    addrs = {"127.0.0.1", "::1", "localhost"}
+    try:
+        out = subprocess.run(["ip", "-o", "addr"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return addrs
+    if out.returncode == 0:
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[2] in ("inet", "inet6"):
+                addrs.add(parts[3].split("/")[0])
+    return addrs
+
+
+def _local_pvesh_json(host, path):
+    """The node's own pvesh, or None when that is not what `host` means.
+
+    Only used when BOTH are true: pvesh is on PATH, and `host` is an address
+    this machine actually answers on. Querying a *different* pve node from a
+    pve node is a real thing to want, and silently answering with local state
+    instead would be the worst kind of wrong -- a plausible table about the
+    wrong machine.
+
+    Why this exists: hee pve-health now runs ON pve, from a systemd timer, to
+    build TCOS-MIB fleetTable (fleet-ops#434). Both existing transports assume
+    the node is somewhere else. The API token path wants a sealed credential
+    that does not exist there, and the ssh path tries `ssh root@10.0.0.153`
+    from 10.0.0.153 -- root has no key to itself, so it failed with
+    "Permission denied (publickey,password)" on every timer run. Measured
+    2026-09-21: three consecutive failures and a table 39 minutes stale.
+
+    pvesh on the node needs no credential at all, which is strictly better
+    than sealing a pve API token onto the hypervisor or giving root an ssh
+    key to itself.
+    """
+    if not shutil.which("pvesh") or host not in _own_addresses():
+        return None
+    try:
+        proc = subprocess.run(["pvesh", "get", path, "--output-format", "json"],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def pvesh_json(host, path):
+    """Local pvesh when we are ON the node, then the pve API, then ssh.
+
+    The API was put ahead of ssh on 2026-09-08. Operator: "should be using the
+    api for pve anyway" -- and the old order made ssh load-bearing, so clearing
+    known_hosts took the whole tool down while the "fallback" had never worked.
+    The API needs no host key and no shell on the node.
+
+    Local pvesh goes ahead of both, but only when `host` is this machine: see
+    _local_pvesh_json. Off the node pvesh does not exist, so the order there is
+    unchanged.
+    """
+    local_result = _local_pvesh_json(host, path)
+    if local_result is not None:
+        return local_result
+
     token_result = _token_api_json(host, path)
     if token_result is not None:
         return token_result
