@@ -87,16 +87,36 @@ DEDICATED SITES (--site)
   --index is required rather than inferred.
 
     --site NAME  which dedicated site (`--site list` names them)
-    --index FILE the file served at the site's root, as index.html
+    --dir DIR    publish DIR as the site: every file in it, top level only.
+                 Skips README.md, dotfiles, editor leftovers (*.bak, *~,
+                 *.orig, *.swp) -- a backup beside the page is a backup,
+                 not a page. DIR needs an index.html unless --index names
+                 one.
+    --index FILE the file served at the site's root, as index.html. With
+                 --dir, FILE is usually a file inside DIR whose name is not
+                 index.html.
     --add FILE   another file, published under its own basename; repeatable
 
   Known sites:
 
     beer    beer.tcos.us    project `beer`    TCLUG meetup material
 
-  To add one, add a line to the `site_project` case in this script and
+  A site's PERMANENT assets -- its og:image, its favicon -- live in
+  `fleet-ops/sites/<name>/` ($FLEET_OPS_DIR honoured) and are shipped on
+  every publish, before --dir, --index and --add, each of which may
+  override one by name. README.md there is never deployed. This exists so
+  those assets cannot be forgotten on the command line and therefore
+  deleted by the replace; it is also what makes what is live reviewable in
+  a repo. A site kept entirely in one directory does not need it -- use
+  --dir and the directory is the whole answer.
+
+  Order, last wins: repo assets, then --dir, then --add, then --index.
+
+  To add a site, add a line to the `site_project` case in this script,
   attach the domain to the project (tcos-www/CLOUDFLARE_SETUP.md has the
-  API calls and the three token permissions it takes).
+  API calls and the three token permissions it takes), add the CNAME to the
+  zone -- Cloudflare does not create it for you -- and put its assets in
+  fleet-ops/sites/<name>/.
 
   Requires a sealed Cloudflare API token at
   <tcos-www-repo>/.hee/secrets/cloudflare-tcos-www.gpg, read via `hee-cred
@@ -126,7 +146,19 @@ POSTS=""
 OPER=""
 MAKE_PR=1
 SITE=""
+SITE_DIR=""
 INDEX=""
+
+# Files that live beside a page without being part of the site. A backup
+# next to index.html is a backup; publishing it would put an older copy of
+# the page on the public internet at a guessable name.
+skip_file() {
+  case "$1" in
+    README.md|.*) return 0 ;;
+    *.bak|*~|*.orig|*.rej|*.swp) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # The dedicated sites. One line per site; the domain is here only so a
 # refusal and the success line can name the real URL.
@@ -171,6 +203,7 @@ while [ $# -gt 0 ]; do
     --post) shift; POSTS="$POSTS $1" ;;
     --oper) shift; OPER="$1" ;;
     --site) shift; SITE="$1" ;;
+    --dir) shift; SITE_DIR="$1" ;;
     --index) shift; INDEX="$1" ;;
     --no-pr) MAKE_PR=0 ;;
     --dry-run) DRY_RUN=1 ;;
@@ -191,11 +224,22 @@ if [ -n "$SITE" ]; then
   site_project "$SITE" >/dev/null 2>&1 || {
     echo "hee-site-publish: unknown --site '$SITE' -- known: $SITE_NAMES (see '--site list')" >&2; exit 1; }
   [ -z "$POSTS" ] || { echo "hee-site-publish: --post is the resume blog; it cannot be combined with --site" >&2; exit 1; }
-  # Required, never inferred: on a dedicated site the named files ARE the
-  # whole site, so "which one is the front page" is not something to guess.
-  [ -n "$INDEX" ] || { echo "hee-site-publish: --site needs --index <file> (the file served at the site root)" >&2; exit 1; }
+  if [ -n "$SITE_DIR" ]; then
+    [ -d "$SITE_DIR" ] || { echo "hee-site-publish: --dir is not a directory: $SITE_DIR" >&2; exit 1; }
+    # A site served with no index.html answers the bare domain with
+    # nothing, so say so here rather than after a successful-looking
+    # deploy.
+    if [ -z "$INDEX" ] && [ ! -f "$SITE_DIR/index.html" ]; then
+      echo "hee-site-publish: $SITE_DIR has no index.html -- name the front page with --index <file>" >&2; exit 1
+    fi
+  else
+    # Required, never inferred: on a dedicated site the named files ARE the
+    # whole site, so "which one is the front page" is not something to guess.
+    [ -n "$INDEX" ] || { echo "hee-site-publish: --site needs --dir <directory> or --index <file>" >&2; exit 1; }
+  fi
 else
   [ -z "$INDEX" ] || { echo "hee-site-publish: --index is only meaningful with --site" >&2; exit 1; }
+  [ -z "$SITE_DIR" ] || { echo "hee-site-publish: --dir is only meaningful with --site" >&2; exit 1; }
   [ -n "$FILES$POSTS" ] || { echo "hee-site-publish: need at least one --add <file> or --post <file.md>" >&2; exit 1; }
 fi
 
@@ -206,16 +250,41 @@ fi
 if [ -n "$SITE" ]; then
   sp=$(site_project "$SITE")
   PROJECT="${sp%% *}"; DOMAIN="${sp##* }"
-  [ -f "$INDEX" ] || { echo "hee-site-publish: not a real file: $INDEX" >&2; exit 1; }
+  [ -z "$INDEX" ] || [ -f "$INDEX" ] || { echo "hee-site-publish: not a real file: $INDEX" >&2; exit 1; }
   for f in $FILES; do
     [ -f "$f" ] || { echo "hee-site-publish: not a real file: $f" >&2; exit 1; }
   done
 
+  # The site's PERMANENT assets -- its og card, its favicon -- live in
+  # fleet-ops/sites/<name>/ and are shipped on every publish, before the
+  # page. Without this they would have to be named on the command line
+  # every time, and the one time they were not, the atomic replace would
+  # silently delete them: exactly how fleet-ops#734 lost the store's
+  # photographs. An asset a publish can forget is an asset a publish
+  # eventually deletes.
+  SITE_ASSETS="${FLEET_OPS_DIR:-$HOME/git/fleet-ops}/sites/$SITE"
+
   echo "site: $SITE -> https://$DOMAIN (Cloudflare Pages project '$PROJECT')"
-  echo "  index: $INDEX -> index.html"
+  if [ -d "$SITE_ASSETS" ]; then
+    for f in "$SITE_ASSETS"/*; do
+      [ -f "$f" ] || continue
+      skip_file "$(basename "$f")" && continue
+      echo "  asset: $SITE_ASSETS/$(basename "$f")"
+    done
+  else
+    echo "  asset: none ($SITE_ASSETS does not exist)"
+  fi
+  if [ -n "$SITE_DIR" ]; then
+    for f in "$SITE_DIR"/*; do
+      [ -f "$f" ] || continue
+      if skip_file "$(basename "$f")"; then echo "  skip:  $(basename "$f")"; continue; fi
+      echo "  dir:   $f -> $(basename "$f")"
+    done
+  fi
   for f in $FILES; do echo "  add:   $f -> $(basename "$f")"; done
+  [ -z "$INDEX" ] || echo "  index: $INDEX -> index.html"
   echo "  NOTE: a dedicated site is replaced wholesale -- anything previously"
-  echo "        deployed and not named above will be gone."
+  echo "        deployed and not listed above will be gone."
 
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "dry-run: not deploying."
@@ -224,8 +293,25 @@ if [ -n "$SITE" ]; then
 
   TREE=$(mktemp -d) || { echo "hee-site-publish: mktemp failed" >&2; exit 1; }
   trap 'rm -rf "$TREE"' EXIT INT TERM
-  cp "$INDEX" "$TREE/index.html" || exit 1
+  # Order, last wins: repo assets, then --dir, then --add, then --index.
+  # A page may deliberately override an asset of the same name; an asset
+  # never silently overwrites the page.
+  if [ -d "$SITE_ASSETS" ]; then
+    for f in "$SITE_ASSETS"/*; do
+      [ -f "$f" ] || continue
+      skip_file "$(basename "$f")" && continue
+      cp "$f" "$TREE/$(basename "$f")" || exit 1
+    done
+  fi
+  if [ -n "$SITE_DIR" ]; then
+    for f in "$SITE_DIR"/*; do
+      [ -f "$f" ] || continue
+      skip_file "$(basename "$f")" && continue
+      cp "$f" "$TREE/$(basename "$f")" || exit 1
+    done
+  fi
   for f in $FILES; do cp "$f" "$TREE/$(basename "$f")" || exit 1; done
+  [ -z "$INDEX" ] || cp "$INDEX" "$TREE/index.html" || exit 1
 
   # --branch is the project's real production branch, for the same reason
   # the resume deploy below hardcodes it: without it wrangler infers a
