@@ -75,6 +75,7 @@ Usage:
   hee-cred -github-app <account> -key FILE [-force]              # seal its downloaded private key
   hee-cred -run <account> -github-token <grant> -exec CMD [ARGS...]      # CMD gets GH_TOKEN, 1 h, revoked on exit
   hee-cred -reseal <account>|all -add-recipients "<gpg-id>[,...]" [-dir PATH]   # widen who can open, keep who already can
+  hee-cred -reseal <account>|all [-dir PATH]        # re-armor a binary .gpg in place: same ciphertext, no decrypt
 
 EXAMPLES
   $ hee cred -github-app github-app-tcos-agents
@@ -160,6 +161,15 @@ paste ids, gpg --encrypt, verify) is what this does, without the step where
 someone retypes a key id. A file this host cannot open is reported with its
 recipients and skipped (WARNING), never guessed at; an .age file is skipped
 too, since an age header names no recipients. Nothing is printed but ids.
+
+-reseal with NO -add-recipients normalizes the encoding instead: a .gpg
+that is binary OpenPGP (sealed by hand without --armor) is rewritten as
+ASCII armor around the SAME ciphertext -- base64 and a CRC24, nothing is
+decrypted, no key is needed, so it runs on any host. The new file is
+checked with gpg --dearmor to be byte-identical to the old before it
+replaces it. Real trigger (2026-09-22): fleet-ops#766 committed the one
+binary file among 30 sealed ones, and the inventory service, reading every
+sealed file as text, answered 500 on its front page for two days.
 
 -github-token GRANT, with -run or -pass, changes what the child receives: not
 the key, but one installation token for that grant -- its repositories
@@ -509,6 +519,64 @@ def keyids_of(recipient: str):
     return ids
 
 
+def crc24(data: bytes) -> int:
+    """OpenPGP's armor checksum (RFC 4880 6.1)."""
+    crc = 0xB704CE
+    for b in data:
+        crc ^= b << 16
+        for _ in range(8):
+            crc <<= 1
+            if crc & 0x1000000:
+                crc ^= 0x1864CFB
+    return crc & 0xFFFFFF
+
+
+def armor_message(raw: bytes) -> str:
+    """Binary OpenPGP packets -> the ASCII armor gpg --armor would have
+    written for them (RFC 4880 6.2). The ciphertext is untouched."""
+    import base64
+    body = base64.b64encode(raw).decode()
+    lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+    tail = base64.b64encode(crc24(raw).to_bytes(3, "big")).decode()
+    return "-----BEGIN PGP MESSAGE-----\n\n" + "\n".join(lines) + "\n=" + tail + "\n-----END PGP MESSAGE-----\n"
+
+
+def rearmor(account: str, secrets_dir: Path) -> int:
+    """-reseal with no -add-recipients: put a binary .gpg on the armored
+    convention every hee-cred -seal follows, without opening it. Exit 0 all
+    armored, 1 a file skipped (not OpenPGP at all), 2 a verify mismatch."""
+    if account == "all":
+        targets = sorted(secrets_dir.glob("*.gpg"))
+        if not targets:
+            sys.exit(f"hee-cred: no .gpg credentials under {secrets_dir}")
+    else:
+        targets = [secrets_dir / f"{account}.gpg"]
+        if not targets[0].exists():
+            sys.exit(f"hee-cred: no sealed credential {targets[0]}")
+    rc = 0
+    for path in targets:
+        raw = path.read_bytes()
+        if raw.lstrip().startswith(b"-----BEGIN PGP"):
+            print(f"✅ OK {path.name}: already armored")
+            continue
+        if not raw or not raw[0] & 0x80:          # every OpenPGP packet header has bit 7 set
+            print(f"⚠️  WARNING {path.name}: neither armored nor binary OpenPGP -- left as it was")
+            rc = max(rc, 1)
+            continue
+        armored = armor_message(raw)
+        back = subprocess.run(["gpg", "--batch", "--dearmor"], input=armored.encode(), capture_output=True, check=False)
+        if back.returncode != 0 or back.stdout != raw:
+            print(f"❌ CRITICAL {path.name}: the armored form does not dearmor to the same bytes; original kept")
+            rc = 2
+            continue
+        tmp = path.with_name(path.name + ".reseal-tmp")
+        tmp.write_text(armored)
+        os.replace(tmp, path)
+        have = list(dict.fromkeys(k.upper() for k in recipient_keyids(path)))
+        print(f"✅ OK {path.name}: armored, sealed to {', '.join(have) or '(no recipients read)'}")
+    return rc
+
+
 def reseal(account: str, add: str, secrets_dir: Path) -> int:
     """Re-encrypt sealed .gpg credentials to their current recipients plus
     `add`. Opens each file here; a file this host cannot open is skipped with
@@ -516,7 +584,7 @@ def reseal(account: str, add: str, secrets_dir: Path) -> int:
     failure (an added recipient not in the keyring, or a verify mismatch)."""
     adds = [r.strip() for r in add.split(",") if r.strip()]
     if not adds:
-        sys.exit("hee-cred: -reseal needs -add-recipients KEYID[,KEYID...]")
+        return rearmor(account, secrets_dir)
     resolved = {}
     for r in adds:
         ids = keyids_of(r)
@@ -945,7 +1013,8 @@ def main():
                     help="with -install-keys: replace an existing key that differs")
     ap.add_argument("-reseal", dest="reseal_account", metavar="ACCOUNT|all",
                     help="re-encrypt a sealed .gpg credential (or every one in -dir with `all`) to its current "
-                         "recipients plus -add-recipients; opens it here, verifies the new file, keeps the old on any doubt")
+                         "recipients plus -add-recipients; opens it here, verifies the new file, keeps the old on any doubt; "
+                         "with no -add-recipients, re-armors a binary .gpg in place without opening it")
     ap.add_argument("-add-recipients", dest="add_recipients", default="", metavar="KEYID[,KEYID...]",
                     help="with -reseal: GPG key ids/emails to add (public keys must be in this keyring)")
     ap.add_argument("-pass", dest="pass_account", metavar="ACCOUNT")

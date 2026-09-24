@@ -60,6 +60,18 @@ hee-cred \- real, minimal sealed credential store (GPG, or age for TPM-bound sec
 [\fB\-registry\fR \fIFILE\fR] [\fB\-as\fR \fIVAR\fR]
 .B \-exec
 .I COMMAND [ARGS...]
+.br
+.B hee cred
+.B \-reseal
+.I ACCOUNT|all
+.B \-add\-recipients
+.I ID[,ID...]
+[\fB\-dir\fR \fIPATH\fR]
+.br
+.B hee cred
+.B \-reseal
+.I ACCOUNT|all
+[\fB\-dir\fR \fIPATH\fR]
 .SH DESCRIPTION
 .B hee-cred
 stores secrets as ciphertext-only files under
@@ -352,6 +364,30 @@ the registry's repository, so both work from any directory.
 .TP
 .BI \-root " PATH"
 Corpus root for \fB\-genfrom\fR (default \fB/var/local/hee\-corpus\fR).
+.TP
+.B \-reseal \fIACCOUNT\fR|\fBall\fR
+With
+.BR \-add\-recipients :
+open the sealed .gpg credential here, re-encrypt it to its existing
+recipients plus the added key ids, verify the new file opens to the same
+value, and replace the old one; a file this host cannot open is reported
+with its recipients and skipped.
+.IP
+Without
+.BR \-add\-recipients :
+normalize the encoding. A .gpg that is binary OpenPGP (sealed by hand
+without \-\-armor) is rewritten as ASCII armor around the same
+ciphertext; nothing is decrypted and no key is needed. The armored form is
+checked with
+.B gpg \-\-dearmor
+to be byte-identical before it replaces the file. Exit 0 when every file is
+armored, 1 when one was neither armored nor OpenPGP and was left alone, 2
+on a mismatch (original kept).
+.TP
+.B \-add\-recipients \fIID[,ID...]\fR
+With
+.BR \-reseal :
+GPG key ids or emails to add; their public keys must be in this keyring.
 .SH EXAMPLES
 Seal a secret, two recipients:
 .PP
