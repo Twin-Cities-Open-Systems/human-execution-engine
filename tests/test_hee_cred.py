@@ -270,6 +270,34 @@ class Reseal(unittest.TestCase):
             r2 = run_tool("-reseal", "tok", "-add-recipients", "new@test", "-dir", str(secrets), env=env)
             self.assertEqual(r2.returncode, 0); self.assertIn("already sealed to new@test", r2.stdout)
 
+    def test_reseal_without_add_recipients_armors_a_binary_file_in_place(self):
+        # fleet-ops#766: sealed by hand without --armor, the one binary file among 30.
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, GNUPGHOME=d)
+            self.gen(env, "mine@test")
+            secrets = Path(d) / "s"; secrets.mkdir()
+            subprocess.run(["gpg", "--batch", "--trust-model", "always", "--encrypt", "-r", "mine@test", "-o", str(secrets / "bin.gpg")],
+                           input=b"s3cret\n", env=env, check=True, capture_output=True)
+            subprocess.run(["gpg", "--batch", "--trust-model", "always", "--encrypt", "--armor", "-r", "mine@test", "-o", str(secrets / "txt.gpg")],
+                           input=b"t\n", env=env, check=True, capture_output=True)
+            raw = (secrets / "bin.gpg").read_bytes(); txt = (secrets / "txt.gpg").read_bytes()
+            self.assertTrue(raw[0] & 0x80)
+            (secrets / "junk.gpg").write_bytes(b"not a message\n")
+            r = run_tool("-reseal", "all", "-dir", str(secrets), env=env)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)                 # junk skipped, the rest done
+            self.assertIn("✅ OK bin.gpg: armored", r.stdout); self.assertIn("✅ OK txt.gpg: already armored", r.stdout)
+            self.assertIn("WARNING junk.gpg", r.stdout); self.assertNotIn("s3cret", r.stdout + r.stderr)
+            self.assertEqual((secrets / "txt.gpg").read_bytes(), txt)              # untouched
+            armored = (secrets / "bin.gpg").read_bytes()
+            self.assertTrue(armored.startswith(b"-----BEGIN PGP MESSAGE-----\n"))
+            # the same ciphertext: dearmors to the original bytes, and still opens to the value
+            back = subprocess.run(["gpg", "--batch", "--dearmor"], input=armored, capture_output=True, check=True).stdout
+            self.assertEqual(back, raw)
+            out = subprocess.run(["gpg", "--batch", "--quiet", "--decrypt", str(secrets / "bin.gpg")], env=env, capture_output=True, check=False).stdout
+            self.assertEqual(out, b"s3cret\n")
+            r2 = run_tool("-reseal", "bin", "-dir", str(secrets), env=env)
+            self.assertEqual(r2.returncode, 0); self.assertIn("already armored", r2.stdout)
+
     def test_reseal_skips_what_it_cannot_open_and_refuses_an_unknown_key(self):
         with tempfile.TemporaryDirectory() as d:
             env = dict(os.environ, GNUPGHOME=d)
