@@ -1,0 +1,520 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-image -- inspect and flash images onto devices, safely.
+
+One verb for the fleet's "write an image to a thing" jobs. Today it does the
+block-device domain: flash a TCOS Pi image (installer/pi, e.g.
+tcos-pi-hera-*.img.xz) onto an SD/MMC or USB card, with the device safety that
+makes it a tool and not a bare `dd` -- it refuses to write anything that carries
+a system mountpoint (/, /boot...), is a fixed internal disk (sata/nvme), or
+backs the running root, so a mistyped device can never clobber the machine you
+build on. The `RM` (removable) flag is deliberately NOT trusted alone: a
+laptop's built-in SD reader shows RM=0 just like the NVMe system disk (measured
+on flippy: mmcblk0). The safe discriminator is transport (mmc/usb) + hotplug +
+"hosts no system mount" + "is not the root disk", stacked so any one failing
+refuses the write.
+
+Usage:
+  hee image list                 -- flashable targets: cards and ttyUSB serial
+  hee image check DEVICE         -- deep pre-flight on one block device
+                                    e.g. hee image check /dev/mmcblk0
+  hee image flash --image FILE --device DEVICE [--yes] [--no-verify]
+                                 -- flash a .img or .img.xz to a card, then verify
+  hee image make --size SIZE [PATH] [--pattern zero|random]
+                                 -- make a scratch image (default random) for
+                                    testing flash, e.g. --size 1M (K/M/G suffix)
+
+flash:
+  Refuses any protected device (system mount, fixed sata/nvme, the root disk,
+  read-only) or one too small for the image. Unmounts the target's own
+  partitions first. Interactively it asks you to type the device path back;
+  --yes bypasses that for automation. Without a tty and without --yes it prints
+  the plan and writes nothing. Writes with `dd conv=fsync` (root, via sudo) and,
+  unless --no-verify, reads the written region back and compares its sha256 to
+  the decompressed image.
+
+Planned (own PRs, tracked as issues): serial/ttyUSB firmware flash routed to
+esptool; `stick` (fold in installer/debian/build-stick, the Ventoy Debian
+installer); `docker` image build/save/load.
+
+Env:
+  HEE_SD_LSBLK   override the lsblk binary (testing)
+
+Exit: Nagios -- 0 OK, 1 WARNING (a refusal or a dry-run plan), 2 CRITICAL
+      (a write/verify/read failed), 3 UNKNOWN (environment/usage).
+"""
+
+import argparse
+import glob
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# library/py lives in this tool's own repo -- derive it from this script's own
+# location (resolved through symlinks), never from the repo it is invoked
+# against. Provides the uniform `help`/`--help`/`-h` contract (hee-check cli).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+from hee_cli import help_wanted, note_ignored
+
+CHUNK = 4 * 1024 * 1024
+GIB = 1024 ** 3
+# A card larger than this smells like a real drive, not an SD/MMC card. Warned,
+# not refused: high-endurance cards do exist above it.
+CARD_SIZE_WARN = 128 * GIB
+# A make target bigger than this is almost certainly a mistake (this makes test
+# images, not real ones).
+MAKE_SIZE_WARN = 2 * GIB
+# A mountpoint under any of these (or exactly "/") means the disk carries the
+# running system and must never be a write target. "[SWAP]" is lsblk's label
+# for active swap.
+SYSTEM_MOUNT_PREFIXES = ("/boot", "/etc", "/usr", "/var", "/home", "/nix", "/srv")
+# Transports that are always fixed internal storage -- never a removable card.
+FIXED_TRANSPORTS = ("sata", "nvme", "ata", "scsi")
+REMOVABLE_TRANSPORTS = ("usb", "mmc")
+SIZE_UNITS = {"": 1, "B": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+
+
+def say(level, msg):
+    icon = {"OK": "✅", "WARNING": "⚠️", "CRITICAL": "❌", "UNKNOWN": "❓", "INFO": "·"}[level]
+    print(f"{icon} {level} {msg}" if level != "INFO" else f"  {msg}")
+
+
+def die(code, msg):
+    say({2: "CRITICAL", 3: "UNKNOWN"}[code], msg)
+    sys.exit(code)
+
+
+def human(n):
+    if n is None:
+        return "?"
+    f = float(n)
+    for unit in ("B", "K", "M", "G", "T"):
+        if f < 1024 or unit == "T":
+            return f"{f:.0f}{unit}" if unit == "B" else f"{f:.1f}{unit}"
+        f /= 1024
+    return f"{f:.1f}T"
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, check=False, **kw)
+
+
+# --- reading the block layout -------------------------------------------------
+
+def lsblk_json():
+    lb = os.environ.get("HEE_SD_LSBLK") or "lsblk"
+    if not shutil.which(lb):
+        die(3, f"{lb} not found -- lsblk (util-linux) is required.")
+    cols = "NAME,PATH,SIZE,TYPE,RM,RO,HOTPLUG,MODEL,MOUNTPOINT,MOUNTPOINTS,PKNAME,TRAN"
+    r = run([lb, "-J", "-b", "-o", cols])
+    if r.returncode != 0:
+        die(3, f"lsblk failed: {r.stderr.strip()[:200]}")
+    import json
+    try:
+        return json.loads(r.stdout)["blockdevices"]
+    except (ValueError, KeyError) as exc:
+        die(3, f"cannot parse lsblk JSON: {exc}")
+
+
+def mounts_of(node):
+    """Every mountpoint on a node and its descendants, empty strings dropped."""
+    out = []
+    if node.get("mountpoint"):
+        out.append(node["mountpoint"])
+    for mp in node.get("mountpoints") or []:
+        if mp:
+            out.append(mp)
+    for child in node.get("children") or []:
+        out.extend(mounts_of(child))
+    return sorted(set(out))
+
+
+def is_system_mount(mp):
+    return mp == "/" or mp == "[SWAP]" or mp.startswith(SYSTEM_MOUNT_PREFIXES)
+
+
+def truthy(v):
+    return str(v) in ("1", "True", "true")
+
+
+def root_disk_names():
+    """Base disk names (e.g. 'nvme0n1') that back /, /boot*, /home -- via findmnt.
+
+    A second, independent guard on top of classify(): even if lsblk's view were
+    odd, we resolve the running system's own block sources and refuse them.
+    """
+    names = set()
+    if not shutil.which("findmnt"):
+        return names
+    for mp in ("/", "/boot", "/boot/efi", "/boot/firmware", "/home", "/var"):
+        r = run(["findmnt", "-no", "SOURCE", mp])
+        src = r.stdout.strip()
+        if not src or not src.startswith("/dev/"):
+            continue
+        pk = run(["lsblk", "-no", "PKNAME", src]).stdout.strip().splitlines()
+        if pk and pk[0].strip():
+            names.add(pk[0].strip())
+        else:
+            names.add(Path(src).name)  # source is itself a whole disk
+    return names
+
+
+def classify(disk):
+    """Return (kind, reason). kind in {SYSTEM, CARD, EMPTY, OTHER}."""
+    sysmounts = [m for m in mounts_of(disk) if is_system_mount(m)]
+    size = disk.get("size") or 0
+    tran = (disk.get("tran") or "").lower()
+    hotplug = truthy(disk.get("hotplug"))
+    if sysmounts:
+        return "SYSTEM", "carries " + ", ".join(sysmounts)
+    if disk.get("name") in root_disk_names():
+        return "SYSTEM", "backs the running root filesystem"
+    if tran in FIXED_TRANSPORTS:
+        return "SYSTEM", f"fixed {tran} disk"
+    if not hotplug and tran not in REMOVABLE_TRANSPORTS:
+        return "SYSTEM", "fixed disk (not hotplug, not usb/mmc)"
+    if truthy(disk.get("ro")):
+        return "OTHER", "read-only (write-locked?)"
+    if size == 0:
+        return "EMPTY", "empty reader slot (no card)"
+    if disk.get("type") != "disk":
+        return "OTHER", f"type={disk.get('type')}"
+    return "CARD", f"hotplug/{tran or 'removable'}, no system mount"
+
+
+def disks():
+    return [d for d in lsblk_json() if d.get("type") in ("disk", "loop")]
+
+
+def find_disk(device):
+    """Resolve a device name/path to its lsblk disk node, or die."""
+    want = Path(device).name  # accept /dev/mmcblk0 or mmcblk0
+    for d in lsblk_json():
+        if d.get("name") == want:
+            if d.get("type") != "disk":
+                die(3, f"{device} is a {d.get('type')}, not a whole disk -- pass the disk "
+                       "(e.g. /dev/mmcblk0), never a partition.")
+            return d
+    die(3, f"no such block device: {device} (see `hee image list`).")
+
+
+def serial_targets():
+    """USB serial devices (ttyUSB/ttyACM) -- flashable firmware targets (future)."""
+    out = []
+    for path in sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")):
+        vid = pid = model = ""
+        if shutil.which("udevadm"):
+            u = run(["udevadm", "info", "--query=property", "--name", path])
+            if u.returncode == 0:
+                props = dict(line.split("=", 1) for line in u.stdout.splitlines() if "=" in line)
+                vid, pid = props.get("ID_VENDOR_ID", ""), props.get("ID_MODEL_ID", "")
+                model = props.get("ID_MODEL", "") or props.get("ID_VENDOR", "")
+        out.append({"path": path, "id": f"{vid}:{pid}" if vid else "-", "model": model or "-"})
+    return out
+
+
+# --- list / check -------------------------------------------------------------
+
+def describe(disk):
+    kind, reason = classify(disk)
+    model = (disk.get("model") or "").strip() or "-"
+    tran = disk.get("tran") or "-"
+    return kind, reason, model, tran
+
+
+def cmd_list():
+    ds = disks()
+    tag = {"SYSTEM": "🔒 SYSTEM", "CARD": "💾 CARD  ", "EMPTY": "·  empty ", "OTHER": "?  other "}
+    cards = 0
+    for d in ds:
+        kind, reason, model, tran = describe(d)
+        cards += kind == "CARD"
+        say("INFO", f"{tag[kind]}  {d['path']:14} {human(d.get('size')):>7}  {tran:5} {model:22} -- {reason}")
+        for m in mounts_of(d):
+            say("INFO", f"                       mounted: {m}")
+    serial = serial_targets()
+    for s in serial:
+        say("INFO", f"🔌 SERIAL   {s['path']:14} {'':>7}  {s['id']:11} {s['model']:16} -- flash: use esp32 (not yet in hee image)")
+    print()
+    if cards == 0 and not serial:
+        say("WARNING", "no writable card or serial device detected. Insert one and re-run.")
+        return 1
+    say("OK", f"{cards} writable card(s), {len(serial)} serial device(s); "
+              f"{len(ds) - cards} block device(s) locked as system/fixed/empty/ro.")
+    return 0
+
+
+def cmd_check(device):
+    d = find_disk(device)
+    kind, reason, model, tran = describe(d)
+    size = d.get("size") or 0
+    say("INFO", f"device : {d['path']}  ({model}, {tran}, {human(size)})")
+    parts = d.get("children") or []
+    for p in parts:
+        mp = ", ".join(mounts_of(p)) or "(not mounted)"
+        say("INFO", f"  part {p['path']:16} {human(p.get('size')):>7}  {mp}")
+    if not parts:
+        say("INFO", "  no partitions (blank or whole-disk image)")
+    if kind == "SYSTEM":
+        say("CRITICAL", f"PROTECTED: {reason}. hee image will never write here.")
+        return 2
+    if kind == "EMPTY":
+        say("WARNING", f"{reason} -- nothing to flash onto.")
+        return 1
+    if kind != "CARD":
+        say("WARNING", f"not a flashable card: {reason}.")
+        return 1
+    if size > CARD_SIZE_WARN:
+        say("WARNING", f"{human(size)} is large for a card -- double-check this is not a real drive.")
+    if mounts_of(d):
+        say("WARNING", f"WRITABLE, but {len(mounts_of(d))} partition(s) mounted; flash unmounts them first.")
+    else:
+        say("OK", f"WRITABLE: {tran} hotplug card, {human(size)}, no system mount. Ready to flash.")
+    if any(p.get("children") or mounts_of(p) for p in parts):
+        say("INFO", "NOTE: this card already holds data -- flashing ERASES it.")
+    return 0
+
+
+# --- make (scratch test image) ------------------------------------------------
+
+def parse_size(s):
+    s = s.strip().upper()
+    unit = s[-1] if s and s[-1] in SIZE_UNITS and not s[-1].isdigit() else ""
+    num = s[:-1] if unit else s
+    try:
+        n = int(float(num) * SIZE_UNITS[unit])
+    except (ValueError, KeyError):
+        die(3, f"bad --size {s!r} -- use a number with an optional K/M/G/T suffix, e.g. 1M.")
+    if n <= 0:
+        die(3, "--size must be positive.")
+    return n
+
+
+def cmd_make(size_str, path, pattern):
+    n = parse_size(size_str)
+    if n > MAKE_SIZE_WARN:
+        say("WARNING", f"{human(n)} is large for a scratch test image.")
+    out = Path(path or f"test-{size_str.lower()}.img")
+    h = hashlib.sha256()
+    written = 0
+    with open(out, "wb") as f:
+        while written < n:
+            block = min(CHUNK, n - written)
+            chunk = b"\0" * block if pattern == "zero" else os.urandom(block)
+            f.write(chunk)
+            h.update(chunk)
+            written += block
+    say("OK", f"wrote {human(n)} {pattern} image -> {out} (sha256 {h.hexdigest()[:16]}...)")
+    say("INFO", f"test a flash:  hee image flash --image {out} --device /dev/DISK")
+    return 0
+
+
+# --- flash --------------------------------------------------------------------
+
+def _open_image(path, decompress):
+    if decompress:
+        src = subprocess.Popen(["xz", "-dc", str(path)], stdout=subprocess.PIPE)
+        return src, src.stdout
+    return None, open(path, "rb")
+
+
+def image_size_and_sha(path, decompress):
+    """Stream the (optionally xz-decompressed) image once: return (size, sha256)."""
+    src, stream = _open_image(path, decompress)
+    h = hashlib.sha256()
+    size = 0
+    while True:
+        chunk = stream.read(CHUNK)
+        if not chunk:
+            break
+        h.update(chunk)
+        size += len(chunk)
+    stream.close()
+    if src is not None and src.wait() != 0:
+        die(2, f"xz -dc failed on {path}.")
+    return size, h.hexdigest()
+
+
+def write_image(path, decompress, dev, expected_size):
+    """dd the (decompressed) image onto dev via sudo, hashing as it goes."""
+    src, stream = _open_image(path, decompress)
+    dd = subprocess.Popen(["sudo", "dd", f"of={dev}", "bs=4M", "conv=fsync", "iflag=fullblock"],
+                          stdin=subprocess.PIPE)
+    h = hashlib.sha256()
+    written = 0
+    next_report = 0
+    try:
+        while True:
+            chunk = stream.read(CHUNK)
+            if not chunk:
+                break
+            dd.stdin.write(chunk)
+            h.update(chunk)
+            written += len(chunk)
+            if written >= next_report:
+                pct = 100 * written / expected_size if expected_size else 0
+                print(f"\r  writing {human(written)} / {human(expected_size)} ({pct:.0f}%) ...",
+                      end="", file=sys.stderr, flush=True)
+                next_report += CHUNK * 16
+    finally:
+        stream.close()
+        if dd.stdin:
+            dd.stdin.close()
+    print(file=sys.stderr)
+    if dd.wait() != 0:
+        die(2, "dd reported a write error.")
+    if src is not None and src.wait() != 0:
+        die(2, "xz -dc failed mid-write.")
+    return written, h.hexdigest()
+
+
+def readback_sha(dev, nbytes):
+    """sha256 of the first nbytes read back from dev (root, via sudo dd)."""
+    dd = subprocess.Popen(
+        ["sudo", "dd", f"if={dev}", "bs=4M", "iflag=count_bytes,fullblock", f"count={nbytes}"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    h = hashlib.sha256()
+    got = 0
+    while True:
+        chunk = dd.stdout.read(CHUNK)
+        if not chunk:
+            break
+        h.update(chunk)
+        got += len(chunk)
+    if dd.wait() != 0:
+        die(2, "reading the device back failed.")
+    if got != nbytes:
+        die(2, f"read back {got} bytes, expected {nbytes} -- short read.")
+    return h.hexdigest()
+
+
+def confirm(dev, model, dev_size, yes):
+    """True to proceed with the write. --yes bypasses; else a tty must type the path."""
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        say("WARNING", f"DRY RUN (no tty, no --yes): would ERASE {dev} ({model}, {human(dev_size)}).")
+        say("INFO", f"to write:  hee image flash --image ... --device {dev} --yes")
+        return False
+    say("WARNING", f"About to ERASE {dev} ({model}, {human(dev_size)}) and overwrite it entirely.")
+    try:
+        typed = input(f"  Type the device path to confirm ({dev}), or anything else to abort: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    if typed != dev:
+        say("INFO", "aborted -- device path not confirmed.")
+        return False
+    return True
+
+
+def cmd_flash(image, device, yes, no_verify):
+    img = Path(image)
+    if not img.is_file():
+        die(3, f"no such image file: {image}")
+    for need in ("sudo", "dd"):
+        if not shutil.which(need):
+            die(3, f"{need} is required for flashing.")
+    decompress = img.name.endswith(".xz")
+    if decompress and not shutil.which("xz"):
+        die(3, "xz is required to flash a .xz image.")
+
+    d = find_disk(device)
+    dev = d["path"]
+    kind, reason, model, tran = describe(d)
+    if kind == "SYSTEM":
+        die(2, f"REFUSING to flash {dev}: PROTECTED -- {reason}.")
+    if kind != "CARD":
+        die(2, f"REFUSING to flash {dev}: not a writable card ({reason}).")
+
+    say("INFO", f"image  : {img.name}  ({human(img.stat().st_size)} on disk"
+                f"{', xz-compressed' if decompress else ''})")
+    say("INFO", f"target : {dev}  ({model}, {tran}, hotplug card, {human(d.get('size'))})")
+    dev_size = d.get("size") or 0
+    if dev_size > CARD_SIZE_WARN:
+        say("WARNING", f"{human(dev_size)} is large for a card -- confirm this is really an SD/MMC card.")
+
+    say("INFO", "measuring the image (decompress + sha256) ...")
+    size, want_sha = image_size_and_sha(img, decompress)
+    say("INFO", f"image is {human(size)} decompressed; card is {human(dev_size)}; sha256 {want_sha[:16]}...")
+    if size > dev_size:
+        die(2, f"image ({human(size)}) is larger than the card ({human(dev_size)}). Use a bigger card.")
+
+    mounted = [(p["path"], m) for p in (d.get("children") or []) for m in mounts_of(p)]
+    if any(is_system_mount(m) for _, m in mounted):
+        die(2, f"{dev} has a SYSTEM mount -- refusing (should have been caught as protected).")
+
+    if not confirm(dev, model, dev_size, yes):
+        if mounted:
+            say("INFO", "(would first unmount: " + ", ".join(f"{p}->{m}" for p, m in mounted) + ")")
+        return 1
+
+    for p, m in mounted:
+        say("INFO", f"unmounting {p} ({m}) ...")
+        r = run(["sudo", "umount", p])
+        if r.returncode != 0:
+            die(2, f"could not unmount {p}: {r.stderr.strip()[:160]}")
+
+    say("INFO", f"writing {img.name} -> {dev} (dd conv=fsync) ...")
+    written, write_sha = write_image(img, decompress, dev, size)
+    if written != size or write_sha != want_sha:
+        die(2, "the bytes sent to dd did not match the image -- aborting before verify.")
+    run(["sudo", "blockdev", "--flushbufs", dev])
+
+    if no_verify:
+        say("OK", f"wrote {human(written)} to {dev} (verify skipped by --no-verify). Eject before removing.")
+        return 0
+
+    say("INFO", "verifying: reading the card back and comparing sha256 ...")
+    got_sha = readback_sha(dev, size)
+    if got_sha != want_sha:
+        say("CRITICAL", f"VERIFY FAILED: card sha {got_sha[:16]}... != image {want_sha[:16]}...")
+        say("INFO", "the card may be faulty, counterfeit, or was disturbed mid-write. Do NOT boot it.")
+        return 2
+    say("OK", f"flashed and verified {human(size)} to {dev} (sha256 {want_sha[:16]}...). Safe to eject.")
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="hee image", description=__doc__.split("\n")[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    sub = ap.add_subparsers(dest="command", required=True)
+    sub.add_parser("list", help="flashable targets: cards and ttyUSB serial")
+    c = sub.add_parser("check", help="deep pre-flight on one block device")
+    c.add_argument("device", help="e.g. /dev/mmcblk0")
+    f = sub.add_parser("flash", help="flash an image onto a card, then verify")
+    f.add_argument("--image", required=True, help="the .img or .img.xz to write")
+    f.add_argument("--device", required=True, help="the card, e.g. /dev/mmcblk0")
+    f.add_argument("--yes", action="store_true", help="skip the typed confirmation (automation)")
+    f.add_argument("--no-verify", action="store_true", help="skip the read-back sha256 check")
+    m = sub.add_parser("make", help="make a scratch test image")
+    m.add_argument("--size", required=True, help="e.g. 1M, 64M, 512K (K/M/G/T suffix)")
+    m.add_argument("path", nargs="?", help="output file (default test-<size>.img)")
+    m.add_argument("--pattern", choices=["zero", "random"], default="random", help="fill (default random)")
+    # The bare `help` verb, plus --help/-h, uniformly -- before argparse, which
+    # owns only -h/--help and would error on an unrelated arg first. value_flags
+    # keep `--image help` (etc.) a filename, not a help request.
+    value_flags = ("--image", "--device", "--size", "--pattern")
+    raw = list(argv) if argv is not None else sys.argv[1:]
+    if help_wanted(raw, value_flags):
+        note_ignored(raw, value_flags=value_flags)
+        ap.print_help()
+        return 0
+    try:
+        a = ap.parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code == 0 else 3
+    if a.command == "list":
+        return cmd_list()
+    if a.command == "check":
+        return cmd_check(a.device)
+    if a.command == "make":
+        return cmd_make(a.size, a.path, a.pattern)
+    return cmd_flash(a.image, a.device, a.yes, a.no_verify)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
