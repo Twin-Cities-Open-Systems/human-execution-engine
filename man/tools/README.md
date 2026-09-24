@@ -25,6 +25,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-git-tag`](hee-git-tag.1.md)
 - [`hee-hg`](hee-hg.1.md)
 - [`hee-hooks-install`](hee-hooks-install.1.md)
+- [`hee-image`](hee-image.1.md)
 - [`hee-index`](hee-index.1.md)
 - [`hee-inv-receipt`](hee-inv-receipt.1.md)
 - [`hee-inv`](hee-inv.1.md)
