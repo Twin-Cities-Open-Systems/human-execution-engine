@@ -14,17 +14,30 @@ on flippy: mmcblk0). The safe discriminator is transport (mmc/usb) + hotplug +
 "hosts no system mount" + "is not the root disk", stacked so any one failing
 refuses the write.
 
+The second domain is firmware over serial: build an ESP32 image from a firmware
+checkout and write it to a board on /dev/ttyUSB*, through esptool, so the fleet
+has one verb for "put an image on a thing" whether the thing is an SD card or a
+microcontroller. Same shape: the plan first, a typed confirmation, a sha256 the
+inventory record can point at.
+
 Usage:
   hee image list                 -- flashable targets: cards and ttyUSB serial
   hee image check DEVICE         -- deep pre-flight on one block device
                                     e.g. hee image check /dev/mmcblk0
   hee image flash --image FILE --device DEVICE [--yes] [--no-verify]
                                  -- flash a .img or .img.xz to a card, then verify
+  hee image flash --image FILE.bin --device /dev/ttyUSB0 [--chip esp32]
+                  [--offset 0x0] [--erase] [--yes]
+                                 -- write a merged firmware image to a board
+  hee image build --firmware espectre --chip esp32 [--repo DIR]
+                  [--ota-channel release|preview|develop] [--clean] [--out DIR]
+                  [--dry-run]    -- build ESPectre Native and merge it into one
+                                    flashable .bin, named by chip and version
   hee image make --size SIZE [PATH] [--pattern zero|random]
                                  -- make a scratch image (default random) for
                                     testing flash, e.g. --size 1M (K/M/G suffix)
 
-flash:
+flash (card):
   Refuses any protected device (system mount, fixed sata/nvme, the root disk,
   read-only) or one too small for the image. Unmounts the target's own
   partitions first. Interactively it asks you to type the device path back;
@@ -33,12 +46,41 @@ flash:
   unless --no-verify, reads the written region back and compares its sha256 to
   the decompressed image.
 
-Planned (own PRs, tracked as issues): serial/ttyUSB firmware flash routed to
-esptool; `stick` (fold in installer/debian/build-stick, the Ventoy Debian
-installer); `docker` image build/save/load.
+flash (serial):
+  The device must be one `hee image list` shows as SERIAL. esptool first reads
+  the board's MAC (the inventory's stableid) so you confirm the board, not just
+  the port; a port another process holds (a monitor) fails here, before any
+  write, with the fuser hint. Classic ESP32 is driven at 115200: esptool 5.3+
+  loses it at 460800 during the stub's SFDP probe (ESPectre measured this;
+  esptool_runner.py). The write is esptool's own, which hashes every region
+  after writing; --no-verify has no meaning here and is ignored. --erase wipes
+  the whole flash first (NVS, Wi-Fi credentials, OTA data) -- use it for a
+  board changing firmware families, not for an update.
+
+build:
+  Runs the firmware's own CLI (`./espectre native build`, in its checkout, with
+  the shared ESP-IDF from /etc/profile.d/esp-idf.sh when the shell did not read
+  it) and then merges bootloader, partition table, OTA data and app into ONE
+  image at offset 0, so flash needs one file and one offset. The name carries
+  the chip and the checkout's `git describe`, the output line carries the
+  sha256: that pair is what an inventory record's firmware/flash_image_sha256
+  fields want. A lab build with Wi-Fi baked in is the checkout's own
+  app/sdkconfig.wifi overlay (fleet-ops esp32/bin/render-secrets.sh
+  --format sdkconfig); this verb does not touch secrets.
+
+Planned (own PRs, tracked as issues): `stick` (fold in installer/debian/
+build-stick, the Ventoy Debian installer); `docker` image build/save/load.
 
 Env:
-  HEE_SD_LSBLK   override the lsblk binary (testing)
+  HEE_SD_LSBLK    override the lsblk binary (testing)
+  ESPECTRE_REPO   the ESPectre checkout (default ~/git/espectre)
+  IDF_PATH, IDF_TOOLS_PATH   an active ESP-IDF; else read from
+                  /etc/profile.d/esp-idf.sh (fleet-ops esp32/bin/install-esp-idf.sh)
+
+EXAMPLES
+  $ hee image build --firmware espectre --chip esp32 --dry-run   # ci
+  $ hee image build --firmware espectre --chip esp32 --ota-channel develop --out /srv/tcos/esp32/firmware
+  $ hee image flash --image espectre-native-esp32-v3.0.0.bin --device /dev/ttyUSB0
 
 Exit: Nagios -- 0 OK, 1 WARNING (a refusal or a dry-run plan), 2 CRITICAL
       (a write/verify/read failed), 3 UNKNOWN (environment/usage).
@@ -47,7 +89,9 @@ Exit: Nagios -- 0 OK, 1 WARNING (a refusal or a dry-run plan), 2 CRITICAL
 import argparse
 import glob
 import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -237,7 +281,7 @@ def cmd_list():
             say("INFO", f"                       mounted: {m}")
     serial = serial_targets()
     for s in serial:
-        say("INFO", f"🔌 SERIAL   {s['path']:14} {'':>7}  {s['id']:11} {s['model']:16} -- flash: use esp32 (not yet in hee image)")
+        say("INFO", f"🔌 SERIAL   {s['path']:14} {'':>7}  {s['id']:11} {s['model']:16} -- flash: hee image flash --image X.bin --device {s['path']}")
     print()
     if cards == 0 and not serial:
         say("WARNING", "no writable card or serial device detected. Insert one and re-run.")
@@ -478,6 +522,197 @@ def cmd_flash(image, device, yes, no_verify):
     return 0
 
 
+# --- firmware over serial (esptool) ------------------------------------------
+
+IDF_PROFILE = "/etc/profile.d/esp-idf.sh"
+FIRMWARES = ("espectre",)
+CHIPS = ("esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6")
+# ESPectre's chip names for its own CLI; esptool and ESP-IDF use the idf_target.
+ESPECTRE_CHIP = {"esp32": "esp32", "esp32s2": "s2", "esp32s3": "s3",
+                 "esp32c3": "c3", "esp32c5": "c5", "esp32c6": "c6"}
+FLASH_BAUD = "460800"
+# esptool 5.3+ loses the classic ESP32 at 460800 during its stub SFDP probe
+# (measured upstream by ESPectre, src/python/espectre_cli/esptool_runner.py).
+ESP32_SAFE_BAUD = "115200"
+
+
+def is_serial_device(device):
+    return any(device == s["path"] for s in serial_targets())
+
+
+def idf_env():
+    """The caller's environment plus the shared ESP-IDF's IDF_PATH and
+    IDF_TOOLS_PATH from /etc/profile.d when this shell did not read it
+    (tmux-agent sessions and cron do not)."""
+    env = os.environ.copy()
+    if "IDF_PATH" not in env and os.path.isfile(IDF_PROFILE):
+        with open(IDF_PROFILE, encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r'\s*export\s+(IDF_PATH|IDF_TOOLS_PATH)="?([^"\n]*)"?', line)
+                if m:
+                    env[m.group(1)] = m.group(2)
+    return env
+
+
+def esptool_cmd(env):
+    """esptool: the one on PATH, else the shared ESP-IDF venv's module. Returns
+    (argv prefix, major version) -- esptool 5 renamed verbs and options to
+    hyphens (write-flash, --flash-mode); 4 has underscores."""
+    exe = shutil.which("esptool")
+    cmd = [exe] if exe else None
+    if cmd is None:
+        tools = env.get("IDF_TOOLS_PATH", "")
+        for py in sorted(glob.glob(os.path.join(tools, "python_env", "*", "bin", "python"))):
+            cmd = [py, "-m", "esptool"]
+            break
+    if cmd is None:
+        die(3, "esptool not found on PATH and no ESP-IDF python env "
+               "(fleet-ops esp32/bin/install-esp-idf.sh installs one).")
+    r = run(cmd + ["version"])
+    m = re.search(r"v?(\d+)\.\d+", r.stdout or "")
+    if r.returncode != 0 or not m:
+        die(3, f"{' '.join(cmd)} version failed: {(r.stderr or r.stdout).strip()[:160]}")
+    return cmd, int(m.group(1))
+
+
+def et(word, major):
+    """Spell an esptool verb/option/value for the installed major version:
+    5 has write-flash / --flash-mode / hard-reset, 4 has write_flash /
+    --flash_mode / hard_reset. Leading dashes of an option stay dashes."""
+    if major >= 5:
+        return word
+    lead = len(word) - len(word.lstrip("-"))
+    return word[:lead] + word[lead:].replace("-", "_")
+
+
+def git_describe(repo):
+    r = run(["git", "-c", "safe.directory=*", "-C", str(repo), "describe", "--tags", "--always", "--dirty"])
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "unknown"
+
+
+def cmd_build(firmware, chip, repo, ota_channel, clean, out, dry_run):
+    if firmware not in FIRMWARES:
+        die(3, f"unknown firmware {firmware!r}; known: {', '.join(FIRMWARES)}")
+    repo = Path(repo or os.environ.get("ESPECTRE_REPO") or Path.home() / "git" / "espectre").expanduser()
+    cli = repo / "espectre"
+    app = repo / "src" / "cpp" / "frontend" / "native" / "app"
+    build_dir = app / f"build-{chip}"
+    overlay = app / "sdkconfig.wifi"
+    env = idf_env()
+    out_dir = Path(out or ".")
+    say("INFO", f"firmware : {firmware} native, chip {chip}, OTA channel {ota_channel}")
+    say("INFO", f"checkout : {repo}  ({git_describe(repo) if cli.is_file() else 'not present'})")
+    say("INFO", f"ESP-IDF  : {env.get('IDF_PATH', 'not found -- no IDF_PATH and no ' + IDF_PROFILE)}")
+    say("INFO", f"overlay  : {'app/sdkconfig.wifi present (Wi-Fi baked in)' if overlay.is_file() else 'none (Improv provisioning at first boot)'}")
+    say("INFO", f"output   : {out_dir.resolve()}/{firmware}-native-{chip}-<version>.bin")
+    if dry_run:
+        say("OK", "dry run: nothing built.")
+        return 0
+    if not cli.is_file():
+        die(3, f"no ESPectre checkout at {repo} (set --repo or ESPECTRE_REPO).")
+    if "IDF_PATH" not in env:
+        die(3, "no ESP-IDF: run fleet-ops esp32/bin/install-esp-idf.sh, or source your IDF's export.sh.")
+
+    cmd = [str(cli), "native", "build", "--chip", ESPECTRE_CHIP[chip], "--backend", "local",
+           "--ota-channel", ota_channel] + (["--clean"] if clean else [])
+    say("INFO", "running: " + " ".join(cmd))
+    if subprocess.run(cmd, cwd=repo, env=env, check=False).returncode != 0:
+        die(2, "the firmware build failed (see its output above).")
+
+    meta_path = build_dir / "flasher_args.json"
+    if not meta_path.is_file():
+        die(2, f"build finished but {meta_path} is missing -- not an ESP-IDF build dir?")
+    with meta_path.open(encoding="utf-8") as fh:
+        meta = json.load(fh)
+    settings = meta.get("flash_settings") or {}
+    files = meta.get("flash_files") or {}
+    if not files:
+        die(2, f"{meta_path} lists no flash files.")
+
+    esptool, major = esptool_cmd(env)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{firmware}-native-{chip}-{git_describe(repo)}.bin"
+    merge = esptool + ["--chip", chip, et("merge-bin", major), "-o", str(out_path.resolve())]
+    for key in ("flash_mode", "flash_freq", "flash_size"):
+        if settings.get(key):
+            merge += [et("--" + key.replace("_", "-"), major), settings[key]]
+    for addr, name in sorted(files.items(), key=lambda kv: int(kv[0], 0)):
+        merge += [addr, name]
+    r = run(merge, cwd=build_dir)
+    if r.returncode != 0:
+        die(2, f"esptool merge failed: {(r.stderr or r.stdout).strip()[-300:]}")
+    size, sha = image_size_and_sha(out_path, False)
+    say("OK", f"built {out_path} ({human(size)}, sha256 {sha})")
+    say("INFO", f"flash it:  hee image flash --image {out_path} --device /dev/ttyUSB0 --chip {chip}")
+    return 0
+
+
+def confirm_serial(dev, mac, chip, yes):
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        say("WARNING", f"DRY RUN (no tty, no --yes): would WRITE {chip} at MAC {mac} on {dev}.")
+        say("INFO", f"to write:  hee image flash --image ... --device {dev} --yes")
+        return False
+    say("WARNING", f"About to WRITE firmware to the {chip} at MAC {mac} on {dev}.")
+    try:
+        typed = input(f"  Type the device path to confirm ({dev}), or anything else to abort: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    if typed != dev:
+        say("INFO", "aborted -- device path not confirmed.")
+        return False
+    return True
+
+
+def cmd_flash_serial(image, device, chip, offset, erase, yes, no_verify):
+    img = Path(image)
+    if not img.is_file():
+        die(3, f"no such image file: {image}")
+    if not os.access(device, os.R_OK | os.W_OK):
+        die(3, f"{device} is not writable by you: join group dialout (then re-login), "
+               f"or run under `sg dialout -c '...'`.")
+    try:
+        int(offset, 0)
+    except ValueError:
+        die(3, f"bad --offset {offset!r}; use hex like 0x0 or 0x10000.")
+    if no_verify:
+        say("INFO", "--no-verify has no meaning over serial: esptool hashes every written region itself.")
+    env = idf_env()
+    esptool, major = esptool_cmd(env)
+    baud = ESP32_SAFE_BAUD if chip == "esp32" else FLASH_BAUD
+    base = esptool + ["--chip", chip, "--port", device, "--baud", baud,
+                      "--before", et("default-reset", major), "--after", et("hard-reset", major)]
+
+    size, sha = image_size_and_sha(img, False)
+    say("INFO", f"image  : {img.name}  ({human(size)}, sha256 {sha[:16]}...) at offset {offset}")
+    say("INFO", f"target : {device}  ({chip} @ {baud} baud{', full erase first' if erase else ''})")
+
+    r = run(base + [et("read-mac", major)])
+    m = re.search(r"MAC:\s*([0-9a-f:]{17})", r.stdout or "", re.IGNORECASE)
+    if r.returncode != 0 or not m:
+        holder = run(["fuser", "-v", device]).stderr.strip().splitlines()[-1:] if shutil.which("fuser") else []
+        say("CRITICAL", f"cannot talk to the board on {device}: {(r.stderr or r.stdout).strip().splitlines()[-1:] or 'no MAC'}")
+        if holder:
+            say("INFO", f"the port is held by: {holder[0].strip()} -- close that monitor first.")
+        else:
+            say("INFO", "is a monitor open on the port? try: fuser -v " + device)
+        return 2
+    mac = m.group(1).lower()
+    say("INFO", f"board  : MAC {mac}  (inventory stableid {mac.replace(':', '')})")
+
+    if not confirm_serial(device, mac, chip, yes):
+        return 1
+    args = base + [et("write-flash", major)] + (["--erase-all"] if erase else []) + [offset, str(img)]
+    say("INFO", "running: " + " ".join(args))
+    if subprocess.run(args, check=False).returncode != 0:
+        die(2, "esptool reported a failure -- the board may be half-written; re-run, or --erase and re-run.")
+    say("OK", f"flashed {img.name} to {chip} {mac} on {device}; esptool verified every region.")
+    say("INFO", f"inventory: stableid {mac.replace(':', '')}  flash_image_sha256 {sha}")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="hee image", description=__doc__.split("\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -485,11 +720,23 @@ def main(argv=None):
     sub.add_parser("list", help="flashable targets: cards and ttyUSB serial")
     c = sub.add_parser("check", help="deep pre-flight on one block device")
     c.add_argument("device", help="e.g. /dev/mmcblk0")
-    f = sub.add_parser("flash", help="flash an image onto a card, then verify")
-    f.add_argument("--image", required=True, help="the .img or .img.xz to write")
-    f.add_argument("--device", required=True, help="the card, e.g. /dev/mmcblk0")
+    f = sub.add_parser("flash", help="flash an image onto a card or a serial board, then verify")
+    f.add_argument("--image", required=True, help="the .img/.img.xz (card) or merged .bin (serial) to write")
+    f.add_argument("--device", required=True, help="the card, e.g. /dev/mmcblk0, or the board, e.g. /dev/ttyUSB0")
     f.add_argument("--yes", action="store_true", help="skip the typed confirmation (automation)")
-    f.add_argument("--no-verify", action="store_true", help="skip the read-back sha256 check")
+    f.add_argument("--no-verify", action="store_true", help="card only: skip the read-back sha256 check")
+    f.add_argument("--chip", choices=CHIPS, default="esp32", help="serial only: the chip (default esp32)")
+    f.add_argument("--offset", default="0x0", help="serial only: flash offset of the image (default 0x0, a merged image)")
+    f.add_argument("--erase", action="store_true", help="serial only: erase the whole flash first (NVS, credentials, OTA data)")
+    b = sub.add_parser("build", help="build a firmware and merge it into one flashable .bin")
+    b.add_argument("--firmware", choices=FIRMWARES, required=True, help="which firmware")
+    b.add_argument("--chip", choices=CHIPS, required=True, help="the target chip")
+    b.add_argument("--repo", help="the firmware checkout (default $ESPECTRE_REPO or ~/git/espectre)")
+    b.add_argument("--ota-channel", choices=["release", "preview", "develop"], default="release",
+                   help="ESPectre's compiled-in OTA channel (default release)")
+    b.add_argument("--clean", action="store_true", help="clean the chip's build directory first")
+    b.add_argument("--out", help="directory for the merged .bin (default .)")
+    b.add_argument("--dry-run", action="store_true", help="print the plan, build nothing")
     m = sub.add_parser("make", help="make a scratch test image")
     m.add_argument("--size", required=True, help="e.g. 1M, 64M, 512K (K/M/G/T suffix)")
     m.add_argument("path", nargs="?", help="output file (default test-<size>.img)")
@@ -497,7 +744,8 @@ def main(argv=None):
     # The bare `help` verb, plus --help/-h, uniformly -- before argparse, which
     # owns only -h/--help and would error on an unrelated arg first. value_flags
     # keep `--image help` (etc.) a filename, not a help request.
-    value_flags = ("--image", "--device", "--size", "--pattern")
+    value_flags = ("--image", "--device", "--size", "--pattern", "--chip", "--offset",
+                   "--firmware", "--repo", "--ota-channel", "--out")
     raw = list(argv) if argv is not None else sys.argv[1:]
     if help_wanted(raw, value_flags):
         note_ignored(raw, value_flags=value_flags)
@@ -513,6 +761,10 @@ def main(argv=None):
         return cmd_check(a.device)
     if a.command == "make":
         return cmd_make(a.size, a.path, a.pattern)
+    if a.command == "build":
+        return cmd_build(a.firmware, a.chip, a.repo, a.ota_channel, a.clean, a.out, a.dry_run)
+    if is_serial_device(a.device):
+        return cmd_flash_serial(a.image, a.device, a.chip, a.offset, a.erase, a.yes, a.no_verify)
     return cmd_flash(a.image, a.device, a.yes, a.no_verify)
 
 
