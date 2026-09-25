@@ -1,4 +1,4 @@
-HEE-SQZ(1)                         HEE Tools                        HEE-SQZ(1)
+HEE-SQZ(1)                         HEE Tools                         HEE-SQZ(1)
 
 NAME
        hee-sqz - squeeze a loop's OK:/FAIL: lines into one JSON line
@@ -30,4 +30,4 @@ EXAMPLES
                 check "$r" && echo "OK: $r" || echo "FAIL: $r"
               done | hee-sqz
 
-                                                                    HEE-SQZ(1)
+                                                                     HEE-SQZ(1)

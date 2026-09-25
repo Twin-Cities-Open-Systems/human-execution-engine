@@ -1,4 +1,4 @@
-HEE-SRTSCAN(1)                     HEE Tools                    HEE-SRTSCAN(1)
+HEE-SRTSCAN(1)                     HEE Tools                     HEE-SRTSCAN(1)
 
 NAME
        hee-srtscan - hee-srtscan command
@@ -12,4 +12,4 @@ DESCRIPTION
                 -search TERM
                 -root ROOT
 
-                                                                HEE-SRTSCAN(1)
+                                                                 HEE-SRTSCAN(1)

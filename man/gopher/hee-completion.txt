@@ -1,8 +1,7 @@
-HEE-COMPLETION(1)                  HEE Tools                 HEE-COMPLETION(1)
+HEE-COMPLETION(1)                  HEE Tools                  HEE-COMPLETION(1)
 
 NAME
-       hee-completion  -  bash  completion  for  hee  that  teaches  while  it
-       completes
+       hee-completion - bash completion for hee that teaches while it completes
 
 SYNOPSIS
               hee completion bash                  print the bash completion script (source it, or install it)
@@ -57,4 +56,4 @@ WHAT COMPLETES
               hee TOOL SUB <TAB>     flags that appear on that subcommand's SYNOPSIS line
               paths                  when the SYNOPSIS says PATH, FILE or DIR at that position, files complete
 
-                                                             HEE-COMPLETION(1)
+                                                              HEE-COMPLETION(1)

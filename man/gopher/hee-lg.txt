@@ -1,4 +1,4 @@
-HEE-LG(1)                          HEE Tools                         HEE-LG(1)
+HEE-LG(1)                          HEE Tools                          HEE-LG(1)
 
 NAME
        hee-lg - BGP looking glass for a domain, IP, or ASN
@@ -59,4 +59,4 @@ EXAMPLES
               hee-lg honeycomb.net
               hee-lg 8.8.8.8
 
-                                                                     HEE-LG(1)
+                                                                      HEE-LG(1)

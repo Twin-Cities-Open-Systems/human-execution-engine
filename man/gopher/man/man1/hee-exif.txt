@@ -1,4 +1,4 @@
-HEE-EXIF(1)                        HEE Tools                       HEE-EXIF(1)
+HEE-EXIF(1)                        HEE Tools                        HEE-EXIF(1)
 
 NAME
        hee-exif - hee-exif command
@@ -7,8 +7,7 @@ SYNOPSIS
               hee-exif [-h]
 
 DESCRIPTION
-                              {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif}
-                              ...
+                              {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif} ...
 
               positional arguments:
                 {read,sign,brand,embed-sig,verify,provenance,gpg-sign,regen-pubkey,embed-exif}
@@ -36,4 +35,4 @@ DESCRIPTION
               options:
                 -h, --help            show this help message and exit
 
-                                                                   HEE-EXIF(1)
+                                                                    HEE-EXIF(1)

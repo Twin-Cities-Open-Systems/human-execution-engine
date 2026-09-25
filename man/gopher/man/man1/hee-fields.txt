@@ -1,4 +1,4 @@
-HEE-FIELDS(1)                      HEE Tools                     HEE-FIELDS(1)
+HEE-FIELDS(1)                      HEE Tools                      HEE-FIELDS(1)
 
 NAME
        hee-fields - hee-fields command
@@ -15,4 +15,4 @@ DESCRIPTION
               options:
                 -h, --help         show this help message and exit
 
-                                                                 HEE-FIELDS(1)
+                                                                  HEE-FIELDS(1)

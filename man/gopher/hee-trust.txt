@@ -1,8 +1,7 @@
-HEE-TRUST(8)                       HEE Tools                      HEE-TRUST(8)
+HEE-TRUST(8)                       HEE Tools                       HEE-TRUST(8)
 
 NAME
-       hee-trust  -  the  fleet's  trust  anchors: who signs, and who believes
-       whom.
+       hee-trust - the fleet's trust anchors: who signs, and who believes whom.
 
 SYNOPSIS
               hee-trust anchor [--home PATH] [--repo PATH] [--write] [--force]
@@ -52,4 +51,4 @@ SEE ALSO
 
               Add `help` after any subcommand for its own page.
 
-                                                                  HEE-TRUST(8)
+                                                                   HEE-TRUST(8)

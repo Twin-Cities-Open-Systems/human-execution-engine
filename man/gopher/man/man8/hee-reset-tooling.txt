@@ -1,7 +1,7 @@
-HEE-RESET-TOOLING(8)               HEE Tools              HEE-RESET-TOOLING(8)
+HEE-RESET-TOOLING(8)               HEE Tools               HEE-RESET-TOOLING(8)
 
 NAME
-       hee-reset-tooling   -  conservative  "reset  to  new"  for  stray  tool
+       hee-reset-tooling   -   conservative  "reset  to  new"  for  stray  tool
        directories
 
 SYNOPSIS
@@ -37,4 +37,4 @@ OPTIONS
 EXIT STATUS
               0 completed (including a dry run)   2 unknown argument or refused path
 
-                                                          HEE-RESET-TOOLING(8)
+                                                           HEE-RESET-TOOLING(8)

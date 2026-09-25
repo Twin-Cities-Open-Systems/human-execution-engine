@@ -107,7 +107,7 @@ Turn local state into something readable elsewhere.
 | [`hee print`](https://man.tcos.us/gopher/0/hee-print.txt) ˢ | Pretty-print JSON/YAML/Markdown/Text using jq/yq when available |
 | [`hee url`](https://man.tcos.us/gopher/0/hee-url.txt) ˢ | URL shortener and tagger |
 | [`hee exif`](https://man.tcos.us/gopher/0/hee-exif.txt) ˢ | Read image EXIF metadata |
-| [`hee scrob`](https://man.tcos.us/gopher/0/hee-scrob.txt) | Terse now-playing scrobble |
+| [`hee scrob`](https://github.com/Twin-Cities-Open-Systems/managed-media-stack/blob/main/tooling/bin/hee-scrob) | Terse now-playing scrobble (lives in managed-media-stack since 2026-09-24) |
 | [`hee con`](https://man.tcos.us/gopher/0/hee-con.txt) ˢ | Connect to IRC with a native client, persistent in tmux |
 | [`hee sqz`](https://man.tcos.us/gopher/0/hee-sqz.txt) ˢ | Squeeze a loop's OK:/FAIL: lines into one pass-ratio JSON line |
 

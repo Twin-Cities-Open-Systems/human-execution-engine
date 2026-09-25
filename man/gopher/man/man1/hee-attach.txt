@@ -1,7 +1,7 @@
-HEE-ATTACH(1)                      HEE Tools                     HEE-ATTACH(1)
+HEE-ATTACH(1)                      HEE Tools                      HEE-ATTACH(1)
 
 NAME
-       hee-attach  -  attach  HEE policy to a repo without committing doctrine
+       hee-attach  -  attach  HEE  policy to a repo without committing doctrine
        into it
 
 SYNOPSIS
@@ -22,4 +22,4 @@ DESCRIPTION
 EXIT STATUS
               0 attached   1 no --target given, or an unknown argument
 
-                                                                 HEE-ATTACH(1)
+                                                                  HEE-ATTACH(1)

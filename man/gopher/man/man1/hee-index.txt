@@ -1,7 +1,7 @@
-HEE-INDEX(1)                       HEE Tools                      HEE-INDEX(1)
+HEE-INDEX(1)                       HEE Tools                       HEE-INDEX(1)
 
 NAME
-       hee-index  -  generate  hee/INDEX.md,  the persisted index of every HEE
+       hee-index  -  generate  hee/INDEX.md,  the  persisted index of every HEE
        object
 
 SYNOPSIS
@@ -25,4 +25,4 @@ DESCRIPTION
 EXIT STATUS
               0 written   1 unknown argument   2 not in a git repo
 
-                                                                  HEE-INDEX(1)
+                                                                   HEE-INDEX(1)

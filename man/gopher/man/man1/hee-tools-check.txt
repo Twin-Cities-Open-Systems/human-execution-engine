@@ -1,4 +1,4 @@
-HEE-TOOLS-CHECK(1)                 HEE Tools                HEE-TOOLS-CHECK(1)
+HEE-TOOLS-CHECK(1)                 HEE Tools                 HEE-TOOLS-CHECK(1)
 
 NAME
        hee-tools-check - is every external tool this org expects actually here
@@ -42,4 +42,4 @@ EXIT STATUS
 SEE ALSO
               hee-tools, hee-tools-update, tooling/tools.manifest.txt
 
-                                                            HEE-TOOLS-CHECK(1)
+                                                             HEE-TOOLS-CHECK(1)

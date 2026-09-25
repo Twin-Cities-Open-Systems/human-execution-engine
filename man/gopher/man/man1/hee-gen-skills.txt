@@ -1,4 +1,4 @@
-HEE-GEN-SKILLS(1)                  HEE Tools                 HEE-GEN-SKILLS(1)
+HEE-GEN-SKILLS(1)                  HEE Tools                  HEE-GEN-SKILLS(1)
 
 NAME
        hee-gen-skills - hee-gen-skills command
@@ -56,4 +56,4 @@ EXIT STATUS
               2 CRITICAL  a Skill object is malformed or unreadable
               3 UNKNOWN   pyyaml missing, or no hee/skills directory
 
-                                                             HEE-GEN-SKILLS(1)
+                                                              HEE-GEN-SKILLS(1)

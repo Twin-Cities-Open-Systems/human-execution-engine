@@ -1,7 +1,7 @@
-HEE-PVE-DISPATCH(8)                HEE Tools               HEE-PVE-DISPATCH(8)
+HEE-PVE-DISPATCH(8)                HEE Tools                HEE-PVE-DISPATCH(8)
 
 NAME
-       hee-pve-dispatch  -  hand  one  bounded  job to one agent container and
+       hee-pve-dispatch  -  hand  one  bounded  job  to one agent container and
        collect the result
 
 SYNOPSIS
@@ -120,4 +120,4 @@ EXAMPLES
                 --host HOST
                 --allocations ALLOCATIONS
 
-                                                           HEE-PVE-DISPATCH(8)
+                                                            HEE-PVE-DISPATCH(8)

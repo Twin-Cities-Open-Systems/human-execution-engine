@@ -1,4 +1,4 @@
-HEE-CON(1)                         HEE Tools                        HEE-CON(1)
+HEE-CON(1)                         HEE Tools                         HEE-CON(1)
 
 NAME
        hee-con - connect to IRC in tmux, or send into an existing tmux pane
@@ -39,4 +39,4 @@ EXIT STATUS
               2 CRITICAL  -check found a target whose host is not in DNS
               3 UNKNOWN   -check could not find a DNS source to check against
 
-                                                                    HEE-CON(1)
+                                                                     HEE-CON(1)

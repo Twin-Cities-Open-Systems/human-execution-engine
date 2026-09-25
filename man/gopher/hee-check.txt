@@ -1,4 +1,4 @@
-HEE-CHECK(1)                       HEE Tools                      HEE-CHECK(1)
+HEE-CHECK(1)                       HEE Tools                       HEE-CHECK(1)
 
 NAME
        hee-check - repo boundary and integrity checks
@@ -75,4 +75,4 @@ EXAMPLES
 SEE ALSO
               hee-lint, hee-index, hee-print
 
-                                                                  HEE-CHECK(1)
+                                                                   HEE-CHECK(1)

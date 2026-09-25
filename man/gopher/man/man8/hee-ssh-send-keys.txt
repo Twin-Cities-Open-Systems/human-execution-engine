@@ -1,4 +1,4 @@
-HEE-SSH-SEND-KEYS(8)               HEE Tools              HEE-SSH-SEND-KEYS(8)
+HEE-SSH-SEND-KEYS(8)               HEE Tools               HEE-SSH-SEND-KEYS(8)
 
 NAME
        hee-ssh-send-keys - hee-ssh-send-keys command
@@ -19,4 +19,4 @@ DESCRIPTION
                 --gpg-key GPG_KEY    GPG key to sign the receipt with
                 --key-path KEY_PATH
 
-                                                          HEE-SSH-SEND-KEYS(8)
+                                                           HEE-SSH-SEND-KEYS(8)

@@ -1,4 +1,4 @@
-HEE-PRINT(1)                       HEE Tools                      HEE-PRINT(1)
+HEE-PRINT(1)                       HEE Tools                       HEE-PRINT(1)
 
 NAME
        hee-print - render files nicely for terminal surfaces
@@ -77,4 +77,4 @@ EXAMPLES
                   hee exif read image.png --provenance | hee-print
                   curl -s https://example.com/data.json | hee-print
 
-                                                                  HEE-PRINT(1)
+                                                                   HEE-PRINT(1)

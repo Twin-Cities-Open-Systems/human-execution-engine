@@ -1,4 +1,4 @@
-HEE-WORKTREE(1)                    HEE Tools                   HEE-WORKTREE(1)
+HEE-WORKTREE(1)                    HEE Tools                    HEE-WORKTREE(1)
 
 NAME
        hee-worktree - per-session git worktree, no extra clone
@@ -53,4 +53,4 @@ EXIT STATUS
 SEE ALSO
               git-worktree(1)
 
-                                                               HEE-WORKTREE(1)
+                                                                HEE-WORKTREE(1)

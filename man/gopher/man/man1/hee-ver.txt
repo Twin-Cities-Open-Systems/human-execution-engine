@@ -1,4 +1,4 @@
-HEE-VER(1)                         HEE Tools                        HEE-VER(1)
+HEE-VER(1)                         HEE Tools                         HEE-VER(1)
 
 NAME
        hee-ver - version and verification discovery (hee ver{sion,ify})
@@ -39,4 +39,4 @@ EXIT STATUS
 SEE ALSO
               hee-check, hee-tools-check, hee-print
 
-                                                                    HEE-VER(1)
+                                                                     HEE-VER(1)

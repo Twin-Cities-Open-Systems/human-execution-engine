@@ -1,7 +1,7 @@
-HEE-VIEW(1)                        HEE Tools                       HEE-VIEW(1)
+HEE-VIEW(1)                        HEE Tools                        HEE-VIEW(1)
 
 NAME
-       hee-view  -  hee-view: one command, the whole real picture -- pve node,
+       hee-view  -  hee-view:  one command, the whole real picture -- pve node,
        every
 
 SYNOPSIS
@@ -71,7 +71,7 @@ EXAMPLES
                                       reports the difference. WARNING exit (1) when there is
                                       something unread, so it drives a watch or a status
                                       line.
-                --job JID, -job JID   one dispatched agent job, by id or unique prefix: the
+                --job, -job JID       one dispatched agent job, by id or unique prefix: the
                                       dispatch record and results when finished; while
                                       running, the container's cgroup, the claude process
                                       and out/ read from the pve host
@@ -108,4 +108,4 @@ EXAMPLES
                                       runner can only reach 'public'; an on-host checker
                                       inside the lab can reach 'lab'. Default all.
 
-                                                                   HEE-VIEW(1)
+                                                                    HEE-VIEW(1)

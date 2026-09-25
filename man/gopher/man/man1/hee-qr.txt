@@ -1,4 +1,4 @@
-HEE-QR(1)                        User Commands                       HEE-QR(1)
+HEE-QR(1)                        User Commands                        HEE-QR(1)
 
 NAME
        hee-qr - reader for a mt-logo-render "hee-key hole" anchor
@@ -8,31 +8,31 @@ SYNOPSIS
        hee qr IMAGE -manifest PATH
 
 DESCRIPTION
-       SHA256 is one-way by design -- there is no reversing a hash back to the
-       recipe that produced it, and guessing an image's parameters back out of
-       its  pixels  via  computer  vision is not proof. So a mt-logo-render(1)
-       output carries its own real receipt instead:  a  scannable  QR  encoded
-       into the image's own pixels, and matching PNG text-chunk metadata.
+       SHA256  is one-way by design -- there is no reversing a hash back to the
+       recipe that produced it, and guessing an image's parameters back out  of
+       its pixels via computer vision is not proof. So a mt-logo-render(1) out‐
+       put  carries  its  own real receipt instead: a scannable QR encoded into
+       the image's own pixels, and matching PNG text-chunk metadata.
 
-       hee-qr  tries  the  real  QR scan first (via zbarimg, survives any for‐
-       mat/bit-depth change since it's pixels, not metadata), then falls  back
+       hee-qr tries the real QR scan first  (via  zbarimg,  survives  any  for‐
+       mat/bit-depth  change  since it's pixels, not metadata), then falls back
        to reading the PNG metadata directly.
 
 OPTIONS
        IMAGE  Path to a PNG rendered by mt-logo-render.
 
        -manifest PATH
-              Instead  of just printing the result, write/update an entry in a
-              static {recipe_id: recipe} JSON manifest at  PATH  --  the  data
-              file  a static lookup page (no backend needed) reads client-side
-              by hash.
+              Instead of just printing the result, write/update an entry  in  a
+              static {recipe_id: recipe} JSON manifest at PATH -- the data file
+              a  static  lookup  page  (no backend needed) reads client-side by
+              hash.
 
 EXAMPLES
               hee qr hee-logo.png
               hee qr hee-logo.png -manifest /srv/mt-logo/manifest.json
 
 OUTPUT
-       JSON: {"source": qr-scan |"png-metadata", recipe_id : ...  ,  recipe  :
+       JSON: {"source": qr-scan |"png-metadata", recipe_id :  ...  ,  recipe  :
        {...}} -- or a real error if neither anchor is found.
 
 ORGANIZATION
@@ -42,4 +42,4 @@ ORGANIZATION
 SEE ALSO
        mt-logo-render(1)
 
-HEE                               2026-08-22                         HEE-QR(1)
+HEE                                2026-08-22                         HEE-QR(1)

@@ -1,4 +1,4 @@
-UIBOSS(1)                          HEE Tools                         UIBOSS(1)
+UIBOSS(1)                          HEE Tools                          UIBOSS(1)
 
 NAME
        uiboss - uiboss ls
@@ -19,4 +19,4 @@ NOTES
               - run captures output to a run dir and generates HTML
               - serve hosts SITE_ROOT via python -m hee_webserver
 
-                                                                     UIBOSS(1)
+                                                                      UIBOSS(1)

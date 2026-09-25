@@ -1,7 +1,7 @@
-HEE-GIT-MERGE(1)                   HEE Tools                  HEE-GIT-MERGE(1)
+HEE-GIT-MERGE(1)                   HEE Tools                   HEE-GIT-MERGE(1)
 
 NAME
-       hee-git-merge  - Interactive, cross-repo mass review-and-merge for open
+       hee-git-merge  -  Interactive, cross-repo mass review-and-merge for open
        PRs
 
 SYNOPSIS
@@ -16,8 +16,7 @@ DESCRIPTION
 
               options:
                 -h, --help            show this help message and exit
-                -r REGEX, --regex REGEX
-                                      PR number id/range list (123 / 45-50 / 1,2,3), or a
+                -r, --regex REGEX     PR number id/range list (123 / 45-50 / 1,2,3), or a
                                       regex against title+body
                 --org ORG
                 --author AUTHOR       filter by login, or 'all' for every open PR org-wide
@@ -56,4 +55,4 @@ ORDERING
               Cross-repo ordering is not attempted: separate repos have
               independent history and no shared merge order exists.
 
-                                                              HEE-GIT-MERGE(1)
+                                                               HEE-GIT-MERGE(1)

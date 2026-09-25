@@ -1,4 +1,4 @@
-HEE-VENDOR(1)                      HEE Tools                     HEE-VENDOR(1)
+HEE-VENDOR(1)                      HEE Tools                      HEE-VENDOR(1)
 
 NAME
        hee-vendor - vendor HEE doctrine into a target repo, validator-safe
@@ -36,4 +36,4 @@ EXIT STATUS
                 0   vendored
                 1   no --target given, or an unknown argument
 
-                                                                 HEE-VENDOR(1)
+                                                                  HEE-VENDOR(1)

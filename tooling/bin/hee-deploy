@@ -6,7 +6,8 @@ post, or a store directory as the live store on the lab
 SYNOPSIS
   hee deploy blog [DIR] [-oper SLUG] [-to lab|prod] [-dry-run] [-no-pr] [-resume PATH]
   hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run] [-list-missing]
-  hee deploy help | blog help | store help
+  hee deploy worker [DIR] -name WORKER [-host HOSTNAME] [-dry-run]
+  hee deploy help | blog help | store help | worker help
 
 DESCRIPTION
   Turns a directory shaped like:
@@ -34,6 +35,15 @@ DESCRIPTION
   prints the release procedure. `-dry-run` runs every gate and shows the
   rsync plan (`--itemize-changes -n`) without touching the share, running
   the reload, or requiring `STORE_OWNER_TOKEN`.
+
+  `hee deploy worker` ships DIR as a Cloudflare Worker with static assets --
+  the same path `hee url deploy` and tcos-www use -- and attaches `-host`
+  to it if given (Cloudflare creates the DNS record itself). Needs Node >=
+  20 and a token in CLOUDFLARE_API_TOKEN or HEE_CRED_PASS with Workers
+  Scripts:Edit, plus DNS:Edit on the host's zone for `-host`. Built for
+  get.hee.tools: the directory holds `index.html` (the installer bytes, so
+  `curl -fsSL https://get.hee.tools | sh` works) and `get-hee.sh`.
+  `-dry-run` lists what would ship and stops before wrangler.
 
   DIR is the unit of input for blog:
 
@@ -131,6 +141,8 @@ EXAMPLES
   hee deploy store ./ian -to lab                        # rsync, reload, health
   hee deploy store ./ian -dry-run                       # every gate, the rsync plan, nothing touched
   hee deploy store ./ian -to prod                       # prints the release procedure, exit 3
+  hee deploy worker tests/fixtures/deploy-worker -name get-hee -host get.hee.tools -dry-run   # ci
+  hee cred -pass cloudflare-tcos-www -dir ~/git/tcos-www/.hee/secrets -exec hee deploy worker ./site -name get-hee -host get.hee.tools
   hee deploy help
 """
 
@@ -160,7 +172,7 @@ from hee_cli import help_wanted, note_ignored
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 VALUE_FLAGS = (
     "-oper", "--oper", "-to", "--to", "-resume", "--resume",
-    "-slug", "--slug", "-url", "--url",
+    "-slug", "--slug", "-url", "--url", "-name", "--name", "-host", "--host",
 )
 SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -220,7 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ever built, so a missing dependency or a malformed flag elsewhere on
     # the line can never stop `help` from working.
     parser = _ArgumentParser(prog="hee-deploy", add_help=False)
-    parser.add_argument("kind", choices=["blog", "store"])
+    parser.add_argument("kind", choices=["blog", "store", "worker"])
     parser.add_argument("dir", nargs="?", default=".")
     parser.add_argument("-oper", "--oper", dest="oper", default=None)
     parser.add_argument("-to", "--to", dest="to", choices=["lab", "prod"], default="lab")
@@ -230,6 +242,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-resume", "--resume", dest="resume", default="~/git/resume")
     parser.add_argument("-slug", "--slug", dest="slug", default=None)
     parser.add_argument("-url", "--url", dest="url", default=None)
+    parser.add_argument("-name", "--name", dest="name", default=None)
+    parser.add_argument("-host", "--host", dest="host", default=None)
     return parser
 
 
@@ -792,6 +806,35 @@ def deploy_store(args: argparse.Namespace) -> int:
     return rc
 
 
+def deploy_worker(args: argparse.Namespace) -> int:
+    """Ship a static directory as a Cloudflare Worker (see the docstring)."""
+    dir_path = Path(args.dir).expanduser().resolve()
+    if not dir_path.is_dir():
+        return fail_critical(f"{dir_path} is not a directory")
+    if not args.name or not SLUG_RE.fullmatch(args.name):
+        return fail_critical("-name WORKER is required and must match [a-z0-9][a-z0-9-]*")
+    files = sorted(p.relative_to(dir_path).as_posix() for p in dir_path.rglob("*") if p.is_file())
+    if not files:
+        return fail_critical(f"{dir_path} holds no files")
+    if "index.html" not in files:
+        warn(f"{dir_path} has no index.html; a request for / will 404")
+    for f in files:
+        print(f"  asset: {f}")
+    if args.dry_run:
+        print(f"dry run: {len(files)} asset(s) would ship as worker {args.name}"
+              + (f" with host {args.host}" if args.host else ""))
+        return 0
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+    from hee_url import UrlError, ship_worker
+    try:
+        out = ship_worker(dir_path, args.name, args.host, log=lambda m: print(f"  {m}"))
+    except UrlError as exc:
+        return fail_critical(str(exc))
+    print(f"OK: deployed {len(files)} asset(s) as worker {out['worker']}"
+          + (f"; {args.host}: {out.get('domain')}" if args.host else ""))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     # A post is utf-8 whatever the locale says; under LC_ALL=C both streams
     # default to ascii and a title like "Café" became UnicodeEncodeError.
@@ -807,6 +850,8 @@ def main(argv: list[str]) -> int:
 
     if args.kind == "blog":
         return deploy_blog(args)
+    if args.kind == "worker":
+        return deploy_worker(args)
     return deploy_store(args)
 
 

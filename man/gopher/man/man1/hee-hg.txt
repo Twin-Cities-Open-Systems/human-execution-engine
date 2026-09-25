@@ -1,8 +1,7 @@
-HEE-HG(1)                          HEE Tools                         HEE-HG(1)
+HEE-HG(1)                          HEE Tools                          HEE-HG(1)
 
 NAME
-       hee-hg   -  launcher  for  the  Hunter-Gatherer  orchestrator  (LIBRARY
-       MISSING)
+       hee-hg - launcher for the Hunter-Gatherer orchestrator (LIBRARY MISSING)
 
 SYNOPSIS
               hee-hg [ARGUMENTS...]
@@ -42,4 +41,4 @@ EXIT STATUS
                      today and is documented as-is, not changed here.
               Any other status comes from cli.main(), which is not present to inspect.
 
-                                                                     HEE-HG(1)
+                                                                      HEE-HG(1)

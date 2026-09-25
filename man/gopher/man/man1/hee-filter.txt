@@ -1,4 +1,4 @@
-HEE-FILTER(1)                      HEE Tools                     HEE-FILTER(1)
+HEE-FILTER(1)                      HEE Tools                      HEE-FILTER(1)
 
 NAME
        hee-filter - the shared publish-safety gate
@@ -51,4 +51,4 @@ SEE ALSO
               hee-publish -- the first consumer
               contracts/publish-sanitization-v1.contract.yaml
 
-                                                                 HEE-FILTER(1)
+                                                                  HEE-FILTER(1)

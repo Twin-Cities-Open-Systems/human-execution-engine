@@ -1,4 +1,4 @@
-HEE-PUBLISH(1)                     HEE Tools                    HEE-PUBLISH(1)
+HEE-PUBLISH(1)                     HEE Tools                     HEE-PUBLISH(1)
 
 NAME
        hee-publish - 0-token activity summary, gated before it prints
@@ -91,4 +91,4 @@ SAFETY
                  is unavailable this tool prints NOTHING and fails rather than
                  skipping the scan silently.
 
-                                                                HEE-PUBLISH(1)
+                                                                 HEE-PUBLISH(1)

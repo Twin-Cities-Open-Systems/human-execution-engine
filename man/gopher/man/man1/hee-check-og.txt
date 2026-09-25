@@ -1,4 +1,4 @@
-HEE-CHECK-OG(1)                    HEE Tools                   HEE-CHECK-OG(1)
+HEE-CHECK-OG(1)                    HEE Tools                    HEE-CHECK-OG(1)
 
 NAME
        hee-check-og - report the Open Graph tags a page actually serves
@@ -31,4 +31,4 @@ EXAMPLES
               find dist -name '*.html' | xargs hee check-og --require
               hee check-og --require og:image --summary media/*/dist/**/*.html
 
-                                                               HEE-CHECK-OG(1)
+                                                                HEE-CHECK-OG(1)

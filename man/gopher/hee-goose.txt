@@ -1,4 +1,4 @@
-HEE-GOOSE(1)                     User Commands                    HEE-GOOSE(1)
+HEE-GOOSE(1)                     User Commands                     HEE-GOOSE(1)
 
 NAME
        hee-goose - honk
@@ -9,8 +9,8 @@ SYNOPSIS
 DESCRIPTION
        Prints HONK in italics and a goose. That is all it does.
 
-       The goose is rendered with chafa(1), which uses the kitty graphics pro‐
-       tocol where the terminal supports it. Set HEE_GOOSE_IMAGE to render an‐
+       The  goose is rendered with chafa(1), which uses the kitty graphics pro‐
+       tocol where the terminal supports it. Set HEE_GOOSE_IMAGE to render  an‐
        other image.
 
 EXAMPLES
@@ -26,4 +26,4 @@ ENVIRONMENT
 SEE ALSO
        chafa(1)
 
-HEE                               2026-09-13                      HEE-GOOSE(1)
+HEE                                2026-09-13                      HEE-GOOSE(1)

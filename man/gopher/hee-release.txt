@@ -1,7 +1,7 @@
-HEE-RELEASE(1)                     HEE Tools                    HEE-RELEASE(1)
+HEE-RELEASE(1)                     HEE Tools                     HEE-RELEASE(1)
 
 NAME
-       hee-release  - lab, cut, promote: releases for one repo, a list, or the
+       hee-release  -  lab, cut, promote: releases for one repo, a list, or the
        org
 
 SYNOPSIS
@@ -138,4 +138,4 @@ VERSIONS
               refuses unless HEAD is origin/main and CHANGELOG's newest header is
               the version; without -yes it prints the plan and runs nothing.
 
-                                                                HEE-RELEASE(1)
+                                                                 HEE-RELEASE(1)
