@@ -1,4 +1,4 @@
-HEE-BOARD(1)                       HEE Tools                      HEE-BOARD(1)
+HEE-BOARD(1)                       HEE Tools                       HEE-BOARD(1)
 
 NAME
        hee-board - real, 0-token curated filtered views over the TCOS Roadmap
@@ -49,4 +49,4 @@ DESCRIPTION
               then curated slices printed as plain text. 0-token by design -- pure
               deterministic filtering, no LLM call.
 
-                                                                  HEE-BOARD(1)
+                                                                   HEE-BOARD(1)

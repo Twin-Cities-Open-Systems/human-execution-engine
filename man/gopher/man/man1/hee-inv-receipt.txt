@@ -1,4 +1,4 @@
-HEE-INV-RECEIPT(1)                 HEE Tools                HEE-INV-RECEIPT(1)
+HEE-INV-RECEIPT(1)                 HEE Tools                 HEE-INV-RECEIPT(1)
 
 NAME
        hee-inv-receipt - turn a receipt image into HEE inventory objects
@@ -30,4 +30,4 @@ EXIT STATUS
 REQUIRES
               sha256sum, rg, perl, tesseract, date, exiftool
 
-                                                            HEE-INV-RECEIPT(1)
+                                                             HEE-INV-RECEIPT(1)

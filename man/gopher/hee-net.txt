@@ -1,4 +1,4 @@
-HEE-NET(1)                       User Commands                      HEE-NET(1)
+HEE-NET(1)                       User Commands                       HEE-NET(1)
 
 NAME
        hee-net - protocol-aware fetch: gopher, finger
@@ -8,8 +8,8 @@ SYNOPSIS
        hee net -proto finger -query USER@HOST
 
 DESCRIPTION
-       Fetches  content  over an older, simpler real protocol instead of HTTP.
-       Real trigger: "use finger and our hee tools vs what  the  network  pro‐
+       Fetches  content  over  an older, simpler real protocol instead of HTTP.
+       Real trigger: "use finger and our hee tools vs  what  the  network  pro‐
        vides."
 
 OPTIONS
@@ -33,4 +33,4 @@ ORGANIZATION
 SEE ALSO
        hee-con(1), hee-shell(1)
 
-HEE                               2026-08-22                        HEE-NET(1)
+HEE                                2026-08-22                        HEE-NET(1)

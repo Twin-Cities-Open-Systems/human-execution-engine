@@ -26,7 +26,10 @@ secret and never writes it to disk.
 `-run` derives the variable by uppercasing the account and replacing
 every non-alphanumeric character with `_`, prefixing an underscore if the
 result would start with a digit. So `plex-token` becomes `PLEX_TOKEN`,
-which is exactly what `hee-scrob` reads:
+which is exactly what `hee-scrob` reads (`hee scrob` lives in
+`managed-media-stack/tooling/bin` since 2026-09-24; the hee router finds it
+there, and it opens `plex-token` from the HOME store by itself, so the
+wrapper below is optional):
 
     hee cred -run plex-token -exec hee scrob
 

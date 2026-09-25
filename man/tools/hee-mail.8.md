@@ -18,6 +18,7 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     hee mail domain  list | add DOMAIN | handoff DOMAIN
     hee mail login   NAME[@DOMAIN]
     hee mail relay   show | set -label L -host H [-port P] -user U -cred ACCOUNT | clear
+    hee mail send    -from ADDR -to ADDR[,ADDR] -subject S [-body FILE] [options]
     hee mail help
 
 
@@ -101,6 +102,26 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     bin/push.sh, and falls back to a direct relay if the row is missing --
     so a half-done change queues mail rather than losing it.
 
+    send submits ONE message, authenticated, with the certificate verified.
+    It is here rather than in each caller because three separate things had
+    started to grow their own submission code -- the exchanger's own
+    flow-check.py, CI, and the store service's order notice -- and every copy
+    is a fresh chance to get TLS verification or credential handling subtly
+    wrong. The body is read from stdin and the password from MAIL_PASSWORD,
+    so neither is ever visible in `ps`:
+
+        hee cred -pass mail-store -exec sh -c \
+          'MAIL_PASSWORD="$HEE_CRED_PASS" hee mail send \
+             -from store@tcos.app -to orders@tcos.app -subject "order 260921-001"' \
+          < notice.txt
+
+    Port 587 (STARTTLS) is the default and 465 (implicit TLS) works the same
+    way. Port 25 is REFUSED: it is the port between exchangers, it carries no
+    credential, and a fleet host reaching for it is nearly always a mistake
+    that would deliver by accident and then be filed as spam. -dry-run prints
+    the exact message including the body -- which is the one place someone is
+    checking what a customer would actually receive -- and opens no socket.
+
 
 # OPTIONS
 
@@ -111,11 +132,34 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     -domain DOMAIN    default domain for a bare NAME (default: tcosagent.com)
     -write            with record: write the file (default prints it)
     -label L          with relay set: the smarthost's label in the creds table
-    -host H           with relay set: the provider's SMTP host
-    -port P           with relay set: its port (default 2525)
-    -user U           with relay set: the username the provider expects
+    -host H           with relay set: the provider's SMTP host; with send: the
+                      exchanger to submit to (default mx1.tcosagent.com)
+    -port P           with relay set: its port (default 2525); with send: 587
+                      STARTTLS (default) or 465 implicit TLS. 25 is refused
+    -user U           with relay set: the username the provider expects; with
+                      send: the submission username (default: the -from address)
     -cred ACCOUNT     with relay set: the sealed credential holding the password
-    -dry-run          with add/passwd: run every check, change nothing
+    -from ADDR        with send: the envelope and header sender. Required
+    -to ADDR[,ADDR]   with send: recipients, comma separated. Required
+    -subject S        with send: the subject. Required
+    -body FILE        with send: the body (default: stdin, and `-` means stdin)
+    -reply-to ADDR    with send: a Reply-To header
+    -name NAME        with send: a display name for the sender
+    -header NAME=V    with send: one extra header, repeatable. A value with a
+                      newline is refused -- that is header injection
+    -json             with send: print the envelope as JSON instead of a line
+    -dry-run          with add/passwd: run every check, change nothing.
+                      With send: print the whole message, open no socket
+
+
+# ENVIRONMENT
+
+    MAIL_PASSWORD     with send: the submission password. Never an argument --
+                      an argument is visible in `ps` to every user on the box
+    HEE_MAIL_HOST     with send: default for -host
+    HEE_MAIL_PORT     with send: default for -port
+    HEE_MAIL_PKG      default for -pkg
+    HEE_MAIL_DOMAIN   default for -domain
 
 
 # EXIT STATUS
@@ -136,3 +180,4 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     $ hee mail alias postmaster@tcosagent.com spencer@tcosagent.com
     $ hee mail master spencer
     $ hee mail record -write
+    $ echo hi | hee mail send -from ci@tcosagent.com -to spencer@tcosagent.com -subject test -dry-run

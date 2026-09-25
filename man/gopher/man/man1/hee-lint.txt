@@ -1,4 +1,4 @@
-HEE-LINT(1)                        HEE Tools                       HEE-LINT(1)
+HEE-LINT(1)                        HEE Tools                        HEE-LINT(1)
 
 NAME
        hee-lint - fast lint gate for HEE-object YAML
@@ -42,4 +42,4 @@ EXIT STATUS
               Documented as measured, not as it "should" be -- this help IS the published
               man page, so an aspirational exit table would publish a lie.
 
-                                                                   HEE-LINT(1)
+                                                                    HEE-LINT(1)

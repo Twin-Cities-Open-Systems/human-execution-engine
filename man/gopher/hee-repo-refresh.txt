@@ -1,7 +1,7 @@
-HEE-REPO-REFRESH(1)                HEE Tools               HEE-REPO-REFRESH(1)
+HEE-REPO-REFRESH(1)                HEE Tools                HEE-REPO-REFRESH(1)
 
 NAME
-       hee-repo-refresh  -  per-repo health, pull, hygiene, prune and artifact
+       hee-repo-refresh  -  per-repo  health, pull, hygiene, prune and artifact
        regeneration
 
 SYNOPSIS
@@ -132,4 +132,4 @@ REGEN
               artifact and, with --write, does something about the answer. The pve
               generators are reused, not reimplemented, so the two cannot disagree.
 
-                                                           HEE-REPO-REFRESH(1)
+                                                            HEE-REPO-REFRESH(1)

@@ -1,4 +1,4 @@
-HEE-PVE-USERS(8)                   HEE Tools                  HEE-PVE-USERS(8)
+HEE-PVE-USERS(8)                   HEE Tools                   HEE-PVE-USERS(8)
 
 NAME
        hee-pve-users - hee-pve-users command
@@ -15,4 +15,4 @@ DESCRIPTION
                 --host HOST
                 --dry-run
 
-                                                              HEE-PVE-USERS(8)
+                                                               HEE-PVE-USERS(8)

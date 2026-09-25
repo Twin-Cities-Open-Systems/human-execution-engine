@@ -1,7 +1,7 @@
-HEE-GEN-CHANGELOG(1)               HEE Tools              HEE-GEN-CHANGELOG(1)
+HEE-GEN-CHANGELOG(1)               HEE Tools               HEE-GEN-CHANGELOG(1)
 
 NAME
-       hee-gen-changelog  -  render  CHANGELOG.md  from  the  repo's own merge
+       hee-gen-changelog  -  render  CHANGELOG.md  from  the  repo's  own merge
        history
 
 SYNOPSIS
@@ -47,4 +47,4 @@ DESCRIPTION
 EXIT STATUS
               0 OK (dry run rendered, or written)   2 CRITICAL (not a git repo, no window)   3 UNKNOWN
 
-                                                          HEE-GEN-CHANGELOG(1)
+                                                           HEE-GEN-CHANGELOG(1)

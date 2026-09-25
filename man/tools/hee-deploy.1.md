@@ -7,8 +7,9 @@ hee-deploy - publish a directory of markdown + images as a resume blog
 # SYNOPSIS
 
     hee deploy blog [DIR] [-oper SLUG] [-to lab|prod] [-dry-run] [-no-pr] [-resume PATH]
-    hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run]
-    hee deploy help | blog help | store help
+    hee deploy store [DIR] [-slug S] [-to lab|prod] [-url URL] [-dry-run] [-list-missing]
+    hee deploy worker [DIR] -name WORKER [-host HOSTNAME] [-dry-run]
+    hee deploy help | blog help | store help | worker help
 
 
 # DESCRIPTION
@@ -40,6 +41,15 @@ hee-deploy - publish a directory of markdown + images as a resume blog
       prints the release procedure. `-dry-run` runs every gate and shows the
       rsync plan (`--itemize-changes -n`) without touching the share, running
       the reload, or requiring `STORE_OWNER_TOKEN`.
+
+      `hee deploy worker` ships DIR as a Cloudflare Worker with static assets --
+      the same path `hee url deploy` and tcos-www use -- and attaches `-host`
+      to it if given (Cloudflare creates the DNS record itself). Needs Node >=
+      20 and a token in CLOUDFLARE_API_TOKEN or HEE_CRED_PASS with Workers
+      Scripts:Edit, plus DNS:Edit on the host's zone for `-host`. Built for
+      get.hee.tools: the directory holds `index.html` (the installer bytes, so
+      `curl -fsSL https://get.hee.tools | sh` works) and `get-hee.sh`.
+      `-dry-run` lists what would ship and stops before wrangler.
 
       DIR is the unit of input for blog:
 
@@ -80,13 +90,15 @@ hee-deploy - publish a directory of markdown + images as a resume blog
                   lowercased
       -url        (store only) the running store's base URL; default
                   https://store.lab.tcos.us
-      -dry-run    run every gate, print what would be written (blog: the
-                  assembled post between `----- post -----` markers and the
-                  files; store: the rsync plan between `----- rsync -----`
-                  markers), write nothing, touch nothing, run nothing
-      -no-pr      (blog only) leave the branch local after deploying to lab,
-                  no PR
-      -resume     (blog only) path to the resume checkout, default ~/git/resume
+      -dry-run      run every gate, print what would be written (blog: the
+                    assembled post between `----- post -----` markers and the
+                    files; store: the rsync plan between `----- rsync -----`
+                    markers), write nothing, touch nothing, run nothing
+      -no-pr        (blog only) leave the branch local after deploying to lab,
+                    no PR
+      -list-missing (store only) print all items without images/notes instead of
+                    a summary count
+      -resume       (blog only) path to the resume checkout, default ~/git/resume
 
     GATES for blog (in order, each with its exit code)
       DIR missing, or no blog.md, or line 1 not '# Title'    CRITICAL 2, refuse
@@ -104,8 +116,9 @@ hee-deploy - publish a directory of markdown + images as a resume blog
       slug not slug-safe                                     CRITICAL 2, refuse
       no asset record, or no stock record                    CRITICAL 2, refuse, names the missing kind
       a stock record whose 'asset' names no asset in DIR     CRITICAL 2, refuse, names the stock file
-      an item (has stock) with no image                      WARNING 1, deploys anyway
-      an image with no note                                  WARNING 1, deploys anyway
+      an item (has stock) with no image                      WARNING 1, deploys anyway; one summary
+                                                              line per kind, -list-missing names each
+      an image with no note                                  WARNING 1, deploys anyway; same
       -to prod                                                UNKNOWN 3, prints the release
                                                               procedure, does nothing
       STORE_OWNER_TOKEN unset (real deploy only, not -dry-run)  CRITICAL 2, refuse before rsync,
@@ -138,4 +151,6 @@ hee-deploy - publish a directory of markdown + images as a resume blog
     hee deploy store ./ian -to lab                        # rsync, reload, health
     hee deploy store ./ian -dry-run                       # every gate, the rsync plan, nothing touched
     hee deploy store ./ian -to prod                       # prints the release procedure, exit 3
+    hee deploy worker tests/fixtures/deploy-worker -name get-hee -host get.hee.tools -dry-run   # ci
+    hee cred -pass cloudflare-tcos-www -dir ~/git/tcos-www/.hee/secrets -exec hee deploy worker ./site -name get-hee -host get.hee.tools
     hee deploy help

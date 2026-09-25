@@ -1,46 +1,91 @@
-HEE-SITE-PUBLISH(1)                HEE Tools               HEE-SITE-PUBLISH(1)
+HEE-SITE-PUBLISH(1)                HEE Tools                HEE-SITE-PUBLISH(1)
 
 NAME
-       hee-site-publish  -  add  files  into resume/dist/ and deploy the whole
-       tree
+       hee-site-publish  -  publish files to a Cloudflare Pages site and deploy
+       it
 
 SYNOPSIS
               hee-site-publish --add FILE [--add FILE ...] [--dry-run]
               hee-site-publish --post FILE.md [--oper SLUG] [--no-pr] [--dry-run]
+              hee-site-publish --site NAME --index FILE [--add FILE ...] [--dry-run]
+              hee-site-publish --site list
               hee-site-publish help
 
 DESCRIPTION
-              Publishes to the resume Cloudflare Pages project, which serves four
-              domains from one deployed tree -- spencer.blog.tcos.us,
-              touchy.blog.tcos.us, blog.tcos.us and media.tcos.us -- personalized
-              client-side by index.html reading window.location.hostname. There is no
-              server-side routing.
+                With no --site, publishes to the resume Cloudflare Pages project, which
+                serves four domains from one deployed tree -- spencer.blog.tcos.us,
+                touchy.blog.tcos.us, blog.tcos.us and media.tcos.us -- personalized
+                client-side by index.html reading window.location.hostname. There is no
+                server-side routing.
 
-              Why this tool exists: `wrangler pages deploy` is a full-tree ATOMIC
-              REPLACE, not an incremental upload. Deploying a directory holding only
-              new files would delete everything else already live across all four
-              domains. This tool only ADDS files into a current copy of resume/dist/
-              and then deploys the whole tree -- it never deploys a partial directory.
+                Why the --add dance exists: `wrangler pages deploy` is a full-tree
+                ATOMIC REPLACE, not an incremental upload. Deploying a directory holding
+                only new files would delete everything else already live across all four
+                domains. So this tool only ADDS files into a current copy of
+                resume/dist/ and then deploys the whole tree -- it never deploys a
+                partial directory.
 
-                --add       a file to add to the tree; repeatable
-                --post      publish one blog post: copy FILE.md into the resume repo at
-                            profiles/<oper>/blog/, rebuild the site (./convert.sh renders
-                            every post to a Gold page through .github's render-review.py
-                            and fails on a non-Gold page), deploy the whole tree, then
-                            open a PR carrying the post so git catches up. Live first,
-                            reviewed second -- the deploy is from the working tree, the
-                            PR is the record. Repeat --post for several posts.
-                --oper      which person's blog; default: your login ($USER) if it is a
-                            roster slug, else required
-                --no-pr     skip the PR (leaves the post uncommitted on a branch)
-                --dry-run   show what would deploy, deploy nothing
+                  --add       a file to add to the tree; repeatable
+                  --post      publish one blog post: copy FILE.md into the resume repo at
+                              profiles/<oper>/blog/, rebuild the site (./convert.sh renders
+                              every post to a Gold page through .github's render-review.py
+                              and fails on a non-Gold page), deploy the whole tree, then
+                              open a PR carrying the post so git catches up. Live first,
+                              reviewed second -- the deploy is from the working tree, the
+                              PR is the record. Repeat --post for several posts.
+                  --oper      which person's blog; default: your login ($USER) if it is a
+                              roster slug, else required
+                  --no-pr     skip the PR (leaves the post uncommitted on a branch)
+                  --dry-run   show what would deploy, deploy nothing
 
-              Requires a sealed Cloudflare API token at
-              <resume-repo>/.hee/secrets/cloudflare-tcos-www.gpg, read via `hee-cred
-              -pass`. The path is relative to the resume repo, since hee-cred's
-              storage directory is CWD-relative.
+              DEDICATED SITES (--site)
+                A dedicated site is one Cloudflare Pages project serving one domain and
+                nothing else. There is no shared tree to preserve, so the atomic replace
+                is the correct semantic rather than a footgun: **the files you name are
+                the whole site**, and anything previously deployed and not named again is
+                gone. That is the difference from the resume path above, and it is why
+                --index is required rather than inferred.
+
+                  --site NAME  which dedicated site (`--site list` names them)
+                  --dir DIR    publish DIR as the site: every file in it, top level only.
+                               Skips README.md, dotfiles, editor leftovers (*.bak, *~,
+                               *.orig, *.swp) -- a backup beside the page is a backup,
+                               not a page. DIR needs an index.html unless --index names
+                               one.
+                  --index FILE the file served at the site's root, as index.html. With
+                               --dir, FILE is usually a file inside DIR whose name is not
+                               index.html.
+                  --add FILE   another file, published under its own basename; repeatable
+
+                Known sites:
+
+                  beer    beer.tcos.us    project `beer`    TCLUG meetup material
+
+                A site's PERMANENT assets -- its og:image, its favicon -- live in
+                `fleet-ops/sites/<name>/` ($FLEET_OPS_DIR honoured) and are shipped on
+                every publish, before --dir, --index and --add, each of which may
+                override one by name. README.md there is never deployed. This exists so
+                those assets cannot be forgotten on the command line and therefore
+                deleted by the replace; it is also what makes what is live reviewable in
+                a repo. A site kept entirely in one directory does not need it -- use
+                --dir and the directory is the whole answer.
+
+                Order, last wins: repo assets, then --dir, then --add, then --index.
+
+                To add a site, add a line to the `site_project` case in this script,
+                attach the domain to the project (tcos-www/CLOUDFLARE_SETUP.md has the
+                API calls and the three token permissions it takes), add the CNAME to the
+                zone -- Cloudflare does not create it for you -- and put its assets in
+                fleet-ops/sites/<name>/.
+
+                Requires a sealed Cloudflare API token at
+                <tcos-www-repo>/.hee/secrets/cloudflare-tcos-www.gpg, read via `hee-cred
+                -pass`. The path is relative to the tcos-www repo -- hee-cred's storage
+                directory is CWD-relative and the token is named for that repo, not for
+                whatever this deploys.
 
 EXIT STATUS
               0 deployed (or dry-run completed)   1 usage or credential error
+              2 build failed, nothing deployed
 
-                                                           HEE-SITE-PUBLISH(1)
+                                                            HEE-SITE-PUBLISH(1)

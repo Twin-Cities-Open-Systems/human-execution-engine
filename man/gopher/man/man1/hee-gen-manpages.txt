@@ -1,4 +1,4 @@
-HEE-GEN-MANPAGES(1)                HEE Tools               HEE-GEN-MANPAGES(1)
+HEE-GEN-MANPAGES(1)                HEE Tools                HEE-GEN-MANPAGES(1)
 
 NAME
        hee-gen-manpages - generate man pages from each tool's own --help
@@ -53,4 +53,4 @@ DESTINATIONS
               man/manN/ holds pages written BY HAND. Those WIN: generation skips any
               tool with an authored page and says so.
 
-                                                           HEE-GEN-MANPAGES(1)
+                                                            HEE-GEN-MANPAGES(1)

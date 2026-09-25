@@ -1,4 +1,4 @@
-HEE-TOOLS(1)                       HEE Tools                      HEE-TOOLS(1)
+HEE-TOOLS(1)                       HEE Tools                       HEE-TOOLS(1)
 
 NAME
        hee-tools - router for the external-toolchain check/update pair
@@ -37,4 +37,4 @@ EXIT STATUS
 SEE ALSO
               hee-tools-check, hee-tools-update, tooling/tools.manifest.txt
 
-                                                                  HEE-TOOLS(1)
+                                                                   HEE-TOOLS(1)

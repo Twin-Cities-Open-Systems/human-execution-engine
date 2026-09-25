@@ -1,4 +1,4 @@
-HEE-CACHE-PRUNE(8)                 HEE Tools                HEE-CACHE-PRUNE(8)
+HEE-CACHE-PRUNE(8)                 HEE Tools                 HEE-CACHE-PRUNE(8)
 
 NAME
        hee-cache-prune - prune stale entries from the hee-* disk caches
@@ -26,4 +26,4 @@ DESCRIPTION
 EXIT STATUS
               0 pruned (including when there was nothing to prune)
 
-                                                            HEE-CACHE-PRUNE(8)
+                                                             HEE-CACHE-PRUNE(8)

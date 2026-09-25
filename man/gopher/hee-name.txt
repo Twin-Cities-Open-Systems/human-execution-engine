@@ -1,4 +1,4 @@
-HEE-NAME(1)                        HEE Tools                       HEE-NAME(1)
+HEE-NAME(1)                        HEE Tools                        HEE-NAME(1)
 
 NAME
        hee-name - hee-name command
@@ -29,4 +29,4 @@ DESCRIPTION
                                       anchor the ledger here (else $HEE_NAME_ALLOCATIONS,
                                       else this tool's repo)
 
-                                                                   HEE-NAME(1)
+                                                                    HEE-NAME(1)

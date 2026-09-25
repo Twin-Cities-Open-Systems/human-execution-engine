@@ -1,4 +1,4 @@
-HEE-GIT-TAG(1)                     HEE Tools                    HEE-GIT-TAG(1)
+HEE-GIT-TAG(1)                     HEE Tools                     HEE-GIT-TAG(1)
 
 NAME
        hee-git-tag - a GPG-signed git tag with the key that is really yours
@@ -47,4 +47,4 @@ KEY SELECTION
               Nothing is read from gitconfig. The chosen key id is printed on every
               run so the record says which key signed.
 
-                                                                HEE-GIT-TAG(1)
+                                                                 HEE-GIT-TAG(1)

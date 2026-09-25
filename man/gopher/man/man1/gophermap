@@ -9,6 +9,7 @@ i		man.tcos.us	70
 0hee-con(1)	/man/man1/hee-con.txt	man.tcos.us	70
 0hee-contract-review(1)	/man/man1/hee-contract-review.txt	man.tcos.us	70
 0hee-cred(1)	/man/man1/hee-cred.txt	man.tcos.us	70
+0hee-deploy(1)	/man/man1/hee-deploy.txt	man.tcos.us	70
 0hee-dns(1)	/man/man1/hee-dns.txt	man.tcos.us	70
 0hee-exif(1)	/man/man1/hee-exif.txt	man.tcos.us	70
 0hee-fields(1)	/man/man1/hee-fields.txt	man.tcos.us	70
@@ -21,6 +22,7 @@ i		man.tcos.us	70
 0hee-goose(1)	/man/man1/hee-goose.txt	man.tcos.us	70
 0hee-hg(1)	/man/man1/hee-hg.txt	man.tcos.us	70
 0hee-hooks-install(1)	/man/man1/hee-hooks-install.txt	man.tcos.us	70
+0hee-image(1)	/man/man1/hee-image.txt	man.tcos.us	70
 0hee-index(1)	/man/man1/hee-index.txt	man.tcos.us	70
 0hee-inv-receipt(1)	/man/man1/hee-inv-receipt.txt	man.tcos.us	70
 0hee-inv(1)	/man/man1/hee-inv.txt	man.tcos.us	70
@@ -39,7 +41,6 @@ i		man.tcos.us	70
 0hee-release(1)	/man/man1/hee-release.txt	man.tcos.us	70
 0hee-repo-refresh(1)	/man/man1/hee-repo-refresh.txt	man.tcos.us	70
 0hee-scan(1)	/man/man1/hee-scan.txt	man.tcos.us	70
-0hee-scrob(1)	/man/man1/hee-scrob.txt	man.tcos.us	70
 0hee-shell(1)	/man/man1/hee-shell.txt	man.tcos.us	70
 0hee-site-publish(1)	/man/man1/hee-site-publish.txt	man.tcos.us	70
 0hee-sqz(1)	/man/man1/hee-sqz.txt	man.tcos.us	70

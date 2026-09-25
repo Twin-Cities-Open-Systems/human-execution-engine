@@ -1,4 +1,4 @@
-HEE-STAT(1)                        HEE Tools                       HEE-STAT(1)
+HEE-STAT(1)                        HEE Tools                        HEE-STAT(1)
 
 NAME
        hee-stat - stat(1)'s -c FORMAT convention over namespaced resources
@@ -60,4 +60,4 @@ FORMAT SPECIFIERS
               Times are printed as bare Unix epoch seconds, never formatted -- pipe
               through `date -d @<n>` if you want a human date.
 
-                                                                   HEE-STAT(1)
+                                                                    HEE-STAT(1)

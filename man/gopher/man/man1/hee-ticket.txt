@@ -1,4 +1,4 @@
-HEE-TICKET(1)                      HEE Tools                     HEE-TICKET(1)
+HEE-TICKET(1)                      HEE Tools                      HEE-TICKET(1)
 
 NAME
        hee-ticket - repo-local tickets, stored as real YAML in git
@@ -104,4 +104,4 @@ ACTIONS
               Add `help` after any action for its own page:
                   hee-ticket -close help
 
-                                                                 HEE-TICKET(1)
+                                                                  HEE-TICKET(1)

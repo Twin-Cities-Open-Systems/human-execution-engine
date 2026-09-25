@@ -1,4 +1,4 @@
-HEE-PVE(8)                         HEE Tools                        HEE-PVE(8)
+HEE-PVE(8)                         HEE Tools                         HEE-PVE(8)
 
 NAME
        hee-pve - the pve family, and the host network read from a yaml.
@@ -72,4 +72,4 @@ DESCRIPTION
               options:
                 -h, --help            show this help message and exit
 
-                                                                    HEE-PVE(8)
+                                                                     HEE-PVE(8)

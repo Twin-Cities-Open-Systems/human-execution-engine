@@ -1,7 +1,7 @@
-HEE-QUOTA(1)                       HEE Tools                      HEE-QUOTA(1)
+HEE-QUOTA(1)                       HEE Tools                       HEE-QUOTA(1)
 
 NAME
-       hee-quota   -   hee-quota:   monitor   GitHub   API   rate-limit  pools
+       hee-quota   -   hee-quota:   monitor   GitHub   API   rate-limit   pools
        (core/graphql/search) and
 
 SYNOPSIS
@@ -46,4 +46,4 @@ DESCRIPTION
               safe to call before every bulk run, not just when something's already
               gone wrong.
 
-                                                                  HEE-QUOTA(1)
+                                                                   HEE-QUOTA(1)

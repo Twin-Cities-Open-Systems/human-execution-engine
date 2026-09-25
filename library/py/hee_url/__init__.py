@@ -494,15 +494,50 @@ def ensure_domain(hostname: str, worker: str, token: str, account: str) -> str:
     return "attached"
 
 
-def deploy(cfg: dict, *, dry_run: bool = False, message: str = "", log=print) -> dict:
-    """Build the tree and ship it as a Worker with static assets, then make
-    sure the base hostname is attached to that Worker."""
+def ship_worker(stage: Path, worker: str, host: str | None, *, message: str = "",
+                wrangler: str = "wrangler@4.86.0", compatibility_date: str = "2026-08-15",
+                log=print) -> dict:
+    """Ship a directory as a Cloudflare Worker with static assets and, when
+    ``host`` is given, make sure that hostname is attached to it.
+
+    Shared by `hee url deploy` (a built redirect tree) and `hee deploy
+    worker` (any static directory, e.g. get.hee.tools). One wrangler
+    invocation, one domain-attach path, not two that drift. Needs Node >=
+    20 and a token from cf_token(); HEE_CRED_PASS is scrubbed from the
+    child's environment so wrangler never sees the sealed value under the
+    generic name."""
     if shutil.which("npx") is None:
         raise UrlError("npx not found; wrangler needs Node >= 20")
     node = subprocess.run(["node", "-v"], capture_output=True, text=True, check=False).stdout.strip()
     major = int(re.sub(r"\D", " ", node).split()[0] or 0) if node else 0
     if major < 20:
         raise UrlError(f"Node >= 20 required for wrangler, found {node or 'none'}")
+    token = cf_token()
+    account = cf_account(token)
+    env = dict(os.environ, CLOUDFLARE_API_TOKEN=token, CLOUDFLARE_ACCOUNT_ID=account)
+    env.pop("HEE_CRED_PASS", None)
+    cmd = ["npx", "--yes", wrangler, "deploy", "--name", worker, "--assets", ".",
+           f"--compatibility-date={compatibility_date}"]
+    if message:
+        cmd += ["--message", message]
+    r = subprocess.run(cmd, cwd=stage, env=env, capture_output=True, text=True, check=False)
+    wanted = [ln for ln in (r.stdout + r.stderr).splitlines()
+              if re.search(r"Success|rror|requires|Deployed|Uploaded", ln)]
+    for ln in wanted:
+        log(f"  wrangler: {ln.strip()}")
+    if r.returncode != 0:
+        raise UrlError(f"wrangler deploy exited {r.returncode}")
+    out = {"deployed": True, "worker": worker}
+    if host:
+        how = ensure_domain(host, worker, token, account)
+        log(f"custom domain {host}: {how}")
+        out["domain"] = how
+    return out
+
+
+def deploy(cfg: dict, *, dry_run: bool = False, message: str = "", log=print) -> dict:
+    """Build the tree and ship it as a Worker with static assets, then make
+    sure the base hostname is attached to that Worker."""
     records = load_all(cfg)
     host = urllib.parse.urlsplit(str(cfg["base"])).netloc
     stage = Path(tempfile.mkdtemp(prefix="hee-url-"))
@@ -512,23 +547,9 @@ def deploy(cfg: dict, *, dry_run: bool = False, message: str = "", log=print) ->
         if dry_run:
             log("dry run: not deploying")
             return {"slugs": slugs, "deployed": False}
-        token = cf_token()
-        account = cf_account(token)
-        env = dict(os.environ, CLOUDFLARE_API_TOKEN=token, CLOUDFLARE_ACCOUNT_ID=account)
-        env.pop("HEE_CRED_PASS", None)
-        cmd = ["npx", "--yes", cfg["wrangler"], "deploy", "--name", cfg["worker"], "--assets", ".",
-               f"--compatibility-date={cfg['compatibility_date']}"]
-        if message:
-            cmd += ["--message", message]
-        r = subprocess.run(cmd, cwd=stage, env=env, capture_output=True, text=True, check=False)
-        wanted = [ln for ln in (r.stdout + r.stderr).splitlines()
-                  if re.search(r"Success|rror|requires|Deployed|Uploaded", ln)]
-        for ln in wanted:
-            log(f"  wrangler: {ln.strip()}")
-        if r.returncode != 0:
-            raise UrlError(f"wrangler deploy exited {r.returncode}")
-        how = ensure_domain(host, cfg["worker"], token, account)
-        log(f"custom domain {host}: {how}")
-        return {"slugs": slugs, "deployed": True, "domain": how}
+        shipped = ship_worker(stage, cfg["worker"], host, message=message,
+                              wrangler=cfg["wrangler"], compatibility_date=cfg["compatibility_date"],
+                              log=log)
+        return {"slugs": slugs, "deployed": True, "domain": shipped.get("domain")}
     finally:
         shutil.rmtree(stage, ignore_errors=True)

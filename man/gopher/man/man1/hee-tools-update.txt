@@ -1,4 +1,4 @@
-HEE-TOOLS-UPDATE(1)                HEE Tools               HEE-TOOLS-UPDATE(1)
+HEE-TOOLS-UPDATE(1)                HEE Tools                HEE-TOOLS-UPDATE(1)
 
 NAME
        hee-tools-update - install or refresh the pinned external toolchain
@@ -83,4 +83,4 @@ EXIT STATUS
 SEE ALSO
               hee-tools, hee-tools-check
 
-                                                           HEE-TOOLS-UPDATE(1)
+                                                            HEE-TOOLS-UPDATE(1)

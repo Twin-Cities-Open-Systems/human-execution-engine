@@ -1,4 +1,4 @@
-HEE-DNS(1)                         HEE Tools                        HEE-DNS(1)
+HEE-DNS(1)                         HEE Tools                         HEE-DNS(1)
 
 NAME
        hee-dns - generate BIND zones from one flat host file.
@@ -58,4 +58,4 @@ WHY THIS EXISTS
               is silently ignored by secondaries, which is the classic way a zone update
               "succeeds" and changes nothing.
 
-                                                                    HEE-DNS(1)
+                                                                     HEE-DNS(1)

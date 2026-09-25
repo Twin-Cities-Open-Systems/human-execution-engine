@@ -1,4 +1,4 @@
-HEE-SSH-TRUST-CA(8)                HEE Tools               HEE-SSH-TRUST-CA(8)
+HEE-SSH-TRUST-CA(8)                HEE Tools                HEE-SSH-TRUST-CA(8)
 
 NAME
        hee-ssh-trust-ca - hee-ssh-trust-ca command
@@ -15,4 +15,4 @@ DESCRIPTION
                 --ca-pubkey CA_PUBKEY
                 --conf-name CONF_NAME
 
-                                                           HEE-SSH-TRUST-CA(8)
+                                                            HEE-SSH-TRUST-CA(8)

@@ -1,4 +1,4 @@
-HEE-QDB(1)                       User Commands                      HEE-QDB(1)
+HEE-QDB(1)                       User Commands                       HEE-QDB(1)
 
 NAME
        hee-qdb - real quote search across a source document
@@ -7,8 +7,8 @@ SYNOPSIS
        hee qdb -source PATH -search TERM
 
 DESCRIPTION
-       Searches  a  real source text file (a roster/quote-log document such as
-       WHO-WE-ARE.md) for lines matching TERM and prints real  matches  --  no
+       Searches  a  real  source text file (a roster/quote-log document such as
+       WHO-WE-ARE.md) for lines matching TERM and prints  real  matches  --  no
        fabricated quotes, no paraphrasing.
 
 OPTIONS
@@ -19,11 +19,11 @@ OPTIONS
               Search term. Required.
 
 EXAMPLES
-              hee  qdb  -source  ~/.local/bin/WHO-WE-ARE.md  -search "counting
+              hee  qdb  -source  ~/.local/bin/WHO-WE-ARE.md  -search  "counting
               fact"
 
 IRSSI INTEGRATION
-              QDB   =   "EXEC   -o   ~/.local/bin/hee   qdb   -source   ~/.lo‐
+              QDB   =   "EXEC   -o   ~/.local/bin/hee   qdb   -source    ~/.lo‐
               cal/bin/WHO-WE-ARE.md -search"
 
        then /QDB TERM in a channel.
@@ -35,4 +35,4 @@ ORGANIZATION
 SEE ALSO
        hee-scrob(1), hee-scan(1)
 
-HEE                               2026-08-22                        HEE-QDB(1)
+HEE                                2026-08-22                        HEE-QDB(1)
