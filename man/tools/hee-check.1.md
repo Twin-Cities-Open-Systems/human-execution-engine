@@ -63,6 +63,11 @@ hee-check - repo boundary and integrity checks
                        space-separated, e.g. viz-dashboard/public -- a rendered
                        surface holding copies of objects it does not own. Not
                        HEE_DERIVED_DIRS, which means "must not be committed".
+    HEE_LOCALE_SKIP    git pathspecs the locale check does not judge, space-
+                       separated, e.g. pve/agents/jobs -- copies of artifacts
+                       shipped to and from agents, whose spelling this repo did
+                       not author and must not rewrite. Same declare-in-CI shape
+                       as HEE_REFS_SKIP.
     HEE_HOME_PATH_SKIP git pathspecs the home-path scan skips, e.g. ':!hosts/*'
                        for host-pinned scripts and units that name the real
                        user on the real host on purpose. Set it in heerc; the
