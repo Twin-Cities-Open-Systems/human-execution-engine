@@ -58,27 +58,37 @@ DESCRIPTION
 
   MANIFEST defaults to tooling/tools.manifest.txt resolved relative to
   this script, not to the current directory, so it works from anywhere.
-  Blank lines and lines starting with # are skipped. Only the FIRST
-  field of each line (the tool name) is used -- the kind and desired-
-  version columns are read by hee-tools-update, not by this tool.
+  Blank lines and lines starting with # are skipped. The NAME field (first)
+  and the DESIRED-version field (third) are both used.
 
   Presence is `command -v`. The version string is the first line of
   `<tool> --version`, falling back to `<tool> -V`; if neither works the
   line reads (version-flag-unknown). Nothing is installed, downloaded,
   or modified -- this tool is strictly read-only.
 
+  VERSION ENFORCEMENT. When the DESIRED field is a version (not `any`) and
+  the reported version string does not contain it, the line is CRITICAL:
+  "wrong version (have X, want Y)". This is why hee-print silently ran the
+  distro's Python yq 3.x for days -- the manifest pins `yq 4.50.1`, the tool
+  was present at 3.4.3, and presence-only reported OK. A version-flag-unknown
+  tool cannot be compared, so it is reported present without enforcement.
+
   The exit code is the worst status reported, so a script can gate on it;
   each line's LABEL (per vis.status.shfn.bash) says which tool.
 
 EXIT STATUS
   Nagios plugin convention; the worst line wins.
-  0 OK        every manifest tool is present
+  0 OK        every manifest tool present at the version it pins
   1 WARNING   an optional tool is missing
-  2 CRITICAL  a required tool is missing
+  2 CRITICAL  a required tool is missing, or present at the wrong version
   3 UNKNOWN   the MANIFEST cannot be read
 
   Until 2026-09-11 this tool exited 0 even with a required tool missing, and
-  an unreadable MANIFEST exited 2 from the shell.
+  an unreadable MANIFEST exited 2 from the shell. Until 2026-09-26 it checked
+  presence only and passed a tool pinned to a version it did not have.
+
+EXAMPLES
+  $ hee tools-check tests/fixtures/tools-manifest/present.txt   # ci
 
 ENVIRONMENT
   HEE_STATUS_STYLE   icon (default), ascii, or plain. See heerc.
@@ -119,6 +129,7 @@ resolve_tool() { hee_manifest_resolve_tool "$@"; }
 vline() {
   spec="$1"
   req="${2:-required}"
+  desired="${3:-any}"
   n="$(resolve_tool "$spec")" || n=""
   if [ -n "$n" ]; then
     if "$n" --version >/dev/null 2>&1; then
@@ -127,6 +138,23 @@ vline() {
       ver=$("$n" -V | head -n 1)
     else
       ver="(version-flag-unknown)"
+    fi
+    as=""
+    [ "$n" != "$spec" ] && as="  [as $n]"
+    # Version enforcement. Only when the manifest pins a version AND we could
+    # read one -- a version-flag-unknown tool cannot be compared, so it is
+    # reported present, never failed for something unmeasurable. The match is
+    # a substring test: a version STRING like "yq (...) version v4.50.1"
+    # contains the pinned "4.50.1", while the Python yq's "yq 3.4.3" does not.
+    if [ "$desired" != "any" ] && [ -n "$desired" ] && [ "$ver" != "(version-flag-unknown)" ]; then
+      case "$ver" in
+        *"$desired"*)
+          hee_status OK "$(printf '%-8s %s' "$spec" "$ver$as")" ;;
+        *)
+          hee_status CRITICAL "$(printf '%-8s %s' "$spec" "wrong version (have '$ver', want $desired) -- run hee tools-update$as")"
+          WORST=2 ;;
+      esac
+      return
     fi
     if [ "$n" != "$spec" ]; then
       hee_status OK "$(printf '%-8s %s' "$spec" "$ver  [as $n]")"
@@ -161,9 +189,11 @@ while IFS= read -r line; do
   esac
   set -- $line
   name="$1"
-  # 5th column, optional for back-compat: a manifest line without it is required.
+  # 3rd column is the desired version (or `any`); 5th, optional for
+  # back-compat, is requiredness -- a line without it is required.
+  desired="${3:-any}"
   req="${5:-required}"
-  vline "$name" "$req"
+  vline "$name" "$req" "$desired"
 done < "$MANIFEST"
 
 exit "$WORST"

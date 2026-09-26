@@ -1,0 +1,4 @@
+# jq pinned to a version it is not, to prove hee-tools-check reports CRITICAL
+# on a version mismatch (not just on absence). Used by the unit test, NOT
+# marked # ci -- it is meant to fail.
+jq  pkg  99.99.99  --version

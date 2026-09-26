@@ -30,17 +30,26 @@ SYNOPSIS
   hee-print help
 
 DESCRIPTION
-  Picks a renderer from the file extension, falling back to cat whenever the
-  nicer tool is not installed. Never prompts, never writes.
+  Picks a renderer from the file extension. When the nicer tool is missing,
+  it degrades to a plainer one -- and SAYS SO on stderr, naming what is
+  missing, so a plain render is never mistaken for a pretty one. Never
+  prompts, never writes. A degrade still exits 0: the file was rendered.
 
-    .md/.markdown -> glow -p
-    .yml/.yaml    -> yq -P
-    .json         -> jq .
+    .md/.markdown -> glow -p, else bat/batcat, else cat (+ WARNING)
+    .yml/.yaml    -> yq -P (the mikefarah yq only), else bat/batcat,
+                     else cat (+ WARNING naming the yq that was found)
+    .json         -> jq ., else bat/batcat, else cat (+ WARNING)
     .png/.jpg/.jpeg/.gif/.webp
                   -> chafa (a still; --animate plays a GIF for 10 s), else
                      `file` plus a WARNING naming the missing renderer --
                      never a raw byte dump to the terminal
     other         -> bat/batcat -p --paging=never, else cat
+
+  On yq: Debian and Ubuntu ship a DIFFERENT `yq` -- a Python jq wrapper
+  (`yq 3.x`) that does not understand `-P` and errors on it. hee-print
+  therefore uses yq only when `yq --version` reports the mikefarah yq,
+  and otherwise degrades with a WARNING. `hee tools-update` installs the
+  pinned mikefarah yq into ~/.local/bin, ahead of the distro one on PATH.
 
   Images: the format that is known to work is the default, measured from
   where the tool is running, not guessed (operator, 2026-09-06: "when you
@@ -94,6 +103,14 @@ EXAMPLES
       hee exif read image.png --provenance | hee-print
       curl -s https://example.com/data.json | hee-print
 
+  Proven in CI over checked-in fixtures -- each renders and exits 0 even
+  where the pretty renderer is absent, because a degrade is still a render:
+
+      $ hee print tests/fixtures/print/sample.json   # ci
+      $ hee print tests/fixtures/print/sample.yaml   # ci
+      $ hee print tests/fixtures/print/sample.md   # ci
+      $ hee print --image-format show   # ci
+
 EXIT STATUS
   0 rendered   2 usage error or no file given
 USAGE
@@ -116,16 +133,52 @@ pick_bat() {
   echo ""
 }
 
-render_md() {
-  if have glow; then glow -p "$1"; else cat "$1"; fi
+# Degrade to bat/batcat with an explicit language, else cat. LANG is the
+# bat syntax name (md, yaml, json), which matters for stdin where there is
+# no filename for bat to sniff. Callers pass the WARNING; this just renders.
+render_plain() {
+  _rp_file="$1"; _rp_lang="$2"
+  _rp_bat="$(pick_bat)"
+  if [ -n "$_rp_bat" ]; then
+    "$_rp_bat" -pp --paging=never -l "$_rp_lang" "$_rp_file" 2>/dev/null \
+      || "$_rp_bat" -pp --paging=never "$_rp_file"
+  else
+    cat "$_rp_file"
+  fi
 }
 
+render_md() {
+  if have glow; then
+    glow -p "$1"
+  else
+    echo "⚠️ WARNING hee-print: glow not installed -- rendering markdown plainly (apt install glow, or hee tools-update)." >&2
+    render_plain "$1" md
+  fi
+}
+
+# The distro `yq` (kislyuk/Python, 3.x) is a jq wrapper that errors on -P;
+# only the mikefarah yq (4.x, Go) pretty-prints with -P. Use yq ONLY when it
+# is that one, and degrade honestly otherwise -- never let `yq -P` fail loud.
 render_yaml() {
-  if have yq; then yq -P "$1"; else cat "$1"; fi
+  if have yq && yq --version 2>&1 | grep -q mikefarah; then
+    yq -P "$1"
+  else
+    if have yq; then
+      echo "⚠️ WARNING hee-print: the yq on PATH is '$(yq --version 2>&1 | head -n1)', not the mikefarah yq that -P needs -- rendering plainly. Run 'hee tools-update' to install the pinned yq." >&2
+    else
+      echo "⚠️ WARNING hee-print: yq not installed -- rendering YAML plainly (hee tools-update installs the pinned yq)." >&2
+    fi
+    render_plain "$1" yaml
+  fi
 }
 
 render_json() {
-  if have jq; then jq . < "$1"; else cat "$1"; fi
+  if have jq; then
+    jq . < "$1"
+  else
+    echo "⚠️ WARNING hee-print: jq not installed -- rendering JSON plainly (apt install jq)." >&2
+    render_plain "$1" json
+  fi
 }
 
 # The image format that works here, and why -- prints "FORMAT<TAB>reason".

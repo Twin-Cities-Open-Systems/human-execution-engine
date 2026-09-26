@@ -15,17 +15,26 @@ hee-print - render files nicely for terminal surfaces
 # DESCRIPTION
 
 
-    Picks a renderer from the file extension, falling back to cat whenever the
-    nicer tool is not installed. Never prompts, never writes.
+    Picks a renderer from the file extension. When the nicer tool is missing,
+    it degrades to a plainer one -- and SAYS SO on stderr, naming what is
+    missing, so a plain render is never mistaken for a pretty one. Never
+    prompts, never writes. A degrade still exits 0: the file was rendered.
 
-      .md/.markdown -> glow -p
-      .yml/.yaml    -> yq -P
-      .json         -> jq .
+      .md/.markdown -> glow -p, else bat/batcat, else cat (+ WARNING)
+      .yml/.yaml    -> yq -P (the mikefarah yq only), else bat/batcat,
+                       else cat (+ WARNING naming the yq that was found)
+      .json         -> jq ., else bat/batcat, else cat (+ WARNING)
       .png/.jpg/.jpeg/.gif/.webp
                     -> chafa (a still; --animate plays a GIF for 10 s), else
                        `file` plus a WARNING naming the missing renderer --
                        never a raw byte dump to the terminal
       other         -> bat/batcat -p --paging=never, else cat
+
+    On yq: Debian and Ubuntu ship a DIFFERENT `yq` -- a Python jq wrapper
+    (`yq 3.x`) that does not understand `-P` and errors on it. hee-print
+    therefore uses yq only when `yq --version` reports the mikefarah yq,
+    and otherwise degrades with a WARNING. `hee tools-update` installs the
+    pinned mikefarah yq into ~/.local/bin, ahead of the distro one on PATH.
 
     Images: the format that is known to work is the default, measured from
     where the tool is running, not guessed (operator, 2026-09-06: "when you
@@ -84,3 +93,11 @@ hee-print - render files nicely for terminal surfaces
 
         hee exif read image.png --provenance | hee-print
         curl -s https://example.com/data.json | hee-print
+
+    Proven in CI over checked-in fixtures -- each renders and exits 0 even
+    where the pretty renderer is absent, because a degrade is still a render:
+
+        $ hee print tests/fixtures/print/sample.json   # ci
+        $ hee print tests/fixtures/print/sample.yaml   # ci
+        $ hee print tests/fixtures/print/sample.md   # ci
+        $ hee print --image-format show   # ci

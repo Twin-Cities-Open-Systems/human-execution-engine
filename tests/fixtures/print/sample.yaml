@@ -1,0 +1,8 @@
+tool: hee-print
+renders:
+  - md
+  - yaml
+  - json
+  - image
+degrades: true
+exit_on_render: 0
