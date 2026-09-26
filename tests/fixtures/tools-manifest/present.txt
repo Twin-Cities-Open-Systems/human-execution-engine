@@ -1,0 +1,5 @@
+# A self-contained manifest for the hee-tools-check # ci example: two tools
+# that are always present (git, jq on ubuntu-latest and on flippy) at any
+# version, so the example renders OK and exits 0 without touching the network.
+git  pkg  any  --version
+jq   pkg  any  --version
