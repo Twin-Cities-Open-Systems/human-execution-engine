@@ -51,6 +51,11 @@ governance and two into generated man pages (issue 504). Two mechanisms now:
      between them, for a prose paragraph that would otherwise need the
      inline form on three consecutive lines.
 
+   Neither is needed in ``.hee/tickets/``: ticket prose is skipped
+   wholesale (see the skip below, and the operator decision behind it).
+   Markers there are dead weight -- remove them rather than leave a
+   reader wondering why a skipped tree is annotated.
+
    In Markdown, wrap either in an HTML comment so it renders as nothing.
    A marker rather than a central registry for the same reason rule 17
    rejected a central man-section map: a marker travels with the text, a
@@ -238,6 +243,37 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
             # Machine output: npm's "bin" maps look like paths and are not
             # references anyone wrote. Four false positives from one
             # package-lock.json, 2026-09-07.
+            continue
+        if f.startswith(".hee/tickets/") or "/.hee/tickets/" in f:
+            # Ticket prose, skipped wholesale for the same reason as
+            # CHANGELOG.md below: it is a record of intent, not a set of
+            # references anything follows. A ticket description routinely
+            # names a path in another repo, a path that has since been
+            # renamed, and a path that does not exist yet because the ticket
+            # is what proposes building it. All three read as broken here.
+            #
+            # Operator decision, 2026-09-26, after two sessions independently
+            # fixed the same breakage two different ways in one afternoon --
+            # one with refs-off/on blocks, one by rewording -- and a third
+            # convention (inline refs-ok) was already in use elsewhere.
+            # Three answers to one question is the bug; this removes the
+            # question.
+            #
+            # What it costs, measured before deciding rather than after: one
+            # true positive that whole day, ticket fleet-ops/0146 naming
+            # targets.conf after the rename that removed it. It fired on main
+            # AFTER both PRs merged -- neither branch could have caught it,
+            # because the conflict did not exist until both landed -- and the
+            # ticket it flagged was being closed anyway, since the rename was
+            # the work the ticket tracked. A post-hoc catch on a ticket that
+            # was already done, against a structurally permanent false
+            # positive rate, is a bad trade.
+            #
+            # NOT a skip for docs or contracts. A doc naming a path in
+            # tcos-plan-private or hamstack still passes on a workstation
+            # where every repo sits at ~/git/ and still fails in CI, which
+            # checks out fleet-ops and human-execution-engine and nothing
+            # else. That class is real and stays checked.
             continue
         if os.path.basename(f) == "CHANGELOG.md":
             # generated history (hee gen-changelog, rule 18): commit subjects
