@@ -1,9 +1,13 @@
 id: 0019
 created_at: '2026-09-26T21:12:51Z'
+# hee-check:refs-off  the description names scripts/bootstrap-node.sh, which
+# lives in the hamstack checkout ("a checkout this account cannot read"), not
+# in this repo -- prose, not a reference to a file here.
 description: hee ver should report hamstack bootstrap values -- hee-ver has zero bootstrap
   support today and the hamstack side is scripts/bootstrap-node.sh in a checkout this
   account cannot read. Refines the same subcommand surface as tickets 0012 and 0015.
   BLOCKED on hamstack access (fleet-ops ticket 0142)
+# hee-check:refs-on
 status: open
 stage: idea
 stage_history:
