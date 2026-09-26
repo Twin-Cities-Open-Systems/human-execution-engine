@@ -1,0 +1,25 @@
+id: '0020'
+created_at: '2026-09-26T21:17:29Z'
+description: 'hee-check refs reports 30 false CRITICALs inside a hee-worktree -- its
+  cross-repo sibling lookup assumes the repo is at ~/git/<repo>, but hee-worktree
+  puts the checkout at ~/git/<repo>.worktrees/<branch>, where the siblings are other
+  worktrees instead of the other repos. Measured 2026-09-26 in fleet-ops: ''hee check
+  refs'' on main says ''all 658 file references resolve'' with ''30 in human-execution-engine''
+  resolved in siblings; the same commit in a worktree reports exactly those 30 as
+  CRITICAL (e.g. docs/MONITORING.md:55 -> mib/BASE-MODULES.md, which lives in the
+  HEE checkout). Reproduced identically in an unrelated worktree, so it is the location
+  and not the branch. Two org-mandated tools contradict each other: rule 1 says work
+  in a branch, hee-worktree is how, and then the CI-equivalent local check cannot
+  be run there'
+status: open
+stage: idea
+stage_history:
+- stage: idea
+  at: '2026-09-26T21:17:29Z'
+source: shift 2026-09-26, running hee check all in a worktree before opening a PR
+tags:
+- hee
+- hee-check
+- footgun
+- tooling
+- ci
