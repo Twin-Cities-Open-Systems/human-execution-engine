@@ -31,7 +31,14 @@ stage_history:
     that says --default-key for signing should say --local-user, or better, should say
     `hee check signatures --re-sign --key <id>`, which already refuses correctly:
     "UNKNOWN no secret key for ... run this where that key actually lives", file
-    untouched.'
+    untouched. Two further rules the same incident produced, both operator-stated
+    2026-09-26: name the key as a user@host UID and never as hex when a human runs
+    the command ("always use user@host recipients when humans are involved" -- a
+    fingerprint is gpg output, not human input), and name a working directory that
+    exists on the host that holds the key. The runbook did neither: it gave a hex id
+    and a flippy worktree path for a key that lives in spencer''s keyring on
+    kiosk.lab.tcos.us. A runbook that cannot be run where the key is will be run
+    where it is not.'
 source: 'shift 2026-09-26: the operator ran a re-sign runbook this session wrote, and
   the wrong key signed a ratified registry'
 tags:
