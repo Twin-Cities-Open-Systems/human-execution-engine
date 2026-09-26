@@ -93,3 +93,11 @@ hee-site-publish - publish files to a Cloudflare Pages site and deploy it
 
     0 deployed (or dry-run completed)   1 usage or credential error
     2 build failed, nothing deployed
+
+# EXAMPLES
+
+    $ hee site-publish --site list   # ci
+
+    --site list reads the repo's site registry and writes nothing. A real
+    publish needs a sealed Cloudflare token (above) and is left unmarked, even
+    with --dry-run, because it reads that credential first.

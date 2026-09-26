@@ -13,3 +13,11 @@ hee-procmail - hee-procmail command
     options:
       -h, --help   show this help message and exit
       -rules PATH
+
+
+# EXAMPLES
+
+    cat message.eml | hee procmail
+
+    Not marked "# ci": it filters a message on stdin against the rule file at
+    .hee/mailrules.yaml, which is operator mail config, not a repo fixture.

@@ -124,6 +124,14 @@ VERSIONS
   refuses unless HEAD is origin/main and CHANGELOG's newest header is
   the version; without -yes it prints the plan and runs nothing.
 
+EXAMPLES
+  hee release -status
+  hee release -next
+
+  Not marked "# ci": every mode reads full git history and release tags to
+  compute what changed since the last cut, which a shallow, tagless CI
+  checkout does not have; -lab/-prod also build and push.
+
 EXIT STATUS
   0 OK, 1 WARNING (nothing to release, nothing selected), 2 CRITICAL (gate, build or deploy failed, bad name or regex),
   3 UNKNOWN (no card, or a requirement the card declares is missing)

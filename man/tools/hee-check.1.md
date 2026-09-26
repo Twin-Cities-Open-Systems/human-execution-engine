@@ -85,6 +85,7 @@ hee-check - repo boundary and integrity checks
 
 # EXAMPLES
 
+    $ hee check regex   # ci
     hee-check                     boundary check of the current repo
     hee-check refs                every reference in the current repo
     hee-check refs ~/git          every repo under ~/git

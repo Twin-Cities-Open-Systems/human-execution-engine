@@ -101,6 +101,13 @@ DESCRIPTION
   LOG_DIR/tools-update.<UTC-timestamp>.log to see what happened. The
   resolved path is printed when the run starts.
 
+EXAMPLES
+  hee tools-update
+
+  Not marked "# ci": it downloads and installs the pinned toolchain (go, yq)
+  into ~/.local, a mutation of the host, so there is no read-only run to prove.
+  hee tools-check is the read-only half and IS proven in CI.
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK   every manifest line was processed

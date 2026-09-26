@@ -30,6 +30,16 @@ positional arguments:
 options:
   \-h, \-\-help            show this help message and exit
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee pve health status
+hee pve health map \-\-proposed
+
+Not marked \[dq]# ci\[dq]: status/inventory/drift/snmp query the live Proxmox host or
+its SNMP agent, and map \-\-proposed reads the agent roster from the sibling
+fleet\-ops checkout under \[ti]/git \-\- none present on a runner.
+.EE
 .SH THE MAP AXES
 .IP
 .EX

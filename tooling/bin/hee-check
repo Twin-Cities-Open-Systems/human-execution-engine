@@ -255,6 +255,7 @@ ENVIRONMENT
   honoured as-is. A one-line OK names what was replayed.
 
 EXAMPLES
+  $ hee check regex   # ci
   hee-check                     boundary check of the current repo
   hee-check refs                every reference in the current repo
   hee-check refs ~/git          every repo under ~/git

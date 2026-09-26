@@ -35,6 +35,10 @@ hee-check-og - report the Open Graph tags a page actually serves
 
 # EXAMPLES
 
+    $ hee check-og tests/fixtures/og/page.html   # ci
     hee check-og https://tcos.us/people
     find dist -name '*.html' | xargs hee check-og --require
     hee check-og --require og:image --summary media/*/dist/**/*.html
+
+    The fixture makes the first self-contained (a local file, no network); a URL
+    argument fetches over the network and is unmarked.

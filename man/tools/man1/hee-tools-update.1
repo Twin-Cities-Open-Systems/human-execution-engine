@@ -90,6 +90,15 @@ Any other status is the exit code of whichever command failed under
 failed download exits with curl\[aq]s own code, not 2 CRITICAL. Documented
 as\-is, not changed here.
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee tools\-update
+
+Not marked \[dq]# ci\[dq]: it downloads and installs the pinned toolchain (go, yq)
+into \[ti]/.local, a mutation of the host, so there is no read\-only run to prove.
+hee tools\-check is the read\-only half and IS proven in CI.
+.EE
 .SH SEE ALSO
 .IP
 .EX

@@ -80,6 +80,16 @@ library/regex/patterns.yaml  org\-repo\-name, the validation pattern for \-repos
 0 OK, 1 WARNING (nothing to release, nothing selected), 2 CRITICAL (gate, build or deploy failed, bad name or regex),
 3 UNKNOWN (no card, or a requirement the card declares is missing)
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee release \-status
+hee release \-next
+
+Not marked \[dq]# ci\[dq]: every mode reads full git history and release tags to
+compute what changed since the last cut, which a shallow, tagless CI
+checkout does not have; \-lab/\-prod also build and push.
+.EE
 .SH SEE ALSO
 .IP
 .EX
