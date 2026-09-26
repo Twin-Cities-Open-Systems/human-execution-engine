@@ -31,3 +31,12 @@ this and commit the result whenever objects change.
 .EX
 0 written   1 unknown argument   2 not in a git repo
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee index \-\-out \[dq]$(mktemp)\[dq]   # ci
+
+\-\-out to a scratch file proves the render without touching the committed
+hee/INDEX.md (which is generated state CI checks for staleness \-\- regenerate
+it with a bare \[ga]hee index\[ga] and commit the result when objects change).
+.EE

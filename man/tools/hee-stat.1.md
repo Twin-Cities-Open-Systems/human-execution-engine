@@ -51,6 +51,10 @@ hee-stat - stat(1)'s -c FORMAT convention over namespaced resources
     hee-stat -c '%U/%REPO %s KB' gh/Twin-Cities-Open-Systems/hee
     hee-stat -c %W gh/spencerbutler
 
+    None is marked "# ci": every path reaches the GitHub API via gh, which a
+    runner has no authenticated, deterministic access to, and there is no
+    offline mode to prove instead.
+
 # FORMAT SPECIFIERS
 
     Real stat(1) semantics, reused where they map:

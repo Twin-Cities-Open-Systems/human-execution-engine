@@ -76,7 +76,16 @@ def scan(root: str, pattern: str):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-scan")
+    ap = argparse.ArgumentParser(
+        prog="hee-scan",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  $ hee scan -list-targets   # ci
+
+  -list-targets prints the configured scan targets and touches nothing, so it
+  is the one proven in CI. A real -target scan reads the pool and is unmarked.
+""")
     ap.add_argument("-target", metavar="NAME")
     ap.add_argument("-r", dest="regex", metavar="REGEX")
     ap.add_argument("-list-targets", action="store_true")

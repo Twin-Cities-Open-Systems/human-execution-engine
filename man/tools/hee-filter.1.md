@@ -59,6 +59,15 @@ hee-filter - the shared publish-safety gate
                 arguments, or the scanner is unavailable
 
 
+# EXAMPLES
+
+    $ hee filter check-mode markdown --venue test --supported markdown,html   # ci
+
+    check-mode is pure comparison, no network, so it is the one proven in CI.
+    check-repo, prime-repos and scan reach GitHub or a scanner checkout and are
+    left unmarked.
+
+
 # SEE ALSO
 
     hee-publish -- the first consumer

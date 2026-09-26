@@ -30,3 +30,11 @@ hee-index - generate hee/INDEX.md, the persisted index of every HEE object
 # EXIT STATUS
 
     0 written   1 unknown argument   2 not in a git repo
+
+# EXAMPLES
+
+    $ hee index --out "$(mktemp)"   # ci
+
+    --out to a scratch file proves the render without touching the committed
+    hee/INDEX.md (which is generated state CI checks for staleness -- regenerate
+    it with a bare `hee index` and commit the result when objects change).

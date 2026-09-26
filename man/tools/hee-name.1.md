@@ -31,3 +31,12 @@ hee-name - hee-name command
       --allocations-dir PATH
                             anchor the ledger here (else $HEE_NAME_ALLOCATIONS,
                             else this tool's repo)
+
+
+# EXAMPLES
+
+    $ hee name -list-pools --allocations-dir "$(mktemp -d)"   # ci
+
+    -list-pools reads the bundled pool config and writes nothing, so it is
+    proven in CI over a scratch allocations dir. -allocate and -release mutate
+    the allocations directory and are left unmarked.

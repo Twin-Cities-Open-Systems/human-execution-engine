@@ -50,6 +50,15 @@ which is why library/py/hee_toolver never invokes a tool without a flag.
 .EX
 0 OK   1 nothing generated, or an unknown argument
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee gen\-manpages   # ci
+
+A bare run is a dry run \-\- it reports what would change and writes nothing,
+so it is safe to prove in CI. \-\-write and \-\-publish touch the filesystem or
+a remote host and are deliberately left unmarked.
+.EE
 .SH DESTINATIONS
 .IP
 .EX

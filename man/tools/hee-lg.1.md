@@ -69,3 +69,6 @@ hee-lg - BGP looking glass for a domain, IP, or ASN
     hee-lg AS25720
     hee-lg honeycomb.net
     hee-lg 8.8.8.8
+
+    None is marked "# ci": every lookup queries a live looking-glass / RDAP
+    service over the network, which a runner cannot reach deterministically.

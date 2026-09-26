@@ -47,6 +47,12 @@ DESCRIPTION
   hee-gen-manpages, so an accidental invocation cannot rewrite agent
   instructions.
 
+EXAMPLES
+  $ hee gen-skills   # ci
+
+  A bare run is a dry run and writes nothing (exit 0 unchanged, 1 if --write
+  would apply differences); --write rewrites .claude/skills/ and is unmarked.
+
 EXIT STATUS
   0 OK        generated, or dry run completed with no differences
   1 WARNING   dry run found differences that --write would apply
