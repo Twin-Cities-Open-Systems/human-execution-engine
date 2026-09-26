@@ -1,0 +1,43 @@
+id: '0020'
+created_at: '2026-09-26T22:45:00Z'
+description: 'hee-check signatures verifies that A signature is good, never that the
+  RIGHT key made it -- so re-signing a ratified object with any key in the local keyring
+  turns the check green. Demonstrated by accident on flippy 2026-09-26: a scope widening
+  to fleet-ops hee/registries/agent-roster.registry.v1.yaml, an object whose own spec
+  says ratification_required_from [spencer], was signed by "Flippy Claude
+  <flippy@tcosagent.com>" (EBD2523578A1F6A0) instead of the kiosk key
+  (7CE485B26654FDA0) that had signed it before. gpg reported "Good signature" and
+  hee-check would have reported OK: an agent had signed its own authority document
+  and every automated check agreed. The object already carries the answer --
+  ratification_required_from, plus the previous signer recoverable from the committed
+  .asc -- and nothing compares either against the key gpg reports. Fix: pin the
+  expected signer. A BAD-signature path already reads the signing key out of gpg''s
+  output for --re-sign, so the parsing exists; the Good path needs the same read plus
+  a comparison, and a ratified object whose signer changed should be CRITICAL, not OK.'
+status: open
+stage: footgun
+stage_history:
+- stage: idea
+  at: '2026-09-26T22:45:00Z'
+- stage: footgun
+  at: '2026-09-26T22:45:00Z'
+  why: 'Not hypothetical -- it happened, in the session that found it, and was caught
+    by a human reading the runbook''s output rather than by any check. The enabling
+    footgun is gpg''s own: `--default-key KEY` where KEY has no secret key is a WARNING,
+    exit 0, and gpg signs with the fallback key anyway ("all values passed to
+    ''--default-key'' ignored"). With --yes that silently overwrites a good signature
+    with the wrong signer''s. Measured the same day: `--local-user` with the same
+    missing key refuses and writes no file at all. Every runbook and doc in the fleet
+    that says --default-key for signing should say --local-user, or better, should say
+    `hee check signatures --re-sign --key <id>`, which already refuses correctly:
+    "UNKNOWN no secret key for ... run this where that key actually lives", file
+    untouched.'
+source: 'shift 2026-09-26: the operator ran a re-sign runbook this session wrote, and
+  the wrong key signed a ratified registry'
+tags:
+- hee-check
+- security
+- governance
+- gpg
+- keys
+- footgun
