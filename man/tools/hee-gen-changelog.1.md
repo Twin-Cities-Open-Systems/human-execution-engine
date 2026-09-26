@@ -55,8 +55,10 @@ hee-gen-changelog - render CHANGELOG.md from the repo's own merge history
 
 # EXAMPLES
 
-    $ hee gen-changelog   # ci
+    hee gen-changelog
 
     A bare run is a dry run: it prints the status line and what [Unreleased]
-    would become, and writes nothing. --write and --release change CHANGELOG.md
-    and are left unmarked.
+    would become, and writes nothing. Not marked "# ci": it reads full git
+    history and tags, which a shallow CI checkout does not have (a failed git
+    call exits nonzero), so it is not self-contained on a runner. --write and
+    --release change CHANGELOG.md and are likewise unmarked.
