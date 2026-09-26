@@ -234,6 +234,13 @@ MODES
   Add `help` after any mode for its own page:
       hee-contract-review --action sign help
 
+EXAMPLES
+  $ hee contract-review --dump json   # ci
+
+  --dump is non-interactive and reads the repo's contracts, so it is proven in
+  CI. A bare invocation opens a curses TUI (needs a real terminal) and the
+  sign action uses your gpg key; both are left unmarked.
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK        the mode ran

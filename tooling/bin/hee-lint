@@ -36,6 +36,13 @@ ENVIRONMENT
                  copies of objects it does not own is derived, not a source,
                  and declaring that is the repo's job.
 
+EXAMPLES
+  $ hee lint --mode warn tests/fixtures   # ci
+
+  --mode warn reports findings without failing (exit 0), so it proves the
+  linter runs over the fixtures deterministically. --mode error exits 2 on a
+  finding and is left unmarked (it depends on what is under the path).
+
 EXIT STATUS
   0  OK        clean, OR any findings under --mode warn
   2  CRITICAL  findings under --mode error

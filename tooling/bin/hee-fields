@@ -289,7 +289,17 @@ def audit(repo_filter, numbers, only_missing):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-fields")
+    ap = argparse.ArgumentParser(
+        prog="hee-fields",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee fields audit 12
+  hee fields set 12 Priority P1
+
+  Not marked "# ci": every subcommand reads or writes a GitHub Projects v2
+  board over the API, which a runner cannot reach deterministically.
+""")
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("audit", help="which open issues are missing Roadmap fields, or are not on the Roadmap")
     a.add_argument("--repo", help="OWNER/REPO: restrict to one repo, and also list its open issues not on the Roadmap")
