@@ -12,7 +12,11 @@ from hee_status import Status, emit  # noqa: E402
 
 SKIP = ["docs/history", "*/evidence/*", "man/*", "*.log",
         "library/regex/patterns.yaml", "library/locale/*", "node_modules/*",
-        "tooling/bin/hee-check", "library/py/hee_locale/*"]
+        "tooling/bin/hee-check", "library/py/hee_locale/*",
+        # Tests of the locale checker itself carry foreign-locale words as
+        # fixtures on purpose -- data for the check, not authored prose. Same
+        # reason library/py/hee_locale/* and tooling/bin/hee-check are here.
+        "tests/test_hee_locale*.py"]
 
 
 def _repo_skip():
