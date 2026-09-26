@@ -51,6 +51,39 @@ class FileRelativeRefs(unittest.TestCase):
             self.assertIn("src/gone.tsx", refs, "a genuinely missing ref must still break")
 
 
+class TicketProseIsNotChecked(unittest.TestCase):
+    """.hee/tickets/ is skipped wholesale -- operator decision 2026-09-26.
+
+    Ticket descriptions are a record of intent, so they routinely name a path
+    in another repo, one that has since been renamed, and one that does not
+    exist yet because the ticket proposes building it. The same reasoning
+    already exempts CHANGELOG.md.
+    """
+
+    def _mk(self, d):
+        r = Path(d)
+        (r / "src").mkdir()
+        (r / "src" / "keep.txt").write_text("x\n")
+        (r / ".hee" / "tickets").mkdir(parents=True)
+        # The SAME broken reference in both places.
+        (r / ".hee" / "tickets" / "0001.yaml").write_text(
+            "description: rewrite src/gone.tsx, which lives elsewhere\n")
+        (r / "note.md").write_text("see `src/gone.tsx`\n")
+        subprocess.run(["git", "init", "-q", str(r)], check=True)
+        subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+        return r
+
+    def test_same_broken_ref_breaks_in_a_doc_and_is_ignored_in_a_ticket(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self._mk(d)
+            _checked, broken = scan(str(r))
+            sources = {b.source for b in broken}
+            self.assertIn("note.md", sources,
+                          "a broken ref in ordinary prose must still break")
+            self.assertNotIn(".hee/tickets/0001.yaml", sources,
+                             "ticket prose must not be checked for file refs")
+
+
 class SignatureVsKey(unittest.TestCase):
     def _sig(self, root):
         env = dict(os.environ, HEE_STATUS_STYLE="plain")
