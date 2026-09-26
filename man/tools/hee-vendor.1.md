@@ -42,3 +42,12 @@ hee-vendor - vendor HEE doctrine into a target repo, validator-safe
     Otherwise:
       0   vendored
       1   no --target given, or an unknown argument
+
+# EXAMPLES
+
+    hee vendor --check --target ~/git/some-repo
+    hee vendor --target ~/git/some-repo
+
+    Not marked "# ci": --check's exit reflects live drift between a target repo
+    and this one (so it is not a fixed pass/fail), and a real vendor writes and
+    pushes. Neither is a deterministic self-contained run.

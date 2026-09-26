@@ -37,6 +37,13 @@ and changes nothing. \-\-yes creates the tag; \-\-push pushes it.
 .SH EXAMPLES
 .IP
 .EX
+hee git tag \-\-show\-key
+hee git tag v1.2.0 \-m \[dq]release 1.2.0\[dq] \-\-push
+
+Not marked \[dq]# ci\[dq]: \-\-show\-key needs a signing key configured (a CI runner
+has none) and tagging signs and pushes. Both are host/identity state, not
+a self\-contained run.
+
 hee git tag prod/tcos\-www/20260906T0806Z \-m \[dq]prod promotion: tcos.us\[dq] e7beec0 \-\-yes \-\-push
 hee git tag \-\-show\-key
 .EE

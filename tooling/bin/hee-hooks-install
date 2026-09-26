@@ -35,6 +35,13 @@ DESCRIPTION
   A relative symlink is preferred so the hook keeps working if the
   checkout moves; an absolute one is the fallback when that fails.
 
+EXAMPLES
+  hee hooks-install
+  hee hooks-install --repo ~/git/some-repo
+
+  Not marked "# ci": it writes hooks into a git repo's .git/hooks, a mutation,
+  so there is no read-only run to prove.
+
 EXIT STATUS
   0 installed   2 not in a git repo, or the hook source is missing
 USAGE

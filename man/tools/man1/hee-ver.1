@@ -46,6 +46,15 @@ HEE_STATUS_STYLE   icon (default), ascii, plain. See heerc.
 .EX
 Nagios convention. 0 OK  1 WARNING  2 CRITICAL  3 UNKNOWN
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee ver platform \-\-json   # ci
+
+platform reads this host\[aq]s OS and kernel with no network. tool, hardware and
+session read the local machine too; session \-\-signature signs, so it is left
+unmarked.
+.EE
 .SH SEE ALSO
 .IP
 .EX

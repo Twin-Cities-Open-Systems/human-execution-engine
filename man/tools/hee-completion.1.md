@@ -55,6 +55,14 @@ hee-completion - bash completion for hee that teaches while it completes
     nothing rather than a status nobody can observe.
 
 
+# EXAMPLES
+
+    $ hee completion bash   # ci
+
+    Prints the completion script to stdout, writing nothing. install writes into
+    ~/.local/share and is left unmarked.
+
+
 # SEE ALSO
 
     hee-gen-manpages(1), hee-check(1) (cli: every tool's help obeys the contract)

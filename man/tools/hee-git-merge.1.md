@@ -38,6 +38,15 @@ hee-git-merge - Interactive, cross-repo mass review-and-merge for open PRs
 
     0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 
+# EXAMPLES
+
+    hee git merge -r '492,494,486,490'
+    hee git merge --author all --action approve
+
+    Not marked '# ci': every action queries and mutates GitHub PRs
+    via gh, which a runner cannot reach deterministically.
+
+
 # ORDERING
 
     Merging is ORDER-SENSITIVE, and -r is a SET whose order is honored.

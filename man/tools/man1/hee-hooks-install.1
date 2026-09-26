@@ -26,3 +26,12 @@ checkout moves; an absolute one is the fallback when that fails.
 .EX
 0 installed   2 not in a git repo, or the hook source is missing
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee hooks\-install
+hee hooks\-install \-\-repo \[ti]/git/some\-repo
+
+Not marked \[dq]# ci\[dq]: it writes hooks into a git repo\[aq]s .git/hooks, a mutation,
+so there is no read\-only run to prove.
+.EE

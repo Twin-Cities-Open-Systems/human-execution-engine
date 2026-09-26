@@ -26,6 +26,15 @@ hee-shell - ssh into a known TCOS host by alias
     0  OK        ssh ran (its own exit status is returned)
     3  UNKNOWN   no target given, or an option-shaped argument
 
+# EXAMPLES
+
+    hee shell pve
+    hee shell nuc-1 root
+
+    Not marked "# ci": it opens an interactive ssh session to a host, which a
+    runner cannot reach.
+
+
 # KNOWN ALIASES
 
     kiosk -> kiosk.lab.tcos.us

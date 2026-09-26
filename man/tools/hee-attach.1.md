@@ -27,3 +27,10 @@ hee-attach - attach HEE policy to a repo without committing doctrine into it
 # EXIT STATUS
 
     0 attached   1 no --target given, or an unknown argument
+
+# EXAMPLES
+
+    hee attach --target ~/git/some-repo
+
+    Not marked "# ci": it writes the hee tooling attachment into a target repo,
+    a mutation, so there is no read-only run to prove.

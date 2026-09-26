@@ -44,3 +44,12 @@ hee-reset-tooling - conservative "reset to new" for stray tool directories
 # EXIT STATUS
 
     0 completed (including a dry run)   2 unknown argument or refused path
+
+# EXAMPLES
+
+    hee reset-tooling
+    hee reset-tooling --yes --unattended
+
+    Not marked "# ci": it removes stray tooling checkouts and re-links the
+    canonical one -- a destructive host operation, never something to run on a
+    CI runner even as a dry run against the wrong directory.

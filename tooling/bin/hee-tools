@@ -38,6 +38,11 @@ SUBCOMMANDS
   Add `help` after either for its own page:
       hee-tools update help
 
+EXAMPLES
+  $ hee tools check tests/fixtures/tools-manifest/present.txt   # ci
+
+  check is read-only over a manifest. update installs/downloads and is unmarked.
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK        the subcommand exited 0

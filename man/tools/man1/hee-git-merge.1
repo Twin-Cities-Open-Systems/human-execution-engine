@@ -40,6 +40,15 @@ options:
 .EX
 0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee git merge \-r \[aq]492,494,486,490\[aq]
+hee git merge \-\-author all \-\-action approve
+
+Not marked \[aq]# ci\[aq]: every action queries and mutates GitHub PRs
+via gh, which a runner cannot reach deterministically.
+.EE
 .SH ORDERING
 .IP
 .EX

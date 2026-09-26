@@ -44,6 +44,13 @@ hee-tools - router for the external-toolchain check/update pair
     never rewrites the exit code of the tool it hands off to.
 
 
+# EXAMPLES
+
+    $ hee tools check tests/fixtures/tools-manifest/present.txt   # ci
+
+    check is read-only over a manifest. update installs/downloads and is unmarked.
+
+
 # SEE ALSO
 
     hee-tools-check, hee-tools-update, tooling/tools.manifest.txt
