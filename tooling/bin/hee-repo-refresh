@@ -67,6 +67,9 @@ TOOL_ROOT="$(cd "$(dirname "$HEE_SELF")/../.." && pwd)"
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
 
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/gate.skip.shfn.bash" ] && . "$TOOL_ROOT/library/bash/gate.skip.shfn.bash"
+
 usage() {
   cat <<'USAGE'
 hee-repo-refresh -- per-repo health, pull, hygiene, prune and artifact regeneration
@@ -551,24 +554,11 @@ PYJ
         # judges the repo by rules it never agreed to, which produces a
         # CRITICAL its CI would never raise -- measured on fleet-ops, which
         # reported 5 false CRITICAL before its HEE_REFS_SKIP was honored.
-        _gate_skip() {
-          # Strips the YAML double quotes and NOTHING ELSE. The single
-          # quotes inside are load-bearing: hee-check evals these pathspecs
-          # (`eval git -C ... $_HP_SKIP`), so ':!hosts/*' must keep its
-          # quotes or the pathspec is never applied. Measured 2026-09-07 --
-          # stripping them turned fleet-ops from 0 findings into 20.
-          #
-          # --no-filename matters too: scanning a DIRECTORY makes rg prefix
-          # every hit with its path, which corrupts the value and hides the
-          # leading quote from the strip. Measured, not guessed.
-          rg --no-filename --no-line-number -o -m1 \
-             "^[[:space:]]*$1:[[:space:]]*(.*)$" -r '$1' \
-             "$DIR/.github/workflows" 2>/dev/null | head -1 \
-             | sed -e 's/^"//' -e 's/"$//'
-        }
-        HEE_HOME_PATH_SKIP="$(_gate_skip HEE_HOME_PATH_SKIP)"
-        HEE_LINT_SKIP="$(_gate_skip HEE_LINT_SKIP)"
-        HEE_REFS_SKIP="$(_gate_skip HEE_REFS_SKIP)"
+        # The reader lives in library/bash/gate.skip.shfn.bash, shared with
+        # hee-check itself (rule 15: one implementation).
+        HEE_HOME_PATH_SKIP="$(hee_gate_skip HEE_HOME_PATH_SKIP "$DIR")"
+        HEE_LINT_SKIP="$(hee_gate_skip HEE_LINT_SKIP "$DIR")"
+        HEE_REFS_SKIP="$(hee_gate_skip HEE_REFS_SKIP "$DIR")"
         export HEE_HOME_PATH_SKIP HEE_LINT_SKIP HEE_REFS_SKIP
         # A gate result is about a WORKING TREE. If that tree is parked on
         # another branch or sits behind origin, the answer is true about code

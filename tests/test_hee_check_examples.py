@@ -42,6 +42,23 @@ class Examples(unittest.TestCase):
             self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
             self.assertIn("hee-bad example exited 1", r.stdout)
 
+    def test_marked_but_unrunnable_line_is_critical(self):
+        # A line ending in "# ci" with no "$ " prefix is shown in the man page
+        # as proven but never runs -- exactly hee-deploy:144 and hee-inv:106
+        # before this. It must be CRITICAL, even as a tool's ONLY marked line.
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); (root / "tooling" / "bin").mkdir(parents=True)
+            (root / "tooling" / "bin" / "hee").write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(root / "tooling" / "bin" / "hee", 0o755)
+            liar = root / "tooling" / "bin" / "hee-liar"
+            # Marked "# ci" but indented as a plain command, no "$ " prefix.
+            liar.write_text('#!/bin/sh\ncase "$1" in --help) printf "EXAMPLES\\n  hee liar --go   # ci\\n";; esac\n')
+            os.chmod(liar, 0o755)
+            r = subprocess.run([str(CHECK), "examples", str(root)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("not a runnable", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

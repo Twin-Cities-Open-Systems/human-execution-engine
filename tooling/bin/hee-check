@@ -36,6 +36,37 @@ TOOL_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 # shellcheck source=/dev/null
 [ -r "$TOOL_ROOT/library/bash/cli.help.shfn.bash" ] && . "$TOOL_ROOT/library/bash/cli.help.shfn.bash"
 
+# shellcheck source=/dev/null
+[ -r "$TOOL_ROOT/library/bash/gate.skip.shfn.bash" ] && . "$TOOL_ROOT/library/bash/gate.skip.shfn.bash"
+
+# Replay a target repo's OWN declared exemptions when the caller did not set
+# them. CI sets HEE_*_SKIP in the workflow env before calling us; a local run
+# gets nothing, so `hee check all` in fleet-ops was CRITICAL where its CI is
+# green (measured 2026-09-26: 30 false refs under pve/agents/jobs). Only when
+# the variable is UNSET -- an explicit value, including empty, is honoured --
+# and only when hee_gate_skip is available. Announces what it replayed so a
+# local run is never silently different from CI.
+replay_repo_exemptions() {
+  command -v hee_gate_skip >/dev/null 2>&1 || return 0
+  _rre_dir="${1:-.}"
+  _rre_said=0
+  for _rre_var in HEE_REFS_SKIP HEE_HOME_PATH_SKIP HEE_LINT_SKIP; do
+    # "is it set" -- POSIX-safe indirection via eval, distinguishing unset
+    # from set-empty so a repo that deliberately clears one is not overridden.
+    eval "_rre_isset=\${$_rre_var+x}"
+    [ -n "$_rre_isset" ] && continue
+    _rre_val="$(hee_gate_skip "$_rre_var" "$_rre_dir")"
+    [ -n "$_rre_val" ] || continue
+    eval "$_rre_var=\$_rre_val"
+    eval "export $_rre_var"
+    if [ "$_rre_said" -eq 0 ]; then
+      hee_status OK "hee-check: replaying exemptions declared in $_rre_dir/.github/workflows (unset locally) -- this run matches that repo's CI"
+      _rre_said=1
+    fi
+    printf '      %s=%s\n' "$_rre_var" "$_rre_val"
+  done
+}
+
 if [ -r "$TOOL_ROOT/library/bash/vis.status.shfn.bash" ]; then
   . "$TOOL_ROOT/library/bash/vis.status.shfn.bash"
 else
@@ -190,7 +221,11 @@ SUBCOMMANDS
              and can re-sign the ones that drifted
   tickets    every .hee/tickets record parses and moves legally through
              idea->footgun<->dogfood
-  all        boundary + refs + locale + signatures + tickets + gitignore
+  examples   run every '# ci'-marked example in a hee tool's --help (hee repo
+             only); a line marked '# ci' that is not a runnable '$ ...'
+             example is itself CRITICAL. See `hee-check examples help`.
+  all        boundary + refs + locale + signatures + tickets + gitignore,
+             plus examples when run in the hee repo
 
   Add `help` after any subcommand for its own page:
       hee-check refs help
@@ -212,6 +247,12 @@ ENVIRONMENT
                      repo declares the exemption, the checker never guesses.
                      For a single deliberate line, prefer the marker
                      hee-check:home-ok -- see `hee-check boundary --help`.
+
+  When HEE_REFS_SKIP, HEE_HOME_PATH_SKIP or HEE_LINT_SKIP is UNSET, boundary,
+  refs and all replay the value the target repo's own .github/workflows
+  declares, so a local run matches that repo's CI instead of raising
+  CRITICALs its CI would never see. An explicit value (even empty) is
+  honoured as-is. A one-line OK names what was replayed.
 
 EXAMPLES
   hee-check                     boundary check of the current repo
@@ -654,6 +695,22 @@ check_examples() {
   for t in "$root"/tooling/bin/hee-*; do
     [ -f "$t" ] && [ -x "$t" ] || continue
     help=$(cd "$root" && timeout 20 "$t" --help 2>/dev/null) || continue
+    # A line ending in "# ci" that is NOT a runnable "$ ..." example is a
+    # silent lie: the man page shows it as proven, the extractor never sees
+    # it, so it never runs. Measured 2026-09-26: hee-deploy and hee-inv each
+    # had one (a plain-indented command, no "$ " prefix). CRITICAL, before
+    # the extraction, so a tool with ONLY such a line is still caught.
+    bad=$(printf '%s
+' "$help" | sed -n '/# ci[[:space:]]*$/ { /^[[:space:]]*\$ /!p; }')
+    if [ -n "$bad" ]; then
+      while IFS= read -r bl; do
+        [ -n "$bl" ] || continue
+        failed=$((failed + 1))
+        hee_status CRITICAL "$(basename "$t"): marked '# ci' but not a runnable '\$ ...' example: $(printf '%s' "$bl" | sed 's/^[[:space:]]*//')"
+      done <<EOF3
+$bad
+EOF3
+    fi
     ex=$(printf '%s
 ' "$help" | sed -n 's/^[[:space:]]*\$ \(.*[^[:space:]]\)[[:space:]]*# ci[[:space:]]*$/\1/p')
     [ -n "$ex" ] || continue
@@ -672,9 +729,13 @@ check_examples() {
 $ex
 EOF2
   done
+  if [ "$failed" -ne 0 ]; then
+    hee_status CRITICAL "hee-check examples: $failed marked example(s) failed or are unrunnable"
+    return 2
+  fi
   if [ "$ran" -eq 0 ]; then hee_status WARNING "hee-check examples: no example is marked '# ci' in any tool's --help yet"; return 1; fi
-  [ "$failed" -eq 0 ] && { hee_status OK "hee-check examples: $ran example(s) from $tools tool(s) ran clean"; return 0; }
-  return 2
+  hee_status OK "hee-check examples: $ran example(s) from $tools tool(s) ran clean"
+  return 0
 }
 
 check_systemd() {
@@ -1383,8 +1444,8 @@ EOF_SAMPLES
 }
 
 case "$cmd" in
-  boundary) shift 2>/dev/null || true; check_boundary "${1:-.}" ;;
-  refs)     shift 2>/dev/null || true; check_refs "${1:-.}" ;;
+  boundary) shift 2>/dev/null || true; replay_repo_exemptions "${1:-.}"; check_boundary "${1:-.}" ;;
+  refs)     shift 2>/dev/null || true; replay_repo_exemptions "${1:-.}"; check_refs "${1:-.}" ;;
   cli)      shift 2>/dev/null || true
             command -v python3 >/dev/null 2>&1 || { hee_status UNKNOWN "python3 unavailable"; exit 3; }
             HEE_CLICHECK_ARGS="$*" python3 "$TOOL_ROOT/library/py/hee_clicheck/_cli.py" ;;
@@ -1432,6 +1493,7 @@ case "$cmd" in
             # restores "worst status wins" for an operator checking by hand.
             _strict=0
             if [ "${1:-}" = "--strict" ]; then _strict=1; shift; fi
+            replay_repo_exemptions "${1:-.}"
             check_boundary "${1:-.}"; a=$?
             check_refs "${1:-.}"; b=$?
             check_locale "${1:-.}"; c=$?
