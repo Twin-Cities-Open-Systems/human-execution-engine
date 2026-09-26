@@ -26,7 +26,7 @@ Usage:
                                     e.g. hee image check /dev/mmcblk0
   hee image flash --image FILE --device DEVICE [--yes] [--no-verify]
                                  -- flash a .img or .img.xz to a card, then verify
-  hee image flash --image FILE.bin --device /dev/ttyUSB0 [--chip esp32]
+  hee image flash --image FILE.bin --device /dev/ttyUSB0 [--chip esp32|esp8266]
                   [--offset 0x0] [--erase] [--yes]
                                  -- write a merged firmware image to a board
   hee image build --firmware espectre --chip esp32 [--repo DIR]
@@ -56,6 +56,10 @@ flash (serial):
   after writing; --no-verify has no meaning here and is ignored. --erase wipes
   the whole flash first (NVS, Wi-Fi credentials, OTA data) -- use it for a
   board changing firmware families, not for an update.
+  --chip esp8266 flashes the fleet's NodeMCU soil/weather nodes, whose
+  arduino-cli build is a single image at 0x0 (esp32/firmware/soil-weather-node);
+  it runs at 460800 like every non-classic-esp32 chip. `build` stays esp32-only:
+  it drives ESPectre Native, which is ESP-IDF.
 
 build:
   Runs the firmware's own CLI (`./espectre native build`, in its checkout, with
@@ -81,6 +85,7 @@ EXAMPLES
   $ hee image build --firmware espectre --chip esp32 --dry-run   # ci
   $ hee image build --firmware espectre --chip esp32 --ota-channel develop --out /srv/tcos/esp32/firmware
   $ hee image flash --image espectre-native-esp32-v3.0.0.bin --device /dev/ttyUSB0
+  $ hee image flash --image soil-weather-node.ino.bin --device /dev/ttyUSB0 --chip esp8266
 
 Exit: Nagios -- 0 OK, 1 WARNING (a refusal or a dry-run plan), 2 CRITICAL
       (a write/verify/read failed), 3 UNKNOWN (environment/usage).
@@ -527,6 +532,13 @@ def cmd_flash(image, device, yes, no_verify):
 IDF_PROFILE = "/etc/profile.d/esp-idf.sh"
 FIRMWARES = ("espectre",)
 CHIPS = ("esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6")
+# `build` targets ESPectre Native, which is ESP-IDF and ESP32-family only, so it
+# uses CHIPS. `flash` just writes a prebuilt .bin with esptool, which speaks the
+# ESP8266 too -- and the fleet's soil/weather nodes are ESP8266 (NodeMCU), built
+# by arduino-cli into a single image at 0x0. So flashing accepts one more chip
+# than building does. esptool reports "This chip is ESP8266, not ESP32" if the
+# --chip is wrong, which is exactly the wall a bare `flash` hit on 2026-09-26.
+FLASH_CHIPS = CHIPS + ("esp8266",)
 # ESPectre's chip names for its own CLI; esptool and ESP-IDF use the idf_target.
 ESPECTRE_CHIP = {"esp32": "esp32", "esp32s2": "s2", "esp32s3": "s3",
                  "esp32c3": "c3", "esp32c5": "c5", "esp32c6": "c6"}
@@ -681,6 +693,8 @@ def cmd_flash_serial(image, device, chip, offset, erase, yes, no_verify):
         say("INFO", "--no-verify has no meaning over serial: esptool hashes every written region itself.")
     env = idf_env()
     esptool, major = esptool_cmd(env)
+    # Classic esp32 loses the stub's SFDP probe at 460800 (measured on ESPectre);
+    # every other chip, esp8266 included, flashes fine at the faster rate.
     baud = ESP32_SAFE_BAUD if chip == "esp32" else FLASH_BAUD
     base = esptool + ["--chip", chip, "--port", device, "--baud", baud,
                       "--before", et("default-reset", major), "--after", et("hard-reset", major)]
@@ -725,7 +739,8 @@ def main(argv=None):
     f.add_argument("--device", required=True, help="the card, e.g. /dev/mmcblk0, or the board, e.g. /dev/ttyUSB0")
     f.add_argument("--yes", action="store_true", help="skip the typed confirmation (automation)")
     f.add_argument("--no-verify", action="store_true", help="card only: skip the read-back sha256 check")
-    f.add_argument("--chip", choices=CHIPS, default="esp32", help="serial only: the chip (default esp32)")
+    f.add_argument("--chip", choices=FLASH_CHIPS, default="esp32",
+                   help="serial only: the chip (default esp32; esp8266 for the NodeMCU soil/weather nodes)")
     f.add_argument("--offset", default="0x0", help="serial only: flash offset of the image (default 0x0, a merged image)")
     f.add_argument("--erase", action="store_true", help="serial only: erase the whole flash first (NVS, credentials, OTA data)")
     b = sub.add_parser("build", help="build a firmware and merge it into one flashable .bin")

@@ -47,6 +47,19 @@ class EsptoolSpelling(unittest.TestCase):
         self.assertEqual(mod.ESP32_SAFE_BAUD, "115200")
         self.assertNotEqual(mod.FLASH_BAUD, mod.ESP32_SAFE_BAUD)
 
+    def test_flash_accepts_the_esp8266_but_build_does_not(self):
+        mod = load_tool()
+        # flash writes a prebuilt image with esptool, which speaks esp8266;
+        # build drives ESPectre Native (ESP-IDF), which does not.
+        self.assertIn("esp8266", mod.FLASH_CHIPS)
+        self.assertNotIn("esp8266", mod.CHIPS)
+        self.assertNotIn("esp8266", mod.ESPECTRE_CHIP)
+
+    def test_the_esp8266_flashes_at_the_fast_baud_not_the_esp32_safe_one(self):
+        mod = load_tool()
+        baud = mod.ESP32_SAFE_BAUD if "esp8266" == "esp32" else mod.FLASH_BAUD
+        self.assertEqual(baud, mod.FLASH_BAUD)
+
 
 class ProfileEnv(unittest.TestCase):
     def test_reads_idf_vars_from_profile_d_when_shell_did_not(self):
