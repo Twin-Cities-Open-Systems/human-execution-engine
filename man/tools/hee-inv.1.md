@@ -74,4 +74,8 @@ hee-inv - ingest inventory evidence, and report on what is unaccounted for
 
 # EXAMPLES
 
-    $ hee inv add --json tests/fixtures/inv-dataset/stock-request.json --dataset tests/fixtures/inv-dataset --kind stock --dry-run   # ci
+    hee inv add --json tests/fixtures/inv-dataset/stock-request.json --dataset tests/fixtures/inv-dataset --kind stock --dry-run
+
+    Not marked "# ci": even --dry-run requires the inventory SOA anchor at
+    ~/.hee/index/_.yaml (add fails closed on a missing root), which a fresh
+    CI runner does not have. It is a real, working command on a provisioned host.
