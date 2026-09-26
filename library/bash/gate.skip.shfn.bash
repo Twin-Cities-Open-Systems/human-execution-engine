@@ -13,7 +13,7 @@
 # read a repo's exemptions the same way.
 #
 # POSIX sh. Needs `rg`; without it, echoes nothing (callers then keep their
-# own default, which is the pre-replay behaviour -- no worse than before).
+# own default, which is the pre-replay behavior -- no worse than before).
 
 # hee_gate_skip VAR DIR -- echo the value declared for VAR in DIR's workflows.
 #
