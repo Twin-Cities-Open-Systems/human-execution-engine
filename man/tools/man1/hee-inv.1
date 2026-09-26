@@ -75,5 +75,9 @@ add: 0 written, 2 invalid document or the name exists,
 .SH EXAMPLES
 .IP
 .EX
-$ hee inv add \-\-json tests/fixtures/inv\-dataset/stock\-request.json \-\-dataset tests/fixtures/inv\-dataset \-\-kind stock \-\-dry\-run   # ci
+hee inv add \-\-json tests/fixtures/inv\-dataset/stock\-request.json \-\-dataset tests/fixtures/inv\-dataset \-\-kind stock \-\-dry\-run
+
+Not marked \[dq]# ci\[dq]: even \-\-dry\-run requires the inventory SOA anchor at
+\[ti]/.hee/index/_.yaml (add fails closed on a missing root), which a fresh
+CI runner does not have. It is a real, working command on a provisioned host.
 .EE

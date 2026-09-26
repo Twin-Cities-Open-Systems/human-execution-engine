@@ -240,7 +240,13 @@ jobs:
       - name: Install the suite's real dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y age
+          # age -- sealed-credential tests. ripgrep -- many tools (and the
+          # exemption replay, hee-inv's own `needs`, hee-lint) shell out to
+          # `rg`; without it those tests report it as a missing command and
+          # fail. exiftool/unzip are deliberately NOT installed: test_hee_inv
+          # _needs asserts they are reported missing, so it needs rg present
+          # and them absent.
+          sudo apt-get install -y age ripgrep
           pipx install pytest==8.3.3
           pipx inject pytest pyyaml cryptography
 
