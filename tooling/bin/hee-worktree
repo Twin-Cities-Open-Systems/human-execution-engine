@@ -166,6 +166,12 @@ SUBCOMMANDS
   Add `help` after any subcommand for its own page:
       hee-worktree start help
 
+EXAMPLES
+  $ hee worktree list   # ci
+
+  list is read-only. start and done create or remove a worktree and are left
+  unmarked.
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK        the subcommand did its job

@@ -48,6 +48,15 @@ hee-ver - version and verification discovery (hee ver{sion,ify})
     Nagios convention. 0 OK  1 WARNING  2 CRITICAL  3 UNKNOWN
 
 
+# EXAMPLES
+
+    $ hee ver platform --json   # ci
+
+    platform reads this host's OS and kernel with no network. tool, hardware and
+    session read the local machine too; session --signature signs, so it is left
+    unmarked.
+
+
 # SEE ALSO
 
     hee-check, hee-tools-check, hee-print

@@ -41,6 +41,12 @@ FILES
   ~/.cache/hee/completion/*.json                       per-tool cache, invalidated by the tool's mtime
   ~/.local/share/bash-completion/completions/hee       what `install` writes; dotfiles' .bashrc loads it
 
+EXAMPLES
+  $ hee completion bash   # ci
+
+  Prints the completion script to stdout, writing nothing. install writes into
+  ~/.local/share and is left unmarked.
+
 EXIT STATUS
   Nagios plugin convention, like every other hee tool.
   0 OK        the script printed, the file installed, or candidates emitted

@@ -32,3 +32,10 @@ hee-cache-prune - prune stale entries from the hee-* disk caches
 # EXIT STATUS
 
     0 pruned (including when there was nothing to prune)
+
+# EXAMPLES
+
+    $ hee cache-prune 99999   # ci
+
+    A large day count prunes nothing (there is no cache entry that old), so it
+    proves the tool runs without deleting anyone's warm cache.

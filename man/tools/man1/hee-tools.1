@@ -42,6 +42,13 @@ Nagios plugin convention.
 Any other status is the subcommand\[aq]s own \-\- this router execs, so it
 never rewrites the exit code of the tool it hands off to.
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee tools check tests/fixtures/tools\-manifest/present.txt   # ci
+
+check is read\-only over a manifest. update installs/downloads and is unmarked.
+.EE
 .SH SEE ALSO
 .IP
 .EX

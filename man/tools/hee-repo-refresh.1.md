@@ -49,6 +49,17 @@ hee-repo-refresh - per-repo health, pull, hygiene, prune and artifact regenerati
       2 CRITICAL  a generator failed with its source reachable, or a write failed
       3 UNKNOWN   a source could not be reached -- NOT a pass
 
+# EXAMPLES
+
+    hee repo-refresh health .
+    hee repo-refresh regen --write
+    hee repo-refresh refresh all
+
+    Not marked "# ci": health reports a working tree's state against origin
+    (which a runner's shallow, remote-less checkout does not have), and refresh
+    and regen --write pull and rewrite generated files.
+
+
 # SEE ALSO
 
     hee-pve-health(1)   drift, which detects what regen acts on

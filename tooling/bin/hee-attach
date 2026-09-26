@@ -28,6 +28,12 @@ DESCRIPTION
     - creates .hee/policy/{prompts,docs} inside the target repo
     - prints the command to add .hee/ to local excludes
 
+EXAMPLES
+  hee attach --target ~/git/some-repo
+
+  Not marked "# ci": it writes the hee tooling attachment into a target repo,
+  a mutation, so there is no read-only run to prove.
+
 EXIT STATUS
   0 attached   1 no --target given, or an unknown argument
 USAGE

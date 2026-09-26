@@ -38,6 +38,13 @@ hee-git-tag - a GPG-signed git tag with the key that is really yours
 
 # EXAMPLES
 
+    hee git tag --show-key
+    hee git tag v1.2.0 -m "release 1.2.0" --push
+
+    Not marked "# ci": --show-key needs a signing key configured (a CI runner
+    has none) and tagging signs and pushes. Both are host/identity state, not
+    a self-contained run.
+
     hee git tag prod/tcos-www/20260906T0806Z -m "prod promotion: tcos.us" e7beec0 --yes --push
     hee git tag --show-key
 

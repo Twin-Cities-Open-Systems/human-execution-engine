@@ -62,6 +62,14 @@ hee-worktree - per-session git worktree, no extra clone
                 changed here.
 
 
+# EXAMPLES
+
+    $ hee worktree list   # ci
+
+    list is read-only. start and done create or remove a worktree and are left
+    unmarked.
+
+
 # SEE ALSO
 
     git-worktree(1)

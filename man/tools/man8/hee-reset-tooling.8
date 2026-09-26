@@ -45,3 +45,13 @@ what is provably redundant. Deliberately hard to make destructive:
 .EX
 0 completed (including a dry run)   2 unknown argument or refused path
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee reset\-tooling
+hee reset\-tooling \-\-yes \-\-unattended
+
+Not marked \[dq]# ci\[dq]: it removes stray tooling checkouts and re\-links the
+canonical one \-\- a destructive host operation, never something to run on a
+CI runner even as a dry run against the wrong directory.
+.EE

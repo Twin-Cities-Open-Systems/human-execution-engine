@@ -32,6 +32,14 @@ KEY SELECTION
   Nothing is read from gitconfig. The chosen key id is printed on every
   run so the record says which key signed.
 
+EXAMPLES
+  hee git tag --show-key
+  hee git tag v1.2.0 -m "release 1.2.0" --push
+
+  Not marked "# ci": --show-key needs a signing key configured (a CI runner
+  has none) and tagging signs and pushes. Both are host/identity state, not
+  a self-contained run.
+
 EXIT STATUS
   0 OK, 2 CRITICAL (no key, ambiguous key, git or gpg failed), 3 UNKNOWN
   (gpg missing, not a git repo).

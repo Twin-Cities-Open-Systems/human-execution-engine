@@ -54,6 +54,14 @@ failed completion and a completion with no candidates look identical, and
 bash discards the exit code either way \-\- so it reports success and prints
 nothing rather than a status nobody can observe.
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee completion bash   # ci
+
+Prints the completion script to stdout, writing nothing. install writes into
+\[ti]/.local/share and is left unmarked.
+.EE
 .SH SEE ALSO
 .IP
 .EX

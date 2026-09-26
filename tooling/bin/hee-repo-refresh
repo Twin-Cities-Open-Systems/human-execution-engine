@@ -186,6 +186,15 @@ ENVIRONMENT
                    seconds any single generator in `regen` may take before it
                    is reported as unanswered. Default: 300
 
+EXAMPLES
+  hee repo-refresh health .
+  hee repo-refresh regen --write
+  hee repo-refresh refresh all
+
+  Not marked "# ci": health reports a working tree's state against origin
+  (which a runner's shallow, remote-less checkout does not have), and refresh
+  and regen --write pull and rewrite generated files.
+
 SEE ALSO
   hee-pve-health(1)   drift, which detects what regen acts on
   hee-gen-manpages(1), hee-gen-changelog(1)   two of the generators regen runs

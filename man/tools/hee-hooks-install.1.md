@@ -26,3 +26,11 @@ hee-hooks-install - install this repo's optional git hooks
 # EXIT STATUS
 
     0 installed   2 not in a git repo, or the hook source is missing
+
+# EXAMPLES
+
+    hee hooks-install
+    hee hooks-install --repo ~/git/some-repo
+
+    Not marked "# ci": it writes hooks into a git repo's .git/hooks, a mutation,
+    so there is no read-only run to prove.

@@ -918,6 +918,13 @@ def main():
             "  Cross-repo ordering is not attempted: separate repos have\n"
             "  independent history and no shared merge order exists.\n"
             "\n"
+            "EXAMPLES\n"
+            "  hee git merge -r '492,494,486,490'\n"
+            "  hee git merge --author all --action approve\n"
+            "\n"
+            "  Not marked '# ci': every action queries and mutates GitHub PRs\n"
+            "  via gh, which a runner cannot reach deterministically.\n"
+            "\n"
             "EXIT STATUS\n"
             "  0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN\n"
         ),
