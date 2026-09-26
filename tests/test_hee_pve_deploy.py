@@ -53,6 +53,18 @@ class TestNet0(unittest.TestCase):
         self.assertEqual(deploy._features({"features": {"nesting": True, "keyctl": True}}), "nesting=1,keyctl=1")
         self.assertEqual(deploy._features({"features": {"fuse": False}}), "fuse=0")
 
+    def test_onboot_defaults_to_on_unlike_proxmox(self):
+        # The 2026-09-26 power event: nothing came back because no LXC had
+        # onboot set. A declared container is one we want running.
+        self.assertEqual(deploy._onboot({}), "1")
+        self.assertEqual(deploy._onboot({"onboot": 1}), "1")
+        self.assertEqual(deploy._onboot({"onboot": True}), "1")
+
+    def test_onboot_off_is_declarable(self):
+        # A template (golden-tiny) or a build box (ipk-factory) says so.
+        self.assertEqual(deploy._onboot({"onboot": 0}), "0")
+        self.assertEqual(deploy._onboot({"onboot": False}), "0")
+
     def test_features_refuse_what_they_do_not_know(self):
         for bad in ({"features": {"mount": True}}, {"features": {"nesting": 1}}, {"features": []},
                     {"features": {}}, {"features": {"keyctl": True}, "unprivileged": False}):
