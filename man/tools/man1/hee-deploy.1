@@ -151,7 +151,7 @@ hee deploy blog ./my\-new\-blog \-to prod                # prints the release pr
 hee deploy store ./ian \-to lab                        # rsync, reload, health
 hee deploy store ./ian \-dry\-run                       # every gate, the rsync plan, nothing touched
 hee deploy store ./ian \-to prod                       # prints the release procedure, exit 3
-hee deploy worker tests/fixtures/deploy\-worker \-name get\-hee \-host get.hee.tools \-dry\-run   # ci
+$ hee deploy worker tests/fixtures/deploy\-worker \-name get\-hee \-host get.hee.tools \-dry\-run   # ci
 hee cred \-pass cloudflare\-tcos\-www \-dir \[ti]/git/tcos\-www/.hee/secrets \-exec hee deploy worker ./site \-name get\-hee \-host get.hee.tools
 hee deploy help
 .EE

@@ -74,4 +74,4 @@ hee-inv - ingest inventory evidence, and report on what is unaccounted for
 
 # EXAMPLES
 
-    hee inv add --json tests/fixtures/inv-dataset/stock-request.json --dataset tests/fixtures/inv-dataset --kind stock --dry-run   # ci
+    $ hee inv add --json tests/fixtures/inv-dataset/stock-request.json --dataset tests/fixtures/inv-dataset --kind stock --dry-run   # ci

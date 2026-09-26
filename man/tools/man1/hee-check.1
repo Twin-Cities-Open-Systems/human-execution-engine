@@ -44,7 +44,11 @@ signatures every detached .asc verifies against the file it signs,
            and can re\-sign the ones that drifted
 tickets    every .hee/tickets record parses and moves legally through
            idea\->footgun<\->dogfood
-all        boundary + refs + locale + signatures + tickets + gitignore
+examples   run every \[aq]# ci\[aq]\-marked example in a hee tool\[aq]s \-\-help (hee repo
+           only); a line marked \[aq]# ci\[aq] that is not a runnable \[aq]$ ...\[aq]
+           example is itself CRITICAL. See \[ga]hee\-check examples help\[ga].
+all        boundary + refs + locale + signatures + tickets + gitignore,
+           plus examples when run in the hee repo
 
 Add \[ga]help\[ga] after any subcommand for its own page:
     hee\-check refs help
@@ -64,6 +68,12 @@ HEE_HOME_PATH_SKIP git pathspecs the home\-path scan skips, e.g. \[aq]:!hosts/*\
                    repo declares the exemption, the checker never guesses.
                    For a single deliberate line, prefer the marker
                    hee\-check:home\-ok \-\- see \[ga]hee\-check boundary \-\-help\[ga].
+
+When HEE_REFS_SKIP, HEE_HOME_PATH_SKIP or HEE_LINT_SKIP is UNSET, boundary,
+refs and all replay the value the target repo\[aq]s own .github/workflows
+declares, so a local run matches that repo\[aq]s CI instead of raising
+CRITICALs its CI would never see. An explicit value (even empty) is
+honoured as\-is. A one\-line OK names what was replayed.
 .EE
 .SH EXIT STATUS
 .IP

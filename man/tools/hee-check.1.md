@@ -45,7 +45,11 @@ hee-check - repo boundary and integrity checks
                and can re-sign the ones that drifted
     tickets    every .hee/tickets record parses and moves legally through
                idea->footgun<->dogfood
-    all        boundary + refs + locale + signatures + tickets + gitignore
+    examples   run every '# ci'-marked example in a hee tool's --help (hee repo
+               only); a line marked '# ci' that is not a runnable '$ ...'
+               example is itself CRITICAL. See `hee-check examples help`.
+    all        boundary + refs + locale + signatures + tickets + gitignore,
+               plus examples when run in the hee repo
 
     Add `help` after any subcommand for its own page:
         hee-check refs help
@@ -65,6 +69,12 @@ hee-check - repo boundary and integrity checks
                        repo declares the exemption, the checker never guesses.
                        For a single deliberate line, prefer the marker
                        hee-check:home-ok -- see `hee-check boundary --help`.
+
+    When HEE_REFS_SKIP, HEE_HOME_PATH_SKIP or HEE_LINT_SKIP is UNSET, boundary,
+    refs and all replay the value the target repo's own .github/workflows
+    declares, so a local run matches that repo's CI instead of raising
+    CRITICALs its CI would never see. An explicit value (even empty) is
+    honoured as-is. A one-line OK names what was replayed.
 
 
 # EXIT STATUS
