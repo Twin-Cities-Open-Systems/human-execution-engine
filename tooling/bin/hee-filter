@@ -220,6 +220,13 @@ SUBCOMMANDS
   Add `help` after any subcommand for its own page:
       hee-filter scan help
 
+EXAMPLES
+  $ hee filter check-mode markdown --venue test --supported markdown,html   # ci
+
+  check-mode is pure comparison, no network, so it is the one proven in CI.
+  check-repo, prime-repos and scan reach GitHub or a scanner checkout and are
+  left unmarked.
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK        the gate passed

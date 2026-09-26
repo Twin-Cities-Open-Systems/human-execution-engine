@@ -61,3 +61,10 @@ hee-gen-skills - hee-gen-skills command
     1 WARNING   dry run found differences that --write would apply
     2 CRITICAL  a Skill object is malformed or unreadable
     3 UNKNOWN   pyyaml missing, or no hee/skills directory
+
+# EXAMPLES
+
+    $ hee gen-skills   # ci
+
+    A bare run is a dry run and writes nothing (exit 0 unchanged, 1 if --write
+    would apply differences); --write rewrites .claude/skills/ and is unmarked.

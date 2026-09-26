@@ -106,7 +106,15 @@ def srt_context_for_lines(path: Path, line_numbers: set):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-srtscan")
+    ap = argparse.ArgumentParser(
+        prog="hee-srtscan",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  $ hee srtscan -search Hello -root tests/fixtures/srtscan   # ci
+
+  Searches .srt subtitles under -root; the fixture makes it self-contained.
+""")
     ap.add_argument("-search", required=True, metavar="TERM")
     ap.add_argument("-root", default=DEFAULT_ROOT)
     # Contextual help BEFORE argparse parses anything. argparse owns -h and

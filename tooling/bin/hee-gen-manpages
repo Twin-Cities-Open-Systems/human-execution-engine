@@ -90,6 +90,13 @@ OPTIONS
                  verifies over port 70, and records who published (sig_tag).
                  Without --write it says what it would push and stops.
 
+EXAMPLES
+  $ hee gen-manpages   # ci
+
+  A bare run is a dry run -- it reports what would change and writes nothing,
+  so it is safe to prove in CI. --write and --publish touch the filesystem or
+  a remote host and are deliberately left unmarked.
+
 EXIT STATUS
   0 OK   1 nothing generated, or an unknown argument
 USAGE

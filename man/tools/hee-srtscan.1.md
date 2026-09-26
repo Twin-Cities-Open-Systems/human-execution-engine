@@ -14,3 +14,10 @@ hee-srtscan - hee-srtscan command
       -h, --help    show this help message and exit
       -search TERM
       -root ROOT
+
+
+# EXAMPLES
+
+    $ hee srtscan -search Hello -root tests/fixtures/srtscan   # ci
+
+    Searches .srt subtitles under -root; the fixture makes it self-contained.

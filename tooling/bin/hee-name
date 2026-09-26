@@ -631,7 +631,17 @@ def _local_dates(stamps):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-name")
+    ap = argparse.ArgumentParser(
+        prog="hee-name",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  $ hee name -list-pools --allocations-dir "$(mktemp -d)"   # ci
+
+  -list-pools reads the bundled pool config and writes nothing, so it is
+  proven in CI over a scratch allocations dir. -allocate and -release mutate
+  the allocations directory and are left unmarked.
+""")
     ap.add_argument("-list-pools", action="store_true")
     ap.add_argument("-allocate", action="store_true")
     ap.add_argument("-release", metavar="NAME")

@@ -49,6 +49,8 @@ DESCRIPTION
   15/15, JSON-parseable, no scrollback to eyeball.
 
 EXAMPLES
+  $ printf 'OK: a\nOK: b\n' | hee sqz   # ci
+
   for r in $repos; do
     check "$r" && echo "OK: $r" || echo "FAIL: $r"
   done | hee-sqz

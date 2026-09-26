@@ -43,6 +43,13 @@ DESCRIPTION
   The output is generated state and is checked for staleness in CI; run
   this and commit the result whenever objects change.
 
+EXAMPLES
+  $ hee index --out "$(mktemp)"   # ci
+
+  --out to a scratch file proves the render without touching the committed
+  hee/INDEX.md (which is generated state CI checks for staleness -- regenerate
+  it with a bare `hee index` and commit the result when objects change).
+
 EXIT STATUS
   0 written   1 unknown argument   2 not in a git repo
 USAGE

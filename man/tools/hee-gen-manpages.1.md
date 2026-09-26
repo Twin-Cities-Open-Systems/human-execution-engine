@@ -50,6 +50,15 @@ hee-gen-manpages - generate man pages from each tool's own --help
 
     0 OK   1 nothing generated, or an unknown argument
 
+# EXAMPLES
+
+    $ hee gen-manpages   # ci
+
+    A bare run is a dry run -- it reports what would change and writes nothing,
+    so it is safe to prove in CI. --write and --publish touch the filesystem or
+    a remote host and are deliberately left unmarked.
+
+
 # DESTINATIONS
 
     Both are inside the repo that owns the TOOL, never the current

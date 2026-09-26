@@ -52,3 +52,11 @@ hee-gen-changelog - render CHANGELOG.md from the repo's own merge history
 # EXIT STATUS
 
     0 OK (dry run rendered, or written)   2 CRITICAL (not a git repo, no window)   3 UNKNOWN
+
+# EXAMPLES
+
+    $ hee gen-changelog   # ci
+
+    A bare run is a dry run: it prints the status line and what [Unreleased]
+    would become, and writes nothing. --write and --release change CHANGELOG.md
+    and are left unmarked.

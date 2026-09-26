@@ -34,6 +34,8 @@ marked line. Written for the fleet\-ops#244 branch\-protection rollout \-\-
 .SH EXAMPLES
 .IP
 .EX
+$ printf \[aq]OK: a\[rs]nOK: b\[rs]n\[aq] | hee sqz   # ci
+
 for r in $repos; do
   check \[dq]$r\[dq] && echo \[dq]OK: $r\[dq] || echo \[dq]FAIL: $r\[dq]
 done | hee\-sqz

@@ -34,6 +34,8 @@ hee-sqz - squeeze a loop's OK:/FAIL: lines into one JSON line
 
 # EXAMPLES
 
+    $ printf 'OK: a\nOK: b\n' | hee sqz   # ci
+
     for r in $repos; do
       check "$r" && echo "OK: $r" || echo "FAIL: $r"
     done | hee-sqz
