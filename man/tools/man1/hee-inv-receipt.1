@@ -35,6 +35,14 @@ text is the authority to re\-check against.
 .EX
 0 ingested   2 missing dependency, or the target is not the expected repo
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee inv\-receipt ingest receipt.jpg \-\-vendor acme \-\-store bart
+
+Not marked \[dq]# ci\[dq]: it reads an image with exiftool (not on the minimal
+runner) and files evidence into an inventory repo.
+.EE
 .SH REQUIRES
 .IP
 .EX

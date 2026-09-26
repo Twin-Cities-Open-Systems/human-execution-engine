@@ -115,7 +115,16 @@ def run_action(rule, fields):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-procmail")
+    ap = argparse.ArgumentParser(
+        prog="hee-procmail",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  cat message.eml | hee procmail
+
+  Not marked "# ci": it filters a message on stdin against the rule file at
+  .hee/mailrules.yaml, which is operator mail config, not a repo fixture.
+""")
     ap.add_argument("-rules", default=".hee/mailrules.yaml", metavar="PATH")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and
     # --help but not the bare `help` verb, and resolves either only after

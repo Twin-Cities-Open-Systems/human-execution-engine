@@ -30,6 +30,16 @@ hee-pve-health - hee-pve-health command
       -h, --help            show this help message and exit
 
 
+# EXAMPLES
+
+    hee pve health status
+    hee pve health map --proposed
+
+    Not marked "# ci": status/inventory/drift/snmp query the live Proxmox host or
+    its SNMP agent, and map --proposed reads the agent roster from the sibling
+    fleet-ops checkout under ~/git -- none present on a runner.
+
+
 # THE MAP AXES
 
 

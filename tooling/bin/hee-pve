@@ -362,7 +362,16 @@ def main():
 
     ap = argparse.ArgumentParser(
         prog="hee-pve", description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee pve health status
+  hee pve deploy pve/services/bastion.yaml --dry-run
+
+  Not marked "# ci": hee-pve is a router to network/host subcommands (deploy,
+  users, health, dispatch) that reach the Proxmox host. The one self-contained
+  path, `hee pve dispatch ... --dry-run --offline`, is proven on hee-pve-
+  dispatch's own page.""")
     sub = ap.add_subparsers(dest="cmd", required=True)
     n = sub.add_parser("network", help="reconcile the host's bridges against pve/network.yaml")
     n.add_argument("--spec", default=DEFAULT_SPEC)

@@ -75,3 +75,14 @@ hee-pve - the pve family, and the host network read from a yaml.
 
     options:
       -h, --help            show this help message and exit
+
+
+# EXAMPLES
+
+    hee pve health status
+    hee pve deploy pve/services/bastion.yaml --dry-run
+
+    Not marked "# ci": hee-pve is a router to network/host subcommands (deploy,
+    users, health, dispatch) that reach the Proxmox host. The one self-contained
+    path, `hee pve dispatch ... --dry-run --offline`, is proven on hee-pve-
+    dispatch's own page.

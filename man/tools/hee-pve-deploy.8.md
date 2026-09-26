@@ -191,6 +191,9 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
 
 # EXAMPLES
 
+    (None marked "# ci": even --dry-run reads the live Proxmox host over ssh to
+    diff against the manifest, which a CI runner cannot reach.)
+
     hee-pve-deploy pve/services/bastion.yaml --dry-run
         Preview a create: every command, every file, every provision script --
         nothing runs.

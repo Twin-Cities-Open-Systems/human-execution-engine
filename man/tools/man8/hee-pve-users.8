@@ -19,3 +19,11 @@ options:
   \-\-host HOST
   \-\-dry\-run
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee pve\-users pve/users/roster.yaml \-\-dry\-run
+
+Not marked \[dq]# ci\[dq]: even \-\-dry\-run reads the live Proxmox host\[aq]s users to diff
+against the manifest, which a runner cannot reach.
+.EE

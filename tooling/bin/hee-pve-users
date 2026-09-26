@@ -120,7 +120,16 @@ def token_exists(host, userid, token_id):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-pve-users")
+    ap = argparse.ArgumentParser(
+        prog="hee-pve-users",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee pve-users pve/users/roster.yaml --dry-run
+
+  Not marked "# ci": even --dry-run reads the live Proxmox host's users to diff
+  against the manifest, which a runner cannot reach.
+""")
     ap.add_argument("manifest")
     ap.add_argument("--host", default="10.0.0.153")
     ap.add_argument("--dry-run", action="store_true")

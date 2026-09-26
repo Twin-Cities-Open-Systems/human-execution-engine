@@ -76,3 +76,14 @@ positional arguments:
 options:
   \-h, \-\-help            show this help message and exit
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee pve health status
+hee pve deploy pve/services/bastion.yaml \-\-dry\-run
+
+Not marked \[dq]# ci\[dq]: hee\-pve is a router to network/host subcommands (deploy,
+users, health, dispatch) that reach the Proxmox host. The one self\-contained
+path, \[ga]hee pve dispatch ... \-\-dry\-run \-\-offline\[ga], is proven on hee\-pve\-
+dispatch\[aq]s own page.
+.EE

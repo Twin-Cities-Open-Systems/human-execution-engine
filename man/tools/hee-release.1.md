@@ -81,6 +81,16 @@ hee-release - lab, cut, promote: releases for one repo, a list, or the org
     3 UNKNOWN (no card, or a requirement the card declares is missing)
 
 
+# EXAMPLES
+
+    hee release -status
+    hee release -next
+
+    Not marked "# ci": every mode reads full git history and release tags to
+    compute what changed since the last cut, which a shallow, tagless CI
+    checkout does not have; -lab/-prod also build and push.
+
+
 # SEE ALSO
 
     hee-gen-changelog(1), hee-git-tag(1), hee-git-merge(1), hee-cred(1), hee-fields(1)

@@ -92,6 +92,15 @@ hee-tools-update - install or refresh the pinned external toolchain
     as-is, not changed here.
 
 
+# EXAMPLES
+
+    hee tools-update
+
+    Not marked "# ci": it downloads and installs the pinned toolchain (go, yq)
+    into ~/.local, a mutation of the host, so there is no read-only run to prove.
+    hee tools-check is the read-only half and IS proven in CI.
+
+
 # SEE ALSO
 
     hee-tools, hee-tools-check
