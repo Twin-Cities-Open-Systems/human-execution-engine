@@ -863,7 +863,16 @@ def cmd_embed_exif(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-exif")
+    ap = argparse.ArgumentParser(
+        prog="hee-exif",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee exif read photo.jpg --provenance
+
+  Not marked "# ci": it shells out to exiftool, which the minimal CI runner
+  does not install. It is a real, working command wherever exiftool is present.
+""")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     r = sub.add_parser("read", help="dump all real EXIF/metadata for a file")

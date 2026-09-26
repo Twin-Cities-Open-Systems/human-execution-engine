@@ -23,3 +23,11 @@ options:
   \-\-gpg\-key GPG_KEY    GPG key to sign the receipt with
   \-\-key\-path KEY_PATH
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee ssh\-send\-keys \-source claude\[at]flippy \-dest agent\[at]pve \-\-generate
+
+Not marked \[dq]# ci\[dq]: it reaches two hosts over ssh and installs keys, which a
+runner cannot do.
+.EE

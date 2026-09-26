@@ -19,3 +19,11 @@ options:
   \-\-ca\-pubkey CA_PUBKEY
   \-\-conf\-name CONF_NAME
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee ssh\-trust\-ca
+
+Not marked \[dq]# ci\[dq]: it configures the local sshd/known_hosts to trust the
+fleet CA at /etc/ssh/tcos\-ssh\-ca.pub, host state a runner does not have.
+.EE

@@ -21,3 +21,11 @@ hee-ssh-send-keys - hee-ssh-send-keys command
       --validity VALIDITY
       --gpg-key GPG_KEY    GPG key to sign the receipt with
       --key-path KEY_PATH
+
+
+# EXAMPLES
+
+    hee ssh-send-keys -source claude@flippy -dest agent@pve --generate
+
+    Not marked "# ci": it reaches two hosts over ssh and installs keys, which a
+    runner cannot do.

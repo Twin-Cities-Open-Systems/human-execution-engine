@@ -17,3 +17,11 @@ hee-ssh-trust-ca - hee-ssh-trust-ca command
       --yes                 actually write + reload; default is dry-run
       --ca-pubkey CA_PUBKEY
       --conf-name CONF_NAME
+
+
+# EXAMPLES
+
+    hee ssh-trust-ca
+
+    Not marked "# ci": it configures the local sshd/known_hosts to trust the
+    fleet CA at /etc/ssh/tcos-ssh-ca.pub, host state a runner does not have.

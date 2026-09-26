@@ -29,6 +29,14 @@ hee-dns - generate BIND zones from one flat host file.
     judgement call, not a parse error: two `=` records on one address is
     legal and occasionally deliberate.
 
+# EXAMPLES
+
+    $ hee dns check tests/fixtures/dns/hosts.txt   # ci
+
+    check parses the host file and reports, writing nothing. generate --out
+    writes zone files and is left unmarked.
+
+
 # WHY THIS EXISTS
 
 

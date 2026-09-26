@@ -152,7 +152,17 @@ def fetch_finger(query: str) -> str:
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-net")
+    ap = argparse.ArgumentParser(
+        prog="hee-net",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee net -proto gopher -url gopher://gopher.tcos.us
+  hee net -proto finger -query user@host
+
+  Not marked "# ci": every call opens a network connection, which a runner
+  cannot make deterministically.
+""")
     ap.add_argument("-proto", required=True, choices=["gopher", "finger"])
     ap.add_argument("-url")
     ap.add_argument("-query")

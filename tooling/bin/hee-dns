@@ -48,6 +48,12 @@ SYNOPSIS
     hee-dns check HOSTFILE
     hee-dns help | --help | -h
 
+EXAMPLES
+  $ hee dns check tests/fixtures/dns/hosts.txt   # ci
+
+  check parses the host file and reports, writing nothing. generate --out
+  writes zone files and is left unmarked.
+
 EXIT STATUS
     0   the host file parsed; zones written (generate) or reported (check)
     1   usage error -- unknown subcommand, or generate without --out

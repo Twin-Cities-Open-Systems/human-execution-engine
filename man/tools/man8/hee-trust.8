@@ -38,6 +38,15 @@ ca        the fleet X.509 CA
 Nagios plugin convention.
 0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee trust anchor \-\-repo .   # ci
+
+Without \-\-write, anchor reads this repo\[aq]s trust objects and the local
+identity and reports \-\- read\-only, so it is proven in CI. \-\-write commits
+the derived anchor and is left unmarked.
+.EE
 .SH SEE ALSO
 .IP
 .EX
