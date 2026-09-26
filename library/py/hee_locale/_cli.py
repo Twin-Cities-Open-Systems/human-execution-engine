@@ -15,6 +15,19 @@ SKIP = ["docs/history", "*/evidence/*", "man/*", "*.log",
         "tooling/bin/hee-check", "library/py/hee_locale/*"]
 
 
+def _repo_skip():
+    """Per-repo locale exemptions: space-separated pathspecs in HEE_LOCALE_SKIP.
+
+    Mirrors HEE_REFS_SKIP / HEE_HOME_PATH_SKIP -- the repo declares in its own
+    CI what should not be judged, and the checker never guesses. The real case
+    is fleet-ops' pve/agents/jobs/** -- copies of artifacts shipped to and from
+    agents (data under review, never authored here), which the same workflow
+    already exempts from refs. Editing them to fix a spelling would rewrite what
+    an agent was actually given or actually produced.
+    """
+    return [s for s in os.environ.get("HEE_LOCALE_SKIP", "").split() if s]
+
+
 def main(argv):
     root = argv[0] if argv else "."
     tool_root = os.environ["HEE_TOOL_ROOT"]
@@ -40,6 +53,7 @@ def main(argv):
     words = "|".join(sorted({p[0 if locale == DEFAULT_LOCALE else 1] for p in variants}))
     args = ["git", "-C", root, "grep", "-n", "-I", "-E", f"({words})", "--"]
     args += [f":!{s}" for s in SKIP]
+    args += [f":!{s}" for s in _repo_skip()]
     out = subprocess.run(args, capture_output=True, text=True)
     if out.returncode not in (0, 1):
         emit(Status.UNKNOWN,
