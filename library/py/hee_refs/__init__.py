@@ -271,6 +271,18 @@ def scan(root: str = ".", include_history: bool = False) -> tuple[int, list[Brok
                 checked += 1
                 if ref in existing or os.path.exists(os.path.join(root, ref)) or ref in _evidence_manifest(root):
                     continue
+                # File-relative: a reference resolved against the directory of
+                # the file that makes it, not the repo root. A package.json
+                # "main", a relative include, a doc linking a neighbour. Real
+                # case 2026-09-26: tick-task's frontend/package.json names
+                # "src/main.tsx" -- which is frontend/src/main.tsx, present and
+                # correct, but not root-relative, so a root-only check called it
+                # broken and turned tick-task's CI red. This can only rescue a
+                # would-be broken ref, never create one, so a genuinely missing
+                # path (absent both root- and file-relative) is still reported.
+                srcdir = os.path.dirname(f)
+                if srcdir and os.path.exists(os.path.join(root, srcdir, ref)):
+                    continue
                 # Not here. Resolved in exactly one sibling checkout: real,
                 # tallied, not broken. In several: ambiguous, and that IS broken.
                 hits = [s for s in siblings if os.path.exists(os.path.join(s, ref))]
