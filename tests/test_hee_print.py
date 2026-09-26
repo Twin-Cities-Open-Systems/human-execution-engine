@@ -58,7 +58,7 @@ class PrintRenders(unittest.TestCase):
 
 class PrintDegradesHonestly(unittest.TestCase):
     def test_wrong_yq_warns_but_still_renders_yaml(self):
-        # A yq that errors on -P (exactly the Python yq's behaviour) and whose
+        # A yq that errors on -P (exactly the Python yq's behavior) and whose
         # --version does not say "mikefarah". hee-print must NOT call `yq -P`,
         # must WARN on stderr, and must still exit 0 having rendered the file.
         with tempfile.TemporaryDirectory() as d:
