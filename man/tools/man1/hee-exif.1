@@ -39,3 +39,11 @@ positional arguments:
 options:
   \-h, \-\-help            show this help message and exit
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee exif read photo.jpg \-\-provenance
+
+Not marked \[dq]# ci\[dq]: it shells out to exiftool, which the minimal CI runner
+does not install. It is a real, working command wherever exiftool is present.
+.EE

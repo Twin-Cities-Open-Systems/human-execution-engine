@@ -138,7 +138,16 @@ def gpg_receipt(identity, source, dest, principal, validity, cert_path, gpg_key)
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-ssh-send-keys")
+    ap = argparse.ArgumentParser(
+        prog="hee-ssh-send-keys",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee ssh-send-keys -source claude@flippy -dest agent@pve --generate
+
+  Not marked "# ci": it reaches two hosts over ssh and installs keys, which a
+  runner cannot do.
+""")
     ap.add_argument("-source", required=False)
     ap.add_argument("-dest", required=False)
     ap.add_argument("--generate", action="store_true")

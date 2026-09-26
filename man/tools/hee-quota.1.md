@@ -34,6 +34,7 @@ hee-quota - hee-quota: monitor GitHub API rate-limit pools (core/graphql/search)
     options:
       -h, --help            show this help message and exit
 
+
 # DESCRIPTION
 
     give a real, live go/no-go before a bulk operation, instead of finding out
@@ -47,3 +48,12 @@ hee-quota - hee-quota: monitor GitHub API rate-limit pools (core/graphql/search)
     Checking rate_limit itself does not consume quota (confirmed live) --
     safe to call before every bulk run, not just when something's already
     gone wrong.
+
+
+# EXAMPLES
+
+    hee quota status
+    hee quota wait --for 100
+
+    Not marked "# ci": it queries the GitHub API rate-limit endpoint, which
+    needs an authenticated token and is not deterministic on a runner.

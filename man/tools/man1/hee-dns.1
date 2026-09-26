@@ -28,6 +28,14 @@ A duplicate\-PTR warning does NOT change the exit status. It is a
 judgement call, not a parse error: two \[ga]=\[ga] records on one address is
 legal and occasionally deliberate.
 .EE
+.SH EXAMPLES
+.IP
+.EX
+$ hee dns check tests/fixtures/dns/hosts.txt   # ci
+
+check parses the host file and reports, writing nothing. generate \-\-out
+writes zone files and is left unmarked.
+.EE
 .SH WHY THIS EXISTS
 .IP
 .EX

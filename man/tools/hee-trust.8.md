@@ -39,6 +39,15 @@ hee-trust - the fleet's trust anchors: who signs, and who believes whom.
     0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 
 
+# EXAMPLES
+
+    $ hee trust anchor --repo .   # ci
+
+    Without --write, anchor reads this repo's trust objects and the local
+    identity and reports -- read-only, so it is proven in CI. --write commits
+    the derived anchor and is left unmarked.
+
+
 # SEE ALSO
 
       hee-cred (a secret you HOLD, deliberately separate), hee-ssh-trust-ca,

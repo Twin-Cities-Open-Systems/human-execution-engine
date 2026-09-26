@@ -104,7 +104,17 @@ def extract_hash_from_payload(payload: str) -> str:
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-qr")
+    ap = argparse.ArgumentParser(
+        prog="hee-qr",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee qr pickup.png
+
+  Not marked "# ci": it decodes a QR out of an image, which needs both a QR
+  image fixture and a decoder (zbar) that a bare runner does not have. The QR
+  round trip in tests/test_rrr_qr.py covers encode+decode with those deps.
+""")
     ap.add_argument("image")
     ap.add_argument("-manifest", metavar="PATH", help="write/update a static {recipe_id: recipe} JSON manifest entry")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and

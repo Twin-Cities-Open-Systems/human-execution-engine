@@ -23,6 +23,13 @@ SUBCOMMANDS
   anchor    the SOA capsule at ~/.hee/index/_.yaml
   ca        the fleet X.509 CA
 
+EXAMPLES
+  $ hee trust anchor --repo .   # ci
+
+  Without --write, anchor reads this repo's trust objects and the local
+  identity and reports -- read-only, so it is proven in CI. --write commits
+  the derived anchor and is left unmarked.
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN

@@ -37,3 +37,11 @@ hee-exif - hee-exif command
 
     options:
       -h, --help            show this help message and exit
+
+
+# EXAMPLES
+
+    hee exif read photo.jpg --provenance
+
+    Not marked "# ci": it shells out to exiftool, which the minimal CI runner
+    does not install. It is a real, working command wherever exiftool is present.

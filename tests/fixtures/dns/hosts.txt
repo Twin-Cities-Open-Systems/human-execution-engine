@@ -1,0 +1,4 @@
+# tinydns-format host file: first char picks the record direction.
+=gate:10.0.0.1:3600
+=web:10.0.0.10:3600
++www:10.0.0.10:3600

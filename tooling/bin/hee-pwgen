@@ -58,6 +58,9 @@ DESCRIPTION
   Nothing is stored, logged, or echoed anywhere else -- if the password
   ends up on a shared surface, it is because the caller piped it there.
 
+EXAMPLES
+  $ hee pwgen   # ci
+
 EXIT STATUS
   Nagios plugin convention.
   0 OK        a password was printed

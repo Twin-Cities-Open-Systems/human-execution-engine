@@ -287,7 +287,15 @@ def cmd_watch(args):
 
 
 def main():
-    ap = ArgumentParser(prog="hee-quota", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = ArgumentParser(prog="hee-quota", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee quota status
+  hee quota wait --for 100
+
+  Not marked "# ci": it queries the GitHub API rate-limit endpoint, which
+  needs an authenticated token and is not deterministic on a runner.
+""")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     POOLS = ["github", "host", "all"]

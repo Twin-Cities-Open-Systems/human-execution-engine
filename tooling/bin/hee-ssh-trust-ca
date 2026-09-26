@@ -93,7 +93,16 @@ def check_include_present():
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-ssh-trust-ca")
+    ap = argparse.ArgumentParser(
+        prog="hee-ssh-trust-ca",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee ssh-trust-ca
+
+  Not marked "# ci": it configures the local sshd/known_hosts to trust the
+  fleet CA at /etc/ssh/tcos-ssh-ca.pub, host state a runner does not have.
+""")
     ap.add_argument("--yes", action="store_true", help="actually write + reload; default is dry-run")
     ap.add_argument("--ca-pubkey", default=CA_PUBKEY_DEFAULT)
     ap.add_argument("--conf-name", default=CONF_NAME_DEFAULT)
