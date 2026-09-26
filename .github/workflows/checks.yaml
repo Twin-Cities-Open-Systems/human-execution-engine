@@ -84,6 +84,16 @@ jobs:
       - name: locale -- text matches the declared locale
         run: tooling/bin/hee-check locale
 
+      # GREEN. A tool's --help IS its man page (rule 17); a line in it marked
+      # "# ci" is documentation and a test at once. This runs every one over
+      # the checked-in fixtures and fails on a non-zero exit -- so the man
+      # pages cannot drift from what the tools actually do. It also catches a
+      # line MARKED "# ci" that is not a runnable "$ ..." example (the man
+      # page would advertise it as proven while it never ran). Until this PR
+      # it ran only post-merge, inside `hee-check all` in stable.yaml.
+      - name: examples -- every '# ci' example in a tool's --help runs clean
+        run: tooling/bin/hee-check examples
+
   shellcheck:
     name: shellcheck (standard, shell)
     runs-on: ubuntu-latest
@@ -206,5 +216,50 @@ jobs:
           python3 -m pytest tests/test_rrr_qr.py -q -rs | tee /tmp/qr-roundtrip.log
           if grep -qi skipped /tmp/qr-roundtrip.log; then
             echo "::error::the QR round trip SKIPPED -- qrcode or zbarimg missing on the runner"
+            exit 1
+          fi
+
+  # The whole hee-* unit suite. Measured 2026-09-26: 34 test files, ~374
+  # tests, all passing locally in ~45 s -- and NONE of them ran in CI. The
+  # only pytest job here was the QR round trip above (issue 774); every other
+  # tool test file (hee-cred, hee-pve-*, hee-view, hee-url, hee-check, ...)
+  # ran nowhere. A test that never runs in CI is a test that silently rots.
+  #
+  # This runs everything EXCEPT test_rrr_qr.py, which the qr-roundtrip job
+  # above already owns with its own rendered-pixel dependencies.
+  tool-suite:
+    name: pytest (standard, Python) -- the hee tool suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # age/age-keygen are the only binaries the suite needs that are not
+      # already on ubuntu-latest (gpg, openssl, ssh-keygen, setsid are). A
+      # test that skips itself for a missing tool is honest on a laptop and a
+      # lie in CI -- so we install it and, below, FAIL on any skip.
+      - name: Install the suite's real dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age
+          pipx install pytest==8.3.3
+          pipx inject pytest pyyaml cryptography
+
+      - name: Versions
+        run: |
+          age --version || true
+          gpg --version | head -1
+          openssl version
+          pytest --version
+
+      # A SKIP is a failure, same rule as the QR job: the suite's skipif
+      # guards exist for a laptop that lacks age or gpg, not for CI, where
+      # this job installs them. -rs so any skip is named in the log.
+      - name: pytest tests/ (all but the QR round trip)
+        run: |
+          set -o pipefail
+          pytest tests/ --ignore=tests/test_rrr_qr.py -q -rs -p no:cacheprovider \
+            | tee /tmp/tool-suite.log
+          if grep -qiE '^SKIPPED|[1-9][0-9]* skipped' /tmp/tool-suite.log; then
+            echo "::error::a tool test SKIPPED -- a dependency is missing on the runner; install it in this job rather than skipping"
             exit 1
           fi
