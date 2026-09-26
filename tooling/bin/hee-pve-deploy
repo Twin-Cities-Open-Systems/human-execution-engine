@@ -26,6 +26,7 @@ Manifest format (pve/services/<name>.yaml):
   storage: ssd1
   bridge: vmbr0
   unprivileged: true
+  onboot: 1                         # start on host boot. DEFAULTS TO 1 here, unlike Proxmox's own 0
   features: {nesting: true, keyctl: true}   # pve LXC features; only for a container that runs containers
   addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
   agent: ci-triage                  # agent roster role, only for a container that runs an agent
@@ -270,6 +271,20 @@ def _anchor_ok(spec, anchors_path):
 #   keyctl   the kernel keyring syscalls Docker needs in an unprivileged container
 #   fuse     FUSE mounts inside the container
 FEATURES = ("nesting", "keyctl", "fuse")
+
+
+def _onboot(spec):
+    """`-onboot` for `pct create`, defaulting to ON.
+
+    Proxmox's own default is 0. This tool's is 1, deliberately. Real trigger,
+    2026-09-26: a household power event took the lab down and nothing came
+    back, because no LXC had onboot set -- the operator brought each container
+    up by hand, one at a time. A container we declare in git is a container we
+    want running, so "comes back after a power cut" is the right default and
+    staying down is the thing you have to say out loud. Declare `onboot: 0`
+    for a template or a build box that should stay off.
+    """
+    return "1" if spec.get("onboot", 1) else "0"
 
 
 def _features(spec):
@@ -537,6 +552,7 @@ def main():
         "-rootfs", f"{require('storage')}:{spec.get('disk_gb', 4)}",
         "-net0", _net0(spec, args.anchors),
         "-unprivileged", "1" if spec.get("unprivileged", True) else "0",
+        "-onboot", _onboot(spec),
         "-start", "1",
     ]
     if features:
