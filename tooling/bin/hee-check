@@ -930,9 +930,22 @@ check_signatures() {
   fi
 
   _sig_ok=0; _sig_bad=0; _sig_unk=0; _sig_orphan=0
-  _sig_fixed=0; _sig_notmine=0
+  _sig_fixed=0; _sig_notmine=0; _sig_notsig=0
   # Tracked files only -- an untracked .asc is somebody's scratch work.
   for _a in $(git -C "$root" ls-files '*.asc' 2>/dev/null); do
+    # A .asc is not necessarily a DETACHED SIGNATURE. Armored public keys are
+    # committed with a .asc extension too -- fleet-ops holds pve/inventory/
+    # tcos-inv-homer.gpg.asc and pve/lab-deploy/pve-lab-deploy.gpg.asc, host
+    # PUBLIC KEYS added as seal recipients, not signatures of anything. Reading
+    # the armor header tells the two apart; a detached signature says "PGP
+    # SIGNATURE", a key says "PGP PUBLIC KEY BLOCK". Before this, every such
+    # key was reported as an "orphan signature, signs nothing" (measured
+    # 2026-09-26, 2 false WARNING in fleet-ops). Only a real signature block
+    # is verified below; a key or message block is not our concern here.
+    case "$(head -1 "$root/$_a" 2>/dev/null)" in
+      *"PGP PUBLIC KEY BLOCK"*|*"PGP PRIVATE KEY BLOCK"*|*"PGP MESSAGE"*)
+        _sig_notsig=$((_sig_notsig + 1)); continue ;;
+    esac
     # Two real conventions here: <file>.asc and <file>.<signer>.asc.
     _base="${_a%.asc}"
     [ -f "$root/$_base" ] || _base="${_base%.*}"
