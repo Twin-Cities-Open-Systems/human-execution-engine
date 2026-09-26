@@ -79,6 +79,13 @@ DESCRIPTION
   -tmux-send has NO defaults. -target is always required: sending into
   the wrong pane is a real footgun, not a hypothetical one.
 
+EXAMPLES
+  hee-con -list
+  hee-con libera -irc '#tcos'
+
+  Not marked "# ci": every real action attaches a tmux IRC client or reaches
+  a network, neither of which a runner can do.
+
 EXIT STATUS
   0 OK        connected, message sent, or -check found no drift
   1 WARNING   unknown argument, or a required argument was missing

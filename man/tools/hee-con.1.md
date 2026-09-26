@@ -45,3 +45,11 @@ hee-con - connect to IRC in tmux, or send into an existing tmux pane
     1 WARNING   unknown argument, or a required argument was missing
     2 CRITICAL  -check found a target whose host is not in DNS
     3 UNKNOWN   -check could not find a DNS source to check against
+
+# EXAMPLES
+
+    hee-con -list
+    hee-con libera -irc '#tcos'
+
+    Not marked "# ci": every real action attaches a tmux IRC client or reaches
+    a network, neither of which a runner can do.

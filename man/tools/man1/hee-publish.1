@@ -82,6 +82,11 @@ Nagios plugin convention.
 .SH EXAMPLES
 .IP
 .EX
+hee publish \-blog touchy\-claude \-range \[dq]7 days\[dq]
+
+Not marked \[dq]# ci\[dq]: it reads git history over a range and is gated on a
+content scan, so it is neither deterministic nor self\-contained on a runner.
+
 hee\-publish \-blog spencerbutler \-range \[dq]6 hrs\[dq]
 hee\-publish \-blog spencerbutler \-range \[dq]2 wks\[dq] \-context \[dq]sprint recap\[dq]
 .EE

@@ -80,6 +80,15 @@ hee-contract-review - smart-sorted contract review, needed-first
                 as-is, not changed here.
 
 
+# EXAMPLES
+
+    $ hee contract-review --dump json   # ci
+
+    --dump is non-interactive and reads the repo's contracts, so it is proven in
+    CI. A bare invocation opens a curses TUI (needs a real terminal) and the
+    sign action uses your gpg key; both are left unmarked.
+
+
 # SEE ALSO
 
     tools/hee/ratify-contract.sh -- the same staging logic, one contract

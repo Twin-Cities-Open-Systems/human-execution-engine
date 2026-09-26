@@ -17,3 +17,12 @@ hee-fields - hee-fields command
 
     options:
       -h, --help         show this help message and exit
+
+
+# EXAMPLES
+
+    hee fields audit 12
+    hee fields set 12 Priority P1
+
+    Not marked "# ci": every subcommand reads or writes a GitHub Projects v2
+    board over the API, which a runner cannot reach deterministically.

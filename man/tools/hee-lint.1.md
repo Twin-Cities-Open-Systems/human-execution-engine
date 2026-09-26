@@ -52,3 +52,11 @@ hee-lint - fast lint gate for HEE-object YAML
 
     Documented as measured, not as it "should" be -- this help IS the published
     man page, so an aspirational exit table would publish a lie.
+
+# EXAMPLES
+
+    $ hee lint --mode warn tests/fixtures   # ci
+
+    --mode warn reports findings without failing (exit 0), so it proves the
+    linter runs over the fixtures deterministically. --mode error exits 2 on a
+    finding and is left unmarked (it depends on what is under the path).

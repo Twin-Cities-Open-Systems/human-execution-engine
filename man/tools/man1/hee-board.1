@@ -54,3 +54,12 @@ script. This is the functional equivalent: one real item\-list fetch,
 then curated slices printed as plain text. 0\-token by design \-\- pure
 deterministic filtering, no LLM call.
 .EE
+.SH EXAMPLES
+.IP
+.EX
+hee board p0
+hee board open\-prs
+
+Not marked \[dq]# ci\[dq]: every view queries GitHub (issues, PRs, the project
+board) over the API, which a runner cannot reach deterministically.
+.EE

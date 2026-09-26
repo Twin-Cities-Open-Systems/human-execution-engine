@@ -259,7 +259,15 @@ def _local_dates(stamps):
 
 
 def main():
-    ap = ArgumentParser(prog="hee-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = ArgumentParser(prog="hee-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  hee board p0
+  hee board open-prs
+
+  Not marked "# ci": every view queries GitHub (issues, PRs, the project
+  board) over the API, which a runner cannot reach deterministically.
+""")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("p0")
     sub.add_parser("off-project")

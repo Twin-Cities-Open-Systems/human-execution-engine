@@ -57,7 +57,16 @@ def extract_quotes(path: Path):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="hee-qdb")
+    ap = argparse.ArgumentParser(
+        prog="hee-qdb",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+EXAMPLES
+  $ hee qdb -search compiler -source tests/fixtures/qdb/quotes.md   # ci
+
+  Searches Markdown "Quotes" sources; the fixture makes it self-contained. The
+  default source is WHO-WE-ARE.md in the current repo.
+""")
     ap.add_argument("-search", required=True, metavar="TERM")
     ap.add_argument("-source", action="append", default=None, metavar="PATH")
     # Contextual help BEFORE argparse parses anything. argparse owns -h and

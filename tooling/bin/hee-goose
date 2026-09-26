@@ -10,6 +10,12 @@ DESCRIPTION
   rendered with chafa, which uses the kitty graphics protocol when the
   terminal supports it. Set HEE_GOOSE_IMAGE to render another image.
 
+EXAMPLES
+  hee goose
+
+  Not marked "# ci": the honk is rendered with chafa, which a bare CI runner
+  does not have (goose then exits non-zero, by design).
+
 EXIT STATUS
   0 on success; non-zero if chafa fails (e.g. it is not installed or the
   image is unreadable).

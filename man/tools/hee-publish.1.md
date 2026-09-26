@@ -83,6 +83,11 @@ hee-publish - 0-token activity summary, gated before it prints
 
 # EXAMPLES
 
+    hee publish -blog touchy-claude -range "7 days"
+
+    Not marked "# ci": it reads git history over a range and is gated on a
+    content scan, so it is neither deterministic nor self-contained on a runner.
+
     hee-publish -blog spencerbutler -range "6 hrs"
     hee-publish -blog spencerbutler -range "2 wks" -context "sprint recap"
 

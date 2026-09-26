@@ -43,6 +43,7 @@ hee-board - real, 0-token curated filtered views over the TCOS Roadmap
     options:
       -h, --help            show this help message and exit
 
+
 # DESCRIPTION
 
     project, since GitHub Projects v2 has no view-creation mutation in its
@@ -51,3 +52,12 @@ hee-board - real, 0-token curated filtered views over the TCOS Roadmap
     script. This is the functional equivalent: one real item-list fetch,
     then curated slices printed as plain text. 0-token by design -- pure
     deterministic filtering, no LLM call.
+
+
+# EXAMPLES
+
+    hee board p0
+    hee board open-prs
+
+    Not marked "# ci": every view queries GitHub (issues, PRs, the project
+    board) over the API, which a runner cannot reach deterministically.
