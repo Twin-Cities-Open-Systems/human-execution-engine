@@ -2,6 +2,8 @@
 
 Contracts define binding rules for behavior and boundaries across the repo.
 
+> **Schema is required.** Every contract here must be a HEE object: `apiVersion: hee/v1`, a top-level `kind: Contract`, `metadata` with `annotations.inuid`, and a `spec`. `hee-lint` enforces this for anything named `*.contract.yaml` or living in a `contracts/` directory — a file that omits the envelope is now a CRITICAL finding, not silently skipped. Files predating this standard are being migrated; see the audit tracked in the fleet.
+
 ## What belongs here
 
 - Governance rules (MUST/SHALL)
