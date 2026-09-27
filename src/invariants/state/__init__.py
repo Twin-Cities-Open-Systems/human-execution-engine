@@ -1,1 +1,0 @@
-# State change gatekeeper module for I09 Words Not State invariant

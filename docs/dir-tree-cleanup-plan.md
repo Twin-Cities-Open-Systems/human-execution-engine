@@ -66,3 +66,24 @@ built from, not a finished proposal to just execute.
 No files moved, no directories merged, no decisions made unilaterally
 — this is the survey and the proposed order of small steps, per "make
 plan and do small bits at a time."
+
+## Executed — Phase 1: dead-directory removals (2026-09-27)
+
+Operator directed the cleanup this session; audited (3 read-only passes + this
+survey) then removed the audit-confirmed-dead, unreferenced items. All removals
+git-recoverable; `hee check refs` clean (481 refs resolve) after.
+
+Removed: `extras/` (self-declared non-canonical), `math/` (empty placeholder),
+`reports/` (one stray note), `cmd/` (Go stub, never built), `src/` +
+the dead `security_validator.py` under scripts/ (abandoned Python; the only consumer of src/, itself
+never run), `irssi-scripts/` (unreferenced), `package.json`/`package-lock.json`
+(markdownlint comes via pre-commit, not npm), `docs/contracts/ui-dom/` (unreferenced
+draft PR #519 was already clearing), `hee/rrd/` `hee/experiments/` `hee/gcic/` (dead
+subtrees, cold 7 months), the 6 abandoned blueprint drafts
+(`*_v0`/`_stub`/`_snapshot`) and the now-empty relay-office index that only listed them.
+
+Kept (audit corrected the hunch): `workloads/` (governance.yaml CI runs its run.sh),
+the 10 live BlueprintDoctrine blueprints, `plans/` (one live plan tied to ticket 0017).
+
+Still to do: Phase 2 moves (`rfcs/`->`docs/rfc`, `hee/library/sh`->`library/sh`),
+Phase 3 contract .md cleanup, Phase 4 tools/ vs tooling/ documentation + README revamp.
