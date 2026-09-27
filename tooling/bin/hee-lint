@@ -4,7 +4,9 @@
 # Modes:
 #   --mode warn|error   (default warn)
 # Behavior:
-#   Scans tracked *.yml/*.yaml; only checks files containing `apiVersion: hee/v1`.
+#   Scans tracked *.yml/*.yaml. Governance objects (contracts/blueprints/plans,
+#   by dir or name) MUST carry the envelope; other files are checked only if they
+#   declare `apiVersion: hee/v1`.
 
 usage() {
   cat <<'TXT'
@@ -15,11 +17,22 @@ SYNOPSIS
   hee-lint help | --help | -h
 
 DESCRIPTION
-  Scans TRACKED *.yml/*.yaml and checks only files declaring
-  `apiVersion: hee/v1`. Everything else is ignored, so this is safe to run
-  across a mixed repo.
+  Scans TRACKED *.yml/*.yaml. Two gates:
 
-  Checks: metadata present and parseable, metadata.annotations present,
+  1. GOVERNANCE OBJECTS (fail-closed). A file that lives under contracts/,
+     hee/contracts/, blueprints/ or plans/ -- OR is named *.contract.yaml,
+     *.blueprint.yaml or *.plan.yaml -- MUST be a HEE object: it must carry
+     `apiVersion: hee/v1`, a top-level `kind:` matching its convention
+     (contract->Contract, blueprint->Blueprint|BlueprintDoctrine, plan->Plan),
+     and a top-level `spec:`. This closes the blind spot where a contract that
+     simply omitted the envelope was classified "not a HEE object" and passed
+     silently -- the malformation was what hid it. Derived/sample/archive trees
+     (tests/, */fixtures/, */examples/, */templates/, docs/history/) are exempt.
+
+  2. ENVELOPE OBJECTS. Any other file declaring `apiVersion: hee/v1` is checked;
+     everything else is ignored, so this is safe to run across a mixed repo.
+
+  Checks (both gates): metadata present and parseable, metadata.annotations present,
   metadata.annotations.inuid present, a null inuid accompanied by
   inuid_null_reason, and -- when the object declares
   inuid_derivation: sha256(inuid_seed) -- that the recorded inuid actually
@@ -115,10 +128,65 @@ if [ -z "${FILES}" ]; then
   exit 0
 fi
 
+# Governance objects -- contracts, blueprints, plans -- MUST be HEE objects of
+# the MATCHING kind, by where they live or what they are named. This is the
+# fail-CLOSED half of the gate. The check below it only ever looked at files
+# that ALREADY declared `apiVersion: hee/v1`, so a contract that dropped the
+# envelope was classified "not ours" and passed silently -- the malformation
+# was exactly what hid it (measured 2026-09-27: 14 such contracts in HEE
+# contracts/, 1 blueprint in fleet-ops). A governance object with no envelope
+# is now CRITICAL, not skipped. Derived/sample trees are exempt: a fixture is
+# allowed to be a deliberately broken object.
+expected_kind_of() {
+  # Derived, sample and archived trees are exempt: a fixture may be a
+  # deliberately broken object, and docs/history/ is a snapshot of the past,
+  # not a live source of truth.
+  case "$1" in
+    tests/*|*/tests/*|*/fixtures/*|*/examples/*|*/templates/*) return 1;;
+    docs/history/*|*/docs/history/*) return 1;;
+  esac
+  # Echo the SET of kinds allowed for this convention (space-separated). The
+  # blueprint set carries BlueprintDoctrine as well as Blueprint: the two are
+  # in tension across the registry (active_kinds, authoritative) and
+  # schemas/hee/v1/blueprint-doctrine.schema.json (const BlueprintDoctrine),
+  # and this gate refuses to adjudicate that -- it enforces the envelope, not
+  # the taxonomy fight. First word is the display label.
+  case "$1" in
+    *.contract.*|contracts/*|*/contracts/*)    echo "Contract";  return 0;;
+    *.blueprint.*|blueprints/*|*/blueprints/*) echo "Blueprint BlueprintDoctrine"; return 0;;
+    *.plan.*|plans/*|*/plans/*)                echo "Plan";      return 0;;
+  esac
+  return 1
+}
+
 check_file() {
   f="$1"
-  # Only HEE objects
-  if ! rg -n --no-messages -q '^[[:space:]]*apiVersion:[[:space:]]*hee/v1[[:space:]]*$' "$f"; then
+
+  has_env=0
+  rg -n --no-messages -q '^[[:space:]]*apiVersion:[[:space:]]*hee/v1[[:space:]]*$' "$f" && has_env=1
+
+  want_kind="$(expected_kind_of "$f")" || want_kind=""
+
+  if [ -n "$want_kind" ]; then
+    label="${want_kind%% *}"
+    # A governance object: the HEE envelope is mandatory, not opt-in.
+    if [ "$has_env" -eq 0 ]; then
+      echo "🔴 CRITICAL: missing 'apiVersion: hee/v1' -- a $label object must carry the HEE envelope: $f"
+      FAIL=$((FAIL+1)); return 0
+    fi
+    got_kind="$(rg --no-messages -N -o '^kind:[[:space:]]*.+' "$f" | head -1 | sed -e 's/^kind:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' -e 's/[[:space:]]*$//')"
+    case " $want_kind " in
+      *" ${got_kind:-none} "*) : ;;
+      *) echo "🔴 CRITICAL: kind must be one of [$want_kind] (got '${got_kind:-none}') -- governance object: $f"
+         FAIL=$((FAIL+1)); return 0;;
+    esac
+    if ! rg --no-messages -q '^spec:' "$f"; then
+      echo "🔴 CRITICAL: missing top-level 'spec:' -- a $label object: $f"
+      FAIL=$((FAIL+1)); return 0
+    fi
+    # fall through: metadata / annotations / inuid are still enforced below.
+  elif [ "$has_env" -eq 0 ]; then
+    # Not a governance object and it did not opt in -- ignore, as before.
     return 0
   fi
 
