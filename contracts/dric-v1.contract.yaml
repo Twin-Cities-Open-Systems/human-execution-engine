@@ -1,67 +1,85 @@
 # path: contracts/dric-v1.contract.yaml
-version: dric-v1.01
-name: dric
-title: Design–Relay Interface Contract (DRIC-v1)
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: dric
+  description: "Design–Relay Interface Contract (DRIC-v1)"
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: dric
+  annotations:
+    inuid: "baa5f8164e07ec3ac09f11dadf068a984dc4492edf3368f0b645c4752c3e03a6"
+    inuid_seed: "hee-contract://tcos-fleet/dric/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  version: dric-v1.01
+  name: dric
+  title: Design–Relay Interface Contract (DRIC-v1)
 
-intent:
-  - enforce strict separation of design vs relay
-  - ensure relay is agent-facing and non-executing
-  - require disk evidence for completion claims
+  intent:
+    - enforce strict separation of design vs relay
+    - ensure relay is agent-facing and non-executing
+    - require disk evidence for completion claims
 
-roles:
-  design:
-    emits_only:
-      - design_outputs
-  relay:
-    addresses_only:
-      - agent
-    must_not_address:
-      - oper
-    does:
-      - validate_state
-      - request_evidence
-      - provide_agent_facing_handoff
-    must_not:
-      - emit_runnable_commands
-      - emit_procedural_tasks
-      - redesign
-      - skip_phases
-      - go_silent_without_explicit_evidence_request
-  agent:
-    does:
-      - coordinate_execution_with_oper
-      - return_evidence
-  oper:
-    does:
-      - execute_locally
-      - provide_disk_evidence
+  roles:
+    design:
+      emits_only:
+        - design_outputs
+    relay:
+      addresses_only:
+        - agent
+      must_not_address:
+        - oper
+      does:
+        - validate_state
+        - request_evidence
+        - provide_agent_facing_handoff
+      must_not:
+        - emit_runnable_commands
+        - emit_procedural_tasks
+        - redesign
+        - skip_phases
+        - go_silent_without_explicit_evidence_request
+    agent:
+      does:
+        - coordinate_execution_with_oper
+        - return_evidence
+    oper:
+      does:
+        - execute_locally
+        - provide_disk_evidence
 
-blocked_behavior:
-  when_blocked:
-    relay_must:
-      - cite_exact_dric_clause
-      - enumerate_missing_evidence_bounded
-    relay_must_not:
-      - ack_only
-
-completion:
-  requires_disk_evidence: true
-  false_positive_completion_invalid: true
-
-phase_discipline:
-  one_phase_per_relay_chat: true
-  new_relay_chat_per_phase: true
-
-# DRIC delta: outfile lane routing
-lane_routing:
-  outfile_work:
-    governed_by: outfile-evidence-v1
-    relay_must_not_emit:
-      - outfiles
-      - runnable_command_blocks
+  blocked_behavior:
     when_blocked:
-      must:
+      relay_must:
         - cite_exact_dric_clause
         - enumerate_missing_evidence_bounded
-      must_not:
+      relay_must_not:
         - ack_only
+
+  completion:
+    requires_disk_evidence: true
+    false_positive_completion_invalid: true
+
+  phase_discipline:
+    one_phase_per_relay_chat: true
+    new_relay_chat_per_phase: true
+
+  # DRIC delta: outfile lane routing
+  lane_routing:
+    outfile_work:
+      governed_by: outfile-evidence-v1
+      relay_must_not_emit:
+        - outfiles
+        - runnable_command_blocks
+      when_blocked:
+        must:
+          - cite_exact_dric_clause
+          - enumerate_missing_evidence_bounded
+        must_not:
+          - ack_only

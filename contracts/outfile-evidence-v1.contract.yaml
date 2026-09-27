@@ -1,56 +1,74 @@
 # path: contracts/outfile-evidence-v1.contract.yaml
-version: outfile-evidence-v1
-name: outfile-evidence
-title: GPT–Oper Outfile Evidence Contract
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: outfile-evidence
+  description: "GPT–Oper Outfile Evidence Contract"
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: outfile-evidence
+  annotations:
+    inuid: "10de1d7d1520b835c9bd4f549f9a2993afa4e2d41920a93e525bf54fd41caef5"
+    inuid_seed: "hee-contract://tcos-fleet/outfile-evidence/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  version: outfile-evidence-v1
+  name: outfile-evidence
+  title: GPT–Oper Outfile Evidence Contract
 
-intent:
-  - govern generation and update of evidence outfiles
-  - define the GPT↔Oper lane for file-producing work
-  - make disk evidence authoritative
+  intent:
+    - govern generation and update of evidence outfiles
+    - define the GPT↔Oper lane for file-producing work
+    - make disk evidence authoritative
 
-scope:
-  applies_when:
-    - chat emits runnable commands to create or update repo files
-    - chat produces or updates evidence markdown
-  excludes:
-    - dric_design_lane
-    - dric_relay_lane
+  scope:
+    applies_when:
+      - chat emits runnable commands to create or update repo files
+      - chat produces or updates evidence markdown
+    excludes:
+      - dric_design_lane
+      - dric_relay_lane
 
-lane:
-  participants:
-    - gpt
-    - oper
-  exclusive_from:
-    - dric_relay
+  lane:
+    participants:
+      - gpt
+      - oper
+    exclusive_from:
+      - dric_relay
 
-evidence:
-  bucket_root: hee/evidence/external/gpt
-  outfile_naming:
-    requires_outfile_prefix: true
-    pattern_hint: "outfile-<topic>[-NN].md"
-  pointer_required: true
-  pointer_forms_allowed:
-    - raw_github_url
-    - repo_relative_path
+  evidence:
+    bucket_root: hee/evidence/external/gpt
+    outfile_naming:
+      requires_outfile_prefix: true
+      pattern_hint: "outfile-<topic>[-NN].md"
+    pointer_required: true
+    pointer_forms_allowed:
+      - raw_github_url
+      - repo_relative_path
 
-emissions:
-  gpt_must_emit:
-    - evidence_pointer
-    - outfile_command_block
-  gpt_must_not_emit:
-    - completion_without_disk_evidence
-    - ack_only_completion
+  emissions:
+    gpt_must_emit:
+      - evidence_pointer
+      - outfile_command_block
+    gpt_must_not_emit:
+      - completion_without_disk_evidence
+      - ack_only_completion
 
-verification:
-  completion_requires:
-    - oper_confirmation
-    - disk_evidence
+  verification:
+    completion_requires:
+      - oper_confirmation
+      - disk_evidence
 
-failure_behavior:
-  if_blocked:
-    gpt_must:
-      - state_missing_input_or_permission
-      - request_specific_evidence
-    gpt_must_not:
-      - fabricate_state
-      - ack_only
+  failure_behavior:
+    if_blocked:
+      gpt_must:
+        - state_missing_input_or_permission
+        - request_specific_evidence
+      gpt_must_not:
+        - fabricate_state
+        - ack_only

@@ -1,211 +1,228 @@
 # path: contracts/oob-apply-request-v1.yaml
-# OOB Apply Request Format v1
-# Agent emits this envelope when requesting out-of-band patch application
-# Operator fills operator field and executes the apply operation
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: oob-apply-request
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: oob-apply-request
+  annotations:
+    inuid: "fcfca0f032140ef2a39eb9e61784266a25dcf4f080b5435f73993a3d9a282708"
+    inuid_seed: "hee-contract://tcos-fleet/oob-apply-request/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  # OOB Apply Request Format v1
+  # Agent emits this envelope when requesting out-of-band patch application
+  # Operator fills operator field and executes the apply operation
 
-type: hee.contract
-contract_id: oob_apply_request.v1
-version: v1
-description: "Format for out-of-band patch application requests emitted by agents"
-created_at: "2026-01-28T23:33:29-06:00"
-author: "HEE System"
+  type: hee.contract
+  contract_id: oob_apply_request.v1
+  version: v1
+  description: "Format for out-of-band patch application requests emitted by agents"
+  created_at: "2026-01-28T23:33:29-06:00"
+  author: "HEE System"
 
-schema:
-  type: object
-  required:
-    - type
-    - version
-    - id
-    - created_at
-    - repo
-    - intent
-    - apply
-    - patch
-    - audit
-    - acceptance
-  properties:
-    type:
-      type: string
-      enum: ["hee.oob_apply_request"]
-      description: "Envelope type identifier"
+  schema:
+    type: object
+    required:
+      - type
+      - version
+      - id
+      - created_at
+      - repo
+      - intent
+      - apply
+      - patch
+      - audit
+      - acceptance
+    properties:
+      type:
+        type: string
+        enum: ["hee.oob_apply_request"]
+        description: "Envelope type identifier"
 
-    version:
-      type: string
-      enum: ["v1"]
-      description: "Format version"
+      version:
+        type: string
+        enum: ["v1"]
+        description: "Format version"
 
-    id:
-      type: string
-      pattern: "^[a-f0-9]{8,32}$"
-      description: "Unique request identifier (UUID hex)"
+      id:
+        type: string
+        pattern: "^[a-f0-9]{8,32}$"
+        description: "Unique request identifier (UUID hex)"
 
-    created_at:
-      type: string
-      format: date-time
-      description: "ISO 8601 timestamp when request was created"
+      created_at:
+        type: string
+        format: date-time
+        description: "ISO 8601 timestamp when request was created"
 
-    repo:
-      type: object
-      required: ["path", "branch_expected"]
-      properties:
-        path:
-          type: string
-          description: "Absolute or relative path to git repository"
-        branch_expected:
-          type: string
-          description: "Expected git branch for safety validation"
-
-    intent:
-      type: object
-      required: ["description", "expected_effect", "risk"]
-      properties:
-        description:
-          type: string
-          description: "What the patch does and why it's needed"
-        expected_effect:
-          type: string
-          description: "Observable outcome after successful application"
-        risk:
-          type: string
-          enum: ["low", "med", "high"]
-          description: "Risk assessment for this patch application"
-
-    apply:
-      type: object
-      required: ["mode", "allow_dirty"]
-      properties:
-        mode:
-          type: string
-          enum: ["check", "apply"]
-          description: "git apply mode: check (dry-run) or apply"
-        allow_dirty:
-          type: boolean
-          description: "Whether to allow application on dirty working tree"
-          default: false
-
-    patch:
-      type: object
-      required: ["format", "sha256", "payload"]
-      properties:
-        format:
-          type: string
-          enum: ["unified_diff"]
-          description: "Patch format (currently only unified diff supported)"
-        sha256:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
-          description: "SHA256 hash of the patch payload for integrity"
-        payload:
-          type: string
-          description: "The actual patch content (unified diff)"
-          pattern: "^diff --git "
-
-    audit:
-      type: object
-      required: ["requested_by"]
-      properties:
-        requested_by:
-          type: string
-          enum: ["agent", "user", "operator"]
-          description: "Who initiated this apply request"
-        operator:
-          type: string
-          description: "Human operator identifier (filled by operator)"
-        ticket:
-          type: string
-          description: "Optional reference to ticket/issue"
-
-    acceptance:
-      type: object
-      required: ["must_hold"]
-      properties:
-        must_hold:
-          type: array
-          items:
+      repo:
+        type: object
+        required: ["path", "branch_expected"]
+        properties:
+          path:
             type: string
-          description: "List of conditions that must hold for acceptance"
-          default:
-            - "git apply --check passes (for mode=check)"
-            - "only intended files touched"
-            - "no secrets in patch"
-            - "post-apply diff matches patch_hash"
+            description: "Absolute or relative path to git repository"
+          branch_expected:
+            type: string
+            description: "Expected git branch for safety validation"
 
-invariants:
-  - "YAML only - no shell commands embedded"
-  - "Patch must begin with 'diff --git ' (unified diff format)"
-  - "Explicit intent required for all requests"
-  - "Apply gate is explicit via mode field"
-  - "All audit fields present for traceability"
+      intent:
+        type: object
+        required: ["description", "expected_effect", "risk"]
+        properties:
+          description:
+            type: string
+            description: "What the patch does and why it's needed"
+          expected_effect:
+            type: string
+            description: "Observable outcome after successful application"
+          risk:
+            type: string
+            enum: ["low", "med", "high"]
+            description: "Risk assessment for this patch application"
 
-examples:
-  - |
-    type: hee.oob_apply_request
-    version: v1
-    id: "a1b2c3d4e5f67890"
-    created_at: "2026-01-28T23:33:29-06:00"
-    repo:
-      path: "~/my-repo"
-      branch_expected: "main"
-    intent:
-      description: "Fix typo in README.md title"
-      expected_effect: "README shows correct project name"
-      risk: "low"
-    apply:
-      mode: "check"
-      allow_dirty: false
-    patch:
-      format: "unified_diff"
-      sha256: "4bd769960ee9508b36f0849d79a67e4b280dfefcae5c9fef8c6de2d182e48162"
-      payload: |
-        diff --git a/README.md b/README.md
-        index 1234567..abcdef0 100644
-        --- a/README.md
-        +++ b/README.md
-        @@ -1,1 +1,1 @@
-        -# My Project
-        +# My Correct Project Name
-    audit:
-      requested_by: "agent"
-      operator: "alice_dev"
-      ticket: "PROJ-123"
-    acceptance:
-      must_hold:
-        - "git apply --check passes (for mode=check)"
-        - "only intended files touched"
-        - "no secrets in patch"
-        - "post-apply diff matches patch_hash"
+      apply:
+        type: object
+        required: ["mode", "allow_dirty"]
+        properties:
+          mode:
+            type: string
+            enum: ["check", "apply"]
+            description: "git apply mode: check (dry-run) or apply"
+          allow_dirty:
+            type: boolean
+            description: "Whether to allow application on dirty working tree"
+            default: false
 
-processing_workflow:
-  agent_emits:
-    - Creates request with all fields except audit.operator
-    - Writes to disk or pipes to operator tooling
-    - Request ID used for tracking
+      patch:
+        type: object
+        required: ["format", "sha256", "payload"]
+        properties:
+          format:
+            type: string
+            enum: ["unified_diff"]
+            description: "Patch format (currently only unified diff supported)"
+          sha256:
+            type: string
+            pattern: "^[a-f0-9]{64}$"
+            description: "SHA256 hash of the patch payload for integrity"
+          payload:
+            type: string
+            description: "The actual patch content (unified diff)"
+            pattern: "^diff --git "
 
-  operator_validates:
-    - Confirms repo path and branch match expectations
-    - Verifies patch SHA256 integrity
-    - Checks for secrets in patch payload
-    - Runs git apply --check if mode=check
+      audit:
+        type: object
+        required: ["requested_by"]
+        properties:
+          requested_by:
+            type: string
+            enum: ["agent", "user", "operator"]
+            description: "Who initiated this apply request"
+          operator:
+            type: string
+            description: "Human operator identifier (filled by operator)"
+          ticket:
+            type: string
+            description: "Optional reference to ticket/issue"
 
-  operator_executes:
-    - Fills audit.operator field
-    - Executes apply operation using existing tooling
-    - Records results for audit trail
+      acceptance:
+        type: object
+        required: ["must_hold"]
+        properties:
+          must_hold:
+            type: array
+            items:
+              type: string
+            description: "List of conditions that must hold for acceptance"
+            default:
+              - "git apply --check passes (for mode=check)"
+              - "only intended files touched"
+              - "no secrets in patch"
+              - "post-apply diff matches patch_hash"
 
-  acceptance_criteria:
-    - All acceptance.must_hold conditions satisfied
-    - No unexpected file modifications
-    - Patch hash matches post-apply state
+  invariants:
+    - "YAML only - no shell commands embedded"
+    - "Patch must begin with 'diff --git ' (unified diff format)"
+    - "Explicit intent required for all requests"
+    - "Apply gate is explicit via mode field"
+    - "All audit fields present for traceability"
 
-error_handling:
-  invalid_patch: "Reject if patch doesn't start with 'diff --git '"
-  hash_mismatch: "Reject if payload SHA256 doesn't match patch.sha256"
-  branch_mismatch: "Reject if current branch != repo.branch_expected"
-  dirty_repo: "Reject unless apply.allow_dirty=true"
-  secrets_found: "Reject if patch contains potential secrets"
+  examples:
+    - |
+      type: hee.oob_apply_request
+      version: v1
+      id: "a1b2c3d4e5f67890"
+      created_at: "2026-01-28T23:33:29-06:00"
+      repo:
+        path: "~/my-repo"
+        branch_expected: "main"
+      intent:
+        description: "Fix typo in README.md title"
+        expected_effect: "README shows correct project name"
+        risk: "low"
+      apply:
+        mode: "check"
+        allow_dirty: false
+      patch:
+        format: "unified_diff"
+        sha256: "4bd769960ee9508b36f0849d79a67e4b280dfefcae5c9fef8c6de2d182e48162"
+        payload: |
+          diff --git a/README.md b/README.md
+          index 1234567..abcdef0 100644
+          --- a/README.md
+          +++ b/README.md
+          @@ -1,1 +1,1 @@
+          -# My Project
+          +# My Correct Project Name
+      audit:
+        requested_by: "agent"
+        operator: "alice_dev"
+        ticket: "PROJ-123"
+      acceptance:
+        must_hold:
+          - "git apply --check passes (for mode=check)"
+          - "only intended files touched"
+          - "no secrets in patch"
+          - "post-apply diff matches patch_hash"
 
-implementation_notes:
-  - "This is a data format only - no new tooling implied"
-  - "Operators use existing git/HCI tooling for actual application"
-  - "Request files stored in .hee/oob_requests/ for audit"
-  - "Success/failure results recorded as evidence pills"
+  processing_workflow:
+    agent_emits:
+      - Creates request with all fields except audit.operator
+      - Writes to disk or pipes to operator tooling
+      - Request ID used for tracking
+
+    operator_validates:
+      - Confirms repo path and branch match expectations
+      - Verifies patch SHA256 integrity
+      - Checks for secrets in patch payload
+      - Runs git apply --check if mode=check
+
+    operator_executes:
+      - Fills audit.operator field
+      - Executes apply operation using existing tooling
+      - Records results for audit trail
+
+    acceptance_criteria:
+      - All acceptance.must_hold conditions satisfied
+      - No unexpected file modifications
+      - Patch hash matches post-apply state
+
+  error_handling:
+    invalid_patch: "Reject if patch doesn't start with 'diff --git '"
+    hash_mismatch: "Reject if payload SHA256 doesn't match patch.sha256"
+    branch_mismatch: "Reject if current branch != repo.branch_expected"
+    dirty_repo: "Reject unless apply.allow_dirty=true"
+    secrets_found: "Reject if patch contains potential secrets"
+
+  implementation_notes:
+    - "This is a data format only - no new tooling implied"
+    - "Operators use existing git/HCI tooling for actual application"
+    - "Request files stored in .hee/oob_requests/ for audit"
+    - "Success/failure results recorded as evidence pills"

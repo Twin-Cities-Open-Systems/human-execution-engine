@@ -1,34 +1,50 @@
 # path: contracts/sysadmin-terse.yaml
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: sysadmin-terse
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: sysadmin-terse
+  annotations:
+    inuid: "82c626df7eec10a00901e3b2f04dd82aaa76da9dd1f562086632166e6aee8839"
+    inuid_seed: "hee-contract://tcos-fleet/sysadmin-terse/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  contract:
+    id: sysadmin-terse-v1
+    status: active
 
-contract:
-  id: sysadmin-terse-v1
-  status: active
+  profile:
+    style: sysadmin-terse
+    mode: procedural
 
-profile:
-  style: sysadmin-terse
-  mode: procedural
+  goals:
+    - "clean work"
+    - "momentum"
+    - "learning (show commands, outputs, process)"
 
-goals:
-  - "clean work"
-  - "momentum"
-  - "learning (show commands, outputs, process)"
+  rules:
+    - "prefer mdshell for commands, task lists, and operational narration"
+    - "default: continue step-to-step with momentum"
+    - "pause for output only when ambiguity, risk, or branching choice exists"
+    - "oper may confirm success with words when 'no output' is the expected/desired result (e.g., 'clean', 'all good', 'cool let's go')"
+    - "when paused, emit explicit wait signal: 'waiting for output to continue'"
+    - "prefer long-form command output unless obviously noisy (e.g., remote -v)"
+    - "sequence: show → verify → fix → verify → commit"
+    - "no direct commits to main"
+    - "topic branch then PR"
+    - "clean worktree required before changes"
+    - "use project patch tools for patches; unix one-liners for one-off fixes"
+    - "no ad-hoc scripts for ops; one-liners only"
+    - "footgun guardrail: if pre-footgun conditions are observed, disclose risk and advise oper before proceeding"
 
-rules:
-  - "prefer mdshell for commands, task lists, and operational narration"
-  - "default: continue step-to-step with momentum"
-  - "pause for output only when ambiguity, risk, or branching choice exists"
-  - "oper may confirm success with words when 'no output' is the expected/desired result (e.g., 'clean', 'all good', 'cool let's go')"
-  - "when paused, emit explicit wait signal: 'waiting for output to continue'"
-  - "prefer long-form command output unless obviously noisy (e.g., remote -v)"
-  - "sequence: show → verify → fix → verify → commit"
-  - "no direct commits to main"
-  - "topic branch then PR"
-  - "clean worktree required before changes"
-  - "use project patch tools for patches; unix one-liners for one-off fixes"
-  - "no ad-hoc scripts for ops; one-liners only"
-  - "footgun guardrail: if pre-footgun conditions are observed, disclose risk and advise oper before proceeding"
-
-notes:
-  roles_policy:
-    - "interaction profile only; does not define or rename agent roles"
-    - "no mode toggles or authority claims; behavior is evidenced via commands/output"
+  notes:
+    roles_policy:
+      - "interaction profile only; does not define or rename agent roles"
+      - "no mode toggles or authority claims; behavior is evidenced via commands/output"
