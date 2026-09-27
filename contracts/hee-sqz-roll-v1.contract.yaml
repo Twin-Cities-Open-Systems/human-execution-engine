@@ -1,58 +1,76 @@
 # path: contracts/hee-sqz-roll-v1.contract.yaml
-version: hee-sqz-roll-v1
-name: hee-sqz-roll
-title: HEE SQZ Roll Contract (v1)
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: hee-sqz-roll
+  description: "HEE SQZ Roll Contract (v1)"
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: hee-sqz-roll
+  annotations:
+    inuid: "9dbd5129d189d6a6c37d2db55d34c654807d5975251f0851c30ad4a5797c7a32"
+    inuid_seed: "hee-contract://tcos-fleet/hee-sqz-roll/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  version: hee-sqz-roll-v1
+  name: hee-sqz-roll
+  title: HEE SQZ Roll Contract (v1)
 
-definition:
-  - "A SQZ roll converts one UNKNOWN axis into one KNOWN signal using exactly one source artifact."
+  definition:
+    - "A SQZ roll converts one UNKNOWN axis into one KNOWN signal using exactly one source artifact."
 
-hard_rules:
-  - one_roll_one_signal_one_axis
-  - output_summary_max_lines_5
-  - no_vibes_only_observable_facts
-  - unknown_is_not_negative
-  - if_source_unreachable_or_unreadable_axis_remains_unknown
+  hard_rules:
+    - one_roll_one_signal_one_axis
+    - output_summary_max_lines_5
+    - no_vibes_only_observable_facts
+    - unknown_is_not_negative
+    - if_source_unreachable_or_unreadable_axis_remains_unknown
 
-invariants_required:
-  - now_utc
-  - evaluator_id
-  - source_pointer
+  invariants_required:
+    - now_utc
+    - evaluator_id
+    - source_pointer
 
-axes_allowed:
-  - execution_history
-  - signal_to_noise
-  - hee_alignment
-  - scope_scale
-  - teaching_doctrine
-  - locality_overlap
+  axes_allowed:
+    - execution_history
+    - signal_to_noise
+    - hee_alignment
+    - scope_scale
+    - teaching_doctrine
+    - locality_overlap
 
-confidence_allowed:
-  - low
-  - med
-  - high
+  confidence_allowed:
+    - low
+    - med
+    - high
 
-output_format:
-  max_lines: 5
-  fields:
-    - "NOW_UTC=<iso8601>"
-    - "EVALUATOR=<id>"
-    - "CANDIDATE=<name>"
-    - "AXIS=<axis>"
-    - "SIGNAL=<one concrete, observable fact>"
-    - "CONFIDENCE=<low|med|high>"
-    - "SOURCE=<pointer>"
-  compression_note:
-    - "If you must stay ≤5 lines: fold CANDIDATE+AXIS and fold SOURCE into SIGNAL."
+  output_format:
+    max_lines: 5
+    fields:
+      - "NOW_UTC=<iso8601>"
+      - "EVALUATOR=<id>"
+      - "CANDIDATE=<name>"
+      - "AXIS=<axis>"
+      - "SIGNAL=<one concrete, observable fact>"
+      - "CONFIDENCE=<low|med|high>"
+      - "SOURCE=<pointer>"
+    compression_note:
+      - "If you must stay ≤5 lines: fold CANDIDATE+AXIS and fold SOURCE into SIGNAL."
 
-stop_conditions:
-  - axis_reaches_confidence_high
-  - two_consecutive_rolls_yield_no_new_signal
-  - sqz_10_limit_reached
+  stop_conditions:
+    - axis_reaches_confidence_high
+    - two_consecutive_rolls_yield_no_new_signal
+    - sqz_10_limit_reached
 
-doctrine_tests:
-  - id: PTS-RESISTANCE-01
-    description: "missing/unreadable source cannot produce derived facts"
-  - id: SQZ-ROLL-LE5-01
-    description: "rendered roll summary ≤5 lines"
-  - id: SQZ-ROLL-INVARIANTS-01
-    description: "NOW_UTC + evaluator_id + source_pointer required"
+  doctrine_tests:
+    - id: PTS-RESISTANCE-01
+      description: "missing/unreadable source cannot produce derived facts"
+    - id: SQZ-ROLL-LE5-01
+      description: "rendered roll summary ≤5 lines"
+    - id: SQZ-ROLL-INVARIANTS-01
+      description: "NOW_UTC + evaluator_id + source_pointer required"

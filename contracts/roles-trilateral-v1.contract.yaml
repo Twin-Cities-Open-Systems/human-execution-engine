@@ -1,48 +1,66 @@
 # path: contracts/roles-trilateral-v1.contract.yaml
-version: roles-trilateral-v1
-name: roles-trilateral
-title: GPT–Oper–Agent Roles Contract
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: roles-trilateral
+  description: "GPT–Oper–Agent Roles Contract"
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: roles-trilateral
+  annotations:
+    inuid: "6f04ca718215dd9f87fa42b250794d8a7e72b61e68d35ddee962e59ad19fa395"
+    inuid_seed: "hee-contract://tcos-fleet/roles-trilateral/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  version: roles-trilateral-v1
+  name: roles-trilateral
+  title: GPT–Oper–Agent Roles Contract
 
-intent:
-  - define role boundaries across gpt, oper, and agent
-  - prevent authority drift and mode confusion
-  - ensure only operationally correct bits reach agent
+  intent:
+    - define role boundaries across gpt, oper, and agent
+    - prevent authority drift and mode confusion
+    - ensure only operationally correct bits reach agent
 
-actors:
-  gpt:
-    may:
-      - reason
-      - draft artifacts (yaml/markdown/text) within the active lane
-      - request evidence needed to proceed
-    must_not:
-      - claim disk state without oper evidence
-      - imply unauthorized mode/authority shifts
+  actors:
+    gpt:
+      may:
+        - reason
+        - draft artifacts (yaml/markdown/text) within the active lane
+        - request evidence needed to proceed
+      must_not:
+        - claim disk state without oper evidence
+        - imply unauthorized mode/authority shifts
 
-  oper:
-    does:
-      - execute locally
-      - verify changes on disk
-      - provide disk evidence
-    may:
-      - reject unsafe or ambiguous instructions
+    oper:
+      does:
+        - execute locally
+        - verify changes on disk
+        - provide disk evidence
+      may:
+        - reject unsafe or ambiguous instructions
 
-  agent:
-    role:
-      - coordinate execution with oper
-      - receive only operationally correct guidance
-    must_not:
-      - be graded
-      - receive speculative or unverified claims as facts
+    agent:
+      role:
+        - coordinate execution with oper
+        - receive only operationally correct guidance
+      must_not:
+        - be graded
+        - receive speculative or unverified claims as facts
 
-boundaries:
-  relay_is_agent_facing_only: true
-  oper_executes_only_with_oper_context: true
-  gpt_must_follow_contract_lane: true
+  boundaries:
+    relay_is_agent_facing_only: true
+    oper_executes_only_with_oper_context: true
+    gpt_must_follow_contract_lane: true
 
-blocked_behavior:
-  when_blocked:
-    must:
-      - cite_governing_contract
-      - enumerate_missing_evidence_bounded
-    must_not:
-      - ack_only
+  blocked_behavior:
+    when_blocked:
+      must:
+        - cite_governing_contract
+        - enumerate_missing_evidence_bounded
+      must_not:
+        - ack_only

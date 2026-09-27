@@ -97,11 +97,18 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>📜 Contract (8)</summary>
+<summary>📜 Contract (15)</summary>
 
+- 🟢 [OK] `contracts/dric-v1.contract.yaml`
 - 🟢 [OK] `contracts/execution-tier-compat-v1.contract.yaml`
 - 🟢 [OK] `contracts/fleet-identity-v1.contract.yaml`
+- 🟢 [OK] `contracts/hee-schema-id-v1.contract.yaml`
+- 🟢 [OK] `contracts/hee-sqz-roll-v1.contract.yaml`
+- 🟢 [OK] `contracts/oob-apply-request-v1.yaml`
+- 🟢 [OK] `contracts/outfile-evidence-v1.contract.yaml`
 - 🟢 [OK] `contracts/publish-sanitization-v1.contract.yaml`
+- 🟢 [OK] `contracts/roles-trilateral-v1.contract.yaml`
+- 🟢 [OK] `contracts/sysadmin-terse.yaml`
 - 🟢 [OK] `contracts/tcos.mna.hee-sale-deal.contract.v1.yaml`
 - 🟢 [OK] `contracts/treasury-invariants-v1.contract.yaml`
 - 🟢 [OK] `hee/contracts/hee.fleet-hosts.contract.v1.yaml`

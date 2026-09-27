@@ -1,29 +1,47 @@
 # path: contracts/hee-schema-id-v1.contract.yaml
-version: hee-schema-id-v1
-name: hee-schema-id
-title: HEE Schema ID Contract (v1)
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: hee-schema-id
+  description: "HEE Schema ID Contract (v1)"
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: hee-schema-id
+  annotations:
+    inuid: "baa56d404b1b80d02bc84b6e5e1ca1c0eb29f8f18ac3c760c3733d62575a162b"
+    inuid_seed: "hee-contract://tcos-fleet/hee-schema-id/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the flat legacy schema; original body preserved verbatim under spec"
+spec:
+  version: hee-schema-id-v1
+  name: hee-schema-id
+  title: HEE Schema ID Contract (v1)
 
-problem:
-  - branch-churn and domain drift in JSON Schema $id/$ref reduces portability
-  - evidence trails become brittle when identifiers encode distribution state
+  problem:
+    - branch-churn and domain drift in JSON Schema $id/$ref reduces portability
+    - evidence trails become brittle when identifiers encode distribution state
 
-non_goals:
-  - no vars inside JSON Schema ($id/$ref do not support env expansion)
+  non_goals:
+    - no vars inside JSON Schema ($id/$ref do not support env expansion)
 
-rules:
-  - canonical_id_must_not_encode_branch_state
-  - prefer_relative_ref_within_schemas_dir
-  - locators_may_be_generated_at_publish_time_without_changing_canonical_source
+  rules:
+    - canonical_id_must_not_encode_branch_state
+    - prefer_relative_ref_within_schemas_dir
+    - locators_may_be_generated_at_publish_time_without_changing_canonical_source
 
-definitions:
-  canonical_id: stable name (doctrine identity)
-  locator: where to fetch (distribution detail)
+  definitions:
+    canonical_id: stable name (doctrine identity)
+    locator: where to fetch (distribution detail)
 
-allowed_locator_patterns_publish_time_only:
-  - "https://raw.githubusercontent.com/<org>/<repo>/<SHA>/schemas/..."
-  - "https://raw.githubusercontent.com/<org>/<repo>/refs/tags/<tag>/schemas/..."
+  allowed_locator_patterns_publish_time_only:
+    - "https://raw.githubusercontent.com/<org>/<repo>/<SHA>/schemas/..."
+    - "https://raw.githubusercontent.com/<org>/<repo>/refs/tags/<tag>/schemas/..."
 
-evidence_guardrails:
-  - no_mass_rewrite_without_scan_outfile: "file -> $id/$ref"
-  - patch_emitter_output_required: true
-  - verification_run_evidence_required: true
+  evidence_guardrails:
+    - no_mass_rewrite_without_scan_outfile: "file -> $id/$ref"
+    - patch_emitter_output_required: true
+    - verification_run_evidence_required: true
