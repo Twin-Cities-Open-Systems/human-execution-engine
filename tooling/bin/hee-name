@@ -166,20 +166,25 @@ except ImportError:
 
 
 def default_allocations_root() -> Path:
-    """The canonical ledger location: THIS TOOL's own repo.
+    """The default ledger location: ~/.hee/name-allocations -- one per host.
 
-    Deliberately not the cwd's repo. `git rev-parse --show-toplevel` answers
-    "where am I standing", and standing somewhere is not a decision about
-    where a fleet-wide ledger lives -- but it silently behaved like one.
-    Two callers in two directories drew from one pool, wrote two ledgers,
-    and neither saw the collision; the tool's own docstring promise of
-    unique names did not hold. Observed 2026-09-02, when a pve-storage
-    allocation landed in the thesis-engine repo purely because that was
-    the cwd. See human-execution-engine#525.
+    A SINGLE fleet-wide store, not the cwd's repo. `git rev-parse
+    --show-toplevel` answers "where am I standing", and standing somewhere is
+    not a decision about where a fleet-wide ledger lives -- but it silently
+    behaved like one: two callers in two directories drew from one pool, wrote
+    two ledgers, and neither saw the collision (a pve-storage allocation landed
+    in the thesis-engine repo, 2026-09-02; human-execution-engine#525).
 
-    tooling/bin/hee-name -> <repo>/.hee/name-allocations
+    This used to anchor to THIS TOOL's own repo to guarantee singularity, but
+    that put a fleet's real allocations inside the engine -- wrong once the
+    engine ships public, and it made every consumer write into the engine
+    checkout instead of their own fleet. The default is now the host home,
+    which is singular per host and carries nothing into the engine. A fleet
+    that wants the ledger version-controlled sets $HEE_NAME_ALLOCATIONS to a
+    path in its own repo (see allocations_dir()); the TCOS fleet points it at
+    fleet-ops/.hee/name-allocations.
     """
-    return Path(__file__).resolve().parent.parent.parent / ".hee" / "name-allocations"
+    return Path.home() / ".hee" / "name-allocations"
 
 
 def pools_dir() -> Path:
