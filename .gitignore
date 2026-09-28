@@ -65,7 +65,10 @@ secrets/*
 .hee/secrets/*
 
 # Development
-#.vscode/ # Pretty is a function
+# Editor state is per-developer, not repo content. (Line comment on its own line:
+# git does not support a trailing comment on a pattern, which is why the old
+# `#.vscode/ # Pretty is a function` matched nothing and left .vscode/ tracked.)
+.vscode/
 .idea/
 *.swp
 *.swo
