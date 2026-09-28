@@ -36,7 +36,7 @@ metadata:
   name: personal-branding
   annotations:
     inuid: null
-    inuid_null_reason: personal
+    inuid_null_reason: example
 spec:
   name:
     full: "Spencer Butler"

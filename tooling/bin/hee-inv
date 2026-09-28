@@ -308,6 +308,14 @@ metadata:
     inv.sub: unknown
     inv.loc0: basement
     inv.loc1: inbox-n-01
+  annotations:
+    # A real, tracked inventory object. Its true provenance inuid is the SOA stool
+    # hash, one leg of which comes from ~/.hee/index/_.yaml -- the identity epoch,
+    # which does not exist yet (fleet-ops#102/#154). Until it does, we do NOT mint a
+    # fake inuid; we record it honestly as pending and backfill when the epoch lands.
+    # TODO(inuid): once ~/.hee/index/_.yaml exists, compute the real inuid here.
+    inuid: null
+    inuid_null_reason: soa_pending
 spec:
   measure: inventory.stock
   context:

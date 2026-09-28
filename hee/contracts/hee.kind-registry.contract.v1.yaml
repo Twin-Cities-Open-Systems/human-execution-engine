@@ -47,4 +47,11 @@ spec:
     required: true
     allow_null: true
     null_requires_reason: true
-    allowed_null_reasons: ["bootstrap","test","fixture"]
+    allowed_null_reasons: ["bootstrap","test","fixture","example","soa_pending"]
+    # null-reason meanings (glossary is SSoT; this is the enforcement list):
+    #   bootstrap    -- foundational object authored before the identity chain exists
+    #   test         -- exists only to drive a test; never a real instance
+    #   fixture      -- untracked sample data used to exercise tooling
+    #   example      -- a template shown to users to copy (e.g. *.example.*)
+    #   soa_pending  -- a REAL tracked object whose true provenance inuid awaits the
+    #                   ~/.hee/index/_.yaml identity epoch (fleet-ops#102/#154); backfill then

@@ -33,6 +33,8 @@ DESCRIPTION
      everything else is ignored, so this is safe to run across a mixed repo.
 
   Checks (both gates): metadata present and parseable, metadata.annotations present,
+  a null inuid's inuid_null_reason is in the sanctioned enum (bootstrap / test /
+  fixture / example / soa_pending; SSoT: the kind-registry's allowed_null_reasons),
   metadata.annotations.inuid present, a null inuid accompanied by
   inuid_null_reason, and -- when the object declares
   inuid_derivation: sha256(inuid_seed) -- that the recorded inuid actually
@@ -222,8 +224,13 @@ check_file() {
       $inuid_val =~ s/^\s+|\s+$//g;
     }
 
+    my $null_reason_val = "";
     if ($ann =~ /(^|\n)\s*inuid_null_reason:\s*(.*?)\s*(\n|$)/s) {
       $null_reason = 1;
+      $null_reason_val = $2;
+      $null_reason_val =~ s/#.*$//;
+      $null_reason_val =~ s/^["'\''"]|["'\''"]$//g;
+      $null_reason_val =~ s/^\s+|\s+$//g;
     }
 
     if (!$inuid) {
@@ -235,6 +242,14 @@ check_file() {
     if ($inuid_val eq "null" || $inuid_val eq "~") {
       if (!$null_reason) {
         print "🔴 CRITICAL: inuid is null but missing inuid_null_reason: $ARGV\n";
+        exit 3;
+      }
+      # inuid_null_reason is an ENUM. A value outside it is a footgun that used to
+      # pass silently. SSoT: hee/contracts/hee.kind-registry.contract.v1.yaml
+      # spec.inuid_rules.allowed_null_reasons (mirrored here for cross-repo runs).
+      my %allowed = map { $_ => 1 } qw(bootstrap test fixture example soa_pending);
+      if (!$allowed{$null_reason_val}) {
+        print "🔴 CRITICAL: inuid_null_reason \"$null_reason_val\" not in allowed set (bootstrap/test/fixture/example/soa_pending): $ARGV\n";
         exit 3;
       }
     }
