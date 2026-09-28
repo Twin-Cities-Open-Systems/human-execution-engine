@@ -36,7 +36,7 @@ EXIT STATUS
               2 CRITICAL  argparse usage error -- -c or the path was missing
 
 EXAMPLES
-              hee-stat -c %REPO gh/spencerbutler/human-execution-engine
+              hee-stat -c %REPO gh/Twin-Cities-Open-Systems/human-execution-engine
               hee-stat -c '%U/%REPO %s KB' gh/Twin-Cities-Open-Systems/hee
               hee-stat -c %W gh/spencerbutler
 
