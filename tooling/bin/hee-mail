@@ -343,8 +343,11 @@ do_record() {
     printf '# Addresses, kinds and the keys each password is sealed to. Never a password,\n'
     printf '# never a hash. inv.lab syncs this repo, so this file is how mail identities\n'
     printf '# reach the inventory.\n'
+    SEED="hee-registry://mail-accounts/$DOMAIN"
+    INUID=$(printf '%s' "$SEED" | sha256sum | cut -d' ' -f1)
     printf 'apiVersion: hee/v1\nkind: Registry\nmetadata:\n  name: mail-accounts-%s\n' "$DOMAIN"
-    printf '  labels:\n    mail.domain: %s\n    mail.host: %s\n' "$DOMAIN" "$(basename "$PKG")"
+    printf '  labels:\n    hee.object: "true"\n    mail.domain: %s\n    mail.host: %s\n' "$DOMAIN" "$(basename "$PKG")"
+    printf '  annotations:\n    inuid: "%s"\n    inuid_seed: "%s"\n    inuid_derivation: "sha256(inuid_seed)"\n' "$INUID" "$SEED"
     printf 'spec:\n  generated: %s\n  mailboxes:\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     grep -v -E '^\s*(#|$)' "$PKG/tables/virtuals" | sed 's/[[:space:]]*#.*$//' | while read -r a t; do
       [ -n "${t:-}" ] || continue
