@@ -96,7 +96,7 @@ package install) independent of any one account's private clone.
 
 - fleet-ops#74 -- the real "trace any object back to origin" doctrine this
   capsule implements
-- `contracts/gcic.v1.md` -- the Agent-Sig rule (human-execution-engine#314)
+- `contracts/gcic-v1.contract.yaml` -- the Agent-Sig rule (human-execution-engine#314)
   that consumes this capsule's identity for per-emission signatures
 - `library/py/hee_hash/soa.py` -- the real implementation this doc
   describes the usage of, not a schema this doc redefines

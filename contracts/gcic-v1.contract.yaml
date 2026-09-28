@@ -1,0 +1,28 @@
+# path: contracts/gcic-v1.contract.yaml
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: gcic
+  description: "General Contract Interface Contract -- how contracts are authored, stored, and referenced. Higher-level contracts inherit it unless explicitly exempted."
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: gcic
+  annotations:
+    inuid: "646478b47e1bdba707eac2dc54706ceaa2f412481591e4b2a904abef379c8838"
+    inuid_seed: "hee-contract://tcos-fleet/gcic/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the early-days markdown gcic contract; content preserved as structured spec"
+spec:
+  purpose: "Defines how contracts are authored, stored, and referenced."
+  rules:
+    - "Contracts MUST live in-repo."
+    - "Contract changes MUST ship via PR."
+    - "Evidence-first: every behavioral claim should have a reproducer + captured output."
+    - "No-clobber is A1 when writing files (default refuse overwrite)."
+    - "Agent-Sig: any emission governed by a contract (issue/PR comment, commit, contract signature) MUST carry a real identity signature, produced by tools/agent-signature.sh per contracts/agent-instance-signature-v1.contract.yaml -- session id, pid, tmux URI (or none), messaging socket, gh actor, timestamp, all read live from the process's own environment, never hand-assembled. Use tools/agent-signature.sh --footer to append it to a comment. Purpose: disambiguate which specific agent instance/session produced an emission when multiple share one identity (real need -- see human-execution-engine#308 and fleet-ops#257, where a hand-rolled tmux self-identification was wrong and the real tool caught it). This rule does not invent a second mechanism."
+  interface:
+    - "Higher-level contracts inherit GCIC unless explicitly exempted."

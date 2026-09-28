@@ -78,19 +78,21 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>📜 Contract (19)</summary>
+<summary>📜 Contract (21)</summary>
 
 - 🟢 [OK] `contracts/agent-instance-signature-v1.contract.yaml`
 - 🟢 [OK] `contracts/content-signing-v1.contract.yaml`
 - 🟢 [OK] `contracts/dric-v1.contract.yaml`
 - 🟢 [OK] `contracts/execution-tier-compat-v1.contract.yaml`
 - 🟢 [OK] `contracts/fleet-identity-v1.contract.yaml`
+- 🟢 [OK] `contracts/gcic-v1.contract.yaml`
 - 🟢 [OK] `contracts/hee-schema-id-v1.contract.yaml`
 - 🟢 [OK] `contracts/hee-sqz-roll-v1.contract.yaml`
 - 🟢 [OK] `contracts/oob-apply-request-v1.yaml`
 - 🟢 [OK] `contracts/outfile-evidence-v1.contract.yaml`
 - 🟢 [OK] `contracts/publish-sanitization-v1.contract.yaml`
 - 🟢 [OK] `contracts/roles-trilateral-v1.contract.yaml`
+- 🟢 [OK] `contracts/shellboss-v1.contract.yaml`
 - 🟢 [OK] `contracts/shift-metrics-v1.contract.yaml`
 - 🟢 [OK] `contracts/shift-schedule-v1.contract.yaml`
 - 🟢 [OK] `contracts/sysadmin-terse.yaml`

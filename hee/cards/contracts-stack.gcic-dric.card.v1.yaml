@@ -11,8 +11,7 @@ spec:
   status: wip
   purpose: formal adoption path for gcic and dric artifacts; reduce need to update top stack; plug subcontracts.
   discovered:
-    gcic_md: contracts/gcic.v1.md
-    dric_md: contracts/dric.v1.md
+    gcic_yaml: contracts/gcic-v1.contract.yaml
     dric_yaml: contracts/dric-v1.contract.yaml
   decisions:
     - gcic is top level contract

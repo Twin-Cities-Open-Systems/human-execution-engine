@@ -30,9 +30,8 @@ spec:
         - contracts/roles-trilateral-v1.contract.yaml
         - contracts/outfile-evidence-v1.contract.yaml
         - contracts/hee-sqz-roll-v1.contract.yaml
-        - contracts/dric.v1.md
         - contracts/hee-schema-id-v1.contract.yaml
         - contracts/validator-contract-v1.contract.yaml
         - contracts/dric-v1.contract.yaml
-        - contracts/gcic.v1.md
+        - contracts/gcic-v1.contract.yaml
         - .hee/HEE-Heavy-Doctrine-artifacts/DRIC-v1-Contract-Specification.md
