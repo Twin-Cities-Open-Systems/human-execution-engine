@@ -13,14 +13,14 @@ Purpose: remove a file path from Git history after an incorrect emit to the inco
 ## Correct action (GitHub.com)
 
 1) Precheck (mirror clone + evidence):
-- `hee/library/sh/hee-scrub-precheck.sh --repo-slug <owner/repo> --leak-path <path>`
+- `library/sh/hee-scrub-precheck.sh --repo-slug <owner/repo> --leak-path <path>`
 
 1) Apply scrub (history rewrite + force push):
 - requires `git-filter-repo`
-- `hee/library/sh/hee-scrub-apply.sh --repo-slug <owner/repo> --leak-path <path> --workdir <from precheck>`
+- `library/sh/hee-scrub-apply.sh --repo-slug <owner/repo> --leak-path <path> --workdir <from precheck>`
 
 1) Verify:
-- `hee/library/sh/hee-scrub-verify-remote.sh --repo-slug <owner/repo> --leak-path <path>`
+- `library/sh/hee-scrub-verify-remote.sh --repo-slug <owner/repo> --leak-path <path>`
 
 ## GitHub Support (cached PR diffs / refs/pull/*)
 

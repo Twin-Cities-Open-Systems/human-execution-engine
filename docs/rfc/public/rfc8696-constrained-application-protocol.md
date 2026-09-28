@@ -1,4 +1,4 @@
-# rfcs/public/rfc8696-constrained-application-protocol.md
+# docs/rfc/public/rfc8696-constrained-application-protocol.md
 
 Internet Engineering Task Force (IETF)                        R. Housley
 Request for Comments: 8696                                Vigil Security
