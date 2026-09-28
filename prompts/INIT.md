@@ -16,24 +16,11 @@ otherwise.
 
 ## What to actually do
 
-0. **Read the outgoing shift's handoff first**:
-   <https://view.lab.tcos.us/handoff.html> (lab-only, no auth --
-   `curl -s https://view.lab.tcos.us/handoff.html`; don't open a browser).
-   Operator, 2026-09-10: "view/handoff.html is the new first spot to read
-   after your claude files and settings memory etc."
-
-   It is step 0 rather than step 1 because it is the only step whose
-   content is *current* -- the P0 the operator assigned, measured repo and
-   pve state, the traps that cost the last instance real time, that
-   instance's own errors and who caught them, and the decisions that are
-   the operator's rather than an agent's. The ceremony below orients you in
-   the corpus; this orients you in the week.
-
-   Source is `fleet-ops/view/src/handoff.html`. **Writing the next one is
-   part of shift close**, built from the same toolset as every other
-   view.lab page -- no new machinery. If the page is unreachable, say so
-   and continue; do not silently skip it, and do not treat its absence as
-   "nothing in flight".
+This is the generic engine ceremony. Operational orientation -- the outgoing
+shift's handoff, the work queue or brain dump to drain, the hosts and services of
+a particular fleet -- is **not** here; it lives in the consuming repo's own
+`prompts/INIT.md` (see "Operational entry" below), which the `SessionStart` hook
+layers on top of this.
 
 1. Run the ceremony in [`blueprints/shift-init-v1.yaml`](../blueprints/shift-init-v1.yaml)
    (`shift_open` -> `history_recap` -> `current_context` -> `future_projection`
@@ -65,17 +52,17 @@ otherwise.
    https://github.com/Twin-Cities-Open-Systems/fleet-ops/issues/173 -- which
    was itself the strongest argument for retiring it rather than restating
    it a fourth time.)
-6. Read the brain dump at session start and often after: `hee view
-   --braindump` reports how many entries have landed since this account's
-   cursor. Fetch and act on each new one -- an entry that is work becomes a
-   ticket (`hee ticket -new "..." --source "braindump <timestamp>"`), one
-   that is a fact goes where facts go -- then `hee view --braindump
-   --mark-seen` moves the cursor. Operator, 2026-09-10: "agents should run
-   `hee view --braindump` often and at startup and see what need be done".
-   Measured the same day: five operator entries had sat unread for a shift
-   because nothing required the read. The cursor is per account and per
-   host (`~/.local/state/hee/view-braindump.cursor`), so marking seen speaks
-   only for the account that read.
+
+## Operational entry (per fleet)
+
+The steps above are the generic engine ceremony. A fleet or deployment running on
+top of HEE carries its **own** `prompts/INIT.md` for operational orientation --
+the shift handoff to read, the work queue or brain dump to drain, the hosts and
+lab services particular to it. The `SessionStart` hook delivers that repo's
+`prompts/` on top of this generic base, so an agent working in a consuming repo
+gets both, layered. In the TCOS fleet that is `fleet-ops/prompts/INIT.md`; keep
+fleet specifics there, never here, so this file -- and this engine -- stay
+platform-independent.
 
 ## Authority Invariants
 
