@@ -60,12 +60,12 @@ repo: [human-execution-engine, market-thesis]
 inuid: 698b879b-b778-832c-9527-af25c2534c32
 hee-epoch: date +%s at time of write from your pov # will always be ts: going forward
 ts: {hee-epoch-date}
-hee-obj(must be compliant hee-obj): https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/schemas/hee/v1/hee-object.schema.json
-soa-compliant: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/library/py/hee_hash/soa.py
-repo-files-ghraw-link: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/hee/evidence/index/repo.files.v1.json
-current-handoff-policy: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml
+hee-obj(must be compliant hee-obj): https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/schemas/hee/v1/hee-object.schema.json
+soa-compliant: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/library/py/hee_hash/soa.py
+repo-files-ghraw-link: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/hee/evidence/index/repo.files.v1.json
+current-handoff-policy: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml
 contract-gpt: dric
-dric: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml
+dric: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml
 ~~~
 
 ##### Prompt
@@ -92,15 +92,15 @@ before we are done with this session (soon) I would like a card of this in the r
 - inuid: `chat gpt URL ID | similar ID`
 - hee-epoch: `date +%s`
 - ts: {hee-epoch} (date +%s at time of write from your gpt PoV)
-- hee-obj: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/schemas/hee/v1/hee-object.schema.json>
-- soa: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/library/py/hee_hash/soa.py>
-- repo-files: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/hee/evidence/index/repo.files.v1.json>
-- canon-files: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/hee/evidence/index/canon.index.v1.json>
-- handoff-policy: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml>
-- dric: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml>
+- hee-obj: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/schemas/hee/v1/hee-object.schema.json>
+- soa: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/library/py/hee_hash/soa.py>
+- repo-files: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/hee/evidence/index/repo.files.v1.json>
+- canon-files: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/hee/evidence/index/canon.index.v1.json>
+- handoff-policy: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml>
+- dric: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml>
 - contract: {dric} (or the exact contract the chat is under (still WiP))
 - sub-contract: {GCIS} {dric} (needs ratification)
-- gcic-spec: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/gcic-v1.contract.yaml>
+- gcic-spec: <https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/contracts/gcic-v1.contract.yaml>
 
 ##### QRL errata
 
@@ -128,13 +128,13 @@ inuid: "chatgpt.com/c/{INUID}"
 oper: "oper name (typically, the value of $USER)"
 repo: [list, of, repos, discussed]
 ts: $(date +%s) {hee-epoch}
-hee-obj: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/schemas/hee/v1/hee-object.schema.json
-soa: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/library/py/hee_hash/soa.py
-repo-files: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/hee/evidence/index/repo.files.v1.json
-handoff-policy: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml
+hee-obj: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/schemas/hee/v1/hee-object.schema.json
+soa: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/library/py/hee_hash/soa.py
+repo-files: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/hee/evidence/index/repo.files.v1.json
+handoff-policy: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml
 contrOact-gpt: {dric-v1} "the current contract used between oper<->gpt
-dric-v1: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml
-gcic-spec-url: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/gcic-v1.contract.yaml
+dric-v1: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml
+gcic-spec-url: https://raw.githubusercontent.com/Twin-Cities-Open-Systems/human-execution-engine/refs/heads/main/contracts/gcic-v1.contract.yaml
 ~~~
 
 ---

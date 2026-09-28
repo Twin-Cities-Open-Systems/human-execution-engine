@@ -47,7 +47,7 @@ hee-stat - stat(1)'s -c FORMAT convention over namespaced resources
 
 # EXAMPLES
 
-    hee-stat -c %REPO gh/spencerbutler/human-execution-engine
+    hee-stat -c %REPO gh/Twin-Cities-Open-Systems/human-execution-engine
     hee-stat -c '%U/%REPO %s KB' gh/Twin-Cities-Open-Systems/hee
     hee-stat -c %W gh/spencerbutler
 
