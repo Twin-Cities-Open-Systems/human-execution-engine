@@ -1,7 +1,0 @@
-phase_id: 08-closeout-enforcement
-branch: phase/ops-hee-schema-naming-08-closeout-enforcement
-pr_url: https://github.com/spencerbutler/human-execution-engine/pull/84
-timestamps:
-  created: 2026-01-30T08:51:00-06:00
-  updated: 2026-01-30T09:22:50-06:00
-status: done

@@ -1,7 +1,0 @@
-phase_id: "01-schema-readme"
-branch: "phase/ops-hee-schema-naming-01-schema-readme"
-pr_url: "https://github.com/spencerbutler/human-execution-engine/pull/74"
-timestamps:
-  started_at: "2026-01-29T22:07:31-06:00"
-  last_update: "2026-01-29T22:07:31-06:00"
-status: "done"

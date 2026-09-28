@@ -1,7 +1,0 @@
-# waivers.txt
-# Policy/support file. Keep entries small, factual, and auditable.
-
-- inuid: 698bfb0a-9a14-8332-b12c-3a78bacdade6
-  ts_human: 2026-02-11_0000
-  scope: merge-commit-policy
-  note: repo policy updated to merge commits always; waivers.txt required.

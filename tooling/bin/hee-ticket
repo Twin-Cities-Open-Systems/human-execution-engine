@@ -13,9 +13,9 @@ alternative, not a declaration that it replaces GitHub Issues as
 standard practice yet.
 
 Storage: `.hee/tickets/<id>.yaml`, one real record per ticket -- .hee/
-is already real, git-tracked working-state (see .hee/spool/*.yaml's
-phase_id/status/timestamps shape, same idea, this is a sibling of
-that, not a new convention invented from nothing).
+is already real, git-tracked working-state, using the same
+phase_id/status/timestamps record shape HEE's phase-tracking used
+earlier, not a new convention invented from nothing.
 
 Real trigger for the `stage` field specifically (2026-08-21): Spencer's
 own pseudocode, `idea:{1,}->footgun:{1,}->dogfood:{1,}` -- the real

@@ -16,8 +16,8 @@ Tools:
 - tooling/bin/hee-ticket  : `-new "description"` / `-list` -- real, minimal first step of an
   internal ticket system (GitHub Issues is an external dependency for all of TCOS's tracking
   right now, same class of concern as `primitives`'s dependency-removal work). Stores one real
-  YAML record per ticket in `.hee/tickets/` (sibling of `.hee/spool/`'s existing phase-tracking
-  records, not a new convention). Prototype/dogfood, not yet declared standard practice over
+  YAML record per ticket in `.hee/tickets/` (the same phase-tracking record shape HEE used
+  earlier, not a new convention). Prototype/dogfood, not yet declared standard practice over
   GitHub Issues. See `examples/hee-ticket-output.md`.
 - tooling/bin/hee-stat    : stat(1)'s `-c FORMAT` interface, applied to namespaced
   resources instead of the filesystem -- `hee stat -c %W gh/OWNER/REPO` for a repo's
