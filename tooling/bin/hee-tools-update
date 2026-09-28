@@ -84,12 +84,22 @@ DESCRIPTION
                         "already at this version" short-circuit for go.
     yq bin <version>    compares `yq --version` against <version> and, only if
                         they differ (or yq is absent), downloads the
-                        mikefarah/yq linux_amd64 release binary to
-                        $HOME/.local/bin/yq and chmod +x's it.
+                        mikefarah/yq linux_amd64 release binary and moves it
+                        into $HOME/.local/bin/yq (via a temp file, so a failed
+                        download never leaves a truncated yq on PATH ahead of
+                        the distro's Python yq).
     <name> pkg <any>    reports presence only and prints an apt hint. NEVER
                         installs anything. Recognized for jq, bat, glow, rg
                         and tmux by name; any other name:kind pair is logged
                         as an unknown manifest entry and skipped.
+
+  A FAILED download does not abort the run. Each downloading kind guards its
+  own download and returns cleanly on failure; the loop records the severity
+  from the line's requiredness (`req`, the 5th manifest column -- absent means
+  required) and moves on to the next line. So a broken OPTIONAL entry -- the go
+  tarball is optional -- can no longer block a REQUIRED one that follows it,
+  such as yq. Before this, a `curl (23)` write error on the go download aborted
+  the whole run under `set -e` and yq was never reached.
 
   Architecture is hardcoded linux/amd64 for both downloading kinds. On
   any other OS or architecture this tool will fetch the wrong artifact
@@ -109,14 +119,16 @@ EXAMPLES
   hee tools-check is the read-only half and IS proven in CI.
 
 EXIT STATUS
-  Nagios plugin convention.
-  0 OK   every manifest line was processed
-  2 CRITICAL  a manifest line names a kind this tool cannot act on. The
-              line was skipped, so a pin is going unapplied.
-  Any other status is the exit code of whichever command failed under
-  `set -e` (curl, tar, sha256sum, mkdir), passed through unmapped -- a
-  failed download exits with curl's own code, not 2 CRITICAL. Documented
-  as-is, not changed here.
+  Nagios plugin convention; the worst line wins, matching hee-tools-check.
+  0 OK        every manifest line was processed and every install succeeded
+  1 WARNING   an OPTIONAL line's install failed (bad download/extract). Other
+              lines still ran.
+  2 CRITICAL  a REQUIRED line's install failed, or a line names a kind this
+              tool cannot act on (that line was skipped, so a pin is unapplied).
+
+  A failed download no longer aborts the run or leaks curl's own exit code:
+  the download is guarded, the failure is mapped to WARNING/CRITICAL by the
+  line's requiredness, and the remaining lines are still processed.
 
 ENVIRONMENT
   HOME               install prefix -- $HOME/.local/bin and $HOME/.local/go
@@ -176,13 +188,26 @@ install_go_tar() {
 
   log "== go install ${gov} =="
   log "curl $url"
-  curl -fsSL -o "$tmp" "$url"
+  # Guard the download EXPLICITLY rather than leaning on `set -e`. The caller
+  # invokes this in an `if`, which disables errexit for the whole function, so
+  # an unchecked failure here would fall through to `tar` on a bad file. Check
+  # the download itself, and return before touching $dest -- a failed download
+  # must never wipe a working install. Real trigger: a `curl (23)` write error
+  # aborted the whole run before yq was reached (issue:501@human-execution-engine
+  # gave the log-path fix; this gives the keep-going fix).
+  if ! curl -fsSL -o "$tmp" "$url"; then
+    log "go ${gov} download failed (curl) -- existing install left untouched"
+    return 1
+  fi
   log "sha256:"
-  sha256sum "$tmp" | tee -a "$OUT" >/dev/null
+  sha256sum "$tmp" | tee -a "$OUT" >/dev/null || true
 
   rm -rf "$dest"
   mkdir -p "$dest"
-  tar -C "$dest" -xzf "$tmp"
+  if ! tar -C "$dest" -xzf "$tmp"; then
+    log "go ${gov} extract failed (tar)"
+    return 1
+  fi
 
   ln -sf "$dest/go/bin/go" "$HOME/.local/bin/go"
   ln -sf "$dest/go/bin/gofmt" "$HOME/.local/bin/gofmt"
@@ -200,11 +225,23 @@ install_yq_bin() {
   os="linux"
   url="https://github.com/mikefarah/yq/releases/download/v${yqv}/yq_${os}_${arch}"
   out="$HOME/.local/bin/yq"
+  tmp="$out.tmp.$$"
 
   log "== yq install v${yqv} =="
   log "curl $url -> $out"
-  curl -fsSL -o "$out" "$url"
-  chmod +x "$out"
+  # Download to a temp path and mv into place. A direct write to $out that
+  # fails partway (a `curl (23)` write error) would leave a truncated,
+  # executable `yq` on PATH -- worse than the missing one it replaced. mv is
+  # atomic on the same filesystem, so PATH only ever sees a complete binary.
+  # Guard the download explicitly: the caller runs this under `if`, so errexit
+  # is off inside here.
+  if ! curl -fsSL -o "$tmp" "$url"; then
+    rm -f "$tmp"
+    log "yq v${yqv} download failed (curl) -- existing yq (if any) left untouched"
+    return 1
+  fi
+  chmod +x "$tmp"
+  mv -f "$tmp" "$out"
   # "$out", not a bare `yq`. A bare name resolves through the shell's command
   # hash, which still points at the PRE-install binary -- so a real run on
   # 2026-09-01 installed v4.50.1 and then logged v4.53.3. The install had
@@ -218,17 +255,36 @@ log "manifest: $MANIFEST"
 log "out: $OUT"
 log ""
 
-# Worst status seen across the manifest. `set -e` already aborts on a failed
-# download; this carries the softer failure -- a line this tool cannot act on
-# -- out to the caller, which it previously swallowed.
+# Worst status seen across the manifest, Nagios convention (0 OK / 1 WARNING /
+# 2 CRITICAL), the same mapping hee-tools-check uses. A failed install no
+# longer aborts the run: the download guards in install_* return non-zero, the
+# loop records the severity per the manifest's `req` column and keeps going, so
+# a broken OPTIONAL line (e.g. the go tarball) can never block a REQUIRED one
+# (e.g. yq) that comes after it.
 rc=0
+
+# record_fail REQ MESSAGE -- a required install failure is CRITICAL (rc 2), an
+# optional one is WARNING (rc 1). Never downgrades an existing CRITICAL.
+record_fail() {
+  _rf_req="$1"; shift
+  if [ "$_rf_req" = "optional" ]; then
+    log "$(hee_status WARNING "$*")"
+    [ "$rc" -ge 1 ] || rc=1
+  else
+    log "$(hee_status CRITICAL "$*")"
+    rc=2
+  fi
+}
 
 while IFS= read -r line; do
   case "$line" in
     ""|\#*) continue ;;
   esac
   set -- $line
-  name="$1"; kind="$2"; desired="$3"
+  # Fields: name kind desired [vflag] [req]. Field 4 is the version flag and
+  # field 5 the requiredness -- absent means required, the same read as
+  # hee-tools-check, so the two halves agree on which lines are optional.
+  name="$1"; kind="$2"; desired="$3"; req="${5:-required}"
 
   # Dispatch on KIND, then on name -- never on the literal "$name:$kind"
   # pair. The manifest's name field can carry alternates (`bat|batcat`), so
@@ -236,19 +292,25 @@ while IFS= read -r line; do
   # `required` line (issue 507).
   case "$kind:$name" in
     tar:go)
-      install_go_tar "$desired"
+      if ! install_go_tar "$desired"; then
+        record_fail "$req" "go $desired could not be installed -- see $OUT"
+      fi
       ;;
     bin:yq)
       if have yq; then
         cur="$(yq --version | sed -n 's/.*version v\{0,1\}\([0-9.]\+\).*/\1/p' | head -n 1)"
         log "yq current: ${cur:-unknown} desired: $desired"
         if [ "${cur:-}" != "$desired" ]; then
-          install_yq_bin "$desired"
+          if ! install_yq_bin "$desired"; then
+            record_fail "$req" "yq $desired could not be installed -- see $OUT"
+          fi
         else
           log "yq ok"
         fi
       else
-        install_yq_bin "$desired"
+        if ! install_yq_bin "$desired"; then
+          record_fail "$req" "yq $desired could not be installed -- see $OUT"
+        fi
       fi
       ;;
     pkg:*)
@@ -290,7 +352,8 @@ log "done"
 # The loop runs in this shell, not a subshell, so rc survives -- `done <
 # "$MANIFEST"` redirects input rather than piping into the loop, which is
 # what would have put it in a subshell and discarded rc.
-if [ "$rc" -ne 0 ]; then
-  hee_status CRITICAL "manifest had entries this tool cannot act on -- see $OUT"
-fi
+case "$rc" in
+  1) hee_status WARNING "an optional toolchain entry could not be installed -- see $OUT" ;;
+  2) hee_status CRITICAL "a required toolchain entry could not be installed or acted on -- see $OUT" ;;
+esac
 exit "$rc"
