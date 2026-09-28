@@ -69,6 +69,12 @@ fi
 # One-line-per-shell reminder, not the full file -- this file stays
 # minimal by design (PATH only, no other opinion); the real content
 # lives in bootstrap.mk's print-governance-reminder and the file itself.
-if [ -f "${HOME}/git/human-execution-engine/prompts/PROMPTING_RULES.md" ]; then
+# Opt-out (flippy, 2026-09-28): the same TCOS_QUIET_LOGIN / quiet-login marker
+# the dotfiles banner honours also silences this line, for a host where the
+# operator does not want a per-shell reminder. PATH setup above is unaffected.
+if [ -f "${HOME}/git/human-execution-engine/prompts/PROMPTING_RULES.md" ] \
+   && [ "${TCOS_QUIET_LOGIN:-0}" != 1 ] \
+   && [ ! -e /etc/tcos/quiet-login ] \
+   && [ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/tcos/quiet-login" ]; then
   echo "heerc: read prompts/PROMPTING_RULES.md -- never push directly to main; branch + PR." >&2
 fi
