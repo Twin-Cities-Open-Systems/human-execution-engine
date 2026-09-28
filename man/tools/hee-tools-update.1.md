@@ -47,12 +47,22 @@ hee-tools-update - install or refresh the pinned external toolchain
                           "already at this version" short-circuit for go.
       yq bin <version>    compares `yq --version` against <version> and, only if
                           they differ (or yq is absent), downloads the
-                          mikefarah/yq linux_amd64 release binary to
-                          $HOME/.local/bin/yq and chmod +x's it.
+                          mikefarah/yq linux_amd64 release binary and moves it
+                          into $HOME/.local/bin/yq (via a temp file, so a failed
+                          download never leaves a truncated yq on PATH ahead of
+                          the distro's Python yq).
       <name> pkg <any>    reports presence only and prints an apt hint. NEVER
                           installs anything. Recognized for jq, bat, glow, rg
                           and tmux by name; any other name:kind pair is logged
                           as an unknown manifest entry and skipped.
+
+    A FAILED download does not abort the run. Each downloading kind guards its
+    own download and returns cleanly on failure; the loop records the severity
+    from the line's requiredness (`req`, the 5th manifest column -- absent means
+    required) and moves on to the next line. So a broken OPTIONAL entry -- the go
+    tarball is optional -- can no longer block a REQUIRED one that follows it,
+    such as yq. Before this, a `curl (23)` write error on the go download aborted
+    the whole run under `set -e` and yq was never reached.
 
     Architecture is hardcoded linux/amd64 for both downloading kinds. On
     any other OS or architecture this tool will fetch the wrong artifact
@@ -82,14 +92,16 @@ hee-tools-update - install or refresh the pinned external toolchain
 
 # EXIT STATUS
 
-    Nagios plugin convention.
-    0 OK   every manifest line was processed
-    2 CRITICAL  a manifest line names a kind this tool cannot act on. The
-                line was skipped, so a pin is going unapplied.
-    Any other status is the exit code of whichever command failed under
-    `set -e` (curl, tar, sha256sum, mkdir), passed through unmapped -- a
-    failed download exits with curl's own code, not 2 CRITICAL. Documented
-    as-is, not changed here.
+    Nagios plugin convention; the worst line wins, matching hee-tools-check.
+    0 OK        every manifest line was processed and every install succeeded
+    1 WARNING   an OPTIONAL line's install failed (bad download/extract). Other
+                lines still ran.
+    2 CRITICAL  a REQUIRED line's install failed, or a line names a kind this
+                tool cannot act on (that line was skipped, so a pin is unapplied).
+
+    A failed download no longer aborts the run or leaks curl's own exit code:
+    the download is guarded, the failure is mapped to WARNING/CRITICAL by the
+    line's requiredness, and the remaining lines are still processed.
 
 
 # EXAMPLES
