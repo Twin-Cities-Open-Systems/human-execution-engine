@@ -6,7 +6,7 @@ hee-tools-update - install or refresh the pinned external toolchain
 
 # SYNOPSIS
 
-    hee-tools-update [MANIFEST] [LOG_DIR]
+    hee-tools-update [--force|--reinstall] [MANIFEST] [LOG_DIR]
     hee-tools-update help
 
 
@@ -40,13 +40,17 @@ hee-tools-update - install or refresh the pinned external toolchain
     Manifest lines are `name kind desired`. Blank lines and # comments are
     skipped. Handled kinds, and only these:
 
-      go tar <version>    downloads https://go.dev/dl/go<version>.linux-amd64.tar.gz,
-                          records its sha256 in the log, wipes and re-extracts
+      go tar <version>    compares `go version` against <version> and, only if
+                          they differ (or go is absent, or --force), downloads
+                          https://go.dev/dl/go<version>.linux-amd64.tar.gz, records
+                          its sha256 in the log, wipes and re-extracts
                           $HOME/.local/go/<version>, then symlinks go and gofmt
-                          into $HOME/.local/bin. Always reinstalls -- there is no
-                          "already at this version" short-circuit for go.
+                          into $HOME/.local/bin. The short-circuit was added
+                          because the unconditional reinstall re-downloaded ~150MB
+                          every run and re-triggered a `curl (23)` write failure on
+                          disk-constrained hosts (issue:826@human-execution-engine).
       yq bin <version>    compares `yq --version` against <version> and, only if
-                          they differ (or yq is absent), downloads the
+                          they differ (or yq is absent, or --force), downloads the
                           mikefarah/yq linux_amd64 release binary and moves it
                           into $HOME/.local/bin/yq (via a temp file, so a failed
                           download never leaves a truncated yq on PATH ahead of
@@ -73,6 +77,16 @@ hee-tools-update - install or refresh the pinned external toolchain
     (curl -fsSL), so a successful run prints NOTHING to the terminal. Read
     LOG_DIR/tools-update.<UTC-timestamp>.log to see what happened. The
     resolved path is printed when the run starts.
+
+
+# OPTIONS
+
+    --force, --reinstall   Reinstall every downloading kind (go, yq) even when it
+                           is already at the pinned version, bypassing the version
+                           short-circuit. The escape hatch for a corrupt install
+                           whose version string still matches. Must be the FIRST
+                           argument (a leading-flag test keeps spaces in MANIFEST/
+                           LOG_DIR intact).
 
 
 # ENVIRONMENT
@@ -108,9 +122,12 @@ hee-tools-update - install or refresh the pinned external toolchain
 
     hee tools-update
 
-    Not marked "# ci": it downloads and installs the pinned toolchain (go, yq)
-    into ~/.local, a mutation of the host, so there is no read-only run to prove.
-    hee tools-check is the read-only half and IS proven in CI.
+    hee tools-update --force
+
+    Neither is marked "# ci": both download and install the pinned toolchain (go,
+    yq) into ~/.local, a mutation of the host, so there is no read-only run to
+    prove. --force reinstalls even when the version already matches. hee
+    tools-check is the read-only half and IS proven in CI.
 
 
 # SEE ALSO
