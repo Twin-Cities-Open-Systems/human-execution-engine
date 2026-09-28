@@ -100,8 +100,7 @@ before we are done with this session (soon) I would like a card of this in the r
 - dric: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml>
 - contract: {dric} (or the exact contract the chat is under (still WiP))
 - sub-contract: {GCIS} {dric} (needs ratification)
-- dric-sub(TODO(spencer): convert to YAML): <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric.v1.md>
-- gcis(TODO(spencer): needs convert to YAML): <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/gcic.v1.md>
+- gcic-spec: <https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/gcic-v1.contract.yaml>
 
 ##### QRL errata
 
@@ -135,8 +134,7 @@ repo-files: https://raw.githubusercontent.com/spencerbutler/human-execution-engi
 handoff-policy: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/pills/handoff/procedure.checkpoint-supergoldstar-handoff-v1.yaml
 contrOact-gpt: {dric-v1} "the current contract used between oper<->gpt
 dric-v1: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric-v1.contract.yaml
-dric-wip: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/dric.v1.md
-gcic-wip: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/gcic.v1.md
+gcic-spec-url: https://raw.githubusercontent.com/spencerbutler/human-execution-engine/refs/heads/main/contracts/gcic-v1.contract.yaml
 ~~~
 
 ---

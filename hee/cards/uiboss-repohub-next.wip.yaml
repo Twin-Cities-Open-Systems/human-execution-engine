@@ -27,7 +27,7 @@ spec:
   queue:
     contracts_promotion:
       - "Convert contracts/*.md to proper YAML hee-obj in-place for now (dric.v1, shellboss.v1, gcic.v1)."
-      - "Keep contracts/legacy_md as boneyard-handled legacy."
+      - "Legacy md contracts removed 2026-09-27; superseded by the enveloped yaml contracts."
       - "contracts/README.md TBD (leave until promotion pass)."
     helpers:
       - "hee-pathcheck: add quick RTFM hints (man/info/help) + classify shell-provided cmds; add -q/--quiet for automation; optionally highlight PATH match."

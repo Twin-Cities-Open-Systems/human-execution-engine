@@ -1,0 +1,33 @@
+# path: contracts/shellboss-v1.contract.yaml
+apiVersion: hee/v1
+kind: Contract
+metadata:
+  name: shellboss
+  description: "Shell Manager Contract -- primary directives and CLI/return-code contract for the tools/shellboss shell manager."
+  labels:
+    hee.object: "true"
+    domain: hee
+    artifact: contract
+    topic: shellboss
+  annotations:
+    inuid: "40ed95a0316ddf2b87008d2d1665b9fad021f711c7deaa790d16758328f885af"
+    inuid_seed: "hee-contract://tcos-fleet/shellboss/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    migrated_by: flippy-claude
+    migrated_utc: "2026-09-27T00:00:00Z"
+    migration_note: "enveloped from the early-days markdown shellboss contract; content preserved as structured spec"
+spec:
+  primary_directives:
+    - "NO CLOBBER by default. Refuse overwrite unless explicitly forced."
+    - "Never report success if no write happened."
+    - "Invalid/unknown commands MUST return nonzero."
+  cli:
+    - "shellboss fs write-stdin <path>: writes stdin to new file, refuses if exists."
+  return_codes:
+    - "0 ok"
+    - "2 usage / invalid command"
+    - "73 clobber refused (target exists)"
+  repo_managed:
+    - "tools/shellboss/shellboss"
+    - "tools/shellboss/library/bash/*.shfn.bash"
+    - "tools/shellboss/install.sh"
