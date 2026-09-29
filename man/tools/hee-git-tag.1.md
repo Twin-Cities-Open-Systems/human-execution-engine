@@ -56,14 +56,18 @@ hee-git-tag - a GPG-signed git tag with the key that is really yours
 # KEY SELECTION
 
     1. --key ID, if given (any form gpg accepts).
-    2. Otherwise the secret keys in the caller's own keyring that can sign,
+    2. Otherwise $HEE_SIGN_KEY, if set. This is how `hee release -promote`,
+       which calls this tool itself, is told which key to use when the
+       keyring holds several: HEE_SIGN_KEY=<id> hee release -promote -yes.
+       Never a default -- unset means step 3.
+    3. Otherwise the secret keys in the caller's own keyring that can sign,
        are not expired or revoked, and carry ultimate trust (the keys this
        person generated here, as opposed to imported ones).
-    3. If more than one remains, the one whose uid email host is this
+    4. If more than one remains, the one whose uid email host is this
        machine per the SOA anchor (~/.hee/index/_.yaml `host:`), e.g.
        spencer@kiosk.lab.tcos.us on kiosk.lab.tcos.us.
-    4. Still more than one, or none: CRITICAL with the candidates listed --
-       say --key. Never a guess.
+    5. Still more than one, or none: CRITICAL with the candidates listed --
+       say --key (or set HEE_SIGN_KEY). Never a guess.
 
     Nothing is read from gitconfig. The chosen key id is printed on every
     run so the record says which key signed.

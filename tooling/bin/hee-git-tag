@@ -20,14 +20,18 @@ DESCRIPTION
 
 KEY SELECTION
   1. --key ID, if given (any form gpg accepts).
-  2. Otherwise the secret keys in the caller's own keyring that can sign,
+  2. Otherwise $HEE_SIGN_KEY, if set. This is how `hee release -promote`,
+     which calls this tool itself, is told which key to use when the
+     keyring holds several: HEE_SIGN_KEY=<id> hee release -promote -yes.
+     Never a default -- unset means step 3.
+  3. Otherwise the secret keys in the caller's own keyring that can sign,
      are not expired or revoked, and carry ultimate trust (the keys this
      person generated here, as opposed to imported ones).
-  3. If more than one remains, the one whose uid email host is this
+  4. If more than one remains, the one whose uid email host is this
      machine per the SOA anchor (~/.hee/index/_.yaml `host:`), e.g.
      spencer@kiosk.lab.tcos.us on kiosk.lab.tcos.us.
-  4. Still more than one, or none: CRITICAL with the candidates listed --
-     say --key. Never a guess.
+  5. Still more than one, or none: CRITICAL with the candidates listed --
+     say --key (or set HEE_SIGN_KEY). Never a guess.
 
   Nothing is read from gitconfig. The chosen key id is printed on every
   run so the record says which key signed.
@@ -57,6 +61,7 @@ SEE ALSO
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -100,6 +105,9 @@ def select_key(listing: str, host: str, explicit: str | None) -> tuple[str | Non
     """-> (key id or None, reason, candidates)"""
     if explicit:
         return explicit, "--key given", []
+    env_key = os.environ.get("HEE_SIGN_KEY", "").strip()
+    if env_key:
+        return env_key, "HEE_SIGN_KEY", []
     now = int(time.time())
     keys = parse_secret_keys(listing)
     usable = [k for k in keys if "s" in k["caps"].lower() and k["trust"] not in ("r", "e")
@@ -142,7 +150,7 @@ def main(argv: list[str]) -> int:
         say("UNKNOWN", f"gpg unavailable: {e}"); return UNKNOWN
     key, why, pool = select_key(listing, anchor_host(), a.key)
     if not key:
-        say("CRITICAL", f"{why} -- pass --key ID"); return CRITICAL
+        say("CRITICAL", f"{why} -- pass --key ID (or set HEE_SIGN_KEY)"); return CRITICAL
     if a.show_key:
         print(key); say("OK", f"signing key {key}: {why}"); return OK
 
