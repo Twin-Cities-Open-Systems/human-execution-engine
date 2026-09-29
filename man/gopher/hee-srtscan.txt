@@ -12,4 +12,9 @@ DESCRIPTION
                 -search TERM
                 -root ROOT
 
+EXAMPLES
+              $ hee srtscan -search Hello -root tests/fixtures/srtscan   # ci
+
+              Searches .srt subtitles under -root; the fixture makes it self-contained.
+
                                                                  HEE-SRTSCAN(1)

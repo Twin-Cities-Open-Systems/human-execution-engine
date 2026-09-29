@@ -15,4 +15,10 @@ DESCRIPTION
                 --host HOST
                 --dry-run
 
+EXAMPLES
+              hee pve-users pve/users/roster.yaml --dry-run
+
+              Not marked "# ci": even --dry-run reads the live Proxmox host's users to diff
+              against the manifest, which a runner cannot reach.
+
                                                                HEE-PVE-USERS(8)

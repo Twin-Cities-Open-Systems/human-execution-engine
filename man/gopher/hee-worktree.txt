@@ -50,6 +50,12 @@ EXIT STATUS
                           tool really exits 1 today and is documented as-is, not
                           changed here.
 
+EXAMPLES
+              $ hee worktree list   # ci
+
+              list is read-only. start and done create or remove a worktree and are left
+              unmarked.
+
 SEE ALSO
               git-worktree(1)
 
