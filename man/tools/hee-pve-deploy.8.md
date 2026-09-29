@@ -77,6 +77,7 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       storage: ssd1
       bridge: vmbr0
       unprivileged: true
+      onboot: 1                         # start on host boot. DEFAULTS TO 1 here, unlike Proxmox's own 0
       features: {nesting: true, keyctl: true}   # pve LXC features; only for a container that runs containers
       addons: [agent-tooling]           # named apk sets from the org's registry (--addons)
       agent: ci-triage                  # agent roster role, only for a container that runs an agent

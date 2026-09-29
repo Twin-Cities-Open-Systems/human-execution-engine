@@ -6,7 +6,7 @@ hee\-tools\-update \- install or refresh the pinned external toolchain
 .SH SYNOPSIS
 .IP
 .EX
-hee\-tools\-update [MANIFEST] [LOG_DIR]
+hee\-tools\-update [\-\-force|\-\-reinstall] [MANIFEST] [LOG_DIR]
 hee\-tools\-update help
 .EE
 .SH DESCRIPTION
@@ -39,19 +39,33 @@ Pass LOG_DIR explicitly if you do want the log inside a repo.
 Manifest lines are \[ga]name kind desired\[ga]. Blank lines and # comments are
 skipped. Handled kinds, and only these:
 
-  go tar <version>    downloads https://go.dev/dl/go<version>.linux\-amd64.tar.gz,
-                      records its sha256 in the log, wipes and re\-extracts
+  go tar <version>    compares \[ga]go version\[ga] against <version> and, only if
+                      they differ (or go is absent, or \-\-force), downloads
+                      https://go.dev/dl/go<version>.linux\-amd64.tar.gz, records
+                      its sha256 in the log, wipes and re\-extracts
                       $HOME/.local/go/<version>, then symlinks go and gofmt
-                      into $HOME/.local/bin. Always reinstalls \-\- there is no
-                      \[dq]already at this version\[dq] short\-circuit for go.
+                      into $HOME/.local/bin. The short\-circuit was added
+                      because the unconditional reinstall re\-downloaded \[ti]150MB
+                      every run and re\-triggered a \[ga]curl (23)\[ga] write failure on
+                      disk\-constrained hosts (issue:826\[at]human\-execution\-engine).
   yq bin <version>    compares \[ga]yq \-\-version\[ga] against <version> and, only if
-                      they differ (or yq is absent), downloads the
-                      mikefarah/yq linux_amd64 release binary to
-                      $HOME/.local/bin/yq and chmod +x\[aq]s it.
+                      they differ (or yq is absent, or \-\-force), downloads the
+                      mikefarah/yq linux_amd64 release binary and moves it
+                      into $HOME/.local/bin/yq (via a temp file, so a failed
+                      download never leaves a truncated yq on PATH ahead of
+                      the distro\[aq]s Python yq).
   <name> pkg <any>    reports presence only and prints an apt hint. NEVER
                       installs anything. Recognized for jq, bat, glow, rg
                       and tmux by name; any other name:kind pair is logged
                       as an unknown manifest entry and skipped.
+
+A FAILED download does not abort the run. Each downloading kind guards its
+own download and returns cleanly on failure; the loop records the severity
+from the line\[aq]s requiredness (\[ga]req\[ga], the 5th manifest column \-\- absent means
+required) and moves on to the next line. So a broken OPTIONAL entry \-\- the go
+tarball is optional \-\- can no longer block a REQUIRED one that follows it,
+such as yq. Before this, a \[ga]curl (23)\[ga] write error on the go download aborted
+the whole run under \[ga]set \-e\[ga] and yq was never reached.
 
 Architecture is hardcoded linux/amd64 for both downloading kinds. On
 any other OS or architecture this tool will fetch the wrong artifact
@@ -62,6 +76,16 @@ pipes through \[ga]tee \-a \[dq]$OUT\[dq] >/dev/null\[ga], and the downloads are
 (curl \-fsSL), so a successful run prints NOTHING to the terminal. Read
 LOG_DIR/tools\-update.<UTC\-timestamp>.log to see what happened. The
 resolved path is printed when the run starts.
+.EE
+.SH OPTIONS
+.IP
+.EX
+\-\-force, \-\-reinstall   Reinstall every downloading kind (go, yq) even when it
+                       is already at the pinned version, bypassing the version
+                       short\-circuit. The escape hatch for a corrupt install
+                       whose version string still matches. Must be the FIRST
+                       argument (a leading\-flag test keeps spaces in MANIFEST/
+                       LOG_DIR intact).
 .EE
 .SH ENVIRONMENT
 .IP
@@ -81,23 +105,28 @@ $XDG_STATE_HOME/hee/tools/tools\-update.*.log   per\-run log
 .SH EXIT STATUS
 .IP
 .EX
-Nagios plugin convention.
-0 OK   every manifest line was processed
-2 CRITICAL  a manifest line names a kind this tool cannot act on. The
-            line was skipped, so a pin is going unapplied.
-Any other status is the exit code of whichever command failed under
-\[ga]set \-e\[ga] (curl, tar, sha256sum, mkdir), passed through unmapped \-\- a
-failed download exits with curl\[aq]s own code, not 2 CRITICAL. Documented
-as\-is, not changed here.
+Nagios plugin convention; the worst line wins, matching hee\-tools\-check.
+0 OK        every manifest line was processed and every install succeeded
+1 WARNING   an OPTIONAL line\[aq]s install failed (bad download/extract). Other
+            lines still ran.
+2 CRITICAL  a REQUIRED line\[aq]s install failed, or a line names a kind this
+            tool cannot act on (that line was skipped, so a pin is unapplied).
+
+A failed download no longer aborts the run or leaks curl\[aq]s own exit code:
+the download is guarded, the failure is mapped to WARNING/CRITICAL by the
+line\[aq]s requiredness, and the remaining lines are still processed.
 .EE
 .SH EXAMPLES
 .IP
 .EX
 hee tools\-update
 
-Not marked \[dq]# ci\[dq]: it downloads and installs the pinned toolchain (go, yq)
-into \[ti]/.local, a mutation of the host, so there is no read\-only run to prove.
-hee tools\-check is the read\-only half and IS proven in CI.
+hee tools\-update \-\-force
+
+Neither is marked \[dq]# ci\[dq]: both download and install the pinned toolchain (go,
+yq) into \[ti]/.local, a mutation of the host, so there is no read\-only run to
+prove. \-\-force reinstalls even when the version already matches. hee
+tools\-check is the read\-only half and IS proven in CI.
 .EE
 .SH SEE ALSO
 .IP
