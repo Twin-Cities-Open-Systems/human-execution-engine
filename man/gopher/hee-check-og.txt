@@ -27,8 +27,12 @@ EXIT STATUS
               2 with --require: at least one target is missing a required tag; or no target given
 
 EXAMPLES
+              $ hee check-og tests/fixtures/og/page.html   # ci
               hee check-og https://tcos.us/people
               find dist -name '*.html' | xargs hee check-og --require
               hee check-og --require og:image --summary media/*/dist/**/*.html
+
+              The fixture makes the first self-contained (a local file, no network); a URL
+              argument fetches over the network and is unmarked.
 
                                                                 HEE-CHECK-OG(1)

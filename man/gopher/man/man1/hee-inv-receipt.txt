@@ -27,6 +27,12 @@ OPTIONS
 EXIT STATUS
               0 ingested   2 missing dependency, or the target is not the expected repo
 
+EXAMPLES
+              hee inv-receipt ingest receipt.jpg --vendor acme --store bart
+
+              Not marked "# ci": it reads an image with exiftool (not on the minimal
+              runner) and files evidence into an inventory repo.
+
 REQUIRES
               sha256sum, rg, perl, tesseract, date, exiftool
 

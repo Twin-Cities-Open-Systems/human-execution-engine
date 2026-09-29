@@ -49,4 +49,11 @@ DESCRIPTION
               then curated slices printed as plain text. 0-token by design -- pure
               deterministic filtering, no LLM call.
 
+EXAMPLES
+              hee board p0
+              hee board open-prs
+
+              Not marked "# ci": every view queries GitHub (issues, PRs, the project
+              board) over the API, which a runner cannot reach deterministically.
+
                                                                    HEE-BOARD(1)

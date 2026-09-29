@@ -29,6 +29,13 @@ EXIT STATUS
               Nagios plugin convention.
               0 OK   1 WARNING   2 CRITICAL   3 UNKNOWN
 
+EXAMPLES
+              $ hee trust anchor --repo .   # ci
+
+              Without --write, anchor reads this repo's trust objects and the local
+              identity and reports -- read-only, so it is proven in CI. --write commits
+              the derived anchor and is left unmarked.
+
 SEE ALSO
                 hee-cred (a secret you HOLD, deliberately separate), hee-ssh-trust-ca,
                 hee-ver, docs/specs/HEE_SOA_CAPSULE.md

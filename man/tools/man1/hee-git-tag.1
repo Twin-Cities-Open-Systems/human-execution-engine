@@ -60,13 +60,18 @@ hee\-git\-merge(1), hee\-ver(1), hee\-contract\-review(1)
    which calls this tool itself, is told which key to use when the
    keyring holds several: HEE_SIGN_KEY=<id> hee release \-promote \-yes.
    Never a default \-\- unset means step 3.
-3. Otherwise the secret keys in the caller\[aq]s own keyring that can sign,
+3. Otherwise gpg\[aq]s own \[ga]default\-key\[ga] from gpg.conf (read with
+   \[ga]gpgconf \-\-list\-options gpg\[ga]; gpg has no switch that prints it), if it
+   names a usable secret key here \-\- the last one that does, as gpg
+   itself picks. This is the one place to say \[dq]my signing key\[dq] for both
+   gpg and hee: \[ga]default\-key 2A361A96A7A0FBA9\[ga] in \[ti]/.gnupg/gpg.conf.
+4. Otherwise the secret keys in the caller\[aq]s own keyring that can sign,
    are not expired or revoked, and carry ultimate trust (the keys this
    person generated here, as opposed to imported ones).
-4. If more than one remains, the one whose uid email host is this
+5. If more than one remains, the one whose uid email host is this
    machine per the SOA anchor (\[ti]/.hee/index/_.yaml \[ga]host:\[ga]), e.g.
    spencer\[at]kiosk.lab.tcos.us on kiosk.lab.tcos.us.
-5. Still more than one, or none: CRITICAL with the candidates listed \-\-
+6. Still more than one, or none: CRITICAL with the candidates listed \-\-
    say \-\-key (or set HEE_SIGN_KEY). Never a guess.
 
 Nothing is read from gitconfig. The chosen key id is printed on every

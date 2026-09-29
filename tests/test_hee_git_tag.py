@@ -37,6 +37,20 @@ class SignKeyEnv(unittest.TestCase):
         self.assertIn("no single key", r.stderr)
         self.assertIn("HEE_SIGN_KEY", r.stderr)
 
+    def test_gpg_default_key_picks_the_key(self):
+        Path(self.home, "gpg.conf").write_text(f"default-key {self.b}\n")
+        try:
+            r = self.run_tool("--show-key")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertTrue(self.b.endswith(r.stdout.splitlines()[0]), r.stdout)
+            self.assertIn("default-key", r.stdout)
+            r = self.run_tool("--show-key", HEE_SIGN_KEY=self.a)
+            self.assertEqual(r.stdout.splitlines()[0], self.a)
+            Path(self.home, "gpg.conf").write_text("default-key 0123456789ABCDEF\n")
+            self.assertEqual(self.run_tool("--show-key").returncode, 2)
+        finally:
+            Path(self.home, "gpg.conf").unlink()
+
     def test_env_picks_the_key(self):
         r = self.run_tool("--show-key", HEE_SIGN_KEY=self.b)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

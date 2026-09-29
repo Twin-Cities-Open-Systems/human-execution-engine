@@ -59,4 +59,7 @@ EXAMPLES
               hee-lg honeycomb.net
               hee-lg 8.8.8.8
 
+              None is marked "# ci": every lookup queries a live looking-glass / RDAP
+              service over the network, which a runner cannot reach deterministically.
+
                                                                       HEE-LG(1)

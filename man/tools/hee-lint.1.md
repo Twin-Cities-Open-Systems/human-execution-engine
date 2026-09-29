@@ -13,11 +13,24 @@ hee-lint - fast lint gate for HEE-object YAML
 # DESCRIPTION
 
 
-    Scans TRACKED *.yml/*.yaml and checks only files declaring
-    `apiVersion: hee/v1`. Everything else is ignored, so this is safe to run
-    across a mixed repo.
+    Scans TRACKED *.yml/*.yaml. Two gates:
 
-    Checks: metadata present and parseable, metadata.annotations present,
+    1. GOVERNANCE OBJECTS (fail-closed). A file that lives under contracts/,
+       hee/contracts/, blueprints/ or plans/ -- OR is named *.contract.yaml,
+       *.blueprint.yaml or *.plan.yaml -- MUST be a HEE object: it must carry
+       `apiVersion: hee/v1`, a top-level `kind:` matching its convention
+       (contract->Contract, blueprint->Blueprint|BlueprintDoctrine, plan->Plan),
+       and a top-level `spec:`. This closes the blind spot where a contract that
+       simply omitted the envelope was classified "not a HEE object" and passed
+       silently -- the malformation was what hid it. Derived/sample/archive trees
+       (tests/, */fixtures/, */examples/, */templates/, docs/history/) are exempt.
+
+    2. ENVELOPE OBJECTS. Any other file declaring `apiVersion: hee/v1` is checked;
+       everything else is ignored, so this is safe to run across a mixed repo.
+
+    Checks (both gates): metadata present and parseable, metadata.annotations present,
+    a null inuid's inuid_null_reason is in the sanctioned enum (bootstrap / test /
+    fixture / example / soa_pending; SSoT: the kind-registry's allowed_null_reasons),
     metadata.annotations.inuid present, a null inuid accompanied by
     inuid_null_reason, and -- when the object declares
     inuid_derivation: sha256(inuid_seed) -- that the recorded inuid actually

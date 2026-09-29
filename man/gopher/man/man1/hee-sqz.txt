@@ -26,6 +26,8 @@ EXIT STATUS
               0 always -- the ratio is the output, not the exit code
 
 EXAMPLES
+              $ printf 'OK: a\nOK: b\n' | hee sqz   # ci
+
               for r in $repos; do
                 check "$r" && echo "OK: $r" || echo "FAIL: $r"
               done | hee-sqz

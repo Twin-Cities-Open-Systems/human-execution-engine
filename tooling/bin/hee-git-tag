@@ -24,13 +24,18 @@ KEY SELECTION
      which calls this tool itself, is told which key to use when the
      keyring holds several: HEE_SIGN_KEY=<id> hee release -promote -yes.
      Never a default -- unset means step 3.
-  3. Otherwise the secret keys in the caller's own keyring that can sign,
+  3. Otherwise gpg's own `default-key` from gpg.conf (read with
+     `gpgconf --list-options gpg`; gpg has no switch that prints it), if it
+     names a usable secret key here -- the last one that does, as gpg
+     itself picks. This is the one place to say "my signing key" for both
+     gpg and hee: `default-key 2A361A96A7A0FBA9` in ~/.gnupg/gpg.conf.
+  4. Otherwise the secret keys in the caller's own keyring that can sign,
      are not expired or revoked, and carry ultimate trust (the keys this
      person generated here, as opposed to imported ones).
-  4. If more than one remains, the one whose uid email host is this
+  5. If more than one remains, the one whose uid email host is this
      machine per the SOA anchor (~/.hee/index/_.yaml `host:`), e.g.
      spencer@kiosk.lab.tcos.us on kiosk.lab.tcos.us.
-  5. Still more than one, or none: CRITICAL with the candidates listed --
+  6. Still more than one, or none: CRITICAL with the candidates listed --
      say --key (or set HEE_SIGN_KEY). Never a guess.
 
   Nothing is read from gitconfig. The chosen key id is printed on every
@@ -101,7 +106,16 @@ def parse_secret_keys(listing: str) -> list[dict]:
     return keys
 
 
-def select_key(listing: str, host: str, explicit: str | None) -> tuple[str | None, str, list[dict]]:
+def default_keys(conf: str) -> list[str]:
+    """gpgconf --list-options gpg -> the hex ids named by default-key, in order"""
+    for line in conf.splitlines():
+        f = line.split(":")
+        if f[0] == "default-key" and len(f) > 9:
+            return [v.strip().strip('"').removeprefix("0x").upper() for v in f[9].split(",") if v.strip()]
+    return []
+
+
+def select_key(listing: str, host: str, explicit: str | None, defaults: list[str] = ()) -> tuple[str | None, str, list[dict]]:
     """-> (key id or None, reason, candidates)"""
     if explicit:
         return explicit, "--key given", []
@@ -112,6 +126,10 @@ def select_key(listing: str, host: str, explicit: str | None) -> tuple[str | Non
     keys = parse_secret_keys(listing)
     usable = [k for k in keys if "s" in k["caps"].lower() and k["trust"] not in ("r", "e")
               and (k["expires"] == 0 or k["expires"] > now)]
+    for want in reversed(defaults):
+        hit = [k for k in usable if want and (k["id"].upper().endswith(want) or want.endswith(k["id"].upper()))]
+        if len(hit) == 1:
+            return hit[0]["id"], f"default-key in gpg.conf ({hit[0]['uids'][0] if hit[0]['uids'] else '?'})", usable
     ultimate = [k for k in usable if k["trust"] == "u"]
     pool = ultimate or usable
     if len(pool) == 1:
@@ -148,9 +166,13 @@ def main(argv: list[str]) -> int:
         listing = sh("gpg", "--list-secret-keys", "--with-colons").stdout
     except (OSError, subprocess.CalledProcessError) as e:
         say("UNKNOWN", f"gpg unavailable: {e}"); return UNKNOWN
-    key, why, pool = select_key(listing, anchor_host(), a.key)
+    try:
+        conf = sh("gpgconf", "--list-options", "gpg", check=False).stdout
+    except OSError:
+        conf = ""
+    key, why, pool = select_key(listing, anchor_host(), a.key, default_keys(conf))
     if not key:
-        say("CRITICAL", f"{why} -- pass --key ID (or set HEE_SIGN_KEY)"); return CRITICAL
+        say("CRITICAL", f"{why} -- pass --key ID (or set HEE_SIGN_KEY, or default-key in gpg.conf)"); return CRITICAL
     if a.show_key:
         print(key); say("OK", f"signing key {key}: {why}"); return OK
 
