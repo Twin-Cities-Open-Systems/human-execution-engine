@@ -337,6 +337,32 @@ class ReviewFindings(unittest.TestCase):
         self.assertIn("https://***@github.com/o/r.git/", out)
 
 
+class RecordPathspecs(unittest.TestCase):
+    """The `git add` after a lab deploy names exactly the files the post
+    wrote. A text-only post has no profiles/<oper>/blog/<slug>/ directory,
+    and a pathspec that matches nothing is fatal to git add -- which refused
+    every image-less post after the build and the lab sync had already run
+    (flippy, 2026-09-29: the post live on lab with no branch and no PR)."""
+
+    def _mod(self):
+        loader = importlib.machinery.SourceFileLoader("hee_deploy", str(TOOL))
+        spec = importlib.util.spec_from_loader("hee_deploy", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod
+
+    def test_text_only_post_adds_the_markdown_and_nothing_else(self):
+        mod = self._mod()
+        self.assertEqual(mod.post_files("alice", "hello", []), ["profiles/alice/blog/hello.md"])
+
+    def test_post_with_images_adds_each_image_under_its_own_directory(self):
+        mod = self._mod()
+        got = mod.post_files("alice", "hello", [Path("/x/b.png"), Path("/x/a.png")])
+        self.assertEqual(got, ["profiles/alice/blog/hello.md",
+                               "profiles/alice/blog/hello/b.png", "profiles/alice/blog/hello/a.png"])
+        self.assertFalse(any(f.endswith("/") for f in got), "never a bare directory pathspec")
+
+
 class StoreGateTests(unittest.TestCase):
     """Every case is -dry-run against a temp store directory, with MNTPATH
     pointed at a temp share this file builds -- SPEC's own test contract
