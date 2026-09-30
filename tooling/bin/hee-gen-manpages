@@ -189,6 +189,10 @@ if [ -n "$REPO_DIR" ]; then
   BIN_DIR="$REPO_DIR/bin"
   REAL_OUT="$REPO_DIR/man/tools"
 fi
+# The manual name in the page header (.TH): this repo's pages say "HEE Tools";
+# another repo's say "<repo> tools", so `man lan-dhcp` names fleet-ops.
+MANUAL="HEE Tools"
+[ -n "$REPO_DIR" ] && MANUAL="$(basename "$REPO_DIR") tools"
 
 # Where generation actually lands. Without --write that is a temp tree the
 # repo never sees, which is what makes the default safe rather than merely
@@ -210,12 +214,14 @@ mkdir -p "$OUT_DIR"
 # to a directory this script already cd-ed to, which is not the directory
 # the operator ran it from.
 if [ "$DO_GOPHER" -eq 1 ]; then _dest="$GOPHER_OUT"; else _dest="$REAL_OUT"; fi
+# --repo's destination is already absolute; this repo's is relative to here.
+case "$_dest" in /*) _dest_abs="$_dest" ;; *) _dest_abs="$(pwd)/$_dest" ;; esac
 if [ "$WRITE" -eq 1 ]; then
-  printf 'WRITING to: %s/%s\n' "$(pwd)" "$_dest"
+  printf 'WRITING to: %s\n' "$_dest_abs"
   [ "$DO_GOPHER" -eq 1 ] && printf 'this REMOVES the existing tree first.\n'
 else
   printf 'DRY RUN -- nothing will be written.\n'
-  printf 'would write to: %s/%s\n' "$(pwd)" "$_dest"
+  printf 'would write to: %s\n' "$_dest_abs"
   printf 'staged in:      %s\n' "$STAGE"
 fi
 
@@ -617,8 +623,8 @@ for f in "$BIN_DIR"/*; do
       _rendered=0
       if [ -n "$HEE_MANPAGE_PY" ]; then
         if printf '%s\n' "$help_text" | PYTHONPATH="$PWD/library/py" python3 -c \
-             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), int(sys.argv[2])))' \
-             "$name" "$_sec" > "$out" 2>/dev/null && [ -s "$out" ]; then
+             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), int(sys.argv[2]), sys.argv[3]))' \
+             "$name" "$_sec" "$MANUAL" > "$out" 2>/dev/null && [ -s "$out" ]; then
           _rendered=1
         fi
       fi
@@ -630,8 +636,8 @@ for f in "$BIN_DIR"/*; do
         _rendered=0
         if [ -n "$HEE_MANPAGE_PY" ]; then
           if printf '%s\n' "$header" | PYTHONPATH="$PWD/library/py" python3 -c \
-               'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read()))' \
-               "$name" > "$out" 2>/dev/null && [ -s "$out" ]; then
+               'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), 1, sys.argv[2]))' \
+               "$name" "$MANUAL" > "$out" 2>/dev/null && [ -s "$out" ]; then
             _rendered=1
             printf '\n*(no --help output -- generated from the script header comment)*\n' >> "$out"
           fi
