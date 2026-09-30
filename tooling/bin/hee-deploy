@@ -247,6 +247,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def post_files(oper: str, slug: str, images: list[Path]) -> list[str]:
+    """Every path the post adds to the resume checkout, relative to its root:
+    the markdown, then one entry per image under the post's own directory.
+    These are the paths written, the paths shown by -dry-run, and the exact
+    `git add` pathspecs -- one list, so the record can never name a path the
+    build did not create."""
+    return [f"profiles/{oper}/blog/{slug}.md"] + [f"profiles/{oper}/blog/{slug}/{img.name}" for img in images]
+
+
 def collect_images(dir_path: Path) -> list[Path]:
     files = [p for p in dir_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS]
     return sorted(files, key=lambda p: p.name)
@@ -431,8 +440,13 @@ def real_deploy(
 
         # The record is the commit, with or without a PR: only the post and
         # its files, never the build's tracked outputs.
+        # The pathspecs are the files written above and nothing wider: a
+        # post with no images has no profiles/<oper>/blog/<slug>/ directory,
+        # and `git add` on a pathspec that matches nothing is fatal, which
+        # refused every text-only post after the build and the lab sync had
+        # already run (flippy, 2026-09-29: live on lab, no branch, no record).
         add = subprocess.run(
-            ["git", "add", f"profiles/{oper}/blog/{slug}.md", f"profiles/{oper}/blog/{slug}/"],
+            ["git", "add", "--"] + post_files(oper, slug, images),
             cwd=resume, capture_output=True, text=True, check=False,
         )
         if add.returncode != 0:
@@ -552,7 +566,7 @@ def deploy_blog(args: argparse.Namespace) -> int:
 
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
     post_text = build_post_text(title_line, raw_lines[1:], today, images, notes)
-    files = [f"profiles/{oper}/blog/{slug}.md"] + [f"profiles/{oper}/blog/{slug}/{img.name}" for img in images]
+    files = post_files(oper, slug, images)
 
     if args.dry_run:
         print("----- post -----")
