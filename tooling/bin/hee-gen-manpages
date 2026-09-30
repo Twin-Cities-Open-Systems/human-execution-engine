@@ -48,6 +48,8 @@ SYNOPSIS
   hee-gen-manpages --write             write the pages
   hee-gen-manpages --gopher [DIR]      dry run of the published gopher tree
   hee-gen-manpages --gopher --write    build it
+  hee-gen-manpages --repo DIR [--write]
+                                       the same, for another repo's bin/ tools
   hee-gen-manpages help
 
 DESCRIPTION
@@ -77,8 +79,21 @@ DESTINATIONS
   man/manN/ holds pages written BY HAND. Those WIN: generation skips any
   tool with an authored page and says so.
 
+  --repo DIR generates for ANOTHER repo: its executables under DIR/bin
+  that declare a manual section ("# section: N" in the header -- opt-in,
+  because a foreign bin/ holds scripts never meant to be run for --help)
+  become pages under DIR/man/tools (DIR/man/manN authored pages win, the
+  same way), rendered by this repo's library. Nothing under this repo is
+  touched. Same dry-run default, same --write. Not combined with --gopher:
+  man.tcos.us publishes only this repo's tree. Operator, 2026-09-30, on
+  fleet-ops bin/lan-dhcp: "do we already have a man page for lan-dhcp? if
+  not, let's make one" -- and rule 15 says extend this tool, not hand-write
+  a page there.
+
 OPTIONS
   --write        apply the changes. Without it nothing is written.
+  --repo DIR     generate for DIR/bin into DIR/man/tools instead of this
+                 repo's tooling/bin; see above.
   --gopher [DIR] render the published gopher tree. DIR defaults to
                  man/gopher. Rebuilt from scratch, so with --write this
                  REMOVES the existing tree first.
@@ -133,9 +148,15 @@ DO_PUBLISH=0
 PUBLISH_HOST="man-tcos-us"
 PUBLISH_DIR="/var/gopher-man"
 GOPHER_OUT="man/gopher"
+REPO_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --write) WRITE=1; shift ;;
+    --repo)
+      shift
+      [ -n "${1:-}" ] && [ -d "$1" ] || { echo "hee-gen-manpages: --repo needs a directory" >&2; exit 1; }
+      REPO_DIR="$(cd "$1" && pwd)"; shift
+      ;;
     --publish)
       DO_PUBLISH=1; shift
       case "${1:-}" in
@@ -157,6 +178,29 @@ set -eu
 cd "$TOOL_ROOT"
 BIN_DIR="tooling/bin"
 REAL_OUT="man/tools"
+# --repo: another repo's bin/ and man/, by absolute path; this repo stays the
+# working directory because the renderer (library/py) lives here.
+if [ -n "$REPO_DIR" ]; then
+  if [ "$DO_GOPHER" -eq 1 ] || [ "$DO_PUBLISH" -eq 1 ]; then
+    echo "hee-gen-manpages: --repo does not combine with --gopher/--publish (man.tcos.us serves this repo's tree only)" >&2
+    exit 1
+  fi
+  [ -d "$REPO_DIR/bin" ] || { echo "hee-gen-manpages: $REPO_DIR has no bin/ directory" >&2; exit 1; }
+  BIN_DIR="$REPO_DIR/bin"
+  REAL_OUT="$REPO_DIR/man/tools"
+fi
+# The manual name in the page header (.TH): this repo's pages say "HEE Tools";
+# another repo's say "<repo> tools", so `man lan-dhcp` names fleet-ops.
+# The repo's NAME is its origin's, not its directory's: a worktree checkout
+# is named after its branch (fleet-ops.worktrees/flippy-lan-dhcp-manpage),
+# and that must never end up in a page header.
+MANUAL="HEE Tools"
+REPO_NAME=""
+if [ -n "$REPO_DIR" ]; then
+  REPO_NAME="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null | sed -e 's#/*$##' -e 's#\.git$##' -e 's#.*[/:]##')"
+  [ -n "$REPO_NAME" ] || REPO_NAME="$(basename "$REPO_DIR")"
+  MANUAL="$REPO_NAME tools"
+fi
 
 # Where generation actually lands. Without --write that is a temp tree the
 # repo never sees, which is what makes the default safe rather than merely
@@ -168,7 +212,7 @@ if [ "$WRITE" -eq 1 ]; then
 else
   STAGE="$(mktemp -d "${TMPDIR:-/tmp}/hee-gen-manpages.XXXXXXXX")"
   trap 'rm -rf "$STAGE"' EXIT INT TERM
-  OUT_DIR="$STAGE/$REAL_OUT"
+  if [ -n "$REPO_DIR" ]; then OUT_DIR="$STAGE/man/tools"; else OUT_DIR="$STAGE/$REAL_OUT"; fi
 fi
 mkdir -p "$OUT_DIR"
 
@@ -178,12 +222,14 @@ mkdir -p "$OUT_DIR"
 # to a directory this script already cd-ed to, which is not the directory
 # the operator ran it from.
 if [ "$DO_GOPHER" -eq 1 ]; then _dest="$GOPHER_OUT"; else _dest="$REAL_OUT"; fi
+# --repo's destination is already absolute; this repo's is relative to here.
+case "$_dest" in /*) _dest_abs="$_dest" ;; *) _dest_abs="$(pwd)/$_dest" ;; esac
 if [ "$WRITE" -eq 1 ]; then
-  printf 'WRITING to: %s/%s\n' "$(pwd)" "$_dest"
+  printf 'WRITING to: %s\n' "$_dest_abs"
   [ "$DO_GOPHER" -eq 1 ] && printf 'this REMOVES the existing tree first.\n'
 else
   printf 'DRY RUN -- nothing will be written.\n'
-  printf 'would write to: %s/%s\n' "$(pwd)" "$_dest"
+  printf 'would write to: %s\n' "$_dest_abs"
   printf 'staged in:      %s\n' "$STAGE"
 fi
 
@@ -275,7 +321,7 @@ man_section() {
 # the real failure mode here: man/hee.1 still documents ls, fileident,
 # pathcheck, http404, uiboss and serve -- subcommands that no longer exist --
 # and nothing ever flagged it.
-AUTHORED_DIR="man"
+AUTHORED_DIR="${REPO_DIR:+$REPO_DIR/}man"
 
 # --gopher: render the artifacts man.tcos.us serves, as a SECTION TREE.
 #
@@ -525,6 +571,14 @@ extract_doc() {
 
 for f in "$BIN_DIR"/*; do
   [ -f "$f" ] && [ -x "$f" ] || continue
+  # --repo: opt-in only. Another repo's bin/ holds scripts that were never
+  # written to be run for their --help (fleet-ops has reboot-metal.sh and
+  # decom-agent.sh there), so a tool is generated only when it declares its
+  # manual section ("# section: N" in its header) -- the same line this tool
+  # already reads, now doubling as "yes, I have a man page".
+  if [ -n "$REPO_DIR" ] && ! grep -q '^#[[:space:]]*section:[[:space:]]*[1-9][[:space:]]*$' "$f"; then
+    continue
+  fi
   name="$(basename "$f")"
   _sec="$(man_section "$f")"
   out="$OUT_DIR/$name.$_sec.md"
@@ -577,8 +631,8 @@ for f in "$BIN_DIR"/*; do
       _rendered=0
       if [ -n "$HEE_MANPAGE_PY" ]; then
         if printf '%s\n' "$help_text" | PYTHONPATH="$PWD/library/py" python3 -c \
-             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), int(sys.argv[2])))' \
-             "$name" "$_sec" > "$out" 2>/dev/null && [ -s "$out" ]; then
+             'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), int(sys.argv[2]), sys.argv[3]))' \
+             "$name" "$_sec" "$MANUAL" > "$out" 2>/dev/null && [ -s "$out" ]; then
           _rendered=1
         fi
       fi
@@ -590,8 +644,8 @@ for f in "$BIN_DIR"/*; do
         _rendered=0
         if [ -n "$HEE_MANPAGE_PY" ]; then
           if printf '%s\n' "$header" | PYTHONPATH="$PWD/library/py" python3 -c \
-               'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read()))' \
-               "$name" > "$out" 2>/dev/null && [ -s "$out" ]; then
+               'import sys, hee_manpage; sys.stdout.write(hee_manpage.render(sys.argv[1], sys.stdin.read(), 1, sys.argv[2]))' \
+               "$name" "$MANUAL" > "$out" 2>/dev/null && [ -s "$out" ]; then
             _rendered=1
             printf '\n*(no --help output -- generated from the script header comment)*\n' >> "$out"
           fi
@@ -627,20 +681,11 @@ for f in "$BIN_DIR"/*; do
   fi
 done
 
-{
-  echo "# HEE Tooling Reference"
-  echo
-  echo "Auto-generated by \`tooling/bin/hee-gen-manpages\` -- mechanical extraction"
-  echo "of each tool's own --help output, not hand-written. Re-run after any"
-  echo "tool change; do not hand-edit the per-tool files, edit the tool's"
-  echo "--help text instead so this stays accurate."
-  echo
-  for f in "$OUT_DIR"/*.[1-9].md; do
-    n="$(basename "$f" | sed 's/\.[1-9]\.md$//')"
-    [ "$n" = "README" ] && continue
-    echo "- [\`$n\`]($n.1.md)"
-  done
-
+# The compiled ladder (cmd/<name>/, Go or Rust) is generated BEFORE the README
+# index below, so its pages are indexed like every other -- and so its
+# progress lines reach stdout. Until 2026-09-30 this loop sat INSIDE the
+# `{ ... } > README.md` group: every "generated ..." line it printed landed
+# in the index file, and the page it had just written was never listed.
 # Compiled-language tools (Go, Rust) live as SOURCE under cmd/, not as an
 # executable in tooling/bin, so the loop above never saw them. cmd/hee is
 # already Go. Without this they are silently absent from the man pages --
@@ -649,6 +694,7 @@ done
 # A built binary is preferred when present (its --help is the real thing);
 # otherwise the leading doc comment is extracted, same as any other tool.
 for d in cmd/*/; do
+  [ -z "$REPO_DIR" ] || break     # compiled tools: this repo's ladder only
   [ -d "$d" ] || continue
   name="$(basename "$d")"
   src=""
@@ -688,6 +734,29 @@ for d in cmd/*/; do
     fi
   fi
 done
+
+{
+  if [ -n "$REPO_DIR" ]; then
+    echo "# $REPO_NAME tools reference"
+    echo
+    echo "Auto-generated by human-execution-engine's \`hee gen-manpages --repo .\`"
+    echo "from each tool's own --help output under bin/, not hand-written. Re-run"
+    echo "after any tool change (\`--write\` from this repo's root); do not hand-edit"
+    echo "the per-tool files, edit the tool's --help text instead."
+  else
+    echo "# HEE Tooling Reference"
+    echo
+    echo "Auto-generated by \`tooling/bin/hee-gen-manpages\` -- mechanical extraction"
+    echo "of each tool's own --help output, not hand-written. Re-run after any"
+    echo "tool change; do not hand-edit the per-tool files, edit the tool's"
+    echo "--help text instead so this stays accurate."
+  fi
+  echo
+  for f in "$OUT_DIR"/*.[1-9].md; do
+    n="$(basename "$f" | sed 's/\.[1-9]\.md$//')"
+    [ "$n" = "README" ] && continue
+    echo "- [\`$n\`]($n.1.md)"
+  done
 
   if [ -n "$authored_kept" ]; then
     echo

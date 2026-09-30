@@ -10,6 +10,8 @@ hee-gen-manpages - generate man pages from each tool's own --help
     hee-gen-manpages --write             write the pages
     hee-gen-manpages --gopher [DIR]      dry run of the published gopher tree
     hee-gen-manpages --gopher --write    build it
+    hee-gen-manpages --repo DIR [--write]
+                                         the same, for another repo's bin/ tools
     hee-gen-manpages help
 
 
@@ -34,6 +36,8 @@ hee-gen-manpages - generate man pages from each tool's own --help
 # OPTIONS
 
     --write        apply the changes. Without it nothing is written.
+    --repo DIR     generate for DIR/bin into DIR/man/tools instead of this
+                   repo's tooling/bin; see above.
     --gopher [DIR] render the published gopher tree. DIR defaults to
                    man/gopher. Rebuilt from scratch, so with --write this
                    REMOVES the existing tree first.
@@ -71,3 +75,14 @@ hee-gen-manpages - generate man pages from each tool's own --help
 
     man/manN/ holds pages written BY HAND. Those WIN: generation skips any
     tool with an authored page and says so.
+
+    --repo DIR generates for ANOTHER repo: its executables under DIR/bin
+    that declare a manual section ("# section: N" in the header -- opt-in,
+    because a foreign bin/ holds scripts never meant to be run for --help)
+    become pages under DIR/man/tools (DIR/man/manN authored pages win, the
+    same way), rendered by this repo's library. Nothing under this repo is
+    touched. Same dry-run default, same --write. Not combined with --gopher:
+    man.tcos.us publishes only this repo's tree. Operator, 2026-09-30, on
+    fleet-ops bin/lan-dhcp: "do we already have a man page for lan-dhcp? if
+    not, let's make one" -- and rule 15 says extend this tool, not hand-write
+    a page there.

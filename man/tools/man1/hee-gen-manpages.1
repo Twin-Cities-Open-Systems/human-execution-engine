@@ -11,6 +11,8 @@ hee\-gen\-manpages                     dry run: report what would change
 hee\-gen\-manpages \-\-write             write the pages
 hee\-gen\-manpages \-\-gopher [DIR]      dry run of the published gopher tree
 hee\-gen\-manpages \-\-gopher \-\-write    build it
+hee\-gen\-manpages \-\-repo DIR [\-\-write]
+                                     the same, for another repo\[aq]s bin/ tools
 hee\-gen\-manpages help
 .EE
 .SH DESCRIPTION
@@ -34,6 +36,8 @@ which is why library/py/hee_toolver never invokes a tool without a flag.
 .IP
 .EX
 \-\-write        apply the changes. Without it nothing is written.
+\-\-repo DIR     generate for DIR/bin into DIR/man/tools instead of this
+               repo\[aq]s tooling/bin; see above.
 \-\-gopher [DIR] render the published gopher tree. DIR defaults to
                man/gopher. Rebuilt from scratch, so with \-\-write this
                REMOVES the existing tree first.
@@ -72,4 +76,15 @@ path is printed on every run, dry or not.
 
 man/manN/ holds pages written BY HAND. Those WIN: generation skips any
 tool with an authored page and says so.
+
+\-\-repo DIR generates for ANOTHER repo: its executables under DIR/bin
+that declare a manual section (\[dq]# section: N\[dq] in the header \-\- opt\-in,
+because a foreign bin/ holds scripts never meant to be run for \-\-help)
+become pages under DIR/man/tools (DIR/man/manN authored pages win, the
+same way), rendered by this repo\[aq]s library. Nothing under this repo is
+touched. Same dry\-run default, same \-\-write. Not combined with \-\-gopher:
+man.tcos.us publishes only this repo\[aq]s tree. Operator, 2026\-09\-30, on
+fleet\-ops bin/lan\-dhcp: \[dq]do we already have a man page for lan\-dhcp? if
+not, let\[aq]s make one\[dq] \-\- and rule 15 says extend this tool, not hand\-write
+a page there.
 .EE
