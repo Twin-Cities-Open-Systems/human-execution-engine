@@ -90,10 +90,11 @@ loaded, read this file directly rather than assume it did.
 8. **Commit format and merge flow.** Conventional Commits
    (`type(scope): concise imperative description`; `feat`/`fix`/`chore`/`docs`)
    for every commit and PR title. Merge through the org's own tool, never a
-   raw `gh pr merge`: `hee git merge -r <N> --squash`, adding
-   `--delete-branch` only for `feature/`-prefixed branches --
-   identity-prefixed branches (`touchy/`, `flippy/`, ...) are kept post-merge
-   as an audit trail by design (see HEE Policy §2). The tool orders
+   raw `gh pr merge`: `hee git merge -r <N> --squash --delete-branch`.
+   **Every merged branch is deleted, whatever its prefix** -- the operator
+   retired the clause that kept identity-prefixed branches, 2026-09-29. The
+   squash commit on `main` and its PR, which names the branch, are the
+   record. The tool orders
    dependent PRs, refuses a blind bulk merge, and is the same surface rule 15
    requires for everything else; operator, 2026-09-18, on seeing a raw
    `gh pr merge`: "we have tools for hee git-merge, you know this?" Absorbed
