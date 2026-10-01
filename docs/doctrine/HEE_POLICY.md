@@ -69,9 +69,8 @@ Both fixed below.
 
 - Never commit directly to main branch.
 - Branches used for real, ongoing agent-driven work are named
-  `<host-or-session-identity>/description-of-work` and are **kept after
-  merge** as an audit trail — this is the dominant real pattern in this
-  org, not an exception. The identity segment is real, not decorative:
+  `<host-or-session-identity>/description-of-work` — this is the dominant
+  real pattern in this org, not an exception. The identity segment is real, not decorative:
   it's whatever host/session actually did the work (`touchy` is the real,
   currently-dominant example — the kiosk host this convention was
   observed on, 71 real branches) — but the rule is the *pattern*, not the
@@ -84,9 +83,13 @@ Both fixed below.
     prefix isn't a second copy of that record. It exists to keep
     concurrent sessions' branches visually distinct in `git branch -a`.
 - `feature/`-prefixed branches remain valid for standard, short-lived
-  engineering work and follow the standard squash-merge-and-delete flow
-  (see `human-execution-engine/prompts/PROMPTING_RULES.md`,
-  which also carries the org-wide commit/merge conventions).
+  engineering work.
+- **Every merged branch is deleted, whatever its prefix** — squash-merge
+  with `--delete-branch` (see `human-execution-engine/prompts/PROMPTING_RULES.md`
+  rule 8, which also carries the org-wide commit/merge conventions).
+  **Changed 2026-09-29**: identity-prefixed branches used to be kept after
+  merge as an audit trail. The operator retired that: the squash commit on
+  `main` and its PR, which names the branch, already are the record.
 - Whichever prefix is used, all changes are made on a branch, never
   directly on `main`.
 - **Ordinary `git`/`gh` commands are the workflow.** The
@@ -96,7 +99,7 @@ Both fixed below.
   push directly to `main`, and let branch protection enforce it
   server-side rather than a script an agent must choose to call.
 
-**Workflow (identity-prefixed, kept post-merge)**:
+**Workflow (identity-prefixed)**:
 
 ```bash
 git switch -c <host-or-session-id>/work-description
@@ -105,12 +108,11 @@ git add <paths...>
 git commit -m "type(scope): ..."
 git push -u origin HEAD
 gh pr create --base main --title "..." --body "..."
-# Merge via the dedicated merge tool, not a raw `gh pr merge` --
-# no --delete-branch: this prefix is kept.
-hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --no-delete-branch
+# Merge via the dedicated merge tool, not a raw `gh pr merge`.
+hee-git-merge --action merge -r '<pr-number-or-regex>' --squash --delete-branch
 ```
 
-**Workflow (feature/, deleted post-merge)**:
+**Workflow (feature/)**:
 
 ```bash
 git switch -c feature/work-description
