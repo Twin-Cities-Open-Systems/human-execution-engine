@@ -1039,7 +1039,8 @@ def main():
     ap.add_argument("-registry", metavar="FILE",
                     help="with -github-app/-github-token: the GitHub App registry "
                          "(default: $HEE_GITHUB_APPS, else ~/git/fleet-ops/hee/registries/github-apps.registry.v1.yaml)")
-    ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD")
+    ap.add_argument("-exec", dest="exec_cmd", nargs=argparse.REMAINDER, metavar="CMD",
+                    help="the command to run, and everything after it, passed to it untouched")
     ap.add_argument("-dir", default=None, metavar="PATH",
                     help=f"the store (default: $HEE_CRED_DIR, else {DEFAULT_DIR} under the current directory; "
                          "with -github-app/-github-token, the .hee/secrets beside the registry)")
@@ -1052,12 +1053,26 @@ def main():
     # parsing -- so an unrelated argument errors first and the help never
     # prints. Measured: 8 tools exited non-zero for --help for exactly this
     # reason. See library/py/hee_cli.
-    if help_wanted(sys.argv[1:]):
-        note_ignored(sys.argv[1:])
+    #
+    # Everything after the first -exec belongs to CMD, so it is cut off here,
+    # before either the help scan or argparse sees it. REMAINDER alone did not
+    # protect it: argparse still matched CMD's own short flags against ours by
+    # prefix (`-exec hee git merge -r 60` -> "ambiguous option: -r could match
+    # -recipients, -reseal, -run, ..."; gh's -b, -t, -H, -B and -L the same),
+    # and `-exec gh pr create --help` printed hee-cred's help instead of gh's.
+    argv = sys.argv[1:]
+    exec_cmd = None
+    if "-exec" in argv:
+        cut = argv.index("-exec")
+        argv, exec_cmd = argv[:cut], argv[cut + 1:]
+    if help_wanted(argv):
+        note_ignored(argv)
         ap.print_help()
         return 0
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    if exec_cmd is not None:
+        args.exec_cmd = exec_cmd
 
     secrets_dir = Path(args.dir or DEFAULT_DIR)
     if args.github_app or args.github_token:

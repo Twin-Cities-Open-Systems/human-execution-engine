@@ -26,6 +26,55 @@ class GenKey(unittest.TestCase):
             self.assertIn("EC Key valid", r2.stdout + r2.stderr)
 
 
+
+class ExecArgv(unittest.TestCase):
+    """Everything after -exec reaches CMD untouched: short flags that prefix-match
+    hee-cred's own (-r, -b, -L) and help tokens are CMD's, not hee-cred's."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = cls.tmp.name
+        cls.env = dict(os.environ, GNUPGHOME=d)
+        subprocess.run(["gpg", "--batch", "--quick-gen-key", "--passphrase", "", "x@test", "ed25519", "cert,sign", "0"], env=cls.env, check=True, capture_output=True)
+        fpr = subprocess.run(["gpg", "--list-keys", "--with-colons", "x@test"], env=cls.env, capture_output=True, text=True).stdout.split("fpr:::::::::")[1].split(":")[0]
+        subprocess.run(["gpg", "--batch", "--quick-add-key", "--passphrase", "", fpr, "cv25519", "encr", "0"], env=cls.env, check=True, capture_output=True)
+        cls.secrets = str(Path(d) / "s")
+        r = subprocess.run([sys.executable, str(TOOL), "-seal", "acct", "-recipients", "x@test", "-genkey", "es256", "-dir", cls.secrets], env=cls.env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def child_argv(self, *cmd_args, mode="-pass"):
+        r = subprocess.run([sys.executable, str(TOOL), mode, "acct", "-dir", self.secrets, "-exec",
+                            sys.executable, "-c", "import json, sys; print(json.dumps(sys.argv[1:]))", *cmd_args],
+                           env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    def test_short_flags_that_prefix_match_ours_pass_through(self):
+        for args in (["-r", "60", "--squash"], ["-b", "body", "-t", "title", "-H", "h", "-B", "main"], ["-L", "3"]):
+            with self.subTest(args=args):
+                self.assertEqual(self.child_argv(*args), args)
+
+    def test_with_run_too(self):
+        self.assertEqual(self.child_argv("-r", "60", mode="-run"), ["-r", "60"])
+
+    def test_help_after_exec_is_the_commands(self):
+        self.assertEqual(self.child_argv("--help"), ["--help"])
+        self.assertEqual(self.child_argv("help", "-h"), ["help", "-h"])
+
+    def test_a_second_exec_is_an_argument_to_the_command(self):
+        self.assertEqual(self.child_argv("-exec", "x"), ["-exec", "x"])
+
+    def test_help_before_exec_is_still_ours(self):
+        r = subprocess.run([sys.executable, str(TOOL), "--help", "-exec", "true"], env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("usage: hee-cred", r.stdout)
+
+
 def run_tool(*args, env=None):
     return subprocess.run([sys.executable, str(TOOL), *args], env=env, capture_output=True, text=True)
 

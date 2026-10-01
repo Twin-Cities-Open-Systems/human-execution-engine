@@ -349,6 +349,10 @@ else
 .BI \-exec " COMMAND [ARGS...]"
 The command to run with \fBHEE_CRED_PASS\fR set. Required with
 \fB\-pass\fR.
+Everything after the first \fB\-exec\fR belongs to \fICOMMAND\fR and is
+passed to it untouched: its own short flags (\fB\-r\fR, \fB\-b\fR, \fB\-t\fR)
+are never read as \fBhee cred\fR options, and a \fB\-\-help\fR there is
+\fICOMMAND\fR's.
 .TP
 .BI \-genfrom " TERM"
 Generate a passphrase from real corpus text matching \fITERM\fR
