@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # section: 1
-"""hee-name: allocate unique, human-readable names from a pool, for
+"""hee-name: DEPRECATED -- being phased out (operator, 2026-10-01).
+
+Do not name anything from a pool any more. Name things for what they are and
+do: a short 1-3 word phrase plus a number -- haproxy-1, nginx-3, shell-1 --
+always numbered, never zero-padded (operator 2026-09-30; fleet-ops
+pve/GUIDE.md "Deploy a new container" step 2). That is the interim rule until
+a naming standard exists. -allocate now refuses unless
+HEE_NAME_ALLOW_DEPRECATED=1 is set; -list, -list-pools and -release still work
+so existing allocations can be wound down.
+
+What follows is the original design, kept as the record of what the tool did.
+
+hee-name: allocate unique, human-readable names from a pool, for
 anything that needs one -- tmux-agent session names, bastion containers
 (fleet-ops#76), or whatever comes next.
 
@@ -639,13 +651,27 @@ def main():
     ap = argparse.ArgumentParser(
         prog="hee-name",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""\
+DEPRECATED, being phased out: do not name anything from a pool.
+
+Name things for what they are and do -- a short 1-3 word phrase plus a
+number: haproxy-1, nginx-3, shell-1. Always numbered, even the first one;
+never zero-padded. Operator, 2026-09-30 and 2026-10-01: "we name things based
+on what they are and what they do, not names I don't know how to spell." This
+is the interim rule until a naming standard exists (fleet-ops pve/GUIDE.md,
+"Deploy a new container", step 2).
+
+-allocate refuses (exit 2) unless HEE_NAME_ALLOW_DEPRECATED=1 is set.
+-list, -list-pools and -release still work, to wind existing allocations
+down. Names already in service are not renamed by this.""",
         epilog="""\
 EXAMPLES
   $ hee name -list-pools --allocations-dir "$(mktemp -d)"   # ci
+  $ hee name -allocate --pool simpsons --allocations-dir "$(mktemp -d)" || test $? -eq 2   # ci
 
-  -list-pools reads the bundled pool config and writes nothing, so it is
-  proven in CI over a scratch allocations dir. -allocate and -release mutate
-  the allocations directory and are left unmarked.
+  The first reads the bundled pool config and writes nothing. The second
+  proves -allocate refuses with exit 2 while the tool is deprecated. -release
+  mutates the allocations directory and is left unmarked.
 """)
     ap.add_argument("-list-pools", action="store_true")
     ap.add_argument("-allocate", action="store_true")
@@ -689,6 +715,16 @@ EXAMPLES
         return
 
     if args.allocate:
+        # Deprecated 2026-10-01: nothing may allocate by accident. The
+        # override exists for a deliberate one-off, not as a way of life.
+        if os.environ.get("HEE_NAME_ALLOW_DEPRECATED") != "1":
+            sys.stderr.write(
+                "hee-name: CRITICAL: -allocate is deprecated and refused (operator, 2026-10-01).\n"
+                "  Name it for what it is and does: a 1-3 word phrase plus a number,\n"
+                "  e.g. haproxy-1, nginx-3, shell-1 -- always numbered, never zero-padded.\n"
+                "  See fleet-ops pve/GUIDE.md, \"Deploy a new container\", step 2.\n"
+                "  Set HEE_NAME_ALLOW_DEPRECATED=1 only for a deliberate one-off.\n")
+            sys.exit(2)
         # A durable name is a singleton, not drawn from a pool -- requiring
         # --pool for it would mean naming a pool whose word is then discarded.
         if args.durable and args.pool:

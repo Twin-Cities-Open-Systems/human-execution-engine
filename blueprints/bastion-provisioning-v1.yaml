@@ -3,7 +3,7 @@ apiVersion: hee/v1
 kind: BlueprintDoctrine
 metadata:
   name: bastion-provisioning-v1
-  description: "Reusable ceremony for bringing a bastion into existence, promoting an ephemeral one to a durable identity, and retiring either. Governs the two-tier scheme agreed 2026-09-02: bast-<hee-name>-<oper|agent> is disposable, bast-<oper|agent> is permanent, and the DNS record is what separates them."
+  description: "Reusable ceremony for bringing a bastion into existence, promoting an ephemeral one to a durable identity, and retiring either. Governs the two-tier scheme agreed 2026-09-02: bast-<word>-<oper|agent> is disposable (the word says what it is for; name pools were retired 2026-10-01), bast-<oper|agent> is permanent, and the DNS record is what separates them."
   labels:
     hee.object: "true"
     domain: hee
@@ -38,18 +38,18 @@ spec:
       supplied_by: oper
       default: ephemeral
       default_rationale: "the cheap, reversible case should be the default; promotion is a deliberate act"
-    pool:
-      description: "hee-name pool for an ephemeral's name"
+    purpose_word:
+      description: "the middle word of an ephemeral's name: what the bastion is for. Not drawn from a name pool -- pools were retired 2026-10-01 and hee-name -allocate refuses."
       supplied_by: oper
       default: null
-      default_rationale: "no default -- the pool is a naming choice, and inventing one silently would scatter identities across pools"
+      default_rationale: "no default -- the word is a naming choice, and inventing one silently would make names say nothing"
 
   ceremony:
     - step: allocate_name
       actor: identity
-      description: "ephemeral: 'hee name -allocate --pool <pool> --scope bastion' yields bast-<name>-<oper|agent>. durable: the name IS the oper or agent name, no allocation."
-      exit_condition: "a name exists and, for ephemerals, is recorded in the bastion scope"
-      blocked_by: "hee-name currently writes allocations into the CURRENT DIRECTORY's repo, so two callers can receive the same name without either seeing a collision. Until that is pinned to a canonical location, ephemeral names are not safely unique."
+      description: "ephemeral: bast-<purpose_word>-<oper|agent>, chosen by the oper for what the bastion does. durable: the name IS the oper or agent name, no allocation."
+      exit_condition: "a name exists and no running bastion already has it"
+      blocked_by: "the naming standard (operator 2026-10-01: 'we need a naming standard, but not today'). Name pools are retired; the interim rule is functional names, and how its always-numbered form fits the three-field bastion name is not decided yet."
 
     - step: instantiate
       actor: factory
@@ -77,9 +77,9 @@ spec:
 
     - step: retire
       actor: oper
-      description: "ephemeral: destroy the container, 'hee name -release <name>'. durable: NOT a routine operation -- the SSOT lives here, so retirement must also settle what happens to everything it signed."
+      description: "ephemeral: destroy the container; nothing to release, since names are no longer pool-allocated. durable: NOT a routine operation -- the SSOT lives here, so retirement must also settle what happens to everything it signed."
       blocked_by: "fleet-ops#366 -- the decom path has no key-material step at all. fleet-ops/bin/decom-agent.sh stops units and kills processes; it does not revoke, record, or mark anything a retired identity signed. Until #366 lands, durable retirement has no procedure and this step must not be presented as one."
-      exit_condition: "ephemeral: name released and address free. durable: BLOCKED -- do not retire a durable bastion until fleet-ops#366 defines the key-material steps."
+      exit_condition: "ephemeral: container destroyed and address free. durable: BLOCKED -- do not retire a durable bastion until fleet-ops#366 defines the key-material steps."
 
   invariants:
     - "role_suffix_at_allocation: the name is allocated WITH its '-oper' or '-agent' suffix in the allocate_name step -- never appended later. Operator, 2026-09-02: 'always'. Appending afterward means the ledger and the container disagree for a window, and the ledger is what the next allocation checks against. See .hee/name-allocations/bastion.yaml, whose only entry is the bare 'bast-homer'."
@@ -94,6 +94,6 @@ spec:
       - "make install yields a LOCAL identity only. Fleet membership requires hiring-handshake-v1."
 
   prerequisites_not_yet_built:
-    - "The three hee-name / hee-cred blockers in fleet-identity-v1's known_blockers. All three sit on this ceremony's critical path."
+    - "The hee-cred blockers in fleet-identity-v1's known_blockers (the hee-name one is superseded: pools were retired 2026-10-01). They sit on this ceremony's critical path."
     - "The fleet root CA itself. Recorded in the contract; not created by this blueprint."
     - "This blueprint has not been run end to end -- status: proposed, the same position hiring-handshake-v1 and shift-init-v1 were in before their first real use."

@@ -49,7 +49,8 @@ Basement is the current macro location (v1 default):
 
 `stableid` never changes over the life of an asset. It is, in order:
 1. an id assigned before the item exists or arrives -- for network hardware,
-   its `lan-host` name from `hee-name` (an item planned today has no serial);
+   its planned `lan-host` name -- a functional name such as `ap-1` (an item
+   planned today has no serial);
 2. else the serial number, lowercased, when the item is in hand at record time;
 3. else `asset_type`-`tsz`, the record's own observed time.
 

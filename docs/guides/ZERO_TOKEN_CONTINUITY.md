@@ -66,7 +66,6 @@ HEE's typed objects, and work tracked without a GitHub round-trip.
 | [`hee inv`](https://man.tcos.us/gopher/0/hee-inv.txt) ˢ | Inventory tool |
 | [`hee inv-receipt`](https://man.tcos.us/gopher/0/hee-inv-receipt.txt) ˢ | Receipt ingest for inventory |
 | [`hee qdb`](https://man.tcos.us/gopher/0/hee-qdb.txt) | Quote search across a source document |
-| [`hee name`](https://man.tcos.us/gopher/0/hee-name.txt) ˢ | Name allocation from managed pools |
 
 ## 🖥️ Hosts and infrastructure
 

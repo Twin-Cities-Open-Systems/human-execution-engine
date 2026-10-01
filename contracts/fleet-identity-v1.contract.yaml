@@ -31,10 +31,10 @@ spec:
 
   definitions:
     ephemeral_bastion:
-      naming: "bast-<hee-name>-<oper|agent>"
+      naming: "bast-<word>-<oper|agent> -- the middle word says what the bastion is for; it is not drawn from a name pool (pools retired 2026-10-01: hee-name is deprecated and -allocate refuses). How the interim always-numbered rule (operator 2026-09-30: haproxy-1, nginx-3) fits this three-field form is left to the naming standard; until then do not create ephemeral bastions from a pool."
       dns: "none -- no A record, no PTR"
       anchor: "none -- no .hee/index/_.yaml"
-      lifecycle: "created and destroyed freely; names come from a hee-name pool under the 'bastion' scope and are released on destroy"
+      lifecycle: "created and destroyed freely; the name is chosen for what the bastion does, not allocated from a pool"
     durable_bastion:
       naming: "bast-<oper|agent>"
       dns: "A + PTR, both generated from one '=' line in the hee-dns host file"
@@ -43,7 +43,7 @@ spec:
 
   invariants:
     - "colocation_implies_nothing: two bastion names sharing a pool word are CO-LOCATED and nothing more. Operator, 2026-09-02: 'we do not want to imply that there is a correlation between bast-homer-agent and bast-homer-oper and there is no implied promotion path there.' They are unrelated identities that happen to share a box for a spell; the shared word is an address, not a surname. And an agent does not become an oper -- oper and agent are different KINDS, not different ranks. This needs stating because the system has a real promotion (ephemeral to durable, earned with an A and a PTR record) which is about permanence, never role: a promoted bast-homer-agent is a durable AGENT. It is also why cohabitation is opt-in, rare and flagged rather than automatic."
-    - "name_always_declares_role: every bastion name ends in '-oper' or '-agent', with no exceptions and no bare form. Operator, 2026-09-02: 'never just bast-homer, must always ending in oper|agent name... always.' The live ledger at .hee/name-allocations/bastion.yaml holds exactly one entry, 'bast-homer' from 2026-08-24, which predates this rule and is malformed under it -- proof that the bare form is what gets allocated when nothing rejects it. hee-name must refuse to allocate into the bastion scope without a role suffix; a convention that only a reader enforces is not an invariant."
+    - "name_always_declares_role: every bastion name ends in '-oper' or '-agent', with no exceptions and no bare form. Operator, 2026-09-02: 'never just bast-homer, must always ending in oper|agent name... always.' The live ledger at .hee/name-allocations/bastion.yaml holds exactly one entry, 'bast-homer' from 2026-08-24, which predates this rule and is malformed under it -- proof that the bare form is what gets allocated when nothing rejects it. nothing may create a bastion name without a role suffix (first enforced by hee-name at allocation; hee-name is deprecated as of 2026-10-01, and the invariant stands for however names are chosen); a convention that only a reader enforces is not an invariant."
     - "record_and_address_together: promotion assigns a STATIC address in the same step that adds the DNS record. An ephemeral on DHCP gets an address that recycles, and a PTR outliving its container makes reverse lookups lie -- which is worse than no PTR, because monitoring and logs believe it."
     - "no_anchor_without_record: an identity anchor exists only where a durable DNS record exists. This is what makes ephemeral destruction free."
     - "ssot_is_the_bastion: the durable bastion's .hee/index/_.yaml is authoritative. Public presence at tcos.us/people/<oper|agent> is DERIVED from it and never hand-maintained; derivation is a filtered projection through publish-sanitization-v1, not a dump."
@@ -94,7 +94,7 @@ spec:
       - "the fleet root must be present in the container template, so a freshly cloned bastion trusts the fleet on first boot without a manual step. Trust distribution, not issuance, is the real work."
 
   known_blockers:
-    - "RESOLVED 2026-09-28: hee-name's ledger is a single per-host store, no longer chosen by cwd. The original cwd bug (a pve-storage allocation landed in the thesis-engine repo, 2026-09-02) was first fixed by anchoring to the tool's own repo, but that put the fleet's allocations inside the engine -- wrong for a public engine, and it made every consumer write into the engine checkout. The default is now ~/.hee/name-allocations (singular per host, nothing in the engine); a fleet version-controls the ledger by setting $HEE_NAME_ALLOCATIONS to a path in its own repo. The TCOS fleet points it at fleet-ops/.hee/name-allocations."
+    - "SUPERSEDED 2026-10-01: name pools are retired and hee-name is deprecated, so this blocker no longer applies. History: RESOLVED 2026-09-28: hee-name's ledger is a single per-host store, no longer chosen by cwd. The original cwd bug (a pve-storage allocation landed in the thesis-engine repo, 2026-09-02) was first fixed by anchoring to the tool's own repo, but that put the fleet's allocations inside the engine -- wrong for a public engine, and it made every consumer write into the engine checkout. The default is now ~/.hee/name-allocations (singular per host, nothing in the engine); a fleet version-controls the ledger by setting $HEE_NAME_ALLOCATIONS to a path in its own repo. The TCOS fleet points it at fleet-ops/.hee/name-allocations."
     - "hee-cred seals without --trust-model always, so an untrusted recipient key makes gpg prompt DURING secret entry and the operator's keystrokes answer the prompt instead. Observed twice on 2026-09-02: a 69-character key stored as 1 character and then 7. The double-prompt confirm cannot catch it because both reads truncate identically. It must also report the captured length."
     - "hee-cred's docstring states storage is git-tracked ciphertext; fleet-ops/.gitignore excludes .hee/secrets/. Sealed material therefore lives on exactly one machine and dies with it, which is disqualifying for identity keys."
 
