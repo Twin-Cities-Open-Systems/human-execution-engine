@@ -1595,7 +1595,7 @@ def _services_roles(repo):
 
     The manifest FILENAME is the role -- "THE IDENTITY ... as declared in the
     agent roster, e.g. ci-triage or haproxy" (fleetRole's DESCRIPTION) -- and
-    the `hostname:` inside it is what `hee name` allocated. A manifest that
+    the `hostname:` inside it is the container's declared name. A manifest that
     declares no hostname yields "", which the MIB pairs with fleetState
     unknown(3): declared, nothing allocated yet.
     """
@@ -1700,8 +1700,8 @@ def fleet_rows(roles, anchors, declared_templates, measured):
     for i, role in enumerate(sorted(roles), start=1):
         hostname = roles[role] or ""
         # Declared hostname first, then the role name. Eight containers on
-        # this node predate `hee name` and still run under their plain role
-        # name while their manifest declares an allocated tcos-* one -- the
+        # this node predate their manifests' tcos-* names and still run under
+        # their plain role name while the manifest declares the tcos-* one -- the
         # hostname_mismatch that makes `hee pve deploy` want to build a
         # second container beside the running one. Joining on the declared
         # name alone reported all eight as vmid 0 / unknown(3), i.e. a walk

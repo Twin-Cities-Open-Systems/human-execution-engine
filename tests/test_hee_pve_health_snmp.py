@@ -122,7 +122,7 @@ class TestFleetRows(unittest.TestCase):
                          (124, h.Status.OK.value, "hostname"))
 
     def test_matched_on_role_name_reports_the_real_vmid(self):
-        """Eight containers predate `hee name`. Joining on the declared
+        """Eight containers predate their manifests' tcos-* names. Joining on the declared
         hostname alone reported every one of them as vmid 0 / unknown(3) --
         a walk claiming eight running services did not exist."""
         r = self.one({"haproxy": "tcos-hap-chris"}, _m(103, "haproxy"))

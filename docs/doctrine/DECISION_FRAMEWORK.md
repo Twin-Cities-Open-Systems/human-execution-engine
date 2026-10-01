@@ -36,8 +36,8 @@ real state. Independently re-check against the actual source.
   to relay.
 - Two real, independent collisions the same night (2026-08-24) both
   traced back to acting on stale/assumed state instead of a fresh check:
-  `hee-name` allocated the identical name `kenny` to two concurrent
-  sessions ([HEE#336](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/336));
+  a name-allocation tool (since retired) handed the identical name `kenny`
+  to two concurrent sessions ([HEE#336](https://github.com/Twin-Cities-Open-Systems/human-execution-engine/issues/336));
   a shared git working directory let one session's `checkout` silently
   yank another session off its own branch mid-task. Neither would have
   happened if the acting session had freshly verified shared state
