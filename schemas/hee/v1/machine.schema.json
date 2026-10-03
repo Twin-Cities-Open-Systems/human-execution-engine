@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/hee/v1/machine.schema.json",
+  "title": "hee/v1 Machine (alpha)",
+  "description": "The durable record of one computer -- physical or virtual -- as measured: identity, hardware, network interfaces, and what it runs. Re-observed over time; a single observation is a Measure. Fleet records live in the fleet's repo, never in the engine.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "./hee-object.schema.json"
+    },
+    {
+      "properties": {
+        "apiVersion": {
+          "const": "hee/v1"
+        },
+        "kind": {
+          "const": "Machine"
+        },
+        "spec": {
+          "type": "object",
+          "required": [
+            "identity",
+            "hardware",
+            "observed"
+          ],
+          "properties": {
+            "identity": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The machine's functional hostname, as it calls itself."
+                },
+                "inventory_label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Durable label in the fleet's plan/inventory, if different from name."
+                },
+                "former_names": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "class": {
+                  "enum": [
+                    "laptop",
+                    "desktop",
+                    "server",
+                    "sbc",
+                    "vm",
+                    "container",
+                    "appliance",
+                    "microcontroller",
+                    "other"
+                  ]
+                }
+              },
+              "additionalProperties": true
+            },
+            "hardware": {
+              "type": "object",
+              "properties": {
+                "vendor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serial": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "arch": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "memory_bytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "storage": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              },
+              "additionalProperties": true
+            },
+            "network": {
+              "type": "object",
+              "properties": {
+                "interfaces": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "mac": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"
+                      },
+                      "role": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "driver": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "address": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "additionalProperties": true
+            },
+            "software": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "provisioning": {
+              "type": "object",
+              "description": "How the machine is built: image definition, bootstrap, configuration management -- by file_ref, never duplicated.",
+              "additionalProperties": true
+            },
+            "observed": {
+              "type": "object",
+              "required": [
+                "ts",
+                "method"
+              ],
+              "properties": {
+                "ts": {
+                  "type": "string",
+                  "description": "ISO-8601 time the facts were last measured."
+                },
+                "method": {
+                  "type": "string",
+                  "description": "How: the commands or tools, and from where."
+                },
+                "by": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "spec"
+      ]
+    }
+  ]
+}

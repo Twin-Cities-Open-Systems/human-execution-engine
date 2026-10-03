@@ -13,7 +13,7 @@ metadata:
     artifact: contract
   annotations:
     inuid: "698e3412-47e8-832f-ad2d-25fb3c63f0af"
-    updated-at: "2026-08-13T00:00:00Z"
+    updated-at: "2026-10-03T00:00:00Z"
 
 spec:
   invariants:
@@ -24,7 +24,7 @@ spec:
     - "metadata.annotations.inuid is required for all HEE-object YAML."
     - "inuid may be null ONLY with a very good reason; reason must be recorded."
 
-  active_kinds: ["Card","Pill","Delta","Contract","Blueprint","Plan","Registry","Skill"]
+  active_kinds: ["Card","Pill","Delta","Contract","Blueprint","Plan","Registry","Skill","Measure","Machine"]
 
   observed_kinds:
     RegNs: "proposed 2026-02-13, recovered from a private working repo (tcos-plan-private) and brought into this registry 2026-08-24 -- a first-class registry namespace for known-good regex and other reusable string atoms (quote/lyric/now-playing/etc.), keyed by purpose tag so scattered patterns become queryable and attestable instead of re-derived per-script. No real HEE-side usage yet (only the one seed proposal it originated from) -- needs at least one real consumer before promotion to active_kinds, same bar as Skill above."
@@ -32,6 +32,10 @@ spec:
   promotion_note_2026_08_13: "Registry promoted from observed to active: hee/registries/dir-groups.registry.v1.yaml already used kind=Registry in production before this registry recognized it -- a pre-existing gap, not a new proposal. This file itself also failed its own envelope schema (missing required metadata.labels.hee.object) until this same edit; fixed together rather than left inconsistent while depending on it."
 
   promotion_note_2026_09_28: "Skill promoted from observed to active: hee/skills/ratify-contract-v1.skill.yaml has been the real, in-use Skill object since 2026-08-14 -- enveloped, inuid'd (sha256(hee-skill://ratify-contract/v1)), and the source of truth the ratify-contract workflow generates downstream from. That is the real-usage evidence the observed note required, same bar as Registry's promotion above (a kind already used in production before the registry recognized it), not a bare proposal. RegNs stays observed: still no real HEE-side consumer, per its own note above."
+
+  promotion_note_2026_10_03_measure: "Measure promoted to active, operator approval 2026-10-03 (\"approve Measure as a kind while we are here\"). It had been used in production without ever being registered -- not even as observed: schemas/hee/v1/measure.schema.json exists, and tcos-plan-private carries 20 inventory.asset records as kind=Measure, enveloped and inuid soa_pending. Same pre-existing-gap shape as Registry (2026-08-13) and Skill (2026-09-28): a kind in real use before this registry recognized it."
+
+  promotion_note_2026_10_03_machine: "Machine added directly to active, operator decision 2026-10-03 (\"we will need a Machine kind\"). A Machine is the durable record of one physical or virtual computer -- identity, measured hardware, network interfaces, what image or role it carries -- re-observed over time, where a Measure is a single observation. Fleets had been keeping these as plain machine.yaml files with no envelope (fleet-ops hosts/*/machine.yaml), so none was a HEE object. Schema: schemas/hee/v1/machine.schema.json. First real object lands with this change in fleet-ops (hosts/pi/ap-client-relayd/machine.yaml); converting the remaining fleet records is fleet work, not engine work. Not yet in HEE-MIB's HeeObjectKind enumeration, which already lags Skill: a MIB revision is a separate change."
 
   plan_sub_structs_not_kinds: ["WU","Step","StepUnordered"]
 
