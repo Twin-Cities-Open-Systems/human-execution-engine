@@ -73,7 +73,7 @@
             },
             "inuid_null_reason": {
               "type": "string",
-              "enum": ["bootstrap", "test", "fixture"],
+              "enum": ["bootstrap", "test", "fixture", "example", "soa_pending"],
               "description": "Required if and only if inuid is null. No other reason is valid."
             }
           },
