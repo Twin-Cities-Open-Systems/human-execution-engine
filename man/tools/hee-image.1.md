@@ -11,7 +11,9 @@ hee-image - inspect and flash images onto devices, safely.
       hee image check DEVICE         -- deep pre-flight on one block device
                                         e.g. hee image check /dev/mmcblk0
       hee image flash --image FILE --device DEVICE [--yes] [--no-verify]
-                                     -- flash a .img or .img.xz to a card, then verify
+                      [--machine MACHINE.yaml]
+                                     -- flash a .img or .img.xz to a card, then verify;
+                                        --machine also writes the board's record
       hee image flash --image FILE.bin --device /dev/ttyUSB0 [--chip esp32|esp8266]
                       [--offset 0x0] [--erase] [--yes]
                                      -- write a merged firmware image to a board
@@ -31,6 +33,15 @@ hee-image - inspect and flash images onto devices, safely.
       the plan and writes nothing. Writes with `dd conv=fsync` (root, via sudo) and,
       unless --no-verify, reads the written region back and compares its sha256 to
       the decompressed image.
+
+      --machine FILE (card only) is for generic images, which bake nothing
+      machine-specific: FILE must be a hee/v1 Machine object (schemas/hee/v1/
+      machine.schema.json) whose spec.identity.name is a valid hostname, checked
+      BEFORE anything is written. After the image is written and verified, the
+      card's first partition (the FAT boot partition) is mounted and FILE is copied
+      to it as machine.yaml; the image applies it at boot (in the TCOS fleet,
+      installer/pi tcos-pi-machine names the board from it). One image, many boards:
+      the record says which board this card is for.
 
     flash (serial):
       The device must be one `hee image list` shows as SERIAL. esptool first reads
@@ -110,6 +121,7 @@ hee-image - inspect and flash images onto devices, safely.
       $ hee image build --firmware espectre --chip esp32 --ota-channel develop --out /srv/tcos/esp32/firmware
       $ hee image flash --image espectre-native-esp32-v3.0.0.bin --device /dev/ttyUSB0
       $ hee image flash --image soil-weather-node.ino.bin --device /dev/ttyUSB0 --chip esp8266
+      $ hee image flash --image tcos-hamstack-wifi-client-20261004T000000Z.img.xz --device /dev/mmcblk0 --machine hosts/pi/raspi-v3-1/machine.yaml
 
     Exit: Nagios -- 0 OK, 1 WARNING (a refusal or a dry-run plan), 2 CRITICAL
           (a write/verify/read failed), 3 UNKNOWN (environment/usage).

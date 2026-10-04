@@ -131,3 +131,56 @@ class FlashRouting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+MACHINE = """apiVersion: hee/v1
+kind: Machine
+metadata:
+  name: machine-raspi-test-1
+  labels: {hee.object: "true"}
+  annotations: {inuid: null, inuid_null_reason: test}
+spec:
+  identity: {name: raspi-test-1}
+  hardware: {}
+  observed: {ts: "2026-10-04T00:00:00Z", method: test}
+"""
+
+
+class MachineRecord(unittest.TestCase):
+    """--machine: the record a generic card is flashed with, checked before any write."""
+
+    def _write(self, text):
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(text)
+        self.addCleanup(os.unlink, fh.name)
+        return fh.name
+
+    def test_a_real_machine_yields_its_hostname(self):
+        self.assertEqual(load_tool().load_machine(self._write(MACHINE)), "raspi-test-1")
+
+    def test_another_kind_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "not a hee/v1 Machine"):
+            load_tool().load_machine(self._write(MACHINE.replace("kind: Machine", "kind: Measure")))
+
+    def test_a_missing_hee_object_label_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "hee.object"):
+            load_tool().load_machine(self._write(MACHINE.replace('labels: {hee.object: "true"}', "labels: {}")))
+
+    def test_an_invalid_hostname_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "not a valid hostname"):
+            load_tool().load_machine(self._write(MACHINE.replace("name: raspi-test-1}", "name: Raspi_Test}")))
+
+    def test_flash_refuses_a_bad_machine_before_touching_any_device(self):
+        img = self._write("x")
+        bad = self._write(MACHINE.replace("kind: Machine", "kind: Card"))
+        r = run("flash", "--image", img, "--device", "/dev/hee-image-no-such-device", "--machine", bad)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("REFUSING --machine", r.stdout + r.stderr)
+
+    def test_machine_is_refused_for_a_serial_board(self):
+        mod = load_tool()
+        mod.is_serial_device = lambda device: True
+        with self.assertRaises(SystemExit) as cm:
+            mod.main(["flash", "--image", self._write("x"), "--device", "/dev/ttyUSB0",
+                      "--machine", self._write(MACHINE)])
+        self.assertEqual(cm.exception.code, 3)
