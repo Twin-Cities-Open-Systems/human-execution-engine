@@ -283,6 +283,10 @@ def cmd_build(args):
     manifest_path = out / MANIFEST
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     if not args.dry_run:
+        # the engine first: without it nothing can be built, and that is
+        # UNKNOWN (set it up), where a missing ffmpeg is CRITICAL
+        if not engine_ready():
+            raise EngineMissing(f"the speech engine is not installed in {HOME}: run `hee say setup`")
         if not shutil.which("ffmpeg"):
             raise S.SayError("ffmpeg is not installed")
         out.mkdir(parents=True, exist_ok=True)

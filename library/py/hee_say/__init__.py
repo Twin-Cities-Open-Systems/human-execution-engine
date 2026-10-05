@@ -187,6 +187,21 @@ def _rewrite(line: str, opts: dict) -> str | None:
     return line
 
 
+def strip_comments(text: str) -> str:
+    """Markdown without its <!-- comments -->, which may span lines. An
+    unclosed comment hides the rest of the document, as it does when rendered."""
+    out, at = [], 0
+    while True:
+        start = text.find("<!--", at)
+        if start < 0:
+            return "".join(out) + text[at:]
+        out.append(text[at:start])
+        end = text.find("-->", start + 4)
+        if end < 0:
+            return "".join(out)
+        at = end + 3
+
+
 def blocks_markdown(text: str, lex: Lexicon, opts: dict | None = None, leftover=None):
     """Markdown -> blocks. The H1 is dropped unless skip_h1 is false
     (the track's intro already says the title); fenced code says nothing."""
@@ -204,7 +219,7 @@ def blocks_markdown(text: str, lex: Lexicon, opts: dict | None = None, leftover=
             if b:
                 out.append(b)
 
-    for raw in text.splitlines():
+    for raw in strip_comments(text).splitlines():
         line = raw.rstrip()
         if re.match(r"\s*(```|~~~)", line):
             fenced = not fenced
@@ -212,7 +227,7 @@ def blocks_markdown(text: str, lex: Lexicon, opts: dict | None = None, leftover=
             continue
         if fenced:
             continue
-        line = re.sub(r"<!--.*?-->", "", re.sub(r"^\s*>\s?", "", line)).strip()
+        line = re.sub(r"^\s*>\s?", "", line).strip()
         if not line or re.fullmatch(r"[-*_=]{3,}|\|?[\s:|-]+\|[\s:|-]*", line):
             flush()
             continue

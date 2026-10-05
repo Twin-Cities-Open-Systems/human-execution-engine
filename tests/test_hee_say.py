@@ -106,6 +106,10 @@ class Blocks(unittest.TestCase):
                                    {"skip_h1": False, "rewrite": [{"match": r"^\*\*Authority:\*\*\s*", "say": "Note: "}]})
         self.assertEqual([b[0] for b in blocks], ["Title.", "Note: check it."])
 
+    def test_markdown_comments_say_nothing_even_across_lines(self):
+        md = "One. <!-- hidden -->\n\n<!-- a comment\nover two lines -->\nTwo.\n\n<!-- never closed\nThree.\n"
+        self.assertEqual([b[0] for b in S.blocks_markdown(md, S.Lexicon())], ["One.", "Two."])
+
     def test_records(self):
         data = yaml.safe_load((FIX / "facts.yaml").read_text())
         opts = {"items": "facts", "where": {"group": "A"}, "group_by": "group", "group_heading": "Group {group}.",
