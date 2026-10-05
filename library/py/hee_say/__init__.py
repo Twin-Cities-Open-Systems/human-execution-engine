@@ -8,6 +8,10 @@ Three jobs, none of which needs a speech engine, so all of it runs in CI:
        - ``A P R S`` is read "uh P R S" and bare ``APRS`` becomes a word;
          ``A-P-R-S`` is read as four letters. Acronyms are therefore spelled
          with hyphens, plurals as ``L-E-D's``.
+       - an A that is not the first letter is still read "uh" (``Q-A-M`` is
+         "Q uh M", ``F-A-A`` "F uh uh"), so it is written ``Eigh``, the one
+         spelling the engine reads as the letter in every position
+         (``Q-Eigh-M``). Lyrics show the source's ``QAM``.
        - shouted words (``THE RADIO``) are lowercased, or they get spelled.
        - a decimal's point is read as a full stop, so ``144.39`` is written
          "144 point 3 9".
@@ -85,12 +89,17 @@ class Lexicon:
             self.symbols = [(s, w) for s, w in self.symbols if s != sym] + [(sym, say)]
 
 
+def _letters(run: str) -> str:
+    """QAM -> "Q-Eigh-M": hyphenated letters, a non-initial A as "Eigh"."""
+    return "-".join("Eigh" if c == "A" and i else c for i, c in enumerate(run))
+
+
 def _spell_letters(m) -> str:
     """W1AW -> "W one A-W". Letter runs are hyphenated, digits are separate
     words: inside one hyphen chain ("W-one-A-W") the engine reads the A after
     a digit word as the article "uh" (measured 2026-10-05)."""
     runs = re.findall(r"\d|[^\d]+", m.group(0))
-    return " ".join(DIGIT_WORDS[int(r)] if r.isdigit() else "-".join(r) for r in runs)
+    return " ".join(DIGIT_WORDS[int(r)] if r.isdigit() else _letters(r) for r in runs)
 
 
 def compile_rule(rule: dict, origin: str):
@@ -119,7 +128,7 @@ def load_lexicon(paths) -> Lexicon:
 # --- normalize ---------------------------------------------------------------
 
 def _spell_acronym(m):
-    return "-".join(m.group(1)) + ("'s" if m.group(2) else "")
+    return _letters(m.group(1)) + ("'s" if m.group(2) else "")
 
 
 def speak(text: str, lex: Lexicon) -> str:
