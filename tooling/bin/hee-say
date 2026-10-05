@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-say -- read text aloud into a tagged MP3 album, with cover and lyrics
+
+SYNOPSIS
+  hee-say build SOURCE... [ALBUM OPTIONS] [--out DIR] [--only N] [--force] [--dry-run]
+  hee-say script SOURCE... [ALBUM OPTIONS] [--only N] [--shown]
+  hee-say check SOURCE... [ALBUM OPTIONS]
+  hee-say card SOURCE... [ALBUM OPTIONS]
+  hee-say phonemes [--lexicon FILE]... TEXT...
+  hee-say voices
+  hee-say setup [--check]
+  hee-say [VERB] help
+
+  ALBUM OPTIONS
+    --artist NAME   --album NAME   --year YYYY   --genre NAME
+    --voice NAME    --speed N      --lang CODE   --bitrate RATE
+    --cover IMAGE   --lexicon FILE (repeatable)  --src DIR
+
+DESCRIPTION
+  Point it at text and it writes an album: one MP3 per source, tagged, with
+  the cover embedded and the words as timed lyrics. Speech is synthesized on
+  this machine by Kokoro, an open model that runs on a CPU; nothing is sent
+  anywhere and nothing is billed.
+
+  SOURCE is either text -- files or directories of .md, .markdown, .txt and
+  .pdf, one track per file, a directory's files in name order -- or ONE album
+  object: a hee/v1 Card with labels.artifact: say-album, which names the
+  artist, the album, every track and where each track's words come from.
+  Loose text and a Card build the same way; `hee say card` prints the Card for
+  whatever you pointed it at, so an ad hoc album becomes a committed one by
+  saving that output (its sources are written relative to the directory you
+  ran it in: save it there, or build it with --src).
+
+  Defaults, when neither the Card nor an option says otherwise: voice
+  af_heart at speed 1.0, 64 kbit/s mono MP3 at one loudness (-16 LUFS), ID3
+  v2.3 tags, genre Speech, this year, the album named after the source
+  directory, and tracks named "NN - Title.mp3" under DIR/Artist/Album/.
+
+  An agent cannot listen to what it makes. `script` prints exactly what will
+  be said, `check` lists the upper-case tokens no rule covers, and `phonemes`
+  shows how the engine will pronounce a phrase. Read those instead.
+
+VERBS
+  build     synthesize, encode and tag. A track is re-synthesized only when
+            its spoken text, voice or encoding changed; a changed tag, cover
+            or lyric line is rewritten without touching the audio; an
+            unchanged track is left alone. --force rebuilds everything,
+            --only N builds one track, --dry-run says what would happen and
+            needs no engine.
+  script    print each track's spoken text, one block per line. --shown
+            prints the lyric text instead (the source's own wording).
+  check     validate the album and its sources and count what would be said.
+            Upper-case tokens with no vowel or with a digit, which no rule
+            covers, are a WARNING; short upper-case words are listed for a
+            reader to judge.
+  card      print the album as a hee/v1 Card.
+  phonemes  print each TEXT as it would be spoken, then the engine's
+            phonemes for it. --lexicon applies a pronunciation lexicon first.
+  voices    list the engine's voices.
+  setup     create the engine's venv and fetch its model (about 350 MB, one
+            time). --check reports what is installed and changes nothing.
+
+OBJECTS
+  An album (labels.artifact: say-album). Lexicon and cover paths are relative
+  to the Card; a part's source is relative to --src when given, else to the
+  Card.
+
+    apiVersion: hee/v1
+    kind: Card
+    metadata:
+      name: say-field-notes
+      labels: {hee.object: "true", artifact: say-album}
+      annotations: {inuid: null, inuid_null_reason: soa_pending}
+    spec:
+      artist: Field Notes
+      album: "Field Notes - 2026"
+      year: 2026
+      voice: {name: af_heart, speed: 1.0}     # optional, as are genre, bitrate
+      lexicon: [field.say-lexicon.registry.v1.yaml]
+      cover: cover.jpg
+      intro: "Field Notes. {spoken}."         # said first on every track
+      defaults: {drop: ['^Status:']}          # merged into every part
+      tracks:
+        - title: Receiving
+          spoken: Receiving a signal          # how the intro says the title
+          comment: receiving.md, revision B   # goes in the comment tag
+          parts:
+            - source: receiving.md
+
+  A part reads one file. Its format follows the file name unless `format`
+  says markdown, text, pdf or records. Any part may carry `heading` (said
+  before it), `drop` (regexes; a matching line is skipped) and `rewrite`
+  ({match, say} pairs applied to each line). A pdf part may name
+  `paragraphs` (each paragraph's opening words, since PDF text carries no
+  paragraph marks) and `skip_prefix`. A records part reads a YAML or JSON
+  list: `items` (dotted path to the list), `where` ({field: value}) and
+  `say`, a template such as "{question} {answer}" or a list of
+  {when: FIELD, say: TEMPLATE} tried in order. `group_by` (a field) with
+  `group_heading` (a template) says a heading whenever that field changes.
+
+  A lexicon (labels.artifact: say-lexicon) is a hee/v1 Registry:
+
+    spec:
+      acronyms: [SDR, LED]                    # said letter by letter
+      rules:                                  # regex, in order, on raw text
+        - {match: '\\bMHz\\b', say: megahertz}
+        - {match: '\\b[KNW]\\d[A-Z]{1,3}\\b', spell: letters}
+        - {match: '\\b\\d{6}\\b', spell: digits}
+      symbols: {"/": " or "}                  # overrides a built-in symbol
+
+OUTPUT
+  DIR/Artist/Album/NN - Title.mp3   the track, cover embedded
+  DIR/Artist/Album/NN - Title.lrc   its lyrics, timed line by line
+  DIR/Artist/Album/cover.jpg        the cover, for players that read a file
+  DIR/Artist/Album/.hee-say.json    what each track was built from
+
+ENVIRONMENT
+  HEE_SAY_OUT     where albums go (default ~/.hee/say); --out wins
+  HEE_SAY_ARTIST  the artist for loose text when --artist is not given
+  HEE_SAY_HOME    the engine's venv and model
+                  (default ${XDG_DATA_HOME:-~/.local/share}/hee/say)
+
+EXIT STATUS
+  0 OK   1 WARNING (check found tokens no rule covers, or no artist was named)
+  2 CRITICAL (a bad album object, a missing source, the engine or ffmpeg failed)
+  3 UNKNOWN (usage, or the engine is not installed: run hee say setup)
+
+EXAMPLES
+  $ hee say script tests/fixtures/say/field-notes.card.v1.yaml   # ci
+  $ hee say check tests/fixtures/say/field-notes.card.v1.yaml   # ci
+  $ hee say card tests/fixtures/say/notes --artist "Field Notes" --year 2026   # ci
+  $ hee say build tests/fixtures/say/field-notes.card.v1.yaml --out "$(mktemp -d)" --dry-run   # ci
+  $ hee say build ~/notes --artist "Field Notes" --voice am_michael --out /srv/music
+  $ hee say phonemes --lexicon ham.say-lexicon.registry.v1.yaml "APRS on 144.39 MHz"
+  $ hee say setup
+
+  The last three are not marked "# ci": they need the speech engine and its
+  350 MB model, which a bare runner does not carry.
+"""
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
+
+# library/py lives in this tool's own repo -- derive it from this script's
+# own location, resolved through symlinks, never from the repo the tool
+# happens to be invoked against.
+LIB = Path(__file__).resolve().parent.parent.parent / "library" / "py"
+sys.path.insert(0, str(LIB))
+import hee_say as S  # noqa: E402
+from hee_cli import help_wanted, note_ignored  # noqa: E402
+from hee_status import ArgumentParser, Status, emit  # noqa: E402
+
+HOME = Path(os.environ.get("HEE_SAY_HOME") or
+            Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "hee" / "say")
+VENV_PY = HOME / "venv" / "bin" / "python"
+WORKER = LIB / "hee_say" / "worker.py"
+# Pinned: the same engine and model give the same audio for the same text.
+PINS = ["kokoro-onnx==0.6.1", "soundfile==0.14.0", "pypdf==6.19.0"]
+RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+MODEL = {
+    "kokoro-v1.0.onnx": "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+    "voices-v1.0.bin": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+}
+MANIFEST = ".hee-say.json"
+
+
+class EngineMissing(Exception):
+    pass
+
+
+def engine_ready() -> bool:
+    return VENV_PY.exists() and all((HOME / f).exists() for f in MODEL)
+
+
+def worker(args, stdin=None, lang=None) -> str:
+    if not engine_ready():
+        raise EngineMissing(f"the speech engine is not installed in {HOME}: run `hee say setup`")
+    env = dict(os.environ, HEE_SAY_HOME=str(HOME))
+    if lang:
+        env["HEE_SAY_LANG"] = lang
+    proc = subprocess.run([str(VENV_PY), str(WORKER), *args], input=stdin, capture_output=True, text=True, env=env)
+    if proc.returncode != 0:
+        raise S.SayError("engine: " + (proc.stderr.strip().splitlines() or ["failed"])[-1])
+    return proc.stdout
+
+
+def pdf_text():
+    """A PDF reader when the engine venv (which carries pypdf) exists, else None."""
+    if not engine_ready():
+        return None
+    return lambda path: "\n".join(json.loads(worker(["pdftext", str(path)])))
+
+
+def resolve(args):
+    """SOURCE... and the album options -> (Album, Lexicon)."""
+    if len(args.source) == 1 and S.is_album_card(args.source[0]):
+        album = S.load_card(args.source[0], args.src)
+    else:
+        album = S.album_from_sources(args.source, args.artist, args.album, args.year)
+    album.override(artist=args.artist, album=args.album, year=args.year, genre=args.genre,
+                   voice=args.voice, speed=args.speed, lang=args.lang, bitrate=args.bitrate,
+                   cover=Path(args.cover).resolve() if args.cover else None)
+    album.lexicons += [Path(p).resolve() for p in args.lexicon or []]
+    if album.cover and not album.cover.is_file():
+        raise S.SayError(f"no such cover: {album.cover}")
+    return album, S.load_lexicon(album.lexicons)
+
+
+def selected(album, only):
+    if only is not None and not 1 <= only <= len(album.tracks):
+        raise S.SayError(f"--only {only}: the album has tracks 1 to {len(album.tracks)}")
+    return [(n, t) for n, t in enumerate(album.tracks, 1) if only in (None, n)]
+
+
+def minutes(plan) -> float:
+    """Estimated running time: about 150 spoken words a minute, plus the pauses."""
+    words = sum(len(text.split()) for text, _ in plan["blocks"])
+    return words / 150 + sum(pause for _, pause in plan["blocks"]) / 60
+
+
+def cmd_script(args):
+    album, lex = resolve(args)
+    leftover = set()
+    for n, track in selected(album, args.only):
+        plan = S.track_plan(album, track, lex, leftover, pdf_text())
+        print(f"===== {S.track_file(album, n, track)}")
+        print("\n".join(plan["shown"] if args.shown else [text for text, _ in plan["blocks"]]))
+        print()
+    odd = S.unpronounceable(leftover)
+    if odd:
+        print("no rule covers (said as lower-case words): " + " ".join(odd), file=sys.stderr)
+    return Status.OK
+
+
+def cmd_check(args):
+    album, lex = resolve(args)
+    leftover, blocks, mins = set(), 0, 0.0
+    for _n, track in selected(album, None):
+        plan = S.track_plan(album, track, lex, leftover, pdf_text())
+        blocks += len(plan["blocks"])
+        mins += minutes(plan)
+    summary = (f"{album.artist} / {album.album} ({album.year}): {len(album.tracks)} tracks, "
+               f"{blocks} blocks, about {mins:.0f} min, voice {album.voice}")
+    odd = S.unpronounceable(leftover)
+    short = sorted(t for t in leftover if len(t) <= 4 and t not in odd)
+    if short:
+        # THE and OUT are fine; OET and ARQ are not, and only a reader can tell
+        print("short upper-case words, said as lower-case words: " + " ".join(short))
+    notes = ([f"no rule covers: {' '.join(odd)}"] if odd else []) + (
+        ["no artist named (--artist or HEE_SAY_ARTIST)"] if album.artist == S.DEFAULTS["artist"] else [])
+    return emit(Status.WARNING if notes else Status.OK, "; ".join([summary, *notes]))
+
+
+def cmd_card(args):
+    import yaml
+    album, _lex = resolve(args)
+    obj = S.card_object(album)
+    if album.lexicons:
+        obj["spec"]["lexicon"] = [os.path.relpath(p) for p in album.lexicons]
+    if album.cover:
+        obj["spec"]["cover"] = os.path.relpath(album.cover)
+    print(yaml.safe_dump(obj, sort_keys=False, allow_unicode=True, width=100), end="")
+    return Status.OK
+
+
+def tags_sha(tags, cover) -> str:
+    h = hashlib.sha256(json.dumps(tags, sort_keys=True, ensure_ascii=False).encode())
+    if cover:
+        h.update(cover.read_bytes())
+    return h.hexdigest()
+
+
+def cmd_build(args):
+    album, lex = resolve(args)
+    out = S.album_dir(Path(args.out or os.environ.get("HEE_SAY_OUT") or Path.home() / ".hee" / "say"), album)
+    manifest_path = out / MANIFEST
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    if not args.dry_run:
+        if not shutil.which("ffmpeg"):
+            raise S.SayError("ffmpeg is not installed")
+        out.mkdir(parents=True, exist_ok=True)
+        if album.cover:
+            shutil.copyfile(album.cover, out / ("cover" + album.cover.suffix.lower()))
+    todo = selected(album, args.only)
+    for n, track in todo:
+        plan = S.track_plan(album, track, lex, None, pdf_text())
+        name = S.track_file(album, n, track)
+        mp3, was = out / name, manifest.get(name, {})
+        tags = S.track_tags(album, n, track)
+        tags["lyrics-eng"] = "\n".join(plan["shown"])
+        sha, tsha = S.plan_sha(plan), tags_sha(tags, album.cover)
+        fresh = args.force or not mp3.exists() or was.get("sha") != sha
+        action = "synthesize" if fresh else ("retag" if was.get("tags") != tsha else "current")
+        if args.dry_run:
+            print(f"{n:02d}/{len(album.tracks)}  about {minutes(plan):4.1f} min  {action:10}  {mp3}")
+            continue
+        if action == "current":
+            print(f"{n:02d}/{len(album.tracks)}  {was.get('seconds', 0) / 60:5.1f} min  current     {name}", flush=True)
+            continue
+        with tempfile.TemporaryDirectory(dir=out, prefix=".hee-say-") as tmp:
+            new = Path(tmp) / "track.mp3"
+            if fresh:
+                (Path(tmp) / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+                timing = json.loads(worker(["synth", str(Path(tmp) / "plan.json"), str(Path(tmp) / "track.wav")]))
+                cmd = S.ffmpeg_cmd(Path(tmp) / "track.wav", new, tags, album.cover, album.bitrate)
+            else:
+                timing = {"starts": was["starts"], "seconds": was["seconds"]}
+                cmd = S.ffmpeg_cmd(mp3, new, tags, album.cover, copy=True)
+            done = subprocess.run(cmd, capture_output=True, text=True)
+            if done.returncode != 0:
+                raise S.SayError("ffmpeg: " + (done.stderr.strip().splitlines() or ["failed"])[-1])
+            os.replace(new, mp3)
+        mp3.with_suffix(".lrc").write_text(S.lrc(album, track, plan["shown"], timing["starts"]))
+        manifest[name] = {"sha": sha, "tags": tsha, **timing}
+        manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+        print(f"{n:02d}/{len(album.tracks)}  {timing['seconds'] / 60:5.1f} min  "
+              f"{'built' if fresh else 'retagged':10}  {name}", flush=True)
+    if args.dry_run:
+        return Status.OK
+    expected = {S.track_file(album, n, t) for n, t in enumerate(album.tracks, 1)}
+    extra = sorted(p.name for p in out.glob("*.mp3") if p.name not in expected)
+    if extra:
+        emit(Status.WARNING, f"{out} also holds tracks this album does not name (left alone): {', '.join(extra)}")
+    return emit(Status.OK, f"{len(todo)} of {len(album.tracks)} tracks in {out}")
+
+
+def cmd_phonemes(args):
+    lex = S.load_lexicon(Path(p).resolve() for p in args.lexicon or [])
+    spoken = [S.finish(S.speak(t, lex)) for t in args.text]
+    ipa = json.loads(worker(["phonemes"], stdin=json.dumps(spoken), lang=args.lang))
+    for text, said, sounds in zip(args.text, spoken, ipa):
+        print(f"{text}\n  said as  {said}\n  phonemes {sounds}")
+    return Status.OK
+
+
+def cmd_voices(_args):
+    print(worker(["voices"]), end="")
+    return Status.OK
+
+
+def sha256_file(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def cmd_setup(args):
+    missing = [f for f, sha in MODEL.items() if not (HOME / f).exists() or sha256_file(HOME / f) != sha]
+    if args.check:
+        if VENV_PY.exists() and not missing:
+            return emit(Status.OK, f"engine installed in {HOME}")
+        what = ([] if VENV_PY.exists() else ["venv"]) + missing
+        return emit(Status.WARNING, f"not installed in {HOME}: {', '.join(what)}")
+    HOME.mkdir(parents=True, exist_ok=True)
+    if not VENV_PY.exists():
+        subprocess.run([sys.executable, "-m", "venv", str(HOME / "venv")], check=True)
+    pip = subprocess.run([str(VENV_PY), "-m", "pip", "install", "--quiet", *PINS], capture_output=True, text=True)
+    if pip.returncode != 0:
+        raise S.SayError("pip: " + (pip.stderr.strip().splitlines() or ["failed"])[-1])
+    for name in missing:
+        part = HOME / (name + ".part")
+        print(f"fetching {name} ...", flush=True)
+        with urllib.request.urlopen(RELEASE + name) as resp, open(part, "wb") as fh:
+            shutil.copyfileobj(resp, fh, 1 << 20)
+        if sha256_file(part) != MODEL[name]:
+            part.unlink()
+            raise S.SayError(f"{name}: the download does not match its pinned sha256")
+        os.replace(part, HOME / name)
+    return emit(Status.OK, f"engine installed in {HOME}")
+
+
+def build_parser():
+    ap = ArgumentParser(prog="hee-say", add_help=False)
+    sub = ap.add_subparsers(dest="verb", required=True)
+
+    def album_verb(name, fn):
+        p = sub.add_parser(name, add_help=False)
+        p.add_argument("source", nargs="+")
+        for flag in ("--artist", "--album", "--genre", "--voice", "--lang", "--bitrate", "--cover", "--src"):
+            p.add_argument(flag)
+        p.add_argument("--year", type=int)
+        p.add_argument("--speed", type=float)
+        p.add_argument("--lexicon", action="append")
+        p.set_defaults(fn=fn)
+        return p
+
+    p = album_verb("build", cmd_build)
+    p.add_argument("--out")
+    p.add_argument("--only", type=int)
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    p = album_verb("script", cmd_script)
+    p.add_argument("--only", type=int)
+    p.add_argument("--shown", action="store_true")
+    album_verb("check", cmd_check)
+    album_verb("card", cmd_card)
+    p = sub.add_parser("phonemes", add_help=False)
+    p.add_argument("text", nargs="+")
+    p.add_argument("--lexicon", action="append")
+    p.add_argument("--lang", default=S.DEFAULTS["lang"])
+    p.set_defaults(fn=cmd_phonemes)
+    sub.add_parser("voices", add_help=False).set_defaults(fn=cmd_voices)
+    p = sub.add_parser("setup", add_help=False)
+    p.add_argument("--check", action="store_true")
+    p.set_defaults(fn=cmd_setup)
+    return ap
+
+
+def main(argv: list[str]) -> int:
+    # Help is answered before anything is parsed, so nothing to the right of
+    # the help token can run. See library/py/hee_cli.
+    if help_wanted(argv):
+        note_ignored(argv)
+        print(__doc__)
+        return 0
+    args = build_parser().parse_args(argv)
+    try:
+        return args.fn(args).value
+    except EngineMissing as e:
+        return emit(Status.UNKNOWN, f"hee-say: {e}").value
+    except S.SayError as e:
+        return emit(Status.CRITICAL, f"hee-say: {e}").value
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except BrokenPipeError:              # `hee say script ... | head` is a normal way to read it
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        raise SystemExit(0)

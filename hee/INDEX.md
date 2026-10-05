@@ -47,7 +47,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🃏 Card (26)</summary>
+<summary>🃏 Card (27)</summary>
 
 - 🟢 [OK] `hee/cards/2026-02-18_2011__hee-indexing.candidate.card.v1.yaml`
 - 🟢 [OK] `hee/cards/attribution-standing.method.card.v1.yaml`
@@ -73,6 +73,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `hee/cards/tmux-send-vs-sendmessage.method.card.v1.yaml`
 - 🟢 [OK] `library/branding/personal.example.card.v1.yaml`
 - 🟢 [OK] `release.card.v1.yaml`
+- 🟢 [OK] `tests/fixtures/say/field-notes.card.v1.yaml`
 - 🟢 [OK] `tests/fixtures/urls/axgoose8.yaml`
 - 🟢 [OK] `tests/fixtures/urls/goose2xf.yaml`
 
@@ -135,7 +136,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🗂️ Registry (7)</summary>
+<summary>🗂️ Registry (8)</summary>
 
 - 🟢 [OK] `hee/registries/connect-targets.registry.v1.yaml`
 - 🟢 [OK] `hee/registries/dir-groups.registry.v1.yaml`
@@ -144,6 +145,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `library/locale/en.yaml`
 - 🟢 [OK] `library/regex/patterns.yaml`
 - 🟢 [OK] `tests/fixtures/dispatch/allocations.yaml`
+- 🟢 [OK] `tests/fixtures/say/field.say-lexicon.registry.v1.yaml`
 
 </details>
 <details>

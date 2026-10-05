@@ -1,0 +1,17 @@
+apiVersion: hee/v1
+kind: Registry
+metadata:
+  name: say-lexicon-field
+  description: "Fixture pronunciation lexicon for hee-say"
+  labels:
+    hee.object: "true"
+    artifact: say-lexicon
+  annotations:
+    inuid: null
+    inuid_null_reason: fixture
+spec:
+  acronyms: [SDR, LED, RF]
+  rules:
+    - {match: '\bMHz\b', say: megahertz}
+    - {match: '\bW1AW\b', spell: letters}
+    - {match: '\b\d{6}\b', spell: digits}

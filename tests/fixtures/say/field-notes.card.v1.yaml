@@ -1,0 +1,44 @@
+apiVersion: hee/v1
+kind: Card
+metadata:
+  name: say-field-notes
+  description: "Fixture album for hee-say: two text tracks and one built from records"
+  labels:
+    hee.object: "true"
+    artifact: say-album
+  annotations:
+    inuid: null
+    inuid_null_reason: fixture
+spec:
+  artist: Field Notes
+  album: "Field Notes - 2026"
+  year: 2026
+  voice:
+    name: af_heart
+    speed: 1.0
+  lexicon:
+    - field.say-lexicon.registry.v1.yaml
+  intro: "Field Notes. {spoken}."
+  defaults:
+    drop:
+      - '^Status:'
+  tracks:
+    - title: Receiving a Signal
+      comment: notes/01-receiving.md
+      parts:
+        - source: notes/01-receiving.md
+    - title: Antennas
+      spoken: Antennas, briefly
+      parts:
+        - source: notes/02-antennas.txt
+    - title: Quick Facts
+      parts:
+        - source: facts.yaml
+          heading: Group A
+          items: facts
+          where:
+            group: A
+          say:
+            - when: answers
+              say: "{question} All of these: {answers}."
+            - say: "{question} {answer}."
