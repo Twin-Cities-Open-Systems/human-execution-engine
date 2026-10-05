@@ -1,0 +1,4 @@
+facts:
+  - {id: A1, group: A, question: "What does an SDR do?", answer: "It turns RF into numbers", answers: null}
+  - {id: A2, group: A, question: "Which of these blink?", answer: "All these choices are correct", answers: ["LEDs", "Beacons"]}
+  - {id: B1, group: B, question: "Not in group A?", answer: "Correct", answers: null}

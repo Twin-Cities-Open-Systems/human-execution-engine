@@ -45,6 +45,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 - [`hee-release`](hee-release.1.md)
 - [`hee-repo-refresh`](hee-repo-refresh.1.md)
 - [`hee-reset-tooling`](hee-reset-tooling.1.md)
+- [`hee-say`](hee-say.1.md)
 - [`hee-shell`](hee-shell.1.md)
 - [`hee-site-publish`](hee-site-publish.1.md)
 - [`hee-sqz`](hee-sqz.1.md)
