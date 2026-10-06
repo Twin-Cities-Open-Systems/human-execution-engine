@@ -81,6 +81,9 @@ jobs:
           if len(pages) < 50 or missing or blank:
               sys.exit(f"::error::unusable tree: {len(pages)} pages, empty pages {missing}, no summary {blank}")
           PY
+          # Which commit this tree documents, inside the payload: a consumer
+          # that only extracts the tarball can still say what it is showing.
+          printf '%s\n' "$GITHUB_SHA" > COMMIT
           tar -C . -czf "$GITHUB_WORKSPACE/hee-man.tar.gz" .
           ls -l "$GITHUB_WORKSPACE/hee-man.tar.gz"
 
