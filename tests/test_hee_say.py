@@ -44,6 +44,13 @@ class Speak(unittest.TestCase):
         lex = lexicon(acronyms=["APRS", "LED"])
         self.assertEqual(S.speak("APRS and LEDs", lex), "A-P-R-S and L-E-D's")
 
+    def test_an_a_after_the_first_letter_is_written_eigh(self):
+        # "Q-A-M" is read "Q uh M" and "F-A-A" "F uh uh" (measured 2026-10-05)
+        lex = lexicon(acronyms=["QAM", "FAA", "TDMA", "APRS"],
+                      rules=[{"match": r"\b[KW][A-Z]?\d[A-Z]{1,3}\b", "spell": "letters"}])
+        self.assertEqual(S.speak("QAM FAA TDMA APRS", lex), "Q-Eigh-M F-Eigh-Eigh T-D-M-Eigh A-P-R-S")
+        self.assertEqual(S.speak("WA1AA", lex), "W-Eigh one A-Eigh")
+
     def test_longer_acronym_wins_over_its_prefix(self):
         lex = lexicon(acronyms=["SS", "SSB"])
         self.assertEqual(S.speak("SSB", lex), "S-S-B")
