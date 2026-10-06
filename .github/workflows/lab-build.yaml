@@ -1,0 +1,126 @@
+name: lab-build
+
+# The man tree, built from the tools as merged and published where the lab's
+# puller reads it.
+#
+# WHY THIS EXISTS -- measured 2026-10-05. Rule 17 makes the tool's --help the
+# man page and asks each change to regenerate the committed pages, and nothing
+# enforced or published that: no workflow ran `hee gen-manpages` except the
+# dry-run example, the committed gopher tree was four tools behind, and the
+# served site was behind that (no hee-say page, hee-image without --machine).
+# A page that depends on someone remembering two hand steps is a stale page.
+#
+# So this builds the tree in CI on every merge that can change a page and
+# attaches it to one immutable `lab-<short sha>` release, the same shape
+# fleet-ops, tcos-app and thesis-engine publish. A puller (fleet-ops
+# pve/lab-deploy/lab-pull) installs the newest one. The pages are generated
+# here from each tool's own --help, NOT copied from the committed man/tools,
+# so a merge that forgot to regenerate still publishes the truth.
+#
+# The payload is the tree `hee gen-manpages --gopher` renders: plain-text
+# pages by section, the gopher menus, and index.json (every page with its
+# section, summary and path) for a web page that lists them. How it is
+# presented is the consumer's business; nothing here knows about a site.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tooling/bin/**'
+      - 'library/**'
+      - 'man/**'
+      - 'CHANGELOG.md'
+      - '.github/workflows/lab-build.yaml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# The generator renders pages with man(1). It pipes the output, so no pager
+# can start, but nothing in a runner should be able to wait on one either.
+env:
+  PAGER: cat
+  MANPAGER: cat
+
+concurrency:
+  group: lab-build
+  cancel-in-progress: false
+
+jobs:
+  man:
+    name: man tree (for lab-pull)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # only to attach the payload to this build's release
+    env:
+      KEEP_RELEASES: '5'
+    steps:
+      - uses: actions/checkout@v4
+
+      # pandoc turns each page into roff, man renders it, col makes it plain
+      # text; rg is what several tools shell out to while printing --help.
+      - name: Install what the generator runs
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pandoc man-db bsdextrautils ripgrep >/dev/null
+
+      - name: Generate the pages, then the tree
+        env:
+          MANWIDTH: '80'       # the same line width on every runner
+        run: |
+          set -eu
+          tooling/bin/hee-gen-manpages --write
+          tooling/bin/hee-gen-manpages --gopher "$RUNNER_TEMP/hee-man" --write
+
+      - name: Refuse a tree a reader could not use
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP/hee-man"
+          # These are paths inside the built tree, not files in this repo.
+          for f in index.json gophermap man/man1/hee.txt man/man1/hee-gen-manpages.txt; do  # hee-check:refs-ok
+            test -s "$f" || { echo "::error::the tree is missing $f"; exit 1; }
+          done
+          python3 - <<'PY'
+          import json, os, sys
+          idx = json.load(open("index.json"))
+          pages = [p for s in idx["sections"] for p in s["pages"]]
+          missing = [p["path"] for p in pages if not os.path.getsize(p["path"])]
+          blank = [p["name"] for p in pages if not p["summary"]]
+          print(f"{len(pages)} pages in {len(idx['sections'])} sections")
+          if len(pages) < 50 or missing or blank:
+              sys.exit(f"::error::unusable tree: {len(pages)} pages, empty pages {missing}, no summary {blank}")
+          PY
+          # Which commit this tree documents, inside the payload: a consumer
+          # that only extracts the tarball can still say what it is showing.
+          printf '%s\n' "$GITHUB_SHA" > COMMIT
+          tar -C . -czf "$GITHUB_WORKSPACE/hee-man.tar.gz" .
+          ls -l "$GITHUB_WORKSPACE/hee-man.tar.gz"
+
+      - name: Publish this build's payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          printf '%s\n' "$SHA" > COMMIT
+          tag="lab-$(printf '%s' "$SHA" | cut -c1-12)"
+          # Draft first with the assets attached: a published release in this
+          # org is immutable and refuses uploads.
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "hee man tree $tag" \
+            --notes "Built by lab-build from $SHA. The man pages as a plain-text tree with index.json, pulled by the lab. Derived state, not a version." \
+            hee-man.tar.gz COMMIT
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          echo "published $tag ($SHA)"
+
+      - name: Keep the last few, delete the rest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | startswith(\"lab-\"))]
+                  | sort_by(.createdAt) | reverse | .[${KEEP_RELEASES}:] | .[].tagName" \
+          | while read -r old; do
+              [ -n "$old" ] || continue
+              echo "pruning $old"
+              gh release delete "$old" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            done

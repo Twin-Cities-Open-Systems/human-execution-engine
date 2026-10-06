@@ -74,7 +74,9 @@ DESTINATIONS
 
     man/tools/           generated pages, .N.md sources and manN/*.N roff
     man/tools/README.md  the index
-    man/gopher/          --gopher only: the tree man.tcos.us serves
+    man/gopher/          --gopher only: the tree man.tcos.us serves, plus
+                         index.json (every page, its section, summary and
+                         path) for a web page that lists them
 
   man/manN/ holds pages written BY HAND. Those WIN: generation skips any
   tool with an authored page and says so.
@@ -434,6 +436,15 @@ gen_gopher() {
       cp "$_f" "$_out/$(basename "$_f")" 2>/dev/null
     done
   done
+
+  # index.json: the same pages as data, for a reader that is not a gopher
+  # client (a web page listing them should not have to parse gophermaps).
+  # Derived from the rendered text, no timestamp, so it only changes when a
+  # page does.
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHONPATH="$PWD/library/py" python3 -c 'import sys, hee_manpage; hee_manpage.write_index(sys.argv[1])' "$_out" \
+      || { echo "index.json: could not be written" >&2; return 2; }
+  fi
 
   echo "gopher: $_total page(s) in $(ls -d "$_out"/man/man[1-9] 2>/dev/null | wc -l) section(s), plus flat copies -> $(pwd)/$_out"
 }
