@@ -1,7 +1,7 @@
-HEE-NAME(1)                        HEE Tools                       HEE-NAME(1)
+HEE-NAME(1)                        HEE Tools                        HEE-NAME(1)
 
 NAME
-       hee-name  -  DEPRECATED,  being phased out: do not name anything from a
+       hee-name  -  DEPRECATED,  being  phased out: do not name anything from a
        pool
 
 SYNOPSIS
@@ -51,4 +51,4 @@ EXAMPLES
               proves -allocate refuses with exit 2 while the tool is deprecated. -release
               mutates the allocations directory and is left unmarked.
 
-                                                                   HEE-NAME(1)
+                                                                    HEE-NAME(1)
