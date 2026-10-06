@@ -174,3 +174,73 @@ def render(name: str, help_text: str, section: int = 1,
         emit(title, body)
 
     return "\n".join(out).rstrip() + "\n"
+
+
+# --- the index of a rendered tree ----------------------------------------------
+#
+# The gopher tree is menus for a gopher client. A web page listing the same
+# pages would have to parse gophermaps, so the tree also carries index.json:
+# every page, its section, its one-line summary and its path. It is derived
+# from the rendered text alone and holds no timestamp, so the same tree gives
+# the same bytes and a regenerated tree only differs when a page does.
+
+SECTION_TITLES = {1: "User Commands", 2: "System Calls", 3: "Library Functions",
+                  4: "Special Files", 5: "File Formats", 6: "Games",
+                  7: "Overviews and Conventions", 8: "System Administration"}
+
+
+def page_summary(text: str) -> str:
+    """The one-line description from a rendered page: the NAME section's
+    "name - description", or, on a page with no NAME, its first tagline."""
+    lines = text.splitlines()
+    body = []
+    for i, ln in enumerate(lines):
+        if ln.strip() == "NAME":
+            for nxt in lines[i + 1:]:
+                if not nxt.strip():
+                    if body:
+                        break
+                    continue
+                if not nxt.startswith(" "):
+                    break
+                body.append(nxt.strip())
+            break
+    if not body:
+        body = [ln.strip() for ln in lines[:8] if TAGLINE.match(ln)][:1]
+    # man breaks a line at U+2010 (its own hyphenation: drop it) or at a real
+    # hyphen (keep it), and justifies with runs of spaces
+    joined = ""
+    for ln in body:
+        if joined.endswith("\u2010"):
+            joined = joined[:-1] + ln
+        elif joined.endswith("-") and not joined.endswith(" -"):
+            joined += ln
+        else:
+            joined += (" " if joined else "") + ln
+    joined = re.sub(r"\s+", " ", joined).strip()
+    return re.split(r" (?:-|--|\u2014) ", joined, maxsplit=1)[-1].rstrip(".") if joined else ""
+
+
+def tree_index(root) -> dict:
+    """{"sections": [{section, title, pages: [{name, section, path, summary}]}]}
+    for a tree rendered by `hee gen-manpages --gopher`. `hee` leads its
+    section, as it does in the gopher menu; the rest are in name order."""
+    from pathlib import Path
+    sections = []
+    for d in sorted(Path(root, "man").glob("man[1-9]")):
+        n = int(d.name[3:])
+        pages = [{"name": f.stem, "section": n, "path": f"man/{d.name}/{f.name}",
+                  "summary": page_summary(f.read_text(errors="replace"))}
+                 for f in sorted(d.glob("*.txt"), key=lambda f: (f.stem != "hee", f.stem))]
+        if pages:
+            sections.append({"section": n, "title": SECTION_TITLES.get(n, f"Section {n}"), "pages": pages})
+    return {"sections": sections}
+
+
+def write_index(root) -> int:
+    """Write ROOT/index.json; return the number of pages indexed."""
+    import json
+    from pathlib import Path
+    idx = tree_index(root)
+    Path(root, "index.json").write_text(json.dumps(idx, indent=1, ensure_ascii=False) + "\n")
+    return sum(len(s["pages"]) for s in idx["sections"])

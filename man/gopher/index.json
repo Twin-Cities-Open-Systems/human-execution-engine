@@ -1,0 +1,466 @@
+{
+ "sections": [
+  {
+   "section": 1,
+   "title": "User Commands",
+   "pages": [
+    {
+     "name": "hee",
+     "section": 1,
+     "path": "man/man1/hee.txt",
+     "summary": "Human Execution Engine command dispatcher"
+    },
+    {
+     "name": "hee-attach",
+     "section": 1,
+     "path": "man/man1/hee-attach.txt",
+     "summary": "attach HEE policy to a repo without committing doctrine into it"
+    },
+    {
+     "name": "hee-board",
+     "section": 1,
+     "path": "man/man1/hee-board.txt",
+     "summary": "real, 0-token curated filtered views over the TCOS Roadmap"
+    },
+    {
+     "name": "hee-check",
+     "section": 1,
+     "path": "man/man1/hee-check.txt",
+     "summary": "repo boundary and integrity checks"
+    },
+    {
+     "name": "hee-check-og",
+     "section": 1,
+     "path": "man/man1/hee-check-og.txt",
+     "summary": "report the Open Graph tags a page actually serves"
+    },
+    {
+     "name": "hee-completion",
+     "section": 1,
+     "path": "man/man1/hee-completion.txt",
+     "summary": "bash completion for hee that teaches while it completes"
+    },
+    {
+     "name": "hee-con",
+     "section": 1,
+     "path": "man/man1/hee-con.txt",
+     "summary": "connect to IRC in tmux, or send into an existing tmux pane"
+    },
+    {
+     "name": "hee-contract-review",
+     "section": 1,
+     "path": "man/man1/hee-contract-review.txt",
+     "summary": "smart-sorted contract review, needed-first"
+    },
+    {
+     "name": "hee-cred",
+     "section": 1,
+     "path": "man/man1/hee-cred.txt",
+     "summary": "real, minimal sealed credential store (GPG, or age for TPM-bound secrets)"
+    },
+    {
+     "name": "hee-deploy",
+     "section": 1,
+     "path": "man/man1/hee-deploy.txt",
+     "summary": "publish a directory of markdown + images as a resume blog"
+    },
+    {
+     "name": "hee-dns",
+     "section": 1,
+     "path": "man/man1/hee-dns.txt",
+     "summary": "generate BIND zones from one flat host file"
+    },
+    {
+     "name": "hee-exif",
+     "section": 1,
+     "path": "man/man1/hee-exif.txt",
+     "summary": "hee-exif command"
+    },
+    {
+     "name": "hee-fields",
+     "section": 1,
+     "path": "man/man1/hee-fields.txt",
+     "summary": "hee-fields command"
+    },
+    {
+     "name": "hee-filter",
+     "section": 1,
+     "path": "man/man1/hee-filter.txt",
+     "summary": "the shared publish-safety gate"
+    },
+    {
+     "name": "hee-gen-changelog",
+     "section": 1,
+     "path": "man/man1/hee-gen-changelog.txt",
+     "summary": "render CHANGELOG.md from the repo's own merge history"
+    },
+    {
+     "name": "hee-gen-manpages",
+     "section": 1,
+     "path": "man/man1/hee-gen-manpages.txt",
+     "summary": "generate man pages from each tool's own --help"
+    },
+    {
+     "name": "hee-gen-skills",
+     "section": 1,
+     "path": "man/man1/hee-gen-skills.txt",
+     "summary": "hee-gen-skills command"
+    },
+    {
+     "name": "hee-git-merge",
+     "section": 1,
+     "path": "man/man1/hee-git-merge.txt",
+     "summary": "Interactive, cross-repo mass review-and-merge for open PRs"
+    },
+    {
+     "name": "hee-git-tag",
+     "section": 1,
+     "path": "man/man1/hee-git-tag.txt",
+     "summary": "a GPG-signed git tag with the key that is really yours"
+    },
+    {
+     "name": "hee-goose",
+     "section": 1,
+     "path": "man/man1/hee-goose.txt",
+     "summary": "honk"
+    },
+    {
+     "name": "hee-hg",
+     "section": 1,
+     "path": "man/man1/hee-hg.txt",
+     "summary": "launcher for the Hunter-Gatherer orchestrator (LIBRARY MISSING)"
+    },
+    {
+     "name": "hee-hooks-install",
+     "section": 1,
+     "path": "man/man1/hee-hooks-install.txt",
+     "summary": "install this repo's optional git hooks"
+    },
+    {
+     "name": "hee-image",
+     "section": 1,
+     "path": "man/man1/hee-image.txt",
+     "summary": "inspect and flash images onto devices, safely"
+    },
+    {
+     "name": "hee-index",
+     "section": 1,
+     "path": "man/man1/hee-index.txt",
+     "summary": "generate hee/INDEX.md, the persisted index of every HEE object"
+    },
+    {
+     "name": "hee-inv",
+     "section": 1,
+     "path": "man/man1/hee-inv.txt",
+     "summary": "ingest inventory evidence, and report on what is unaccounted for"
+    },
+    {
+     "name": "hee-inv-receipt",
+     "section": 1,
+     "path": "man/man1/hee-inv-receipt.txt",
+     "summary": "turn a receipt image into HEE inventory objects"
+    },
+    {
+     "name": "hee-lg",
+     "section": 1,
+     "path": "man/man1/hee-lg.txt",
+     "summary": "BGP looking glass for a domain, IP, or ASN"
+    },
+    {
+     "name": "hee-lint",
+     "section": 1,
+     "path": "man/man1/hee-lint.txt",
+     "summary": "fast lint gate for HEE-object YAML"
+    },
+    {
+     "name": "hee-name",
+     "section": 1,
+     "path": "man/man1/hee-name.txt",
+     "summary": "DEPRECATED, being phased out: do not name anything from a pool"
+    },
+    {
+     "name": "hee-net",
+     "section": 1,
+     "path": "man/man1/hee-net.txt",
+     "summary": "protocol-aware fetch: gopher, finger"
+    },
+    {
+     "name": "hee-print",
+     "section": 1,
+     "path": "man/man1/hee-print.txt",
+     "summary": "render files nicely for terminal surfaces"
+    },
+    {
+     "name": "hee-procmail",
+     "section": 1,
+     "path": "man/man1/hee-procmail.txt",
+     "summary": "hee-procmail command"
+    },
+    {
+     "name": "hee-publish",
+     "section": 1,
+     "path": "man/man1/hee-publish.txt",
+     "summary": "0-token activity summary, gated before it prints"
+    },
+    {
+     "name": "hee-pve-health",
+     "section": 1,
+     "path": "man/man1/hee-pve-health.txt",
+     "summary": "hee-pve-health command"
+    },
+    {
+     "name": "hee-pwgen",
+     "section": 1,
+     "path": "man/man1/hee-pwgen.txt",
+     "summary": "real cryptographically secure password generator"
+    },
+    {
+     "name": "hee-qdb",
+     "section": 1,
+     "path": "man/man1/hee-qdb.txt",
+     "summary": "real quote search across a source document"
+    },
+    {
+     "name": "hee-qr",
+     "section": 1,
+     "path": "man/man1/hee-qr.txt",
+     "summary": "reader for a mt-logo-render \"hee-key hole\" anchor"
+    },
+    {
+     "name": "hee-quota",
+     "section": 1,
+     "path": "man/man1/hee-quota.txt",
+     "summary": "hee-quota: monitor GitHub API rate-limit pools (core/graphql/search) and"
+    },
+    {
+     "name": "hee-release",
+     "section": 1,
+     "path": "man/man1/hee-release.txt",
+     "summary": "lab, cut, promote: releases for one repo, a list, or the org"
+    },
+    {
+     "name": "hee-repo-refresh",
+     "section": 1,
+     "path": "man/man1/hee-repo-refresh.txt",
+     "summary": "per-repo health, pull, hygiene, prune and artifact regeneration"
+    },
+    {
+     "name": "hee-say",
+     "section": 1,
+     "path": "man/man1/hee-say.txt",
+     "summary": "read text aloud into a tagged MP3 album, with cover and lyrics"
+    },
+    {
+     "name": "hee-scan",
+     "section": 1,
+     "path": "man/man1/hee-scan.txt",
+     "summary": "named-target regex scan via ripgrep"
+    },
+    {
+     "name": "hee-shell",
+     "section": 1,
+     "path": "man/man1/hee-shell.txt",
+     "summary": "ssh into a known TCOS host by alias"
+    },
+    {
+     "name": "hee-site-publish",
+     "section": 1,
+     "path": "man/man1/hee-site-publish.txt",
+     "summary": "publish files to a Cloudflare Pages site and deploy it"
+    },
+    {
+     "name": "hee-sqz",
+     "section": 1,
+     "path": "man/man1/hee-sqz.txt",
+     "summary": "squeeze a loop's OK:/FAIL: lines into one JSON line"
+    },
+    {
+     "name": "hee-srtscan",
+     "section": 1,
+     "path": "man/man1/hee-srtscan.txt",
+     "summary": "hee-srtscan command"
+    },
+    {
+     "name": "hee-stat",
+     "section": 1,
+     "path": "man/man1/hee-stat.txt",
+     "summary": "stat(1)'s -c FORMAT convention over namespaced resources"
+    },
+    {
+     "name": "hee-ticket",
+     "section": 1,
+     "path": "man/man1/hee-ticket.txt",
+     "summary": "repo-local tickets, stored as real YAML in git"
+    },
+    {
+     "name": "hee-tools",
+     "section": 1,
+     "path": "man/man1/hee-tools.txt",
+     "summary": "router for the external-toolchain check/update pair"
+    },
+    {
+     "name": "hee-tools-check",
+     "section": 1,
+     "path": "man/man1/hee-tools-check.txt",
+     "summary": "is every external tool this org expects actually here"
+    },
+    {
+     "name": "hee-tools-update",
+     "section": 1,
+     "path": "man/man1/hee-tools-update.txt",
+     "summary": "install or refresh the pinned external toolchain"
+    },
+    {
+     "name": "hee-url",
+     "section": 1,
+     "path": "man/man1/hee-url.txt",
+     "summary": "short links: u.tcos.us/axgoose8/ -> the page it stands for"
+    },
+    {
+     "name": "hee-vendor",
+     "section": 1,
+     "path": "man/man1/hee-vendor.txt",
+     "summary": "vendor HEE doctrine into a target repo, validator-safe"
+    },
+    {
+     "name": "hee-ver",
+     "section": 1,
+     "path": "man/man1/hee-ver.txt",
+     "summary": "version and verification discovery (hee ver{sion,ify})"
+    },
+    {
+     "name": "hee-view",
+     "section": 1,
+     "path": "man/man1/hee-view.txt",
+     "summary": "hee-view: one command, the whole real picture -- pve node, every"
+    },
+    {
+     "name": "hee-worktree",
+     "section": 1,
+     "path": "man/man1/hee-worktree.txt",
+     "summary": "per-session git worktree, no extra clone"
+    },
+    {
+     "name": "mt-logo-render",
+     "section": 1,
+     "path": "man/man1/mt-logo-render.txt",
+     "summary": "real Pillow renderer for the mt-logo recipe schema"
+    },
+    {
+     "name": "scan-hee-cards",
+     "section": 1,
+     "path": "man/man1/scan-hee-cards.txt",
+     "summary": "tolerant inventory of hee/cards/*"
+    },
+    {
+     "name": "uiboss",
+     "section": 1,
+     "path": "man/man1/uiboss.txt",
+     "summary": "uiboss ls"
+    }
+   ]
+  },
+  {
+   "section": 3,
+   "title": "Library Functions",
+   "pages": [
+    {
+     "name": "hee_status",
+     "section": 3,
+     "path": "man/man3/hee_status.txt",
+     "summary": "emit a status line in the org vocabulary (shell and Python)"
+    }
+   ]
+  },
+  {
+   "section": 5,
+   "title": "File Formats",
+   "pages": [
+    {
+     "name": "heerc",
+     "section": 5,
+     "path": "man/man5/heerc.txt",
+     "summary": "per-operator shell environment for the HEE toolchain"
+    }
+   ]
+  },
+  {
+   "section": 7,
+   "title": "Overviews and Conventions",
+   "pages": [
+    {
+     "name": "hee-status",
+     "section": 7,
+     "path": "man/man7/hee-status.txt",
+     "summary": "the org's status vocabulary and exit-code convention"
+    }
+   ]
+  },
+  {
+   "section": 8,
+   "title": "System Administration",
+   "pages": [
+    {
+     "name": "hee-cache-prune",
+     "section": 8,
+     "path": "man/man8/hee-cache-prune.txt",
+     "summary": "prune stale entries from the hee-* disk caches"
+    },
+    {
+     "name": "hee-mail",
+     "section": 8,
+     "path": "man/man8/hee-mail.txt",
+     "summary": "mailboxes, aliases and master access on the fleet's mail exchanger"
+    },
+    {
+     "name": "hee-pve",
+     "section": 8,
+     "path": "man/man8/hee-pve.txt",
+     "summary": "the pve family, and the host network read from a yaml"
+    },
+    {
+     "name": "hee-pve-deploy",
+     "section": 8,
+     "path": "man/man8/hee-pve-deploy.txt",
+     "summary": "deploy and provision a Proxmox LXC from one declarative manifest"
+    },
+    {
+     "name": "hee-pve-dispatch",
+     "section": 8,
+     "path": "man/man8/hee-pve-dispatch.txt",
+     "summary": "hand one bounded job to one agent container and collect the result"
+    },
+    {
+     "name": "hee-pve-users",
+     "section": 8,
+     "path": "man/man8/hee-pve-users.txt",
+     "summary": "hee-pve-users command"
+    },
+    {
+     "name": "hee-reset-tooling",
+     "section": 8,
+     "path": "man/man8/hee-reset-tooling.txt",
+     "summary": "conservative \"reset to new\" for stray tool directories"
+    },
+    {
+     "name": "hee-ssh-send-keys",
+     "section": 8,
+     "path": "man/man8/hee-ssh-send-keys.txt",
+     "summary": "hee-ssh-send-keys command"
+    },
+    {
+     "name": "hee-ssh-trust-ca",
+     "section": 8,
+     "path": "man/man8/hee-ssh-trust-ca.txt",
+     "summary": "hee-ssh-trust-ca command"
+    },
+    {
+     "name": "hee-trust",
+     "section": 8,
+     "path": "man/man8/hee-trust.txt",
+     "summary": "the fleet's trust anchors: who signs, and who believes whom"
+    }
+   ]
+  }
+ ]
+}
