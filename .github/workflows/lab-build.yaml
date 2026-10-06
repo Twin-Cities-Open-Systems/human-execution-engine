@@ -36,6 +36,12 @@ on:
 permissions:
   contents: read
 
+# The generator renders pages with man(1). It pipes the output, so no pager
+# can start, but nothing in a runner should be able to wait on one either.
+env:
+  PAGER: cat
+  MANPAGER: cat
+
 concurrency:
   group: lab-build
   cancel-in-progress: false
@@ -68,7 +74,8 @@ jobs:
         run: |
           set -eu
           cd "$RUNNER_TEMP/hee-man"
-          for f in index.json gophermap man/man1/hee.txt man/man1/hee-gen-manpages.txt; do
+          # These are paths inside the built tree, not files in this repo.
+          for f in index.json gophermap man/man1/hee.txt man/man1/hee-gen-manpages.txt; do  # hee-check:refs-ok
             test -s "$f" || { echo "::error::the tree is missing $f"; exit 1; }
           done
           python3 - <<'PY'
