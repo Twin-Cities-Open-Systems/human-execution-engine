@@ -14,7 +14,7 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     hee mail master  NAME[@DOMAIN]
     hee mail unmaster NAME[@DOMAIN]
     hee mail record  [-write]
-    hee mail check   [DOMAIN]
+    hee mail check   [DOMAIN | all]
     hee mail domain  list | add DOMAIN | handoff DOMAIN
     hee mail login   NAME[@DOMAIN]
     hee mail relay   show | set -label L -host H [-port P] -user U -cred ACCOUNT | clear
@@ -75,6 +75,11 @@ hee-mail - mailboxes, aliases and master access on the fleet's mail exchanger
     can never leave this fleet. Operator, 2026-09-19: "once we (if we) sell a
     domain and it's mail it should be fully configured to hand off. we build
     businesses to sell, that is our deal."
+
+    check is what the internet sees of a zone -- MX, SPF, DMARC, DKIM, then
+    the exchanger's A, PTR, banner and TLS -- by way of the package's
+    bin/check.sh. "check all" does every zone the exchanger receives for and
+    prints one line per zone; the exit is the worst of the set.
 
     login is for the human at the keyboard: it opens that mailbox's sealed
     password, puts it on the clipboard, and prints the server settings to type

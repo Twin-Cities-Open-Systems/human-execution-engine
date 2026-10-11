@@ -50,7 +50,7 @@ SYNOPSIS
   hee mail master  NAME[@DOMAIN]
   hee mail unmaster NAME[@DOMAIN]
   hee mail record  [-write]
-  hee mail check   [DOMAIN]
+  hee mail check   [DOMAIN | all]
   hee mail domain  list | add DOMAIN | handoff DOMAIN
   hee mail login   NAME[@DOMAIN]
   hee mail relay   show | set -label L -host H [-port P] -user U -cred ACCOUNT | clear
@@ -108,6 +108,11 @@ DESCRIPTION
   can never leave this fleet. Operator, 2026-09-19: "once we (if we) sell a
   domain and it's mail it should be fully configured to hand off. we build
   businesses to sell, that is our deal."
+
+  check is what the internet sees of a zone -- MX, SPF, DMARC, DKIM, then
+  the exchanger's A, PTR, banner and TLS -- by way of the package's
+  bin/check.sh. "check all" does every zone the exchanger receives for and
+  prints one line per zone; the exit is the worst of the set.
 
   login is for the human at the keyboard: it opens that mailbox's sealed
   password, puts it on the clipboard, and prints the server settings to type
@@ -643,7 +648,11 @@ do_check() {
   D=${1:-$DOMAIN}
   resolve_pkg
   [ -x "$PKG/bin/check.sh" ] || die "$PKG/bin/check.sh is missing -- it is the external check this wraps"
-  "$PKG/bin/check.sh" "$D"
+  # "all": every zone in the package's tables/domains that has a records
+  # file, the host once, one line per zone -- check.sh -all does the work.
+  # Operator, 2026-10-11: "easy administration of all our 13 domains".
+  [ "$D" = all ] && set -- -all || set -- "$D"
+  "$PKG/bin/check.sh" "$@"
 }
 
 # ---------------------------------------------------------------- dispatch
