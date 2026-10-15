@@ -270,6 +270,61 @@ class TestMounts(unittest.TestCase):
         self.assertIn("DRY RUN complete", out.getvalue())
 
 
+class TestDevices(unittest.TestCase):
+
+    def test_renders_devN_in_manifest_order(self):
+        self.assertEqual(deploy._devices({}), [])
+        self.assertEqual(
+            deploy._devices({"devices": [{"path": "/dev/dri/renderD128", "gid": 104, "mode": "0660"},
+                                         {"path": "/dev/ttyUSB0"}]}),
+            ["-dev0", "path=/dev/dri/renderD128,gid=104,mode=0660", "-dev1", "path=/dev/ttyUSB0"])
+
+    def test_refusals(self):
+        bad = [
+            {"devices": {}},                                               # not a list
+            {"devices": []},                                               # empty
+            {"devices": [{"gid": 104}]},                                   # no path
+            {"devices": [{"path": "dri/renderD128"}]},                     # relative
+            {"devices": [{"path": "/srv/x"}]},                             # not under /dev
+            {"devices": [{"path": "/dev/dri/../renderD128"}]},             # not normalized
+            {"devices": [{"path": "/dev/dri/renderD128"},
+                         {"path": "/dev/dri/renderD128"}]},                # duplicate
+            {"devices": [{"path": "/dev/dri/renderD128", "gid": "104"}]},  # gid not int
+            {"devices": [{"path": "/dev/dri/renderD128", "gid": True}]},   # bool is not an int here
+            {"devices": [{"path": "/dev/dri/renderD128", "gid": -1}]},     # negative
+            {"devices": [{"path": "/dev/dri/renderD128", "mode": 660}]},   # mode not a string
+            {"devices": [{"path": "/dev/dri/renderD128", "mode": "rw"}]},  # mode not octal
+            {"devices": [{"path": "/dev/dri/renderD128", "uid": 0}]},      # unknown key
+            {"devices": [{"path": "/dev/a,b"}]},                           # pve option syntax
+        ]
+        for spec in bad:
+            with self.subTest(spec=spec), self.assertRaises(SystemExit):
+                deploy._devices(spec)
+
+    def test_dry_run_prints_the_device_and_never_connects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "svc.yaml"
+            manifest.write_text(
+                "hostname: llm-test\ntemplate: debian.tar.zst\nstorage: ssd1\n"
+                "devices:\n  - {path: /dev/dri/renderD128, gid: 104, mode: \"0660\"}\n")
+            out = io.StringIO()
+            with mock.patch.object(deploy, "existing_hostnames", return_value={}), \
+                 mock.patch.object(deploy, "ensure_template", return_value=None), \
+                 mock.patch.object(deploy, "pvesh", return_value="999\n"), \
+                 mock.patch.object(sys, "argv", ["hee-pve-deploy", str(manifest), "--dry-run"]), \
+                 contextlib.redirect_stdout(out):
+                deploy.main()
+        self.assertIn("-dev0 path=/dev/dri/renderD128,gid=104,mode=0660", out.getvalue())
+        self.assertIn("DRY RUN complete", out.getvalue())
+
+    def test_drift_names_a_missing_or_stray_device(self):
+        spec = {"devices": [{"path": "/dev/dri/renderD128", "gid": 104, "mode": "0660"}]}
+        diffs = deploy.diff_config(spec, {}, "126")
+        self.assertTrue(any(cmd == "pct set 126 -dev0 path=/dev/dri/renderD128,gid=104,mode=0660" for _d, cmd in diffs))
+        diffs = deploy.diff_config({}, {"dev0": "path=/dev/dri/renderD128,gid=104,mode=0660"}, "126")
+        self.assertTrue(any(cmd == "pct set 126 -delete dev0" for _d, cmd in diffs))
+
+
 class TestAddonRegistry(unittest.TestCase):
 
     def test_missing_registry_refuses_rather_than_skips(self):
