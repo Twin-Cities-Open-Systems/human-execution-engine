@@ -88,13 +88,24 @@ def job_root(name: str, repo_name: str) -> str:
 # --------------------------------------------------------------------------
 
 def pct_shell(host: str, vmid, shell: str, user: str = "llm") -> list[str]:
-    """The exact argv that runs SHELL inside the container as USER."""
+    """The exact argv that runs SHELL inside the container as USER.
+
+    ssh joins everything after the host with spaces and hands it to the
+    node's shell, so the remote command is ONE string with SHELL quoted for
+    that shell; otherwise `su -c` receives only its first word (measured
+    2026-10-16: "Try 'su --help'", then the node looking for `git`).
+    """
     if not host:
         raise LlmError("no node: --host HOST or HEE_LLM_HOST")
     if not str(vmid or "").isdigit():
         raise LlmError("no container: --vmid N or HEE_LLM_VMID")
-    return ["ssh", "-o", "BatchMode=yes", f"root@{host}", "pct", "exec", str(vmid), "--",
-            "su", "-s", "/bin/sh", user, "-c", shell]
+    remote = f"pct exec {int(vmid)} -- su -s /bin/sh {shlex.quote(user)} -c {shlex.quote(shell)}"
+    return ["ssh", "-o", "BatchMode=yes", f"root@{host}", remote]
+
+
+def remote_shell(argv: list[str]) -> str:
+    """The SHELL a pct_shell argv carries, unquoted again (for logs and tests)."""
+    return shlex.split(argv[-1])[-1]
 
 
 def run(cmd: list[str], stdin: bytes | None = None, runner=None) -> subprocess.CompletedProcess:

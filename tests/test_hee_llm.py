@@ -29,7 +29,7 @@ class Recorder:
 
     def __call__(self, cmd, stdin):
         self.calls.append((cmd, stdin))
-        shell = cmd[-1]
+        shell = L.remote_shell(cmd) if cmd[0] == "ssh" else cmd[-1]
         rc = 1 if self.fail_on and self.fail_on in shell else 0
         out = b""
         for k, v in self.answers.items():
@@ -48,11 +48,11 @@ class Names(unittest.TestCase):
 
     def test_root_and_transport_argv(self):
         self.assertEqual(L.job_root("j", "repo"), "/var/lib/llm/work/j/repo")
-        argv = L.pct_shell("pve.example", 120, "true")
+        argv = L.pct_shell("pve.example", 120, "echo 'it''s' \"ok\"")
         self.assertEqual(argv[:4], ["ssh", "-o", "BatchMode=yes", "root@pve.example"])
-        self.assertEqual(argv[4:7], ["pct", "exec", "120"])
-        self.assertEqual(argv[-5:], ["su", "-s", "/bin/sh", "llm", "-c"] + [] if False else argv[-5:])
-        self.assertEqual(argv[-1], "true")
+        self.assertEqual(len(argv), 5, "one remote string, so ssh cannot re-split it")
+        self.assertTrue(argv[4].startswith("pct exec 120 -- su -s /bin/sh llm -c "))
+        self.assertEqual(L.remote_shell(argv), "echo 'it''s' \"ok\"")
         with self.assertRaises(L.LlmError):
             L.pct_shell("", 120, "true")
         with self.assertRaises(L.LlmError):
@@ -67,7 +67,7 @@ class Transport(unittest.TestCase):
         self.assertGreater(res["bytes"], 10000)
         cmd, stdin = rec.calls[0]
         self.assertEqual(len(stdin), res["bytes"])
-        shell = cmd[-1]
+        shell = L.remote_shell(cmd)
         for part in ("mkdir -p", "tar -x", "git init -q", "git add -A", "commit -q --allow-empty -m baseline", "git tag -f baseline", ".repo"):
             self.assertIn(part, shell)
         self.assertIn(f"/var/lib/llm/work/demo/{ROOT.name}", shell)
@@ -89,7 +89,7 @@ class Transport(unittest.TestCase):
             res = L.collect("demo", d, host="h", vmid=1, runner=rec)
             self.assertEqual(res["commits"], 1)
             self.assertEqual(Path(res["path"]).read_bytes(), patch)
-        shell = rec.calls[-1][0][-1]
+        shell = L.remote_shell(rec.calls[-1][0])
         for part in ("git add -A", "git diff --cached --quiet ||", "commit -q -m 'hee llm job demo'", "git format-patch baseline --stdout"):
             self.assertIn(part, shell)
 
@@ -97,7 +97,7 @@ class Transport(unittest.TestCase):
         rec = Recorder({"ls -1": "demo\n.hidden\nother\n"})
         self.assertEqual(L.list_jobs(host="h", vmid=1, runner=rec), ["demo", "other"])
         L.remove("demo", host="h", vmid=1, runner=rec)
-        self.assertIn("rm -rf /var/lib/llm/work/demo /var/lib/llm/out/demo", rec.calls[-1][0][-1])
+        self.assertIn("rm -rf /var/lib/llm/work/demo /var/lib/llm/out/demo", L.remote_shell(rec.calls[-1][0]))
         with self.assertRaises(L.LlmError):
             L.remove("../etc", host="h", vmid=1, runner=rec)
 
