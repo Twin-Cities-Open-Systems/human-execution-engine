@@ -80,6 +80,8 @@ class Graders(unittest.TestCase):
         self.assertNotIn("8.1.3", s, "a version is not a host")
         self.assertNotIn("proxmox-release-bookworm.gpg", s, "a file is not a host")
         self.assertNotIn("download.proxmox.com", s, "the host inside a found URL is reported once, as the URL")
+        s = B.specifics("Save output to a file (e.g., evidence.txt) before touching repos, i.e. now; at 9 a.m. check ns1.lab.local.")
+        self.assertEqual(s, {"ns1.lab.local"}, "e.g / i.e / a.m are abbreviations, not hosts (first real run, 2026-10-16)")
 
     def test_no_invented_against_prompt_and_allowed(self):
         c = case(kind="no_invented", expected=None,

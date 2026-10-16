@@ -244,7 +244,9 @@ def specifics(text: str) -> set[str]:
 
     A version like ``8.1.3`` is not a host (its last label has no letter);
     ``proxmox-release-bookworm.gpg`` is not a host (its last label is a file
-    suffix); a host that is part of a found URL is reported once, as the URL.
+    suffix); ``e.g`` and ``i.e`` are not hosts (no TLD is one letter -- found
+    on the first real run, 2026-10-16); a host that is part of a found URL is
+    reported once, as the URL.
     """
     t = strip_thinking(text)
     urls = {m.group(0).rstrip(".,;:").lower() for m in _URL.finditer(t)}
@@ -256,7 +258,9 @@ def specifics(text: str) -> set[str]:
         if _IPV4.fullmatch(h):
             continue
         last = h.rsplit(".", 1)[-1]
-        if not re.search(r"[a-z]", last) or last in _FILE_SUFFIXES:
+        # a version (8.1.3) has no letter in its last label; a file (x.gpg) has a suffix; an
+        # abbreviation (e.g, i.e, a.m) has a one-letter last label, and no TLD is one letter
+        if not re.search(r"[a-z]", last) or len(last) < 2 or last in _FILE_SUFFIXES:
             continue
         if any(h in u for u in urls):
             continue
