@@ -1,0 +1,8 @@
+kind: set
+source: "fixture -- extraction over supplied text; a real corpus takes a handoff paragraph"
+system: "List every hostname that appears in the text, comma-separated, nothing else. If none, answer NONE."
+prompt: "The service runs on alpha-1 behind proxy-1; ns-1 resolves it. The operator attaches from desk-2."
+expected: [alpha-1, proxy-1, ns-1, desk-2]
+max_tokens: 32
+severity: 3
+detection: 4

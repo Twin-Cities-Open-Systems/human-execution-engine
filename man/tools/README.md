@@ -6,6 +6,7 @@ tool change; do not hand-edit the per-tool files, edit the tool's
 --help text instead so this stays accurate.
 
 - [`hee-attach`](hee-attach.1.md)
+- [`hee-bench`](hee-bench.1.md)
 - [`hee-board`](hee-board.1.md)
 - [`hee-cache-prune`](hee-cache-prune.1.md)
 - [`hee-check-og`](hee-check-og.1.md)

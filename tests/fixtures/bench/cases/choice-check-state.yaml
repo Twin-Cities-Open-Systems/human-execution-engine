@@ -1,0 +1,9 @@
+kind: choice
+source: "fixture -- the Nagios state vocabulary every hee tool reports in (library/py/hee_status)"
+system: "Answer with exactly one word from this list: OK, WARNING, CRITICAL, UNKNOWN."
+prompt: "A monitoring check printed: 'disk /data 91% used (threshold warn 85, crit 95)'. Which state is it?"
+choices: [OK, WARNING, CRITICAL, UNKNOWN]
+expected: WARNING
+max_tokens: 4
+severity: 5
+detection: 5
