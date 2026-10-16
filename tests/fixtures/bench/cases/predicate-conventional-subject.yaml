@@ -1,0 +1,10 @@
+# A fixture, not a fleet case: generic content so the engine's own tests need no fleet.
+kind: predicate
+source: "fixture -- the org's Conventional Commits rule (prompts/PROMPTING_RULES.md); a real corpus cites the PR"
+system: "You are a strict gate. Answer with exactly one token: YES or NO. No explanation."
+prompt: "Is this a valid Conventional Commits subject line? 'feat(cli): add a list verb'"
+expected: YES
+max_tokens: 4
+severity: 4
+detection: 3
+why: "a wrong gate lets an unconventional title through; the PR title check downstream catches most"

@@ -1,0 +1,161 @@
+{
+ "endpoint": "http://fixture.invalid:8080",
+ "finished_utc": "2026-10-16T00:00:00Z",
+ "hee_bench": 1,
+ "model": "default",
+ "repeats": 1,
+ "results": [
+  {
+   "allowed": [],
+   "attempts": [
+    {
+     "completion_tokens": 1,
+     "detail": "",
+     "finish_reason": "stop",
+     "got": "WARNING",
+     "latency_ms": 12.3,
+     "pass": true,
+     "prompt_tokens": 17,
+     "raw": "WARNING",
+     "tok_per_s": 30.0
+    }
+   ],
+   "choices": [
+    "OK",
+    "WARNING",
+    "CRITICAL",
+    "UNKNOWN"
+   ],
+   "detection": 5,
+   "expected": "WARNING",
+   "fails": 0,
+   "kind": "choice",
+   "max_tokens": 4,
+   "name": "choice-check-state",
+   "occurrence": 0,
+   "pass": true,
+   "prompt": "A monitoring check printed: 'disk /data 91% used (threshold warn 85, crit 95)'. Which state is it?",
+   "repeats": 1,
+   "rpn": 0,
+   "severity": 5,
+   "source": "fixture -- the Nagios state vocabulary every hee tool reports in (library/py/hee_status)",
+   "system": "Answer with exactly one word from this list: OK, WARNING, CRITICAL, UNKNOWN.",
+   "why": ""
+  },
+  {
+   "allowed": [
+    "example.org"
+   ],
+   "attempts": [
+    {
+     "completion_tokens": 54,
+     "detail": "",
+     "finish_reason": "stop",
+     "got": "0 invented",
+     "latency_ms": 12.3,
+     "pass": true,
+     "prompt_tokens": 64,
+     "raw": "1. Start ct101 ns-1 (10.0.0.5) and check it answers a query.\n2. Start ct103 proxy-1 (10.0.0.6) and check its health page.\n3. Start ct105 app-1; its address is DHCP, so measure the lease first.\n4. Leave ct112 golden stopped (onboot=0).\n5. The repository name is not in the facts: record it before adding it.",
+     "tok_per_s": 30.0
+    }
+   ],
+   "choices": null,
+   "detection": 8,
+   "expected": null,
+   "fails": 0,
+   "kind": "no_invented",
+   "max_tokens": 400,
+   "name": "no-invented-plan",
+   "occurrence": 0,
+   "pass": true,
+   "prompt": "FACTS:\nct101 ns-1 running onboot=1 10.0.0.5  -- the resolver every other guest uses\nct103 proxy-1 running onboot=1 10.0.0.6 -- the only ingress\nct105 app-1 running onboot=1 dhcp\nct112 golden stopped onboot=0\nPackage repository to add: the vendor's free tier, name not recorded here.\nTASK: in what order should the guests come back after the host reboots, and what must be checked at each step?\n",
+   "repeats": 1,
+   "rpn": 0,
+   "severity": 7,
+   "source": "fixture -- the shape of llm-1's first real task (an upgrade plan over a fact table), with generic facts",
+   "system": "You are an operations planner. Using ONLY the facts given, write the restart order as numbered steps. Do not invent hosts, services, addresses or URLs that are not in the facts. Where a fact is missing, say what must be measured first.",
+   "why": "an invented repository URL or hostname in a plan is acted on before anyone re-reads the facts"
+  },
+  {
+   "allowed": [],
+   "attempts": [
+    {
+     "completion_tokens": 1,
+     "detail": "",
+     "finish_reason": "stop",
+     "got": "YES",
+     "latency_ms": 12.3,
+     "pass": true,
+     "prompt_tokens": 13,
+     "raw": "YES",
+     "tok_per_s": 30.0
+    }
+   ],
+   "choices": null,
+   "detection": 3,
+   "expected": "YES",
+   "fails": 0,
+   "kind": "predicate",
+   "max_tokens": 4,
+   "name": "predicate-conventional-subject",
+   "occurrence": 0,
+   "pass": true,
+   "prompt": "Is this a valid Conventional Commits subject line? 'feat(cli): add a list verb'",
+   "repeats": 1,
+   "rpn": 0,
+   "severity": 4,
+   "source": "fixture -- the org's Conventional Commits rule (prompts/PROMPTING_RULES.md); a real corpus cites the PR",
+   "system": "You are a strict gate. Answer with exactly one token: YES or NO. No explanation.",
+   "why": "a wrong gate lets an unconventional title through; the PR title check downstream catches most"
+  },
+  {
+   "allowed": [],
+   "attempts": [
+    {
+     "completion_tokens": 4,
+     "detail": "",
+     "finish_reason": "stop",
+     "got": "alpha-1, desk-2, ns-1, proxy-1",
+     "latency_ms": 12.3,
+     "pass": true,
+     "prompt_tokens": 15,
+     "raw": "alpha-1, proxy-1, ns-1, desk-2",
+     "tok_per_s": 30.0
+    }
+   ],
+   "choices": null,
+   "detection": 4,
+   "expected": [
+    "alpha-1",
+    "proxy-1",
+    "ns-1",
+    "desk-2"
+   ],
+   "fails": 0,
+   "kind": "set",
+   "max_tokens": 32,
+   "name": "set-hostnames",
+   "occurrence": 0,
+   "pass": true,
+   "prompt": "The service runs on alpha-1 behind proxy-1; ns-1 resolves it. The operator attaches from desk-2.",
+   "repeats": 1,
+   "rpn": 0,
+   "severity": 3,
+   "source": "fixture -- extraction over supplied text; a real corpus takes a handoff paragraph",
+   "system": "List every hostname that appears in the text, comma-separated, nothing else. If none, answer NONE.",
+   "why": ""
+  }
+ ],
+ "served_model": "fixture-model-q4",
+ "started_utc": "2026-10-16T00:00:00Z",
+ "summary": {
+  "cases": 4,
+  "failed": 0,
+  "latency_ms_total": 49.2,
+  "passed": 4,
+  "rpn_ceiling": 1050,
+  "rpn_total": 0,
+  "tok_per_s_median": 30.0,
+  "worst": []
+ }
+}

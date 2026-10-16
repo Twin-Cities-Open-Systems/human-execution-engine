@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+# section: 1
+"""hee-bench -- judge a model against this org's own work, not a leaderboard
+
+SYNOPSIS
+  hee-bench list   [--cases DIR]
+  hee-bench check  [--cases DIR]
+  hee-bench run    [--cases DIR] [--endpoint URL] [--model NAME] [--repeats N]
+                   [--only CASE ...] [--timeout SEC] [--out FILE] [--dry-run]
+  hee-bench grade  RUN.json [--out FILE]
+  hee-bench report RUN.json [RUN.json ...]
+  hee-bench [VERB] help
+
+DESCRIPTION
+  HEE#361. Operator, 2026-08-24: "we only care about LLMs and models acting
+  against things we care about, not some broad marketing benchmark." A bench
+  here is a directory of cases, one YAML file each, every one drawn from
+  real work this org already did and graded against what the org valued in
+  the real outcome. The graders are deterministic -- no model judges a
+  model -- and a saved run can be re-graded with no network.
+
+  The endpoint is any OpenAI-compatible server (/v1/chat/completions):
+  llama.cpp's llama-server, Ollama, vLLM. Every request goes at temperature
+  0 with the case's own token budget.
+
+  Scoring is HEE#326's RPN, not a new scheme. A case declares severity (what
+  a wrong answer costs where that gate sits, 1..10) and detection (how
+  likely a wrong answer slips past whatever checks it downstream, 1..10,
+  10 = never caught). Occurrence is measured: the failure rate over the
+  run's repeats on a 0..10 scale, 0 when every repeat passed. The run's RPN
+  is the sum over cases; lower is better, and the ceiling (every case
+  failing every time) is printed beside it so a number has a scale.
+
+  Why RPN and not a percentage: a model that misses one cheap, well-caught
+  case and one that misses the one case nobody checks downstream have the
+  same pass rate. They are not the same model for this org's work.
+
+A CASE
+  One file, <name>.yaml; the file name is the case name.
+
+    kind: predicate        # predicate | choice | set | exact | no_invented
+    source: "fleet-ops#1003's title, merged 2026-10-16"   # required: the real work this came from
+    system: "You are a strict gate. Answer YES or NO."     # optional
+    prompt: "Is this a Conventional Commits subject? 'fix(pve): ...'"
+    expected: YES          # predicate: YES|NO. choice: one of choices. set: a list
+                           # (empty = NONE). exact: a string. no_invented: omitted.
+    choices: [OK, WARNING, CRITICAL, UNKNOWN]   # choice only
+    allowed: [example.org] # no_invented only: specifics the answer may name
+                           # besides those already in the prompt
+    max_tokens: 4          # default predicate/choice 8, set/exact 64, no_invented 1024
+    severity: 6            # 1..10, default 5
+    detection: 4           # 1..10, default 5
+    why: "a wrong gate here lets an unconventional title reach main"   # optional
+
+  Graders, by kind:
+    predicate    the answer's first word, upper-cased, equals YES or NO
+    choice       the first word equals the expected choice (case folded)
+    set          the answer split on commas/newlines/semicolons, compared as
+                 a case-folded set; the word NONE is the empty set
+    exact        whitespace and case folded, a trailing period dropped
+    no_invented  every URL, IPv4 address, ctNNN vmid and dotted hostname in
+                 the answer must appear in the prompt, the system text or
+                 `allowed`. The failure llm-1 showed on its first real task:
+                 right dependency order, invented repository URL and names.
+  A <think>...</think> trace is stripped before grading if the server let
+  one through.
+
+VERBS
+  list     every case: name, kind, severity, detection, token budget, source
+  check    validate every case file; CRITICAL names the first bad one
+  run      ask the endpoint every case --repeats times (default 1), grade
+           each answer, print one line per answer and the totals. --out
+           writes the whole run as JSON: every raw answer, the server's own
+           timings, the grading, and the case itself, so the file stands
+           alone. --only limits the run to the named cases. --dry-run
+           prints what would be sent and touches no network.
+  grade    re-grade a saved run with today's graders, no network. --out
+           writes the re-graded run; without it the totals are printed.
+  report   a Markdown table, one row per case and one column per run.
+           Several runs of one model over time show drift; runs of several
+           models against one corpus show which to pick.
+
+EXAMPLES
+  $ hee-bench list --cases tests/fixtures/bench/cases                               # ci
+  $ hee-bench check --cases tests/fixtures/bench/cases                              # ci
+  $ hee-bench run --cases tests/fixtures/bench/cases --endpoint http://127.0.0.1:9 --dry-run   # ci
+  $ hee-bench grade tests/fixtures/bench/run.json                                   # ci
+  $ hee-bench report tests/fixtures/bench/run.json                                  # ci
+  $ HEE_BENCH_ENDPOINT=http://llm.lab.example:8080 hee-bench run --cases ~/git/fleet/hee/bench/cases --out runs/$(date -u +%Y%m%dT%H%M%SZ).json
+  $ hee-bench run --only pr-title-conventional-yes --repeats 5
+  $ hee-bench report runs/*.json
+
+  The run example is not marked for CI because it needs a live endpoint.
+
+EXIT STATUS
+  0  OK        list/check: every case valid; run/grade: every case passed
+  2  CRITICAL  a case file is invalid, or run/grade found a failing case
+  3  UNKNOWN   usage error, no cases directory, endpoint unset or unreachable,
+               a run file that is not one
+
+ENVIRONMENT
+  HEE_BENCH_CASES      the cases directory when --cases is not given
+  HEE_BENCH_ENDPOINT   the endpoint when --endpoint is not given; there is
+                       no default, a fleet's endpoint is fleet state
+  HEE_BENCH_MODEL      the model name sent in the request (default "default",
+                       which llama-server maps to the one it has loaded)
+
+FILES
+  <cases>/*.yaml       the cases; a fleet keeps them in its own repo
+  RUN.json             a saved run (hee_bench: 1), self-contained
+
+SEE ALSO
+  hee-lint(1), hee-check(1), library/py/hee_bench, HEE#352, HEE#361, HEE#326
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "library" / "py"))
+import hee_bench as B
+from hee_cli import help_wanted, note_ignored
+from hee_status import ArgumentParser, Status, emit, exit_with
+
+VALUE_FLAGS = ("--cases", "--endpoint", "--model", "--repeats", "--only", "--timeout", "--out")
+
+
+def _cases_dir(args) -> str:
+    d = args.cases or os.environ.get("HEE_BENCH_CASES")
+    if not d:
+        raise SystemExit("no cases directory: --cases DIR or HEE_BENCH_CASES")
+    return d
+
+
+def cmd_list(args) -> int:
+    cases = B.load_cases(_cases_dir(args))
+    w = max(len(c["name"]) for c in cases)
+    for c in cases:
+        print(f"{c['name']:<{w}}  {c['kind']:<11} S{c['severity']:<2} D{c['detection']:<2} "
+              f"{c['max_tokens']:>5} tok  {c['source']}")
+    emit(Status.OK, f"{len(cases)} case(s) in {_cases_dir(args)}", stream=sys.stderr)
+    return 0
+
+
+def cmd_check(args) -> int:
+    d = Path(_cases_dir(args)).expanduser()
+    if not d.is_dir():
+        raise SystemExit(f"no cases directory {d}")
+    bad = 0
+    n = 0
+    for p in sorted(d.glob("*.yaml")):
+        n += 1
+        try:
+            import yaml
+            with open(p, encoding="utf-8") as f:
+                B.validate_case(yaml.safe_load(f), p.stem, where=str(p))
+        except (B.BenchError, yaml.YAMLError) as e:
+            bad += 1
+            emit(Status.CRITICAL, str(e))
+    if n == 0:
+        raise SystemExit(f"no *.yaml cases in {d}")
+    if bad:
+        emit(Status.CRITICAL, f"{bad} of {n} case file(s) invalid in {d}")
+        return 2
+    emit(Status.OK, f"{n} case file(s) valid in {d}")
+    return 0
+
+
+def _print_totals(run: dict) -> Status:
+    s = run["summary"]
+    worst = "".join(f"\n      {w['name']} rpn {w['rpn']}" for w in s["worst"])
+    tps = f", median {s['tok_per_s_median']} tok/s" if s["tok_per_s_median"] is not None else ""
+    lvl = Status.OK if s["failed"] == 0 else Status.CRITICAL
+    emit(lvl, f"{s['passed']}/{s['cases']} passed, RPN {s['rpn_total']} of {s['rpn_ceiling']}{tps}"
+              f" -- {run.get('served_model') or run.get('model')} at {run.get('endpoint', '?')}{worst}")
+    return lvl
+
+
+def cmd_run(args) -> int:
+    cases = B.load_cases(_cases_dir(args), only=args.only or None)
+    endpoint = args.endpoint or os.environ.get("HEE_BENCH_ENDPOINT")
+    if not endpoint:
+        raise SystemExit("no endpoint: --endpoint URL or HEE_BENCH_ENDPOINT")
+    model = args.model or os.environ.get("HEE_BENCH_MODEL") or "default"
+    if args.dry_run:
+        import json
+        for c in cases:
+            body = B.request_body(c, model)
+            print(f"{c['name']}: {c['kind']}, {c['max_tokens']} tok, "
+                  f"{len(json.dumps(body))} bytes to {endpoint.rstrip('/')}/v1/chat/completions")
+        emit(Status.OK, f"dry run: {len(cases)} case(s) x {args.repeats} would go to {endpoint}; nothing sent")
+        return 0
+    try:
+        run = B.run(cases, endpoint, model=model, repeats=args.repeats, timeout=args.timeout,
+                    log=lambda m: print(f"  {m}"))
+    except B.BenchError as e:
+        raise SystemExit(str(e))
+    if args.out:
+        p = B.save(run, args.out)
+        print(f"  wrote {p}")
+    lvl = _print_totals(run)
+    return 0 if lvl is Status.OK else 2
+
+
+def cmd_grade(args) -> int:
+    run = B.regrade(B.load_run(args.run))
+    if args.out:
+        p = B.save(run, args.out)
+        print(f"  wrote {p}")
+    lvl = _print_totals(run)
+    return 0 if lvl is Status.OK else 2
+
+
+def cmd_report(args) -> int:
+    runs = [B.load_run(p) for p in args.run]
+    print(B.report_md(runs))
+    return 0
+
+
+def build_parser() -> ArgumentParser:
+    ap = ArgumentParser(prog="hee-bench", add_help=False)
+    ap.add_argument("--cases")
+    sub = ap.add_subparsers(dest="verb", required=True)
+
+    p = sub.add_parser("list", add_help=False)
+    p.add_argument("--cases")
+    p.set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("check", add_help=False)
+    p.add_argument("--cases")
+    p.set_defaults(fn=cmd_check)
+
+    p = sub.add_parser("run", add_help=False)
+    p.add_argument("--cases")
+    p.add_argument("--endpoint")
+    p.add_argument("--model")
+    p.add_argument("--repeats", type=int, default=1)
+    p.add_argument("--only", action="append")
+    p.add_argument("--timeout", type=float, default=120)
+    p.add_argument("--out")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(fn=cmd_run)
+
+    p = sub.add_parser("grade", add_help=False)
+    p.add_argument("run")
+    p.add_argument("--out")
+    p.set_defaults(fn=cmd_grade)
+
+    p = sub.add_parser("report", add_help=False)
+    p.add_argument("run", nargs="+")
+    p.set_defaults(fn=cmd_report)
+    return ap
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if help_wanted(argv, VALUE_FLAGS) or not argv:
+        note_ignored(argv, value_flags=VALUE_FLAGS)
+        print(__doc__.strip())
+        return 0
+    ap = build_parser()
+    args = ap.parse_args(argv)
+    # the global --cases and the verb's own --cases are one setting
+    if getattr(args, "cases", None) is None:
+        args.cases = None
+    try:
+        return args.fn(args)
+    except B.BenchError as e:
+        raise SystemExit(str(e))
+
+
+if __name__ == "__main__":
+    exit_with(main)
