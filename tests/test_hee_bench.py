@@ -171,6 +171,17 @@ class Scoring(unittest.TestCase):
         self.assertEqual(re["summary"]["worst"][0]["name"], r["name"])
         self.assertIn("regraded_utc", re)
 
+    def test_regrade_keeps_an_empty_set_and_no_choices(self):
+        none_case = case(kind="set", expected=[], max_tokens=8)
+        plan_case = case(kind="no_invented", expected=None, prompt="FACTS: ct101 ns-1", allowed=[])
+        saved = {"hee_bench": 1, "results": [
+            B._record(none_case, [{"raw": "NONE", **B.grade(none_case, "NONE")}]),
+            B._record(plan_case, [{"raw": "start ct101 ns-1", **B.grade(plan_case, "start ct101 ns-1")}]),
+        ]}
+        re = B.regrade(saved)       # failed on 2026-10-16's first real run: expected [] was dropped
+        self.assertEqual(re["summary"]["passed"], 2)
+        self.assertEqual(re["results"][0]["expected"], [])
+
     def test_report_table(self):
         md = B.report_md([B.load_run(RUN), B.regrade(B.load_run(RUN))])
         self.assertIn("| set-hostnames |", md)

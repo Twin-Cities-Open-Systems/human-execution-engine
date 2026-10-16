@@ -438,8 +438,9 @@ def regrade(saved: dict) -> dict:
         raise BenchError(f"not a hee-bench run file (hee_bench: {SCHEMA_VERSION})")
     results = []
     for old in saved.get("results") or []:
-        case = validate_case({k: old.get(k) for k in _CASE_FIELDS if old.get(k) not in (None, [], "")
-                              or k in ("prompt", "source", "kind")}, old.get("name") or "?")
+        # every field the run recorded, as recorded: an empty expected list IS the NONE case
+        case = validate_case({k: old[k] for k in _CASE_FIELDS if k in old and old[k] is not None},
+                             old.get("name") or "?")
         attempts = []
         for a in old.get("attempts") or []:
             g = grade(case, a.get("raw") or "")
