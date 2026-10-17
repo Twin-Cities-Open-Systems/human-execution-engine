@@ -3,9 +3,9 @@
 """hee-llm -- give a local model work, not access: a checkout in, a patch out
 
 SYNOPSIS
-  hee-llm job start NAME --repo DIR [--ref REF] [--dry-run]
-  hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--max-steps N]
-                 [--max-tokens N] [--repo-name NAME] [--json]
+  hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run]
+  hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--read-also DIR ...]
+                 [--max-steps N] [--max-tokens N] [--repo-name NAME] [--json]
   hee-llm job collect NAME --out DIR [--repo-name NAME]
   hee-llm job list
   hee-llm job rm NAME
@@ -27,14 +27,20 @@ DESCRIPTION
            untracked secrets), shipped over `ssh root@HOST pct exec VMID`
            into /var/lib/llm/work/NAME/<repo>, then `git init`, one baseline
            commit and a `baseline` tag inside, so the model's edits are a
-           diff against a known tree.
+           diff against a known tree. Or --from PATH: a path INSIDE the
+           container (a read-only mirror on a share, say) cloned locally,
+           history kept, nothing over the wire; the `baseline` tag is its
+           HEAD. Exactly one of --repo and --from.
   ask      the tool loop over the OpenAI-compatible API. The server's tool
            definitions (GET /tools) are passed with the prompt; by default
            only the read-only ones (read_file, file_glob_search, grep_search,
            get_info). --allow-write adds write_file and edit_file,
            --allow-shell adds exec_shell_command, each per job. Every call is
            guarded: a path outside the job's root is refused and the model
-           is told so; a shell command is run with `cd` into the root. Calls
+           is told so; --read-also DIR (repeatable) lets the READ-ONLY tools
+           look under DIR too (other repositories on a mirror), while the
+           write tools stay held to the root; a shell command is run with
+           `cd` into the root. Calls
            execute on the server (POST /tools) and their results go back to
            the model until it answers in text or --max-steps (default 8) is
            spent. The transcript of tool calls is printed; --json dumps it.
@@ -56,9 +62,11 @@ EXAMPLES
   $ hee-llm tools                                                              # ci
   $ hee-llm tools --allow-write --allow-shell                                  # ci
   $ hee-llm job start ci-demo --repo . --ref HEAD --host pve.example --vmid 1 --dry-run   # ci
+  $ hee-llm job start ci-demo --from /data/storage/git/repo --host pve.example --vmid 1 --dry-run   # ci
   $ HEE_LLM_HOST=10.0.0.153 HEE_LLM_VMID=120 hee-llm job start fix-readme --repo ~/git/fleet-ops --ref origin/main
   $ HEE_LLM_ENDPOINT=http://10.0.0.169:8080 hee-llm job ask fix-readme "Which manifests under pve/services lack onboot? Read them."
   $ hee-llm job ask fix-readme --allow-write "Fix the typo 'recieve' in pve/llm/README.md."
+  $ hee-llm job start audit --from /data/storage/git/fleet-ops && hee-llm job ask audit --read-also /data/storage/git "Which hosts in inventory are not in pve/services?"
   $ hee-llm job collect fix-readme --out /tmp/fix-readme && git am /tmp/fix-readme/fix-readme.patch
   $ hee-llm job rm fix-readme
 
@@ -97,7 +105,7 @@ import hee_llm as L
 from hee_cli import help_wanted, note_ignored
 from hee_status import ArgumentParser, Status, emit, exit_with
 
-VALUE_FLAGS = ("--host", "--vmid", "--endpoint", "--repo", "--ref", "--out", "--max-steps", "--max-tokens", "--repo-name")
+VALUE_FLAGS = ("--host", "--vmid", "--endpoint", "--repo", "--ref", "--out", "--max-steps", "--max-tokens", "--repo-name", "--from", "--read-also")
 
 
 def _node(args):
@@ -123,13 +131,15 @@ def cmd_start(args) -> int:
     host, vmid = _node(args)
     if not args.dry_run:
         L.pct_shell(host, vmid, "true")       # refuses early with the exact missing setting
-    res = L.start(args.name, args.repo, host=host, vmid=vmid or "0", ref=args.ref, dry_run=args.dry_run)
+    res = L.start(args.name, args.repo, host=host, vmid=vmid or "0", ref=args.ref, dry_run=args.dry_run, from_path=args.from_path)
     if res["dry_run"]:
-        print(f"would ship {res['bytes']} bytes of {res['repo']} at {res['ref']} to {res['root']} on vmid {vmid or '?'} of {host or '?'}")
+        what = f"clone {res['from']} inside the container" if res["from"] else f"ship {res['bytes']} bytes of {res['repo']} at {res['ref']}"
+        print(f"would {what} to {res['root']} on vmid {vmid or '?'} of {host or '?'}")
         print(f"inside: {res['shell']}")
         emit(Status.OK, "dry run: nothing shipped")
         return 0
-    emit(Status.OK, f"job {res['name']}: {res['repo']} at {res['ref']} ({res['bytes']} bytes) is at {res['root']} with a baseline tag")
+    src = f"cloned from {res['from']}" if res["from"] else f"{res['repo']} at {res['ref']} ({res['bytes']} bytes)"
+    emit(Status.OK, f"job {res['name']}: {src} is at {res['root']} with a baseline tag")
     return 0
 
 
@@ -140,7 +150,7 @@ def cmd_ask(args) -> int:
     root = L.job_root(args.name, repo_name)
     allow = L.allowed_tools(args.allow_write, args.allow_shell)
     res = L.ask(ep, root, args.prompt, allow=allow, max_steps=args.max_steps, max_tokens=args.max_tokens,
-                model=os.environ.get("HEE_LLM_MODEL") or "default",
+                model=os.environ.get("HEE_LLM_MODEL") or "default", read_roots=tuple(args.read_also or ()),
                 log=None if args.json else (lambda m: print(f"  tool: {m}")))
     if args.json:
         print(json.dumps({"answer": res["answer"], "steps": res["steps"], "stopped": res["stopped"]}, indent=1))
@@ -203,7 +213,8 @@ def build_parser() -> ArgumentParser:
     p = js.add_parser("start", add_help=False)
     _common(p)
     p.add_argument("name")
-    p.add_argument("--repo", required=True)
+    p.add_argument("--repo")
+    p.add_argument("--from", dest="from_path")
     p.add_argument("--ref", default="HEAD")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_start)
@@ -214,6 +225,7 @@ def build_parser() -> ArgumentParser:
     p.add_argument("prompt")
     p.add_argument("--allow-write", action="store_true")
     p.add_argument("--allow-shell", action="store_true")
+    p.add_argument("--read-also", action="append")
     p.add_argument("--max-steps", type=int, default=8)
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument("--repo-name")

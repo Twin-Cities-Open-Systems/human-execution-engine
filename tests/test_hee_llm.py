@@ -72,6 +72,24 @@ class Transport(unittest.TestCase):
             self.assertIn(part, shell)
         self.assertIn(f"/var/lib/llm/work/demo/{ROOT.name}", shell)
 
+    def test_start_from_a_path_inside_the_container(self):
+        rec = Recorder()
+        res = L.start("demo", host="h", vmid=1, from_path="/data/storage/git/fleet-ops", runner=rec)
+        self.assertEqual(res["repo"], "fleet-ops")
+        self.assertEqual(res["bytes"], 0)
+        cmd, stdin = rec.calls[0]
+        self.assertIsNone(stdin, "nothing crosses the wire")
+        shell = L.remote_shell(cmd)
+        self.assertIn("git clone -q --no-hardlinks /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
+        self.assertIn("git tag -f baseline", shell)
+        self.assertIn(".repo", shell)
+        with self.assertRaises(L.LlmError):
+            L.start("demo", str(ROOT), host="h", vmid=1, from_path="/x", runner=rec)     # both sources
+        with self.assertRaises(L.LlmError):
+            L.start("demo", host="h", vmid=1, runner=rec)                                 # neither
+        with self.assertRaises(L.LlmError):
+            L.start("demo", host="h", vmid=1, from_path="relative/path", runner=rec)
+
     def test_start_dry_run_touches_nothing(self):
         rec = Recorder()
         res = L.start("demo", str(ROOT), host="", vmid="", dry_run=True, runner=rec)
@@ -122,6 +140,18 @@ class Guard(unittest.TestCase):
             _, refusal = L.guard("read_file", {"path": bad}, self.ROOT)
             self.assertIsNotNone(refusal, bad)
             self.assertIn("outside the job root", refusal)
+
+    def test_read_roots_open_reads_only(self):
+        mirror = "/data/storage/git"
+        args, refusal = L.guard("read_file", {"path": mirror + "/inventory/README.md"}, self.ROOT, (mirror,))
+        self.assertIsNone(refusal)
+        self.assertEqual(args["path"], mirror + "/inventory/README.md")
+        _, refusal = L.guard("write_file", {"path": mirror + "/inventory/README.md"}, self.ROOT, (mirror,))
+        self.assertIsNotNone(refusal, "a write tool is still held to the job root")
+        _, refusal = L.guard("read_file", {"path": "/data/storage/llm/models/x.gguf"}, self.ROOT, (mirror,))
+        self.assertIsNotNone(refusal, "a read outside both the root and the read roots is refused")
+        _, refusal = L.guard("read_file", {"path": mirror + "/../llm/x"}, self.ROOT, (mirror,))
+        self.assertIsNotNone(refusal, "dot-dot does not escape a read root")
 
     def test_shell_is_cd_into_root(self):
         args, refusal = L.guard("exec_shell_command", {"command": "ls; cat x"}, self.ROOT)
@@ -267,6 +297,11 @@ class Cli(unittest.TestCase):
         self.assertEqual(out.split(), list(L.READ_TOOLS))
         rc, out, _ = self.run_tool("tools", "--allow-write", "--allow-shell")
         self.assertIn("exec_shell_command", out)
+
+    def test_start_from_dry_run(self):
+        rc, out, _ = self.run_tool("job", "start", "ci-demo", "--from", "/data/storage/git/repo", "--dry-run", "--host", "pve.example", "--vmid", "1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("would clone /data/storage/git/repo", out)
 
     def test_start_dry_run_needs_no_node(self):
         rc, out, _ = self.run_tool("job", "start", "ci-demo", "--repo", str(ROOT), "--dry-run", "--host", "pve.example", "--vmid", "1")
