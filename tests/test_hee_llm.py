@@ -356,7 +356,7 @@ class Loop(unittest.TestCase):
         self.assertFalse(res["stopped"])
         self.assertEqual(res["ended_by"], "the 3-step budget")
         self.assertEqual(len(res["steps"]), 2, "the last step's call is not executed")
-        self.assertEqual(stub.chats[-1]["tools"] if "tools" in stub.chats[-1] else [], [], "the final request carries no tools")
+        self.assertEqual(stub.chats[-1].get("tools", []), [], "the final request carries no tools")
         self.assertIn("tool phase is over", stub.chats[-1]["messages"][-1]["content"])
 
     def test_repeated_call_ends_the_tool_phase(self):
