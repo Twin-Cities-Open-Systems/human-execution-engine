@@ -136,8 +136,8 @@ def start(name: str, repo_dir: str | None = None, *, host: str, vmid, ref: str =
 
     Two sources: ``repo_dir`` (a local checkout, ``git archive`` at ``ref``,
     shipped on stdin) or ``from_path`` (a path INSIDE the container, such as a
-    read-only mirror on a share: a local ``git clone``, history kept, nothing
-    crosses the wire). Exactly one of them.
+    read-only mirror on a share: copied, history kept, nothing crosses the
+    wire). Exactly one of them.
     """
     if bool(repo_dir) == bool(from_path):
         raise LlmError("start takes exactly one source: --repo DIR (local) or --from PATH (inside the container)")
@@ -147,17 +147,24 @@ def start(name: str, repo_dir: str | None = None, *, host: str, vmid, ref: str =
             raise LlmError("--from PATH is a path inside the container and must be absolute")
         repo_name = os.path.basename(from_path.rstrip("/"))
         root = job_root(name, repo_name)
+        # A COPY, not a clone: the mirror is another user's (root's) tree and
+        # git >= 2.35 refuses to read it as a repository ("dubious ownership")
+        # in every form tried on 2026-10-17 (-c safe.directory for the work
+        # tree, for its .git, via GIT_CONFIG_*, "*"), because the local
+        # upload-pack side re-checks. The copy is the job user's own, history
+        # included (144 MB for all 21 repositories, so a few MB each).
         shell = (f"set -e; umask 022; mkdir -p {shlex.quote(f'{WORK}/{name}')} && "
-                 f"printf '%s\\n' {shlex.quote(repo_name)} > {marker} && "
-                 f"git clone -q --no-hardlinks {shlex.quote(from_path)} {shlex.quote(root)} && cd {shlex.quote(root)} && git tag -f baseline")
+                 f"cp -r {shlex.quote(from_path)} {shlex.quote(root)} && "
+                 f"cd {shlex.quote(root)} && git tag -f baseline && "
+                 f"printf '%s\\n' {shlex.quote(repo_name)} > {marker}")
         tar = b""
     else:
         repo_name = os.path.basename(os.path.abspath(repo_dir.rstrip("/")))
         root = job_root(name, repo_name)
         tar = archive(repo_dir, ref)
         shell = (f"set -e; umask 022; mkdir -p {shlex.quote(root)} && cd {shlex.quote(root)} && tar -x && "
-                 f"printf '%s\\n' {shlex.quote(repo_name)} > {marker} && "
-                 f"git init -q && git add -A && git {_git_id()} commit -q --allow-empty -m baseline && git tag -f baseline")
+                 f"git init -q && git add -A && git {_git_id()} commit -q --allow-empty -m baseline && git tag -f baseline && "
+                 f"printf '%s\\n' {shlex.quote(repo_name)} > {marker}")
     if not dry_run:
         run(pct_shell(host, vmid, shell), stdin=tar or None, runner=runner)
     return {"name": name, "repo": repo_name, "ref": ref if not from_path else "HEAD of " + from_path, "root": root,
@@ -290,10 +297,25 @@ def chat(endpoint: str, messages: list[dict], tools: list[dict], *, model: str =
         raise LlmError("chat: no choices[0] in the reply") from e
 
 
+MAX_RESULT_CHARS = 6000   # a tool result longer than this is cut: the whole conversation must fit the server's context
+
+
+def clip(text: str, limit: int = MAX_RESULT_CHARS) -> str:
+    """Cut a tool result to the budget and say so, so the model knows it saw a prefix."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n[... {len(text) - limit} more characters not shown; read a narrower range]"
+
+
 def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_TOOLS, max_steps: int = 8,
         max_tokens: int = 512, model: str = "default", timeout: float = 300, log=None,
-        read_roots: tuple[str, ...] = ()) -> dict:
-    """Run the tool loop until the model answers in text or the step budget ends."""
+        read_roots: tuple[str, ...] = (), max_result_chars: int = MAX_RESULT_CHARS) -> dict:
+    """Run the tool loop until the model answers in text or the step budget ends.
+
+    Every tool result is clipped to ``max_result_chars`` before it goes back
+    to the model: measured 2026-10-17, one whole README as a result pushed an
+    8192-token server past "Context size has been exceeded".
+    """
     tools = fetch_tools(endpoint, allow)
     extra = (f" You may also READ, not write, under {', '.join(read_roots)} (other repositories, read-only)." if read_roots else "")
     system = (f"You are working inside the directory {root}, a checkout of a git repository. "
@@ -319,7 +341,7 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
                 result = f"refused: tool {name!r} is not allowed for this job"
             else:
                 args, refusal = guard(name, args, root, read_roots)
-                result = refusal or call_tool(endpoint, name, args, timeout=timeout)
+                result = refusal or clip(call_tool(endpoint, name, args, timeout=timeout), max_result_chars)
             steps.append({"tool": name, "args": args, "result": result})
             if log:
                 log(f"{name} {json.dumps(args)[:160]} -> {result[:120]!r}")
