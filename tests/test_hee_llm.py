@@ -344,14 +344,30 @@ class Loop(unittest.TestCase):
     def test_html_text(self):
         self.assertEqual(L.html_text("<p>a &lt; b</p>\n\n\n\n<p>c</p>"), "a < b\n\nc")
 
-    def test_step_budget(self):
-        stub = Stub([{"tool_calls": [tc("read_file", {"path": "a"})]}])   # never answers
+    def test_step_budget_ends_with_a_forced_answer(self):
+        # distinct calls each time, so the repeat rule does not fire; the budget does
+        script = [{"tool_calls": [tc("read_file", {"path": f"f{i}"})]} for i in range(3)] + [{"content": "from what I read: X"}]
+        stub = Stub(script)
         try:
             res = L.ask(stub.url, self.ROOT, "loop", max_steps=3)
         finally:
             stub.close()
-        self.assertTrue(res["stopped"])
-        self.assertEqual(len(res["steps"]), 3)
+        self.assertEqual(res["answer"], "from what I read: X")
+        self.assertFalse(res["stopped"])
+        self.assertEqual(res["ended_by"], "the 3-step budget")
+        self.assertEqual(len(res["steps"]), 2, "the last step's call is not executed")
+        self.assertEqual(stub.chats[-1]["tools"] if "tools" in stub.chats[-1] else [], [], "the final request carries no tools")
+        self.assertIn("tool phase is over", stub.chats[-1]["messages"][-1]["content"])
+
+    def test_repeated_call_ends_the_tool_phase(self):
+        stub = Stub([{"tool_calls": [tc("read_file", {"path": "same"})]}] * 3 + [{"content": "I could not read past line 60."}])
+        try:
+            res = L.ask(stub.url, self.ROOT, "loop", max_steps=10)
+        finally:
+            stub.close()
+        self.assertEqual(res["ended_by"], "a call repeated three times")
+        self.assertEqual(len(res["steps"]), 2)
+        self.assertIn("could not read", res["answer"])
 
     def test_unreachable(self):
         with self.assertRaises(L.LlmError):

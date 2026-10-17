@@ -463,7 +463,8 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
         tools = tools + [LOCAL_TOOLS[n]["definition"] for n in WEB_TOOLS]
     steps: list[dict] = []
     budget = context - max_tokens - 256
-    for _ in range(max_steps):
+    seen: dict[str, int] = {}
+    for step in range(max_steps):
         compacted = compact(messages, budget, tools)
         if compacted and log:
             log(f"(compacted {compacted} earlier tool result(s) to fit {context} tokens)")
@@ -472,6 +473,25 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
         calls = msg.get("tool_calls") or []
         if not calls:
             return {"answer": msg.get("content") or "", "steps": steps, "messages": messages, "stopped": False}
+        # A small model will re-issue the same call, or walk past the end of a file, until the
+        # step budget is gone (measured 2026-10-17: six reads of empty line ranges). The third
+        # repeat of an identical call, or the last step, ends the tool phase: the tools are
+        # taken away and the model is asked to answer from what it has read, saying what it
+        # could not.
+        key = json.dumps([[(c.get("function") or {}).get("name"), (c.get("function") or {}).get("arguments")] for c in calls])
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] >= 3 or step == max_steps - 1:
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+            for c in calls:
+                messages.append({"role": "tool", "tool_call_id": c.get("id") or "",
+                                 "content": "not executed: the tool phase is over. Answer now from what you have already read, "
+                                            "and say plainly what you could not read or did not find."})
+            final = chat(endpoint, messages, [], model=model, max_tokens=max_tokens, timeout=timeout)
+            answer = (final.get("message") or {}).get("content") or ""
+            why = "a call repeated three times" if seen[key] >= 3 else f"the {max_steps}-step budget"
+            if log:
+                log(f"(tool phase ended by {why}; asked for a final answer without tools)")
+            return {"answer": answer, "steps": steps, "messages": messages, "stopped": not answer.strip(), "ended_by": why}
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         for c in calls:
             fn = (c.get("function") or {})
@@ -491,5 +511,4 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
             if log:
                 log(f"{name} {json.dumps(args)[:160]} -> {result[:120]!r}")
             messages.append({"role": "tool", "tool_call_id": c.get("id") or "", "content": result})
-    return {"answer": f"(stopped after {max_steps} tool steps without a final answer)", "steps": steps,
-            "messages": messages, "stopped": True}
+    return {"answer": "(no answer)", "steps": steps, "messages": messages, "stopped": True}
