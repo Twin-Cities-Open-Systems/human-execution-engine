@@ -8,7 +8,7 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
 
     hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run]
     hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--read-also DIR ...]
-                   [--max-steps N] [--max-tokens N] [--repo-name NAME] [--json]
+                   [--max-steps N] [--max-tokens N] [--max-result-chars N] [--repo-name NAME] [--json]
     hee-llm job collect NAME --out DIR [--repo-name NAME]
     hee-llm job list
     hee-llm job rm NAME
@@ -34,9 +34,10 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
              into /var/lib/llm/work/NAME/<repo>, then `git init`, one baseline
              commit and a `baseline` tag inside, so the model's edits are a
              diff against a known tree. Or --from PATH: a path INSIDE the
-             container (a read-only mirror on a share, say) cloned locally,
-             history kept, nothing over the wire; the `baseline` tag is its
-             HEAD. Exactly one of --repo and --from.
+             container (a read-only mirror on a share, say) copied into the
+             job, history kept, nothing over the wire; the `baseline` tag is
+             its HEAD. (Copied, not cloned: git refuses to read another user's
+             tree as a repository.) Exactly one of --repo and --from.
     ask      the tool loop over the OpenAI-compatible API. The server's tool
              definitions (GET /tools) are passed with the prompt; by default
              only the read-only ones (read_file, file_glob_search, grep_search,
@@ -49,7 +50,10 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
              `cd` into the root. Calls
              execute on the server (POST /tools) and their results go back to
              the model until it answers in text or --max-steps (default 8) is
-             spent. The transcript of tool calls is printed; --json dumps it.
+             spent. Each tool result is clipped to --max-result-chars (default
+             6000) before the model sees it, with a note saying so: a whole
+             file as one result overran an 8192-token server (2026-10-17).
+             The transcript of tool calls is printed; --json dumps it.
     collect  commits whatever the model left uncommitted (as hee-llm, not as
              anyone's identity), then `git format-patch baseline` into
              DIR/NAME.patch, also kept at /var/lib/llm/out/NAME/ in the

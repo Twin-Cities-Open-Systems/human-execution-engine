@@ -80,7 +80,8 @@ class Transport(unittest.TestCase):
         cmd, stdin = rec.calls[0]
         self.assertIsNone(stdin, "nothing crosses the wire")
         shell = L.remote_shell(cmd)
-        self.assertIn("git -c safe.directory=/data/storage/git/fleet-ops clone -q --no-hardlinks /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
+        self.assertIn("cp -r /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
+        self.assertNotIn("git clone", shell, "a clone of root's tree is refused as dubious ownership; the copy is the job user's own")
         self.assertIn("git tag -f baseline", shell)
         self.assertIn(".repo", shell)
         with self.assertRaises(L.LlmError):
@@ -264,6 +265,19 @@ class Loop(unittest.TestCase):
             stub.close()
         self.assertEqual(stub.tool_calls[0]["params"]["command"], f"cd {self.ROOT} && (git status)")
 
+    def test_tool_results_are_clipped(self):
+        self.assertEqual(L.clip("short", 10), "short")
+        out = L.clip("x" * 100, 10)
+        self.assertTrue(out.startswith("x" * 10))
+        self.assertIn("90 more characters not shown", out)
+        stub = Stub([{"tool_calls": [tc("read_file", {"path": "big"})]}, {"content": "ok"}])
+        try:
+            res = L.ask(stub.url, self.ROOT, "read big", max_result_chars=8)
+        finally:
+            stub.close()
+        self.assertIn("more characters not shown", res["steps"][0]["result"])
+        self.assertIn("more characters not shown", stub.chats[1]["messages"][-1]["content"])
+
     def test_step_budget(self):
         stub = Stub([{"tool_calls": [tc("read_file", {"path": "a"})]}])   # never answers
         try:
@@ -301,7 +315,7 @@ class Cli(unittest.TestCase):
     def test_start_from_dry_run(self):
         rc, out, _ = self.run_tool("job", "start", "ci-demo", "--from", "/data/storage/git/repo", "--dry-run", "--host", "pve.example", "--vmid", "1")
         self.assertEqual(rc, 0, out)
-        self.assertIn("would clone /data/storage/git/repo", out)
+        self.assertIn("would copy /data/storage/git/repo", out)
 
     def test_start_dry_run_needs_no_node(self):
         rc, out, _ = self.run_tool("job", "start", "ci-demo", "--repo", str(ROOT), "--dry-run", "--host", "pve.example", "--vmid", "1")
