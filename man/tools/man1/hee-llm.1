@@ -8,8 +8,9 @@ out
 .IP
 .EX
 hee\-llm job start NAME (\-\-repo DIR [\-\-ref REF] | \-\-from PATH) [\-\-dry\-run]
-hee\-llm job ask NAME \[dq]PROMPT\[dq] [\-\-allow\-write] [\-\-allow\-shell] [\-\-read\-also DIR ...]
-               [\-\-max\-steps N] [\-\-max\-tokens N] [\-\-max\-result\-chars N] [\-\-repo\-name NAME] [\-\-json]
+hee\-llm job ask NAME \[dq]PROMPT\[dq] [\-\-allow\-write] [\-\-allow\-shell] [\-\-allow\-web] [\-\-read\-also DIR ...]
+               [\-\-max\-steps N] [\-\-max\-tokens N] [\-\-max\-result\-chars N] [\-\-context N]
+               [\-\-repo\-name NAME] [\-\-json]
 hee\-llm job collect NAME \-\-out DIR [\-\-repo\-name NAME]
 hee\-llm job list
 hee\-llm job rm NAME
@@ -51,9 +52,15 @@ ask      the tool loop over the OpenAI\-compatible API. The server\[aq]s tool
          execute on the server (POST /tools) and their results go back to
          the model until it answers in text or \-\-max\-steps (default 8) is
          spent. Each tool result is clipped to \-\-max\-result\-chars (default
-         6000) before the model sees it, with a note saying so: a whole
-         file as one result overran an 8192\-token server (2026\-10\-17).
-         The transcript of tool calls is printed; \-\-json dumps it.
+         3000) before the model sees it, with a note saying so, and when
+         the conversation nears \-\-context tokens (default 8192, llm\-1\[aq]s
+         \-c) the OLDEST tool results are compacted to 300 chars: on
+         2026\-10\-17 five results overran the server at 8639 tokens.
+         \-\-allow\-web adds two tools that run HERE, on the dispatching
+         host, never in the container: web_search (HEE_LLM_SEARCH_URL as
+         a template with {q}; default DuckDuckGo\[aq]s HTML endpoint, no key)
+         and fetch_url (a page reduced to text). Both read\-only, both
+         clipped. The transcript of tool calls is printed; \-\-json dumps it.
 collect  commits whatever the model left uncommitted (as hee\-llm, not as
          anyone\[aq]s identity), then \[ga]git format\-patch baseline\[ga] into
          DIR/NAME.patch, also kept at /var/lib/llm/out/NAME/ in the
@@ -71,6 +78,9 @@ this class of model answering that it may run \[ga]pct destroy\[ga] itself.
 .SH ENVIRONMENT
 .IP
 .EX
+HEE_LLM_SEARCH_URL web_search backend as a URL template containing {q}; a
+                   SearXNG instance\[aq]s /search?q={q}&format=json works, the
+                   default is https://html.duckduckgo.com/html/?q={q}
 HEE_LLM_HOST       the pve node (ssh root\[at]HOST)
 HEE_LLM_VMID       the container\[aq]s vmid
 HEE_LLM_ENDPOINT   the model server (http://host:port), for ask and tools
@@ -102,6 +112,7 @@ $ hee\-llm job start ci\-demo \-\-from /data/storage/git/repo \-\-host pve.examp
 $ HEE_LLM_HOST=10.0.0.153 HEE_LLM_VMID=120 hee\-llm job start fix\-readme \-\-repo \[ti]/git/fleet\-ops \-\-ref origin/main
 $ HEE_LLM_ENDPOINT=http://10.0.0.169:8080 hee\-llm job ask fix\-readme \[dq]Which manifests under pve/services lack onboot? Read them.\[dq]
 $ hee\-llm job ask fix\-readme \-\-allow\-write \[dq]Fix the typo \[aq]recieve\[aq] in pve/llm/README.md.\[dq]
+$ hee\-llm job ask audit \-\-allow\-web \[dq]What is the current stable llama.cpp release tag? Search, then cite the URL.\[dq]
 $ hee\-llm job start audit \-\-from /data/storage/git/fleet\-ops && hee\-llm job ask audit \-\-read\-also /data/storage/git \[dq]Which hosts in inventory are not in pve/services?\[dq]
 $ hee\-llm job collect fix\-readme \-\-out /tmp/fix\-readme && git am /tmp/fix\-readme/fix\-readme.patch
 $ hee\-llm job rm fix\-readme

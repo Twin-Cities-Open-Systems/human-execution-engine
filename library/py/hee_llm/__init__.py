@@ -33,6 +33,7 @@ import re
 import shlex
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 
 __all__ = [
@@ -208,6 +209,113 @@ def remove(name: str, *, host: str, vmid, runner=None) -> None:
 
 
 # --------------------------------------------------------------------------
+# dispatcher-side tools: run by hee-llm itself, not by the server
+# --------------------------------------------------------------------------
+# The container has no egress policy of its own and no credentials; anything
+# that reaches the internet runs on the dispatching host, which is the one
+# with a user behind it. Two tools, both read-only, both clipped like the
+# server's. The search backend is a URL template (HEE_LLM_SEARCH_URL, {q});
+# the default is DuckDuckGo's HTML endpoint, which needs no key.
+
+WEB_TOOLS = ("web_search", "fetch_url")
+_TAG = re.compile(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", re.DOTALL | re.IGNORECASE)
+_WS = re.compile(r"[ \t\r\f\v]+")
+_NL = re.compile(r"\n{3,}")
+
+
+def html_text(html: str) -> str:
+    """Tags and scripts out, entities decoded, whitespace folded: the page as text."""
+    import html as _html
+    text = _TAG.sub(" ", html)
+    text = _html.unescape(text)
+    text = _WS.sub(" ", text)
+    return _NL.sub("\n\n", "\n".join(ln.strip() for ln in text.splitlines())).strip()
+
+
+def _get(url: str, timeout: float) -> tuple[str, str]:
+    req = urllib.request.Request(url, headers={"User-Agent": "hee-llm/1 (+https://tcos.us)", "Accept": "text/html,application/json;q=0.9,*/*;q=0.5"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            ctype = r.headers.get("content-type", "")
+            return r.read(2_000_000).decode("utf-8", "replace"), ctype
+    except urllib.error.HTTPError as e:
+        raise LlmError(f"HTTP {e.code} {e.reason} for {url}") from e
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise LlmError(f"{url}: {getattr(e, 'reason', e)}") from e
+
+
+_DDG_RESULT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?(?:<a[^>]+class="result__snippet"[^>]*>(.*?)</a>)?', re.DOTALL)
+
+
+def web_search(args: dict, timeout: float = 30) -> str:
+    q = str(args.get("query") or "").strip()
+    if not q:
+        return "tool error: query is required"
+    limit = max(1, min(int(args.get("limit") or 5), 10))
+    template = os.environ.get("HEE_LLM_SEARCH_URL") or "https://html.duckduckgo.com/html/?q={q}"
+    url = template.replace("{q}", urllib.parse.quote_plus(q))
+    try:
+        body, ctype = _get(url, timeout)
+    except LlmError as e:
+        return f"tool error: {e}"
+    rows = []
+    if "json" in ctype:
+        try:
+            data = json.loads(body)
+            for r in (data.get("results") or data if isinstance(data, dict) else data)[:limit]:
+                rows.append(f"- {r.get('title','')}\n  {r.get('url','')}\n  {r.get('content') or r.get('snippet') or ''}".rstrip())
+        except (ValueError, AttributeError, TypeError):
+            return "tool error: search backend returned unreadable JSON"
+    else:
+        for m in _DDG_RESULT.finditer(body):
+            href, title, snippet = m.group(1), html_text(m.group(2)), html_text(m.group(3) or "")
+            # DuckDuckGo wraps targets as //duckduckgo.com/l/?uddg=<url>; unwrap to the real address
+            mm = re.search(r"[?&]uddg=([^&]+)", href)
+            if mm:
+                href = urllib.parse.unquote(mm.group(1))
+            rows.append(f"- {title}\n  {href}\n  {snippet}".rstrip())
+            if len(rows) >= limit:
+                break
+    if not rows:
+        return f"no results for {q!r} (backend: {template.split('?')[0]})"
+    return f"results for {q!r}:\n" + "\n".join(rows)
+
+
+def fetch_url(args: dict, timeout: float = 30) -> str:
+    url = str(args.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return "tool error: url must start with http:// or https://"
+    try:
+        body, ctype = _get(url, timeout)
+    except LlmError as e:
+        return f"tool error: {e}"
+    text = body if ("json" in ctype or "text/plain" in ctype) else html_text(body)
+    return f"{url} ({ctype.split(';')[0] or 'unknown type'}):\n{text}"
+
+
+LOCAL_TOOLS = {
+    "web_search": {
+        "run": web_search,
+        "definition": {"type": "function", "function": {
+            "name": "web_search",
+            "description": "Search the web. Returns up to `limit` results as title, URL and snippet. Use fetch_url to read one.",
+            "parameters": {"type": "object", "properties": {
+                "query": {"type": "string", "description": "What to search for"},
+                "limit": {"type": "integer", "description": "How many results, 1-10 (default 5)"}},
+                "required": ["query"]}}},
+    },
+    "fetch_url": {
+        "run": fetch_url,
+        "definition": {"type": "function", "function": {
+            "name": "fetch_url",
+            "description": "Fetch a web page or API URL and return its text (HTML is reduced to text). Long pages are cut; ask for what you need.",
+            "parameters": {"type": "object", "properties": {
+                "url": {"type": "string", "description": "An http or https URL"}},
+                "required": ["url"]}}},
+    },
+}
+
+# --------------------------------------------------------------------------
 # the tool loop over the API
 # --------------------------------------------------------------------------
 
@@ -297,7 +405,33 @@ def chat(endpoint: str, messages: list[dict], tools: list[dict], *, model: str =
         raise LlmError("chat: no choices[0] in the reply") from e
 
 
-MAX_RESULT_CHARS = 6000   # a tool result longer than this is cut: the whole conversation must fit the server's context
+MAX_RESULT_CHARS = 3000   # a tool result longer than this is cut: the whole conversation must fit the server's context
+CONTEXT_TOKENS = 8192     # the server's context; llm-1 runs -c 8192 (fleet-ops pve/llm/llm.environment)
+CHARS_PER_TOKEN = 3.2     # a safe (low) estimate for English, code and JSON; measured 8639 tokens for ~26 kB on 2026-10-17
+COMPACT_TO = 300          # an older tool result is cut to this many chars when the budget is reached
+
+
+def est_tokens(messages: list[dict], tools: list[dict] | None = None) -> int:
+    """A deliberately high estimate of the prompt tokens a request would take."""
+    chars = len(json.dumps(messages)) + (len(json.dumps(tools)) if tools else 0)
+    return int(chars / CHARS_PER_TOKEN) + 64
+
+
+def compact(messages: list[dict], budget: int, tools: list[dict] | None = None) -> int:
+    """Cut the OLDEST tool results to COMPACT_TO chars until the estimate fits ``budget``.
+
+    Returns how many results were compacted. The system prompt, the user's
+    question and the assistant's tool calls are never touched; only what the
+    tools returned earlier in this loop, which the model has already acted on.
+    """
+    n = 0
+    for m in messages:
+        if est_tokens(messages, tools) <= budget:
+            break
+        if m.get("role") == "tool" and len(m.get("content") or "") > COMPACT_TO:
+            m["content"] = m["content"][:COMPACT_TO] + " [... earlier result compacted to fit the context]"
+            n += 1
+    return n
 
 
 def clip(text: str, limit: int = MAX_RESULT_CHARS) -> str:
@@ -309,7 +443,8 @@ def clip(text: str, limit: int = MAX_RESULT_CHARS) -> str:
 
 def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_TOOLS, max_steps: int = 8,
         max_tokens: int = 512, model: str = "default", timeout: float = 300, log=None,
-        read_roots: tuple[str, ...] = (), max_result_chars: int = MAX_RESULT_CHARS) -> dict:
+        read_roots: tuple[str, ...] = (), max_result_chars: int = MAX_RESULT_CHARS,
+        context: int = CONTEXT_TOKENS, web: bool = False) -> dict:
     """Run the tool loop until the model answers in text or the step budget ends.
 
     Every tool result is clipped to ``max_result_chars`` before it goes back
@@ -318,12 +453,20 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
     """
     tools = fetch_tools(endpoint, allow)
     extra = (f" You may also READ, not write, under {', '.join(read_roots)} (other repositories, read-only)." if read_roots else "")
+    if web:
+        extra += " You may search the web with web_search and read a page with fetch_url; cite the URL for anything you take from it."
     system = (f"You are working inside the directory {root}, a checkout of a git repository. "
               f"Use the tools to look at files there; paths are relative to it. Do not guess file contents: read them.{extra} "
               f"Answer concisely when you have what you need.")
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+    if web:
+        tools = tools + [LOCAL_TOOLS[n]["definition"] for n in WEB_TOOLS]
     steps: list[dict] = []
+    budget = context - max_tokens - 256
     for _ in range(max_steps):
+        compacted = compact(messages, budget, tools)
+        if compacted and log:
+            log(f"(compacted {compacted} earlier tool result(s) to fit {context} tokens)")
         choice = chat(endpoint, messages, tools, model=model, max_tokens=max_tokens, timeout=timeout)
         msg = choice.get("message") or {}
         calls = msg.get("tool_calls") or []
@@ -337,7 +480,9 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
                 args = json.loads(fn.get("arguments") or "{}")
             except ValueError:
                 args = {}
-            if name not in allow:
+            if web and name in WEB_TOOLS:
+                result = clip(LOCAL_TOOLS[name]["run"](args, timeout=min(timeout, 60)), max_result_chars)
+            elif name not in allow:
                 result = f"refused: tool {name!r} is not allowed for this job"
             else:
                 args, refusal = guard(name, args, root, read_roots)

@@ -278,6 +278,72 @@ class Loop(unittest.TestCase):
         self.assertIn("more characters not shown", res["steps"][0]["result"])
         self.assertIn("more characters not shown", stub.chats[1]["messages"][-1]["content"])
 
+    def test_context_budget_compacts_oldest_results(self):
+        msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "q"},
+                {"role": "assistant", "content": "", "tool_calls": []},
+                {"role": "tool", "tool_call_id": "a", "content": "x" * 4000},
+                {"role": "tool", "tool_call_id": "b", "content": "y" * 4000}]
+        before = L.est_tokens(msgs)
+        n = L.compact(msgs, budget=before - 1000)
+        self.assertEqual(n, 1, "only the oldest result is cut when that is enough")
+        self.assertTrue(msgs[3]["content"].startswith("x" * 300))
+        self.assertIn("compacted", msgs[3]["content"])
+        self.assertEqual(msgs[4]["content"], "y" * 4000)
+        self.assertEqual(L.compact(msgs, budget=10**9), 0)
+
+    def test_web_tools_run_locally_and_only_when_allowed(self):
+        # a stub "search engine" and "web page" on a free port; the model asks for both
+        class Web(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.startswith("/search"):
+                    body = (b'<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fa">Alpha <b>page</b></a>'
+                            b'<a class="result__snippet" href="x">About alpha &amp; beta</a>')
+                else:
+                    body = b"<html><head><style>p{}</style><title>T</title></head><body><h1>Hello</h1><p>World &amp; co</p><script>x()</script></body></html>"
+                self.send_response(200)
+                self.send_header("content-type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Web)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        wurl = f"http://127.0.0.1:{web.server_port}"
+        old = os.environ.get("HEE_LLM_SEARCH_URL")
+        os.environ["HEE_LLM_SEARCH_URL"] = wurl + "/search?q={q}"
+        stub = Stub([{"tool_calls": [tc("web_search", {"query": "alpha"}, "s"), tc("fetch_url", {"url": wurl + "/page"}, "f")]},
+                     {"content": "done"}])
+        try:
+            res = L.ask(stub.url, self.ROOT, "look it up", web=True)
+            self.assertEqual(stub.tool_calls, [], "web tools never reach the server's /tools")
+            self.assertIn("https://example.org/a", res["steps"][0]["result"])
+            self.assertIn("Alpha page", res["steps"][0]["result"])
+            self.assertIn("About alpha & beta", res["steps"][0]["result"])
+            self.assertIn("Hello", res["steps"][1]["result"])
+            self.assertIn("World & co", res["steps"][1]["result"])
+            self.assertNotIn("x()", res["steps"][1]["result"])
+            names = [d["function"]["name"] for d in stub.chats[0]["tools"]]
+            self.assertIn("web_search", names)
+            # without --allow-web the same call is refused and nothing is fetched
+            stub2 = Stub([{"tool_calls": [tc("fetch_url", {"url": wurl + "/page"})]}, {"content": "ok"}])
+            try:
+                res2 = L.ask(stub2.url, self.ROOT, "fetch")
+            finally:
+                stub2.close()
+            self.assertIn("not allowed", res2["steps"][0]["result"])
+            self.assertNotIn("fetch_url", [d["function"]["name"] for d in stub2.chats[0]["tools"]])
+        finally:
+            stub.close()
+            web.shutdown()
+            if old is None:
+                os.environ.pop("HEE_LLM_SEARCH_URL", None)
+            else:
+                os.environ["HEE_LLM_SEARCH_URL"] = old
+
+    def test_html_text(self):
+        self.assertEqual(L.html_text("<p>a &lt; b</p>\n\n\n\n<p>c</p>"), "a < b\n\nc")
+
     def test_step_budget(self):
         stub = Stub([{"tool_calls": [tc("read_file", {"path": "a"})]}])   # never answers
         try:
