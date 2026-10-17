@@ -130,18 +130,38 @@ def _git_id() -> str:
     return "-c user.name=hee-llm -c user.email=hee-llm@localhost"
 
 
-def start(name: str, repo_dir: str, *, host: str, vmid, ref: str = "HEAD", runner=None, dry_run: bool = False) -> dict:
-    """Ship the repo in and tag the baseline. Returns what was (or would be) done."""
-    repo_name = os.path.basename(os.path.abspath(repo_dir.rstrip("/")))
-    root = job_root(name, repo_name)
-    tar = archive(repo_dir, ref)
-    shell = (f"set -e; umask 022; mkdir -p {shlex.quote(root)} && cd {shlex.quote(root)} && tar -x && "
-             f"printf '%s\\n' {shlex.quote(repo_name)} > {shlex.quote(f'{WORK}/{name}/.repo')} && "
-             f"git init -q && git add -A && git {_git_id()} commit -q --allow-empty -m baseline && git tag -f baseline")
-    cmd = pct_shell(host, vmid, shell) if not dry_run else ["(dry run)", "pct", "exec", str(vmid), "--", "su", "llm", "-c", shell]
+def start(name: str, repo_dir: str | None = None, *, host: str, vmid, ref: str = "HEAD", runner=None,
+          dry_run: bool = False, from_path: str | None = None) -> dict:
+    """Ship the repo in and tag the baseline. Returns what was (or would be) done.
+
+    Two sources: ``repo_dir`` (a local checkout, ``git archive`` at ``ref``,
+    shipped on stdin) or ``from_path`` (a path INSIDE the container, such as a
+    read-only mirror on a share: a local ``git clone``, history kept, nothing
+    crosses the wire). Exactly one of them.
+    """
+    if bool(repo_dir) == bool(from_path):
+        raise LlmError("start takes exactly one source: --repo DIR (local) or --from PATH (inside the container)")
+    marker = shlex.quote(f"{WORK}/{name}/.repo")
+    if from_path:
+        if not from_path.startswith("/"):
+            raise LlmError("--from PATH is a path inside the container and must be absolute")
+        repo_name = os.path.basename(from_path.rstrip("/"))
+        root = job_root(name, repo_name)
+        shell = (f"set -e; umask 022; mkdir -p {shlex.quote(f'{WORK}/{name}')} && "
+                 f"printf '%s\\n' {shlex.quote(repo_name)} > {marker} && "
+                 f"git clone -q --no-hardlinks {shlex.quote(from_path)} {shlex.quote(root)} && cd {shlex.quote(root)} && git tag -f baseline")
+        tar = b""
+    else:
+        repo_name = os.path.basename(os.path.abspath(repo_dir.rstrip("/")))
+        root = job_root(name, repo_name)
+        tar = archive(repo_dir, ref)
+        shell = (f"set -e; umask 022; mkdir -p {shlex.quote(root)} && cd {shlex.quote(root)} && tar -x && "
+                 f"printf '%s\\n' {shlex.quote(repo_name)} > {marker} && "
+                 f"git init -q && git add -A && git {_git_id()} commit -q --allow-empty -m baseline && git tag -f baseline")
     if not dry_run:
-        run(cmd, stdin=tar, runner=runner)
-    return {"name": name, "repo": repo_name, "ref": ref, "root": root, "bytes": len(tar), "shell": shell, "dry_run": dry_run}
+        run(pct_shell(host, vmid, shell), stdin=tar or None, runner=runner)
+    return {"name": name, "repo": repo_name, "ref": ref if not from_path else "HEAD of " + from_path, "root": root,
+            "bytes": len(tar), "shell": shell, "dry_run": dry_run, "from": from_path}
 
 
 def repo_name_of(name: str, *, host: str, vmid, runner=None) -> str:
@@ -214,16 +234,29 @@ def fetch_tools(endpoint: str, allow: tuple[str, ...], timeout: float = 30) -> l
     return [r["definition"] for r in rows if isinstance(r, dict) and r.get("tool") in allow and r.get("definition")]
 
 
-def guard(name: str, args: dict, root: str) -> tuple[dict, str | None]:
-    """Keep every path inside the job root; cd the shell there. Returns (args, refusal)."""
+def _under(full: str, base: str) -> bool:
+    base = posixpath.normpath(base)
+    return full == base or full.startswith(base + "/")
+
+
+def guard(name: str, args: dict, root: str, read_roots: tuple[str, ...] = ()) -> tuple[dict, str | None]:
+    """Keep every path inside the job root; cd the shell there. Returns (args, refusal).
+
+    ``read_roots`` are extra trees a READ-ONLY tool may look at (a mirror of
+    other repositories on a share, for instance); a write tool is still held
+    to the job root, whatever the roots say.
+    """
     args = dict(args or {})
     root = posixpath.normpath(root)
     for k in _PATH_KEYS:
         if k in args and isinstance(args[k], str):
             p = args[k]
             full = posixpath.normpath(p if p.startswith("/") else posixpath.join(root, p))
-            if full != root and not full.startswith(root + "/"):
-                return args, f"refused: {name} path {p!r} is outside the job root {root}"
+            if not _under(full, root):
+                readable = name not in WRITE_TOOLS and any(_under(full, r) for r in read_roots)
+                if not readable:
+                    where = f"the job root {root}" if (name in WRITE_TOOLS or not read_roots) else f"{root} and the read-only roots {', '.join(read_roots)}"
+                    return args, f"refused: {name} path {p!r} is outside {where}"
             args[k] = full
     if name == "exec_shell_command":
         cmd = str(args.get("command", ""))
@@ -258,11 +291,13 @@ def chat(endpoint: str, messages: list[dict], tools: list[dict], *, model: str =
 
 
 def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_TOOLS, max_steps: int = 8,
-        max_tokens: int = 512, model: str = "default", timeout: float = 300, log=None) -> dict:
+        max_tokens: int = 512, model: str = "default", timeout: float = 300, log=None,
+        read_roots: tuple[str, ...] = ()) -> dict:
     """Run the tool loop until the model answers in text or the step budget ends."""
     tools = fetch_tools(endpoint, allow)
+    extra = (f" You may also READ, not write, under {', '.join(read_roots)} (other repositories, read-only)." if read_roots else "")
     system = (f"You are working inside the directory {root}, a checkout of a git repository. "
-              f"Use the tools to look at files there; paths are relative to it. Do not guess file contents: read them. "
+              f"Use the tools to look at files there; paths are relative to it. Do not guess file contents: read them.{extra} "
               f"Answer concisely when you have what you need.")
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
     steps: list[dict] = []
@@ -283,7 +318,7 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
             if name not in allow:
                 result = f"refused: tool {name!r} is not allowed for this job"
             else:
-                args, refusal = guard(name, args, root)
+                args, refusal = guard(name, args, root, read_roots)
                 result = refusal or call_tool(endpoint, name, args, timeout=timeout)
             steps.append({"tool": name, "args": args, "result": result})
             if log:

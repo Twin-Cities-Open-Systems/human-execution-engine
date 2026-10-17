@@ -6,9 +6,9 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
 
 # SYNOPSIS
 
-    hee-llm job start NAME --repo DIR [--ref REF] [--dry-run]
-    hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--max-steps N]
-                   [--max-tokens N] [--repo-name NAME] [--json]
+    hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run]
+    hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--read-also DIR ...]
+                   [--max-steps N] [--max-tokens N] [--repo-name NAME] [--json]
     hee-llm job collect NAME --out DIR [--repo-name NAME]
     hee-llm job list
     hee-llm job rm NAME
@@ -33,14 +33,20 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
              untracked secrets), shipped over `ssh root@HOST pct exec VMID`
              into /var/lib/llm/work/NAME/<repo>, then `git init`, one baseline
              commit and a `baseline` tag inside, so the model's edits are a
-             diff against a known tree.
+             diff against a known tree. Or --from PATH: a path INSIDE the
+             container (a read-only mirror on a share, say) cloned locally,
+             history kept, nothing over the wire; the `baseline` tag is its
+             HEAD. Exactly one of --repo and --from.
     ask      the tool loop over the OpenAI-compatible API. The server's tool
              definitions (GET /tools) are passed with the prompt; by default
              only the read-only ones (read_file, file_glob_search, grep_search,
              get_info). --allow-write adds write_file and edit_file,
              --allow-shell adds exec_shell_command, each per job. Every call is
              guarded: a path outside the job's root is refused and the model
-             is told so; a shell command is run with `cd` into the root. Calls
+             is told so; --read-also DIR (repeatable) lets the READ-ONLY tools
+             look under DIR too (other repositories on a mirror), while the
+             write tools stay held to the root; a shell command is run with
+             `cd` into the root. Calls
              execute on the server (POST /tools) and their results go back to
              the model until it answers in text or --max-steps (default 8) is
              spent. The transcript of tool calls is printed; --json dumps it.
@@ -88,9 +94,11 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
     $ hee-llm tools                                                              # ci
     $ hee-llm tools --allow-write --allow-shell                                  # ci
     $ hee-llm job start ci-demo --repo . --ref HEAD --host pve.example --vmid 1 --dry-run   # ci
+    $ hee-llm job start ci-demo --from /data/storage/git/repo --host pve.example --vmid 1 --dry-run   # ci
     $ HEE_LLM_HOST=10.0.0.153 HEE_LLM_VMID=120 hee-llm job start fix-readme --repo ~/git/fleet-ops --ref origin/main
     $ HEE_LLM_ENDPOINT=http://10.0.0.169:8080 hee-llm job ask fix-readme "Which manifests under pve/services lack onboot? Read them."
     $ hee-llm job ask fix-readme --allow-write "Fix the typo 'recieve' in pve/llm/README.md."
+    $ hee-llm job start audit --from /data/storage/git/fleet-ops && hee-llm job ask audit --read-also /data/storage/git "Which hosts in inventory are not in pve/services?"
     $ hee-llm job collect fix-readme --out /tmp/fix-readme && git am /tmp/fix-readme/fix-readme.patch
     $ hee-llm job rm fix-readme
 
