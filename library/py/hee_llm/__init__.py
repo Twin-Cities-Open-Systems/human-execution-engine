@@ -149,7 +149,10 @@ def start(name: str, repo_dir: str | None = None, *, host: str, vmid, ref: str =
         root = job_root(name, repo_name)
         shell = (f"set -e; umask 022; mkdir -p {shlex.quote(f'{WORK}/{name}')} && "
                  f"printf '%s\\n' {shlex.quote(repo_name)} > {marker} && "
-                 f"git clone -q --no-hardlinks {shlex.quote(from_path)} {shlex.quote(root)} && cd {shlex.quote(root)} && git tag -f baseline")
+                 # the mirror is another user's (root's) tree, which git >= 2.35 refuses to touch
+                 # ("dubious ownership") unless told it is safe; it is read-only and ours
+                 f"git -c safe.directory={shlex.quote(from_path)} clone -q --no-hardlinks {shlex.quote(from_path)} {shlex.quote(root)} && "
+                 f"cd {shlex.quote(root)} && git tag -f baseline")
         tar = b""
     else:
         repo_name = os.path.basename(os.path.abspath(repo_dir.rstrip("/")))

@@ -80,7 +80,7 @@ class Transport(unittest.TestCase):
         cmd, stdin = rec.calls[0]
         self.assertIsNone(stdin, "nothing crosses the wire")
         shell = L.remote_shell(cmd)
-        self.assertIn("git clone -q --no-hardlinks /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
+        self.assertIn("git -c safe.directory=/data/storage/git/fleet-ops clone -q --no-hardlinks /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
         self.assertIn("git tag -f baseline", shell)
         self.assertIn(".repo", shell)
         with self.assertRaises(L.LlmError):
