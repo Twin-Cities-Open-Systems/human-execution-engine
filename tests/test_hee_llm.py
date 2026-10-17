@@ -80,7 +80,8 @@ class Transport(unittest.TestCase):
         cmd, stdin = rec.calls[0]
         self.assertIsNone(stdin, "nothing crosses the wire")
         shell = L.remote_shell(cmd)
-        self.assertIn("git clone -q --no-hardlinks /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
+        self.assertIn("cp -r /data/storage/git/fleet-ops /var/lib/llm/work/demo/fleet-ops", shell)
+        self.assertNotIn("git clone", shell, "a clone of root's tree is refused as dubious ownership; the copy is the job user's own")
         self.assertIn("git tag -f baseline", shell)
         self.assertIn(".repo", shell)
         with self.assertRaises(L.LlmError):
@@ -264,14 +265,109 @@ class Loop(unittest.TestCase):
             stub.close()
         self.assertEqual(stub.tool_calls[0]["params"]["command"], f"cd {self.ROOT} && (git status)")
 
-    def test_step_budget(self):
-        stub = Stub([{"tool_calls": [tc("read_file", {"path": "a"})]}])   # never answers
+    def test_tool_results_are_clipped(self):
+        self.assertEqual(L.clip("short", 10), "short")
+        out = L.clip("x" * 100, 10)
+        self.assertTrue(out.startswith("x" * 10))
+        self.assertIn("90 more characters not shown", out)
+        stub = Stub([{"tool_calls": [tc("read_file", {"path": "big"})]}, {"content": "ok"}])
+        try:
+            res = L.ask(stub.url, self.ROOT, "read big", max_result_chars=8)
+        finally:
+            stub.close()
+        self.assertIn("more characters not shown", res["steps"][0]["result"])
+        self.assertIn("more characters not shown", stub.chats[1]["messages"][-1]["content"])
+
+    def test_context_budget_compacts_oldest_results(self):
+        msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "q"},
+                {"role": "assistant", "content": "", "tool_calls": []},
+                {"role": "tool", "tool_call_id": "a", "content": "x" * 4000},
+                {"role": "tool", "tool_call_id": "b", "content": "y" * 4000}]
+        before = L.est_tokens(msgs)
+        n = L.compact(msgs, budget=before - 1000)
+        self.assertEqual(n, 1, "only the oldest result is cut when that is enough")
+        self.assertTrue(msgs[3]["content"].startswith("x" * 300))
+        self.assertIn("compacted", msgs[3]["content"])
+        self.assertEqual(msgs[4]["content"], "y" * 4000)
+        self.assertEqual(L.compact(msgs, budget=10**9), 0)
+
+    def test_web_tools_run_locally_and_only_when_allowed(self):
+        # a stub "search engine" and "web page" on a free port; the model asks for both
+        class Web(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.startswith("/search"):
+                    body = (b'<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fa">Alpha <b>page</b></a>'
+                            b'<a class="result__snippet" href="x">About alpha &amp; beta</a>')
+                else:
+                    body = b"<html><head><style>p{}</style><title>T</title></head><body><h1>Hello</h1><p>World &amp; co</p><script>x()</script></body></html>"
+                self.send_response(200)
+                self.send_header("content-type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Web)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        wurl = f"http://127.0.0.1:{web.server_port}"
+        old = os.environ.get("HEE_LLM_SEARCH_URL")
+        os.environ["HEE_LLM_SEARCH_URL"] = wurl + "/search?q={q}"
+        stub = Stub([{"tool_calls": [tc("web_search", {"query": "alpha"}, "s"), tc("fetch_url", {"url": wurl + "/page"}, "f")]},
+                     {"content": "done"}])
+        try:
+            res = L.ask(stub.url, self.ROOT, "look it up", web=True)
+            self.assertEqual(stub.tool_calls, [], "web tools never reach the server's /tools")
+            self.assertIn("https://example.org/a", res["steps"][0]["result"])
+            self.assertIn("Alpha page", res["steps"][0]["result"])
+            self.assertIn("About alpha & beta", res["steps"][0]["result"])
+            self.assertIn("Hello", res["steps"][1]["result"])
+            self.assertIn("World & co", res["steps"][1]["result"])
+            self.assertNotIn("x()", res["steps"][1]["result"])
+            names = [d["function"]["name"] for d in stub.chats[0]["tools"]]
+            self.assertIn("web_search", names)
+            # without --allow-web the same call is refused and nothing is fetched
+            stub2 = Stub([{"tool_calls": [tc("fetch_url", {"url": wurl + "/page"})]}, {"content": "ok"}])
+            try:
+                res2 = L.ask(stub2.url, self.ROOT, "fetch")
+            finally:
+                stub2.close()
+            self.assertIn("not allowed", res2["steps"][0]["result"])
+            self.assertNotIn("fetch_url", [d["function"]["name"] for d in stub2.chats[0]["tools"]])
+        finally:
+            stub.close()
+            web.shutdown()
+            if old is None:
+                os.environ.pop("HEE_LLM_SEARCH_URL", None)
+            else:
+                os.environ["HEE_LLM_SEARCH_URL"] = old
+
+    def test_html_text(self):
+        self.assertEqual(L.html_text("<p>a &lt; b</p>\n\n\n\n<p>c</p>"), "a < b\n\nc")
+
+    def test_step_budget_ends_with_a_forced_answer(self):
+        # distinct calls each time, so the repeat rule does not fire; the budget does
+        script = [{"tool_calls": [tc("read_file", {"path": f"f{i}"})]} for i in range(3)] + [{"content": "from what I read: X"}]
+        stub = Stub(script)
         try:
             res = L.ask(stub.url, self.ROOT, "loop", max_steps=3)
         finally:
             stub.close()
-        self.assertTrue(res["stopped"])
-        self.assertEqual(len(res["steps"]), 3)
+        self.assertEqual(res["answer"], "from what I read: X")
+        self.assertFalse(res["stopped"])
+        self.assertEqual(res["ended_by"], "the 3-step budget")
+        self.assertEqual(len(res["steps"]), 2, "the last step's call is not executed")
+        self.assertEqual(stub.chats[-1].get("tools", []), [], "the final request carries no tools")
+        self.assertIn("tool phase is over", stub.chats[-1]["messages"][-1]["content"])
+
+    def test_repeated_call_ends_the_tool_phase(self):
+        stub = Stub([{"tool_calls": [tc("read_file", {"path": "same"})]}] * 3 + [{"content": "I could not read past line 60."}])
+        try:
+            res = L.ask(stub.url, self.ROOT, "loop", max_steps=10)
+        finally:
+            stub.close()
+        self.assertEqual(res["ended_by"], "a call repeated three times")
+        self.assertEqual(len(res["steps"]), 2)
+        self.assertIn("could not read", res["answer"])
 
     def test_unreachable(self):
         with self.assertRaises(L.LlmError):
@@ -301,7 +397,7 @@ class Cli(unittest.TestCase):
     def test_start_from_dry_run(self):
         rc, out, _ = self.run_tool("job", "start", "ci-demo", "--from", "/data/storage/git/repo", "--dry-run", "--host", "pve.example", "--vmid", "1")
         self.assertEqual(rc, 0, out)
-        self.assertIn("would clone /data/storage/git/repo", out)
+        self.assertIn("would copy /data/storage/git/repo", out)
 
     def test_start_dry_run_needs_no_node(self):
         rc, out, _ = self.run_tool("job", "start", "ci-demo", "--repo", str(ROOT), "--dry-run", "--host", "pve.example", "--vmid", "1")

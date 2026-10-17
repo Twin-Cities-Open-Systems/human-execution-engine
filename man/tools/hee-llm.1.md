@@ -7,8 +7,9 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
 # SYNOPSIS
 
     hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run]
-    hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--read-also DIR ...]
-                   [--max-steps N] [--max-tokens N] [--repo-name NAME] [--json]
+    hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--allow-web] [--read-also DIR ...]
+                   [--max-steps N] [--max-tokens N] [--max-result-chars N] [--context N]
+                   [--repo-name NAME] [--json]
     hee-llm job collect NAME --out DIR [--repo-name NAME]
     hee-llm job list
     hee-llm job rm NAME
@@ -34,9 +35,10 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
              into /var/lib/llm/work/NAME/<repo>, then `git init`, one baseline
              commit and a `baseline` tag inside, so the model's edits are a
              diff against a known tree. Or --from PATH: a path INSIDE the
-             container (a read-only mirror on a share, say) cloned locally,
-             history kept, nothing over the wire; the `baseline` tag is its
-             HEAD. Exactly one of --repo and --from.
+             container (a read-only mirror on a share, say) copied into the
+             job, history kept, nothing over the wire; the `baseline` tag is
+             its HEAD. (Copied, not cloned: git refuses to read another user's
+             tree as a repository.) Exactly one of --repo and --from.
     ask      the tool loop over the OpenAI-compatible API. The server's tool
              definitions (GET /tools) are passed with the prompt; by default
              only the read-only ones (read_file, file_glob_search, grep_search,
@@ -49,7 +51,16 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
              `cd` into the root. Calls
              execute on the server (POST /tools) and their results go back to
              the model until it answers in text or --max-steps (default 8) is
-             spent. The transcript of tool calls is printed; --json dumps it.
+             spent. Each tool result is clipped to --max-result-chars (default
+             3000) before the model sees it, with a note saying so, and when
+             the conversation nears --context tokens (default 8192, llm-1's
+             -c) the OLDEST tool results are compacted to 300 chars: on
+             2026-10-17 five results overran the server at 8639 tokens.
+             --allow-web adds two tools that run HERE, on the dispatching
+             host, never in the container: web_search (HEE_LLM_SEARCH_URL as
+             a template with {q}; default DuckDuckGo's HTML endpoint, no key)
+             and fetch_url (a page reduced to text). Both read-only, both
+             clipped. The transcript of tool calls is printed; --json dumps it.
     collect  commits whatever the model left uncommitted (as hee-llm, not as
              anyone's identity), then `git format-patch baseline` into
              DIR/NAME.patch, also kept at /var/lib/llm/out/NAME/ in the
@@ -67,6 +78,9 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
 
 # ENVIRONMENT
 
+    HEE_LLM_SEARCH_URL web_search backend as a URL template containing {q}; a
+                       SearXNG instance's /search?q={q}&format=json works, the
+                       default is https://html.duckduckgo.com/html/?q={q}
     HEE_LLM_HOST       the pve node (ssh root@HOST)
     HEE_LLM_VMID       the container's vmid
     HEE_LLM_ENDPOINT   the model server (http://host:port), for ask and tools
@@ -98,6 +112,7 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
     $ HEE_LLM_HOST=10.0.0.153 HEE_LLM_VMID=120 hee-llm job start fix-readme --repo ~/git/fleet-ops --ref origin/main
     $ HEE_LLM_ENDPOINT=http://10.0.0.169:8080 hee-llm job ask fix-readme "Which manifests under pve/services lack onboot? Read them."
     $ hee-llm job ask fix-readme --allow-write "Fix the typo 'recieve' in pve/llm/README.md."
+    $ hee-llm job ask audit --allow-web "What is the current stable llama.cpp release tag? Search, then cite the URL."
     $ hee-llm job start audit --from /data/storage/git/fleet-ops && hee-llm job ask audit --read-also /data/storage/git "Which hosts in inventory are not in pve/services?"
     $ hee-llm job collect fix-readme --out /tmp/fix-readme && git am /tmp/fix-readme/fix-readme.patch
     $ hee-llm job rm fix-readme
