@@ -6,7 +6,8 @@ hee\-gen\-skills \- hee\-gen\-skills command
 .SH SYNOPSIS
 .IP
 .EX
-hee\-gen\-skills [\-\-write] [\-\-out DIR]
+hee\-gen\-skills [\-\-write] [\-\-repo DIR] [\-\-out DIR]
+hee\-gen\-skills \-\-skill FILE [\-\-skill FILE ...] \-\-out DIR [\-\-write]
 hee\-gen\-skills help
 .EE
 .SH DESCRIPTION
@@ -47,26 +48,68 @@ does not do\[dq] defect this org has been filing against other tools all day.
 This lands in the established \[ga]gen\-*\[ga] namespace instead of inventing a new
 concept. Flagged for review rather than decided silently.
 
-  Reads every kind: Skill object under hee/skills/ and renders one
-  SKILL.md per skill into .claude/skills/<name>/.
+## Two trees, one generator (2026\-10\-22)
+
+Until this revision the tool read hee/skills/ and wrote .claude/skills/
+relative to ITS OWN INSTALL PATH, so it could only ever render the engine\[aq]s
+skills \-\- the same install\-path bug hee\-name carried (fleet\-ops#882). A
+fleet keeps its own skills in its own repo (fleet rule 7: fleet state stays
+in the fleet), so the repo is now resolved from where you run it, like
+hee ticket and hee worktree, or named with \-\-repo.
+
+The second change is the ephemeral skill. A software\-factory job sometimes
+needs a procedure written for that one ticket and nothing else. Claude Code
+loads skills from a job\[aq]s own \-\-add\-dir directory, so such an object is
+rendered with \-\-skill into the job and never committed to a repo\[aq]s
+\&.claude/skills/. The object carries metadata.labels.ephemeral: \[dq]true\[dq] and
+names its ticket as the evidence; this tool refuses it in the ratified tree.
+
+  Reads every kind: Skill object under <repo>/hee/skills/ and renders one
+  SKILL.md per skill into <repo>/.claude/skills/<name>/. The repo is \-\-repo
+  DIR, else the git repository the current directory is inside, else the
+  engine checkout this tool is installed in.
+
+  \-\-skill FILE renders one object from anywhere \-\- a job directory, a
+  ticket\[aq]s attachment \-\- into \-\-out DIR/<name>/SKILL.md, and is the only
+  way an ephemeral skill is rendered. Point a job\[aq]s \-\-add\-dir at DIR\[aq]s
+  parent and Claude Code loads it for that run only.
 
   Dry run by default. \-\-write is required to touch the filesystem, matching
   hee\-gen\-manpages, so an accidental invocation cannot rewrite agent
   instructions.
+
+  The object\[aq]s spec.agent_brief.frontmatter map is copied into the SKILL.md
+  frontmatter as given: disable\-model\-invocation, user\-invocable,
+  allowed\-tools, context, paths, arguments. Any other key is emitted with a
+  warning, since Claude Code ignores what it does not know.
+.EE
+.SH OPTIONS
+.IP
+.EX
+\-\-write        apply; without it nothing is written
+\-\-repo DIR     the repository whose hee/skills/ and .claude/skills/ to use
+\-\-out DIR      write under DIR instead of <repo>/.claude/skills/; required
+               with \-\-skill
+\-\-skill FILE   render this one object (repeatable) instead of scanning
 .EE
 .SH EXIT STATUS
 .IP
 .EX
 0 OK        generated, or dry run completed with no differences
 1 WARNING   dry run found differences that \-\-write would apply
-2 CRITICAL  a Skill object is malformed or unreadable
-3 UNKNOWN   pyyaml missing, or no hee/skills directory
+2 CRITICAL  a Skill object is malformed, unreadable, or ephemeral in the
+            ratified tree
+3 UNKNOWN   pyyaml missing, no hee/skills directory, or bad usage
 .EE
 .SH EXAMPLES
 .IP
 .EX
 $ hee gen\-skills   # ci
+$ hee gen\-skills \-\-repo \[ti]/git/fleet\-ops
+$ hee gen\-skills \-\-skill tests/fixtures/skills/job\-skill.skill.yaml \-\-out tests/fixtures/skills/rendered   # ci
+$ hee gen\-skills \-\-skill pve/agents/jobs/NAME/skill.yaml \-\-out pve/agents/jobs/NAME/in/.claude/skills \-\-write
 
 A bare run is a dry run and writes nothing (exit 0 unchanged, 1 if \-\-write
-would apply differences); \-\-write rewrites .claude/skills/ and is unmarked.
+would apply differences); \-\-write rewrites the destination and is
+unmarked. The two # ci lines compare against committed output.
 .EE

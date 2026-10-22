@@ -35,30 +35,72 @@ does not do" defect this org has been filing against other tools all day.
 This lands in the established `gen-*` namespace instead of inventing a new
 concept. Flagged for review rather than decided silently.
 
+## Two trees, one generator (2026-10-22)
+
+Until this revision the tool read hee/skills/ and wrote .claude/skills/
+relative to ITS OWN INSTALL PATH, so it could only ever render the engine's
+skills -- the same install-path bug hee-name carried (fleet-ops#882). A
+fleet keeps its own skills in its own repo (fleet rule 7: fleet state stays
+in the fleet), so the repo is now resolved from where you run it, like
+hee ticket and hee worktree, or named with --repo.
+
+The second change is the ephemeral skill. A software-factory job sometimes
+needs a procedure written for that one ticket and nothing else. Claude Code
+loads skills from a job's own --add-dir directory, so such an object is
+rendered with --skill into the job and never committed to a repo's
+.claude/skills/. The object carries metadata.labels.ephemeral: "true" and
+names its ticket as the evidence; this tool refuses it in the ratified tree.
+
 SYNOPSIS
-  hee-gen-skills [--write] [--out DIR]
+  hee-gen-skills [--write] [--repo DIR] [--out DIR]
+  hee-gen-skills --skill FILE [--skill FILE ...] --out DIR [--write]
   hee-gen-skills help
 
 DESCRIPTION
-  Reads every kind: Skill object under hee/skills/ and renders one
-  SKILL.md per skill into .claude/skills/<name>/.
+  Reads every kind: Skill object under <repo>/hee/skills/ and renders one
+  SKILL.md per skill into <repo>/.claude/skills/<name>/. The repo is --repo
+  DIR, else the git repository the current directory is inside, else the
+  engine checkout this tool is installed in.
+
+  --skill FILE renders one object from anywhere -- a job directory, a
+  ticket's attachment -- into --out DIR/<name>/SKILL.md, and is the only
+  way an ephemeral skill is rendered. Point a job's --add-dir at DIR's
+  parent and Claude Code loads it for that run only.
 
   Dry run by default. --write is required to touch the filesystem, matching
   hee-gen-manpages, so an accidental invocation cannot rewrite agent
   instructions.
 
+  The object's spec.agent_brief.frontmatter map is copied into the SKILL.md
+  frontmatter as given: disable-model-invocation, user-invocable,
+  allowed-tools, context, paths, arguments. Any other key is emitted with a
+  warning, since Claude Code ignores what it does not know.
+
+OPTIONS
+  --write        apply; without it nothing is written
+  --repo DIR     the repository whose hee/skills/ and .claude/skills/ to use
+  --out DIR      write under DIR instead of <repo>/.claude/skills/; required
+                 with --skill
+  --skill FILE   render this one object (repeatable) instead of scanning
+
 EXAMPLES
   $ hee gen-skills   # ci
+  $ hee gen-skills --repo ~/git/fleet-ops
+  $ hee gen-skills --skill tests/fixtures/skills/job-skill.skill.yaml --out tests/fixtures/skills/rendered   # ci
+  $ hee gen-skills --skill pve/agents/jobs/NAME/skill.yaml --out pve/agents/jobs/NAME/in/.claude/skills --write
 
   A bare run is a dry run and writes nothing (exit 0 unchanged, 1 if --write
-  would apply differences); --write rewrites .claude/skills/ and is unmarked.
+  would apply differences); --write rewrites the destination and is
+  unmarked. The two # ci lines compare against committed output.
 
 EXIT STATUS
   0 OK        generated, or dry run completed with no differences
   1 WARNING   dry run found differences that --write would apply
-  2 CRITICAL  a Skill object is malformed or unreadable
-  3 UNKNOWN   pyyaml missing, or no hee/skills directory
+  2 CRITICAL  a Skill object is malformed, unreadable, or ephemeral in the
+              ratified tree
+  3 UNKNOWN   pyyaml missing, no hee/skills directory, or bad usage
 """
+import subprocess
 import sys
 from pathlib import Path
 
@@ -75,7 +117,12 @@ except ImportError:
     print("hee-gen-skills: requires pyyaml", file=sys.stderr)
     sys.exit(3)
 
-REPO = Path(__file__).resolve().parent.parent.parent
+INSTALL_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# The frontmatter keys Claude Code documents for SKILL.md (code.claude.com,
+# skills, read 2026-10-22). Anything else is passed through with a warning.
+FRONTMATTER_KEYS = ("disable-model-invocation", "user-invocable", "allowed-tools",
+                    "context", "paths", "arguments")
 
 
 def as_lines(v, indent=""):
@@ -148,12 +195,46 @@ HEADINGS = {
 }
 
 
+def skill_name(doc):
+    # The agent-facing name drops the version suffix: a skill is invoked by
+    # what it does, not by which revision of the object described it.
+    return doc.get("metadata", {}).get("name", "").removesuffix("-v1")
+
+
+def is_ephemeral(doc):
+    labels = (doc.get("metadata") or {}).get("labels") or {}
+    return str(labels.get("ephemeral", "")).lower() == "true"
+
+
+def frontmatter_extra(brief, src):
+    """The documented Claude Code keys, as the object wrote them."""
+    out = []
+    extra = brief.get("frontmatter") or {}
+    if not isinstance(extra, dict):
+        raise TypeError(f"{src}: spec.agent_brief.frontmatter must be a map")
+    for k, v in extra.items():
+        if k in ("name", "description"):
+            raise ValueError(f"{src}: frontmatter.{k} is derived from the object, not set")
+        if k not in FRONTMATTER_KEYS:
+            print(f"hee-gen-skills: {src}: frontmatter key '{k}' is not one Claude Code documents; "
+                  "emitted anyway", file=sys.stderr)
+        # A list renders flow style (`allowed-tools: [Read, Edit]`), a scalar
+        # renders as `key: value`; safe_dump's default_flow_style=None would
+        # wrap a scalar map in braces, which Claude Code reads as no key at all.
+        # default_flow_style=None keeps the map in block style and the list
+        # in flow style; for a scalar it would wrap the map in braces, which
+        # Claude Code reads as no key at all, so a scalar gets False.
+        style = None if isinstance(v, (list, tuple)) else False
+        rendered = yaml.safe_dump({k: v}, default_flow_style=style,
+                                  sort_keys=False, width=10_000).rstrip("\n")
+        out.append(rendered)
+    return out
+
+
 def render(doc, src):
     md = doc.get("metadata", {})
     spec = doc.get("spec", {})
-    # The agent-facing name drops the version suffix: a skill is invoked by
-    # what it does, not by which revision of the object described it.
-    name = md.get("name", "").removesuffix("-v1")
+    name = skill_name(doc)
 
     # agent_brief exists because the first version of this generator produced
     # a WORSE file than the hand-written SKILL.md it replaced. The object held
@@ -165,9 +246,17 @@ def render(doc, src):
             or (md.get("description") or "")).replace("\n", " ").strip()
     title = brief.get("title") or name.replace("-", " ").title()
 
-    out = ["---", f"name: {name}", f"description: {desc}", "---", ""]
+    out = ["---", f"name: {name}", f"description: {desc}"]
+    out.extend(frontmatter_extra(brief, src))
+    out.extend(["---", ""])
     out.append(f"# {title}")
     out.append("")
+    if is_ephemeral(doc):
+        ticket = (spec.get("ephemeral") or {}).get("ticket") or spec.get("evidence") or "its job"
+        out.append(f"**EPHEMERAL.** Written for {ticket} and rendered into that job; "
+                   "not a ratified skill, never committed to a repository's .claude/skills/. "
+                   "It expires with the job.")
+        out.append("")
     if brief.get("why"):
         out.append(f"**Why this exists:** {brief['why'].strip()}")
         out.append("")
@@ -193,7 +282,7 @@ def render(doc, src):
     # Anything the object carries that this tool has no heading for is still
     # emitted. Dropping unknown fields silently is how a generator quietly
     # loses content the source considered worth recording.
-    extra = [k for k in spec if k not in HEADINGS and k != "agent_brief"]
+    extra = [k for k in spec if k not in HEADINGS and k not in ("agent_brief", "ephemeral")]
     if extra:
         out.append("## Other fields from the Skill object")
         out.append("")
@@ -205,6 +294,74 @@ def render(doc, src):
     return "\n".join(out).rstrip() + "\n"
 
 
+def resolve_repo(argv):
+    """--repo DIR, else the git repository the cwd is inside, else the
+    engine checkout this tool is installed in. The install path is the
+    LAST resort, not the first: that ordering is the whole fix."""
+    if "--repo" in argv:
+        return Path(argv[argv.index("--repo") + 1]).expanduser().resolve()
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
+                             text=True, check=False)
+        if top.returncode == 0 and top.stdout.strip():
+            return Path(top.stdout.strip()).resolve()
+    except OSError:
+        pass
+    return INSTALL_ROOT
+
+
+def load(src):
+    try:
+        doc = yaml.safe_load(src.read_text())
+    except (OSError, yaml.YAMLError) as e:
+        print(f"hee-gen-skills: cannot parse {src}: {e}", file=sys.stderr)
+        return None, 2
+    if not isinstance(doc, dict) or doc.get("kind") != "Skill":
+        kind = doc.get("kind") if isinstance(doc, dict) else type(doc).__name__
+        print(f"hee-gen-skills: {src} is kind={kind}, not Skill -- skipped")
+        return None, 0
+    if not skill_name(doc):
+        print(f"hee-gen-skills: {src} has no metadata.name", file=sys.stderr)
+        return None, 2
+    return doc, 0
+
+
+def emit(doc, src_label, outdir, write, show_root):
+    """Render one object to outdir/<name>/SKILL.md. Returns (changed, rc)."""
+    try:
+        body = render(doc, src_label)
+    except (TypeError, ValueError) as e:
+        print(f"hee-gen-skills: {e}", file=sys.stderr)
+        return False, 2
+    dest = outdir / skill_name(doc) / "SKILL.md"
+    try:
+        shown = dest.relative_to(show_root)
+    except ValueError:
+        shown = dest
+    current = dest.read_text() if dest.exists() else None
+    if current == body:
+        print(f"hee-gen-skills: unchanged  {shown}")
+        return False, 0
+    if write:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body)
+        print(f"hee-gen-skills: {'wrote' if current is None else 'updated'}     {shown}")
+    else:
+        print(f"hee-gen-skills: {'would create' if current is None else 'would update'} {shown}")
+    return True, 0
+
+
+def value_after(argv, flag):
+    out = []
+    for i, a in enumerate(argv):
+        if a == flag:
+            if i + 1 >= len(argv):
+                print(f"hee-gen-skills: {flag} needs a value", file=sys.stderr)
+                return None
+            out.append(argv[i + 1])
+    return out
+
+
 def main():
     argv = sys.argv[1:]
     if help_wanted(argv):
@@ -212,11 +369,48 @@ def main():
         print(__doc__)
         return 0
     write = "--write" in argv
-    outdir = REPO / ".claude" / "skills"
-    if "--out" in argv:
-        outdir = Path(argv[argv.index("--out") + 1])
+    for flag in ("--repo", "--out", "--skill"):
+        if value_after(argv, flag) is None:
+            return 3
+    skills = [Path(p).expanduser() for p in value_after(argv, "--skill")]
+    outs = value_after(argv, "--out")
+    cwd = Path.cwd()
 
-    skills_dir = REPO / "hee" / "skills"
+    if skills:
+        if not outs:
+            print("hee-gen-skills: --skill needs --out DIR (the job's skills directory)",
+                  file=sys.stderr)
+            return 3
+        outdir = Path(outs[-1]).expanduser()
+        changed = 0
+        for src in skills:
+            if not src.is_file():
+                print(f"hee-gen-skills: no such file {src}", file=sys.stderr)
+                return 2
+            doc, rc = load(src)
+            if rc:
+                return rc
+            if doc is None:
+                continue
+            # The GENERATED banner must read the same from a test, a CI
+            # example and a shell: relative to where the tool runs, never an
+            # absolute path that differs per machine.
+            try:
+                label = src.resolve().relative_to(cwd)
+            except ValueError:
+                label = src
+            did, rc = emit(doc, label, outdir, write, cwd)
+            if rc:
+                return rc
+            changed += did
+        if changed and not write:
+            print(f"hee-gen-skills: {changed} file(s) differ. Re-run with --write to apply.")
+            return 1
+        return 0
+
+    repo = resolve_repo(argv)
+    outdir = Path(outs[-1]).expanduser() if outs else repo / ".claude" / "skills"
+    skills_dir = repo / "hee" / "skills"
     if not skills_dir.is_dir():
         print(f"hee-gen-skills: no {skills_dir}", file=sys.stderr)
         return 3
@@ -228,31 +422,20 @@ def main():
 
     changed = 0
     for src in srcs:
-        try:
-            doc = yaml.safe_load(src.read_text())
-        except Exception as e:
-            print(f"hee-gen-skills: cannot parse {src}: {e}", file=sys.stderr)
+        doc, rc = load(src)
+        if rc:
+            return rc
+        if doc is None:
+            continue
+        if is_ephemeral(doc):
+            print(f"hee-gen-skills: {src.relative_to(repo)} is labelled ephemeral; "
+                  "hee/skills/ is the ratified tree. Render it with --skill into its job.",
+                  file=sys.stderr)
             return 2
-        if doc.get("kind") != "Skill":
-            print(f"hee-gen-skills: {src.name} is kind={doc.get('kind')}, not Skill -- skipped")
-            continue
-        rel = src.relative_to(REPO)
-        body = render(doc, rel)
-        name = doc.get("metadata", {}).get("name", "").removesuffix("-v1")
-        dest = outdir / name / "SKILL.md"
-        current = dest.read_text() if dest.exists() else None
-        if current == body:
-            print(f"hee-gen-skills: unchanged  {dest.relative_to(REPO)}")
-            continue
-        changed += 1
-        if write:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(body)
-            verb = "wrote" if current is None else "updated"
-            print(f"hee-gen-skills: {verb}     {dest.relative_to(REPO)}")
-        else:
-            verb = "would create" if current is None else "would update"
-            print(f"hee-gen-skills: {verb} {dest.relative_to(REPO)}")
+        did, rc = emit(doc, src.relative_to(repo), outdir, write, repo)
+        if rc:
+            return rc
+        changed += did
 
     if changed and not write:
         print(f"hee-gen-skills: {changed} file(s) differ. Re-run with --write to apply.")

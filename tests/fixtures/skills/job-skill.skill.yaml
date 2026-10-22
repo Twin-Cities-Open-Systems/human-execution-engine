@@ -1,0 +1,43 @@
+# An ephemeral Skill: written for one job, rendered into that job with
+# `hee gen-skills --skill ... --out ...`, never committed to a repository's
+# .claude/skills/. The fixture for that path, and the # ci example's input.
+apiVersion: hee/v1
+kind: Skill
+metadata:
+  name: rename-targets-conf-v1
+  description: "Rename pve/monitor/targets.conf to targets.bash in every file that names it, for one job."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: fixture
+    topic: gen-skills
+    artifact: skill
+    ephemeral: "true"
+  annotations:
+    inuid: null
+    inuid_null_reason: fixture
+    updated-at: "2026-10-22T00:00:00Z"
+spec:
+  agent_brief:
+    one_liner: "Rename targets.conf to targets.bash everywhere it is named, in this job's tree only."
+    title: "Rename targets.conf for this job"
+    why: >-
+      The rename touches seven files across three roles' paths, so no one
+      role could do it atomically; this job carries the whole change and
+      this skill is the one procedure it follows.
+    frontmatter:
+      disable-model-invocation: true
+      context: fork
+      allowed-tools: [Read, Grep, Edit]
+  ephemeral:
+    ticket: fleet-ops/0151
+  trigger: "The job's prompt says to apply the rename; nothing else."
+  prerequisites:
+    - "in/tree/ holds the seven files"
+  procedure:
+    steps:
+      - do: "Find every file that names the old path."
+        run: "grep -rl 'targets.conf' in/tree"
+      - do: "Edit each hit; change nothing else in the file."
+  verification: "grep -rl targets.conf in/tree prints nothing; the diff touches only the lines that named it."
+  evidence: "fleet-ops/0151 -- the ticket this job works; fleet-ops#855 is the rename it repeats"
