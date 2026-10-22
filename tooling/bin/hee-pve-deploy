@@ -50,7 +50,9 @@ Manifest format (pve/services/<name>.yaml):
 manifest lives in (git rev-parse --show-toplevel), never to the current
 directory and never absolute. A `src` that is a directory is shipped whole:
 every file git tracks under it (`git ls-files`, so nothing untracked, no
-results/, no .git) goes over as one tar and is unpacked at `dst`. Real
+results/, no .git) goes over as one tar and is unpacked at `dst`, and the
+full sha of the HEAD that tar was taken from is written to `dst`/COMMIT,
+because the container has no .git to ask. Real
 trigger (2026-09-19): the meme-factory service is a tree in a PRIVATE repo,
 and a container holds no repository credential, so the deploy is the only
 honest way the code gets there; the previous shape was a hand `pct push` per
@@ -1174,12 +1176,20 @@ def _tar_tracked(root, src, i):
         sys.exit(f"hee-pve-deploy: files[{i}] '{rel}' is a directory git does not track (or is empty) -- "
                  f"only committed trees are shipped.")
     n = len(r.stdout.splitlines())
+    # The sha of the HEAD the archive is taken from, so apply_files can leave it
+    # in the tree: the container has no .git, and a tool that stamps "which
+    # commit made this" (meme-factory's diagram.py) read commit=unknown there.
+    # Fails closed, like the archive: a tree that cannot name its commit is
+    # not shipped with a COMMIT file that guesses.
+    h = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True)
+    if h.returncode != 0 or not h.stdout.strip():
+        sys.exit(f"hee-pve-deploy: git rev-parse HEAD in {root} failed: {h.stderr.strip()}")
     a = subprocess.run(["git", "-C", root, "archive", "--format=tar", "--prefix=", "HEAD", "--", rel],
                        capture_output=True)
     if a.returncode != 0:
         sys.exit(f"hee-pve-deploy: git archive of '{rel}' failed: {a.stderr.decode(errors='replace')}")
     # git archive keeps the path prefix (rel/...); strip it on extraction with --strip-components
-    return {"tar": a.stdout, "files": n, "strip": len(rel.strip("/").split("/"))}
+    return {"tar": a.stdout, "files": n, "strip": len(rel.strip("/").split("/")), "commit": h.stdout.strip()}
 
 
 def plan_provision(spec, root):
@@ -1257,10 +1267,12 @@ def apply_files(host, vmid, files, dry_run):
         if f.get("dir"):
             tarinfo = f["data"]
             sh = (f"mkdir -p {shlex.quote(f['dst'])} && tar -xf - -C {shlex.quote(f['dst'])} "
-                  f"--strip-components={tarinfo['strip']}")
+                  f"--strip-components={tarinfo['strip']} && "
+                  f"echo {shlex.quote(tarinfo['commit'])} > {shlex.quote(f['dst'] + '/COMMIT')}")
             label = f"{f['rel']} ({tarinfo['files']} tracked files, {len(tarinfo['tar']) // 1024} KiB tar) -> {f['dst']}/"
             if dry_run:
-                print(f"hee-pve-deploy: DRY RUN, would unpack {label} via: "
+                print(f"hee-pve-deploy: DRY RUN, would unpack {label} and write {f['dst']}/COMMIT "
+                      f"({tarinfo['commit']}) via: "
                       f"pct exec {vmid} -- env PATH={CONTAINER_PATH} sh -c {shlex.quote(sh)}")
                 continue
             print(f"hee-pve-deploy: unpacking {label}")
