@@ -149,8 +149,9 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>🎓 Skill (1)</summary>
+<summary>🎓 Skill (2)</summary>
 
 - 🟢 [OK] `hee/skills/ratify-contract-v1.skill.yaml`
+- 🟢 [OK] `tests/fixtures/skills/job-skill.skill.yaml`
 
 </details>
