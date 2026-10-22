@@ -208,6 +208,10 @@ class TestDirectoryFiles(unittest.TestCase):
         import tarfile
         names = sorted(m.name for m in tarfile.open(fileobj=io.BytesIO(f["data"]["tar"])).getmembers() if m.isfile())
         self.assertEqual(names, ["svc/app.py", "svc/sub/x.txt"])   # untracked.tmp is not there
+        # The sha the tar was taken from travels with it, full length, so apply_files can write COMMIT.
+        head = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(len(head), 40); self.assertEqual(f["data"]["commit"], head)
 
     def test_directory_refuses_mode_and_untracked(self):
         with self.assertRaises(SystemExit):
@@ -223,6 +227,10 @@ class TestDirectoryFiles(unittest.TestCase):
             deploy.apply_files("invalid.", "999", files, dry_run=True)
         self.assertIn("would unpack svc/ (2 tracked files", out.getvalue())
         self.assertIn("tar -xf - -C /opt/svc --strip-components=1", out.getvalue())
+        # The same sh -c writes the commit beside the tree, and the dry run says so.
+        commit = files[0]["data"]["commit"]
+        self.assertIn("and write /opt/svc/COMMIT", out.getvalue())
+        self.assertIn(f"echo {commit} > /opt/svc/COMMIT", out.getvalue())
 
 
 class TestMounts(unittest.TestCase):

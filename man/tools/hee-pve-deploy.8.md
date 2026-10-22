@@ -94,12 +94,16 @@ hee-pve-deploy - deploy and provision a Proxmox LXC from one declarative manifes
       mounts:                           # directories of the pve HOST lent to the container (bind mounts)
         - {host: /srv/storage, ct: /data/storage}            # read-write
         - {host: /srv/media, ct: /data/media, ro: true}      # read-only
+      devices:                          # device nodes of the pve HOST lent to the container (pve-container 5.0.8+ dev[n])
+        - {path: /dev/dri/renderD128, gid: 104, mode: "0660"}   # a GPU's render node; gid/mode as seen INSIDE the container
 
     `files:` and `provision:` paths are relative to the root of the repo the
     manifest lives in (git rev-parse --show-toplevel), never to the current
     directory and never absolute. A `src` that is a directory is shipped whole:
     every file git tracks under it (`git ls-files`, so nothing untracked, no
-    results/, no .git) goes over as one tar and is unpacked at `dst`. Real
+    results/, no .git) goes over as one tar and is unpacked at `dst`, and the
+    full sha of the HEAD that tar was taken from is written to `dst`/COMMIT,
+    because the container has no .git to ask. Real
     trigger (2026-09-19): the meme-factory service is a tree in a PRIVATE repo,
     and a container holds no repository credential, so the deploy is the only
     honest way the code gets there; the previous shape was a hand `pct push` per
