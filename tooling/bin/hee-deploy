@@ -379,6 +379,10 @@ def real_deploy(
 
     committed = False
     rc = 2
+    # Set by the finally when the checkout could not be put back. A `return`
+    # inside a finally is a SyntaxWarning from Python 3.14 (PEP 765) and it
+    # also swallowed any exception in flight, so the override moved out here.
+    left_as_found = True
     try:
         post_dir = resume / "profiles" / oper / "blog"
         post_dir.mkdir(parents=True, exist_ok=True)
@@ -484,7 +488,6 @@ def real_deploy(
         else:
             print(f"✅ OK hee-deploy: lab updated -- {review_url}")
             rc = 0
-        return rc
     finally:
         # Every path out of here, success or refusal, leaves the checkout
         # the way it was found: the build's tracked outputs restored, the
@@ -502,11 +505,14 @@ def real_deploy(
             warn(f"{resume}: could not switch back to {prev}: {back.stderr.strip()}")
             if rc == 0:
                 # the verdict above already printed OK; say so, and let the
-                # exit code carry the warning (a return in finally wins)
+                # exit code carry the warning
                 print("⚠️ WARNING hee-deploy: deployed, but the checkout was not left as found -- exit 1")
-                return 1  # noqa: B012 -- deliberate: the finally's warning must reach the exit code
+                left_as_found = False
         elif not committed:
             subprocess.run(["git", "branch", "-D", branch], cwd=resume, capture_output=True, text=True, check=False)
+    # Only the success verdict reaches here: every refusal returned from
+    # inside the try with its own code, which the finally never changed.
+    return rc if left_as_found else 1
 
 
 def deploy_blog(args: argparse.Namespace) -> int:
