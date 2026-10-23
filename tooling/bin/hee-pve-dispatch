@@ -119,6 +119,7 @@ RUNNERS = ("pve", "host")
 # The roster's tier for routine multi-step tool work that CI and a review
 # re-check; a host job names another model in job.yaml when it needs one.
 HOST_MODEL_DEFAULT = "claude-sonnet-5"
+HOST_SETTINGS_JSON = '{"promptCacheTtl":"5m","subagentPromptCacheTtl":"5m"}'
 # A job that may Write may Edit: job one (2026-09-11) allowed Write without
 # Edit and paid ~20% of its cost rewriting a 15 KB report six times after
 # six Edit denials. Operator: "we need to nip that in the bud".
@@ -454,6 +455,14 @@ def render_run_sh(job, jid, wif=None, resume=None, local_dir=None):
         claude += ["--json-schema", '"$(cat ' + shlex.quote(job["json_schema"]) + ')"']
     if local_dir and job.get("model"):
         claude += ["--model", shlex.quote(job["model"])]
+    if local_dir:
+        # A job runs straight through and ends, so nothing returns after five
+        # minutes to read a 1-hour cache, and the 1-hour write costs 2x input
+        # against 1.25x (DISPATCH.md, the pve containers' managed settings).
+        # The host account's own settings say 1h for interactive work; the
+        # first host job paid $0.22 of its $0.45 in 1h cache writes. Measured
+        # 2026-10-23: --settings with this JSON moves every write to 5m.
+        claude += ["--settings", shlex.quote(HOST_SETTINGS_JSON)]
     claude += ["--allowedTools", *[shlex.quote(t) for t in job["tools"]]]
     if local_dir:
         d = shlex.quote(local_dir)

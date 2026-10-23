@@ -410,6 +410,7 @@ class TestHostRunner(unittest.TestCase):
         self.assertIn("--allowedTools Read Glob Grep Write Edit", out)   # Glob/Grep are off on Linux unless named
         self.assertIn("--model claude-sonnet-5", out)
         self.assertIn("--max-budget-usd 0.50", out)
+        self.assertIn("promptCacheTtl", out)                               # 5m cache writes, not the account's 1h
         self.assertIn("runs HERE", out)
         self.assertNotIn("read -r", out)                                  # no key on stdin
         self.assertNotIn("su -p agent", out)
