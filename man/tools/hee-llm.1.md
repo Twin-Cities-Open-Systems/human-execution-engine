@@ -6,11 +6,11 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
 
 # SYNOPSIS
 
-    hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run]
+    hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run] [--ledger DIR] [--ticket ID]
     hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--allow-web] [--read-also DIR ...]
                    [--max-steps N] [--max-tokens N] [--max-result-chars N] [--context N]
-                   [--repo-name NAME] [--json]
-    hee-llm job collect NAME --out DIR [--repo-name NAME]
+                   [--repo-name NAME] [--json] [--ledger DIR]
+    hee-llm job collect NAME --out DIR [--repo-name NAME] [--ledger DIR]
     hee-llm job list
     hee-llm job rm NAME
     hee-llm tools [--allow-write] [--allow-shell]
@@ -75,6 +75,19 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
     Why the shell tool is off by default: the fleet's bench (hee bench) shows
     this class of model answering that it may run `pct destroy` itself.
 
+    Records  every other runner writes a dispatch record to
+             <ledger>/.hee/dispatch/<job id>.yaml, which `hee view --jobs`, the
+             daily cap and the factory registry read; without one this job is
+             invisible to all three. `start` writes one (agent: llm, a class,
+             never a fleet host name; subtype started, cost 0, no endpoint
+             yet). Each `ask` adds its prompt/completion tokens and a one-line
+             summary to it. `collect` finalizes ended_at, exit, subtype and the
+             patch produced, with cost_usd 0.0 -- the local model has no
+             marginal cost. --ledger DIR says where the record lives (default:
+             this process's git top level, else its current directory); a dry
+             run writes nothing. An `ask` or `collect` against a job started
+             before this existed warns and carries on without a record.
+
 
 # ENVIRONMENT
 
@@ -92,6 +105,7 @@ hee-llm - give a local model work, not access: a checkout in, a patch out
     /var/lib/llm/work/NAME/<repo>/   the job's checkout, in the container
     /var/lib/llm/out/NAME/NAME.patch what collect produced, in the container
     DIR/NAME.patch                   the same, locally
+    <ledger>/.hee/dispatch/<job id>.yaml   the dispatch record (see Records)
 
 
 # EXIT STATUS

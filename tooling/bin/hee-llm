@@ -3,11 +3,11 @@
 """hee-llm -- give a local model work, not access: a checkout in, a patch out
 
 SYNOPSIS
-  hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run]
+  hee-llm job start NAME (--repo DIR [--ref REF] | --from PATH) [--dry-run] [--ledger DIR] [--ticket ID]
   hee-llm job ask NAME "PROMPT" [--allow-write] [--allow-shell] [--allow-web] [--read-also DIR ...]
                  [--max-steps N] [--max-tokens N] [--max-result-chars N] [--context N]
-                 [--repo-name NAME] [--json]
-  hee-llm job collect NAME --out DIR [--repo-name NAME]
+                 [--repo-name NAME] [--json] [--ledger DIR]
+  hee-llm job collect NAME --out DIR [--repo-name NAME] [--ledger DIR]
   hee-llm job list
   hee-llm job rm NAME
   hee-llm tools [--allow-write] [--allow-shell]
@@ -69,6 +69,19 @@ DESCRIPTION
   Why the shell tool is off by default: the fleet's bench (hee bench) shows
   this class of model answering that it may run `pct destroy` itself.
 
+  Records  every other runner writes a dispatch record to
+           <ledger>/.hee/dispatch/<job id>.yaml, which `hee view --jobs`, the
+           daily cap and the factory registry read; without one this job is
+           invisible to all three. `start` writes one (agent: llm, a class,
+           never a fleet host name; subtype started, cost 0, no endpoint
+           yet). Each `ask` adds its prompt/completion tokens and a one-line
+           summary to it. `collect` finalizes ended_at, exit, subtype and the
+           patch produced, with cost_usd 0.0 -- the local model has no
+           marginal cost. --ledger DIR says where the record lives (default:
+           this process's git top level, else its current directory); a dry
+           run writes nothing. An `ask` or `collect` against a job started
+           before this existed warns and carries on without a record.
+
 EXAMPLES
   $ hee-llm tools                                                              # ci
   $ hee-llm tools --allow-write --allow-shell                                  # ci
@@ -104,6 +117,7 @@ FILES
   /var/lib/llm/work/NAME/<repo>/   the job's checkout, in the container
   /var/lib/llm/out/NAME/NAME.patch what collect produced, in the container
   DIR/NAME.patch                   the same, locally
+  <ledger>/.hee/dispatch/<job id>.yaml   the dispatch record (see Records)
 
 SEE ALSO
   hee-bench(1), hee-pve-deploy(8), hee-pve-dispatch(1), library/py/hee_llm
@@ -120,7 +134,7 @@ import hee_llm as L
 from hee_cli import help_wanted, note_ignored
 from hee_status import ArgumentParser, Status, emit, exit_with
 
-VALUE_FLAGS = ("--host", "--vmid", "--endpoint", "--repo", "--ref", "--out", "--max-steps", "--max-tokens", "--repo-name", "--from", "--read-also", "--max-result-chars", "--context")
+VALUE_FLAGS = ("--host", "--vmid", "--endpoint", "--repo", "--ref", "--out", "--max-steps", "--max-tokens", "--repo-name", "--from", "--read-also", "--max-result-chars", "--context", "--ledger", "--ticket")
 
 
 def _node(args):
@@ -154,7 +168,11 @@ def cmd_start(args) -> int:
         emit(Status.OK, "dry run: nothing shipped")
         return 0
     src = f"copied from {res['from']}" if res["from"] else f"{res['repo']} at {res['ref']} ({res['bytes']} bytes)"
-    emit(Status.OK, f"job {res['name']}: {src} is at {res['root']} with a baseline tag")
+    source = {"from": res["from"]} if res["from"] else {"repo": args.repo, "ref": args.ref}
+    model = os.environ.get("HEE_LLM_MODEL") or "default"
+    record = L.write_started_record(L.ledger_dir(args.ledger), args.name, vmid=vmid or "0", model=model,
+                                     ticket=args.ticket, tools=L.allowed_tools(), source=source)
+    emit(Status.OK, f"job {res['name']}: {src} is at {res['root']} with a baseline tag; record {record}")
     return 0
 
 
@@ -164,10 +182,18 @@ def cmd_ask(args) -> int:
     repo_name = args.repo_name or L.repo_name_of(args.name, host=host, vmid=vmid)
     root = L.job_root(args.name, repo_name)
     allow = L.allowed_tools(args.allow_write, args.allow_shell)
+    dispatch_dir = L.ledger_dir(args.ledger)
+    record = L.find_llm_record(dispatch_dir, args.name)
+    if record is None:
+        emit(Status.WARNING, f"no dispatch record for job {args.name!r} under {dispatch_dir} "
+                              f"(started before this change?); continuing without one", stream=sys.stderr)
     res = L.ask(ep, root, args.prompt, allow=allow, max_steps=args.max_steps, max_tokens=args.max_tokens,
                 model=os.environ.get("HEE_LLM_MODEL") or "default", read_roots=tuple(args.read_also or ()),
                 max_result_chars=args.max_result_chars, context=args.context, web=args.allow_web,
                 log=None if args.json else (lambda m: print(f"  tool: {m}")))
+    if record is not None:
+        L.append_ask_record(record, prompt=args.prompt, steps=res["steps"], stopped=res["stopped"],
+                             tools=allow, usage=res.get("usage") or {}, endpoint=ep)
     if args.json:
         print(json.dumps({"answer": res["answer"], "steps": res["steps"], "stopped": res["stopped"]}, indent=1))
     else:
@@ -182,6 +208,14 @@ def cmd_ask(args) -> int:
 def cmd_collect(args) -> int:
     host, vmid = _node(args)
     res = L.collect(args.name, args.out, host=host, vmid=vmid, repo_name=args.repo_name)
+    dispatch_dir = L.ledger_dir(args.ledger)
+    record = L.find_llm_record(dispatch_dir, args.name)
+    if record is None:
+        emit(Status.WARNING, f"no dispatch record for job {args.name!r} under {dispatch_dir} "
+                              f"(started before this change?); continuing without one", stream=sys.stderr)
+    else:
+        L.finish_collect_record(record, results_dir=args.out, patch_path=res["path"], patch_bytes=res["bytes"],
+                                 commits=res["commits"])
     if res["commits"] == 0:
         emit(Status.CRITICAL, f"job {res['name']}: no change against baseline; {res['path']} is empty")
         return 2
@@ -233,6 +267,8 @@ def build_parser() -> ArgumentParser:
     p.add_argument("--from", dest="from_path")
     p.add_argument("--ref", default="HEAD")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--ledger")
+    p.add_argument("--ticket")
     p.set_defaults(fn=cmd_start)
 
     p = js.add_parser("ask", add_help=False)
@@ -249,6 +285,7 @@ def build_parser() -> ArgumentParser:
     p.add_argument("--allow-web", action="store_true")
     p.add_argument("--repo-name")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--ledger")
     p.set_defaults(fn=cmd_ask)
 
     p = js.add_parser("collect", add_help=False)
@@ -256,6 +293,7 @@ def build_parser() -> ArgumentParser:
     p.add_argument("name")
     p.add_argument("--out", required=True)
     p.add_argument("--repo-name")
+    p.add_argument("--ledger")
     p.set_defaults(fn=cmd_collect)
 
     p = js.add_parser("list", add_help=False)
