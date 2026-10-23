@@ -30,6 +30,16 @@ What a dispatch is:
      the store, and it accepts input only from a real terminal.
   5. A record of every dispatch is written to <repo>/.hee/dispatch/<job id>.yaml
      (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
+  6. `runner: host` in job.yaml (2026-10-23) runs the SAME bounded claude -p
+     on the dispatcher's own host instead of a container: the job's files are
+     unpacked into JOBDIR/results/<job id>/, claude runs there as this account
+     with its own login (no key, no --cred), and the same record is written
+     with the real cost. The first host job (fleet-ops mf-diagram-commit,
+     2026-10-22) ran through the Agent tool instead and came back with no
+     dollar figure and no Glob/Grep: on Linux Claude Code leaves those two
+     tools out unless --allowedTools names them, which this run.sh always
+     does. AGENT is the literal word `host`; the pve API workers stay off
+     for budget until the operator says otherwise.
 
 job.yaml:
   name: convert-legacy-page           # short, becomes part of the job id
@@ -37,6 +47,8 @@ job.yaml:
   inputs: [in/, rules.md]             # shipped; default: everything but results/
   outputs: [out/]                     # collected; default: out/
   agent: docs-keeper                  # optional: a dispatch that resolves to any other role is refused
+  runner: pve                         # pve (default) | host; llm is `hee llm job`, refused here
+  model: claude-sonnet-5              # host only (default shown); pve roles are pinned by the roster
   ticket: fleet-ops/0100              # optional: recorded when --ticket is not given
   blocked_by: [fleet-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
   budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
@@ -56,7 +68,9 @@ Usage:
 EXAMPLES
   $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
   $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --wif --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
+  $ hee pve dispatch host tests/fixtures/dispatch/job-host --dry-run   # ci
   $ hee pve dispatch ci-triage pve/agents/jobs/wif-prep-readonly --wif --cred wif-issuer-lab --ticket 0090     # the real thing; needs the lab
+  $ hee pve dispatch host pve/agents/jobs/NAME --ticket NNNN            # a host job for real: runs here, records the cost
 
   --wif: workload identity federation instead of a static key. --cred names
      the hee cred account holding the lab issuer's ES256 private key (made by
@@ -70,6 +84,7 @@ EXAMPLES
      console.organization_id, workspace_id, service_account_id,
      federation_rule_id, issuer and subject.
   hee-pve-dispatch AGENT JOBDIR --dry-run
+  hee-pve-dispatch host JOBDIR [--ticket ID] [--dry-run]            # runner: host -- on this machine, this account's login
 """
 import argparse
 import datetime as _dt
@@ -79,6 +94,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import shutil
@@ -99,6 +115,10 @@ CONTAINER_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 DEFAULT_ALLOCATIONS = os.path.expanduser(
     "~/git/fleet-ops/hee/registries/fleet-allocations.registry.v1.yaml")
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
+RUNNERS = ("pve", "host")
+# The roster's tier for routine multi-step tool work that CI and a review
+# re-check; a host job names another model in job.yaml when it needs one.
+HOST_MODEL_DEFAULT = "claude-sonnet-5"
 # A job that may Write may Edit: job one (2026-09-11) allowed Write without
 # Edit and paid ~20% of its cost rewriting a 15 KB report six times after
 # six Edit denials. Operator: "we need to nip that in the bud".
@@ -291,8 +311,21 @@ def plan_job(jobdir):
     blocked_by = spec.get("blocked_by") or []
     if not isinstance(blocked_by, list) or not all(isinstance(b, str) and b.strip() for b in blocked_by):
         die("job.yaml: blocked_by must be a list of ticket keys, repo/id -- e.g. [fleet-ops/0080]")
+    runner = str(spec.get("runner") or "pve")
+    if runner == "llm":
+        die("job.yaml: runner llm is `hee llm job start/ask/collect` (hee-llm(1)), not this tool -- yet")
+    if runner not in RUNNERS:
+        die(f"job.yaml: runner '{runner}' -- use {' or '.join(RUNNERS)}")
+    model = spec.get("model")
+    if model is not None and not re.fullmatch(r"[a-z][a-z0-9.-]{2,60}", str(model)):
+        die("job.yaml: model must be a model id, e.g. claude-sonnet-5")
+    if runner == "pve" and model:
+        die("job.yaml: model is not a pve job's to choose -- the signed agent roster pins it per role")
+    if runner == "host" and not model:
+        model = HOST_MODEL_DEFAULT
     return {
         "agent": spec.get("agent"), "ticket": str(spec["ticket"]) if spec.get("ticket") else None,
+        "runner": runner, "model": model,
         "blocked_by": [b.strip() for b in blocked_by],
         "dir": jobdir, "name": name, "prompt": prompt, "budget_usd": budget,
         "timeout_s": timeout_s, "tools": [str(t) for t in tools], "mode": mode,
@@ -389,8 +422,12 @@ def job_id(job, when=None):
     return f"{job['name']}-{when.strftime('%Y%m%dT%H%M%SZ')}"
 
 
-def render_run_sh(job, jid, wif=None, resume=None):
-    """The script that runs INSIDE the container. It reads the credential
+def render_run_sh(job, jid, wif=None, resume=None, local_dir=None):
+    """The script that runs INSIDE the container -- or, with local_dir, on the
+    dispatcher's own host in that directory (runner: host): no key on stdin,
+    no su, no cgroup sampling; the account's own claude login is the
+    credential and ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN are unset so nothing
+    in the environment can outrank it (footgun 5 in DISPATCH.md). It reads the credential
     from its stdin into the environment, drops to the agent user with that
     environment preserved (busybox su -p), and runs one bounded claude -p.
     Nothing secret is ever on a command line or in a file. With wif, what
@@ -415,7 +452,28 @@ def render_run_sh(job, jid, wif=None, resume=None):
         claude += ["--append-system-prompt-file", shlex.quote(job["system_prompt"])]
     if job.get("json_schema"):
         claude += ["--json-schema", '"$(cat ' + shlex.quote(job["json_schema"]) + ')"']
+    if local_dir and job.get("model"):
+        claude += ["--model", shlex.quote(job["model"])]
     claude += ["--allowedTools", *[shlex.quote(t) for t in job["tools"]]]
+    if local_dir:
+        d = shlex.quote(local_dir)
+        return "\n".join([
+            "#!/bin/sh",
+            f"# generated by hee-pve-dispatch for job {jid} -- runs on the dispatcher's own host, in {local_dir}",
+            "set -eu",
+            "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN   # this account's own claude login is the credential",
+            f"cd {d}",
+            "mkdir -p out",
+            "t0=$(date +%s)",
+            "rc=0",
+            f"timeout {job['timeout_s']} " + " ".join(claude) + " > out/stream.jsonl 2> out/stderr.log || rc=$?",
+            "grep '\"type\":\"result\"' out/stream.jsonl | tail -n 1 > out/result.json || true",
+            "t1=$(date +%s)",
+            "printf '{\"wall_s\": %d, \"sampled_every_s\": 0}\\n' $((t1 - t0)) > out/resources.json",
+            'echo "$rc" > out/exit',
+            'echo "dispatch: claude exited $rc"',
+            "exit 0",
+        ]) + "\n"
     # No `exec` here: it would replace this shell, and the grep that turns the
     # stream into result.json would never run. Measured on the first
     # stream-json job (review-resume-85, 2026-09-11): claude exited 0, exit
@@ -681,6 +739,142 @@ def repo_root_of(path):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def finish_job(args, job, jid, role, hostname, vmid, wif, jwt_claims, run_sh, started, ended,
+               results_dir, remote, resume, remote_jid, auth):
+    """What every runner does once claude has exited and out/ is in
+    results_dir: result.json derived if run.sh did not write it, the evidence
+    copy, the record in .hee/dispatch/, the verdict. One function, so the pve
+    and host records are the same object."""
+    ensure_result_json(results_dir)
+    res = read_result(results_dir)
+    # Evidence, committed: results/ is gitignored (raw, large), but the one
+    # object that says what happened -- claude's result.json -- is copied
+    # beside the job as evidence/result.json-<epoch>. Operator, 2026-09-11:
+    # "we save those result.json in evidence with a ts, date +%s".
+    src = os.path.join(results_dir, "out", "result.json")
+    evidence = None
+    if os.path.isfile(src) and os.path.getsize(src) > 0:
+        ev_dir = os.path.join(job["dir"], "evidence")
+        os.makedirs(ev_dir, exist_ok=True)
+        evidence = os.path.join(ev_dir, f"result.json-{int(started.timestamp())}")
+        shutil.copyfile(src, evidence)
+
+    root = repo_root_of(job["dir"]) or job["dir"]
+    rec_dir = os.path.join(root, ".hee", "dispatch")
+    os.makedirs(rec_dir, exist_ok=True)
+    record = {
+        "job": jid, "name": job["name"], "agent": role, "runner": job["runner"], "model": job.get("model"),
+        "hostname": hostname, "vmid": vmid,
+        "ticket": args.ticket or job.get("ticket"), "cred": args.cred, "auth": auth,
+        "federation_rule_id": wif["federation_rule_id"] if wif else None,
+        "jwt_jti": jwt_claims["jti"] if jwt_claims else None,
+        "started_at": started.isoformat(timespec="seconds"), "ended_at": ended.isoformat(timespec="seconds"),
+        "budget_usd": job["budget_usd"], "timeout_s": job["timeout_s"], "tools": job["tools"], "mode": job["mode"],
+        "prompt_sha256": hashlib.sha256(open(os.path.join(job["dir"], job["prompt"]), "rb").read()).hexdigest(),
+        "run_sh_sha256": hashlib.sha256(run_sh.encode()).hexdigest(),
+        "exit": res["exit"], "cost_usd": res["cost_usd"], "num_turns": res["num_turns"],
+        "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
+        "subtype": res["subtype"], "usage": res["usage"], "duration_ms": res["duration_ms"], "duration_api_ms": res["duration_api_ms"],
+        "permission_denials": res["permission_denials"], "denied_tools": res["denied_tools"], "model_usage": res["model_usage"],
+        "resources": read_resources(results_dir),
+        "review": {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None},
+        "results_dir": os.path.relpath(results_dir, root),
+        "evidence": os.path.relpath(evidence, root) if evidence else None,
+        "remote_dir": remote,
+        "budget_hit": res["subtype"] == "error_max_budget_usd",
+        "resumes": remote_jid if resume else None,
+        "resume_reason": args.why if resume else None,
+    }
+    with open(os.path.join(rec_dir, f"{jid}.yaml"), "w", encoding="utf-8") as fh:
+        yaml.safe_dump(record, fh, sort_keys=False)
+    if record["budget_hit"] and job["runner"] == "host":
+        emit("WARNING", f"job {jid} stopped at its ${job['budget_usd']:.2f} ceiling; its work is in {remote}. "
+                        f"The host runner has no --resume yet: raise budget_usd and dispatch again")
+    elif record["budget_hit"]:
+        emit("WARNING", f"job {jid} stopped at its ${job['budget_usd']:.2f} ceiling; its work is in {remote}. Continue it with: "
+                        f"hee pve dispatch {role} {os.path.relpath(job['dir'])} --wif --cred {args.cred} --resume {remote_jid} --budget USD --why TEXT")
+    status = "OK" if res["exit"] == 0 and not res["is_error"] else "WARNING"
+    if res.get("permission_denials"):
+        status = "WARNING"
+        emit("WARNING", f"job {jid}: {res['permission_denials']} permission denial(s) on {', '.join(res.get('denied_tools') or [])} "
+                        f"-- friction the job definition caused; fix allowed_tools before the next run")
+    emit(status, f"job {jid}: exit {res['exit']}, cost ${res['cost_usd']}, turns {res['num_turns']}, "
+                 f"record .hee/dispatch/{jid}.yaml")
+    if res["result"]:
+        print("--- result:")
+        print(res["result"][:4000])
+    return 0 if status == "OK" else 1
+
+
+def run_host(args, job):
+    """runner: host -- the same bounded claude -p, on this machine, as this
+    account, in JOBDIR/results/<job id>/. No container, no key: the account's
+    own claude login is the credential, which is why there is no --cred and
+    why the record says auth: login. The daily cap, the budget ceiling, the
+    timeout, the tool list and the record are the pve runner's, unchanged."""
+    if args.collect or args.resume:
+        die("--collect and --resume are not supported by the host runner yet -- a host job that stops is dispatched again")
+    if args.cred or args.wif or args.key_env:
+        die("the host runner uses this account's own claude login: no --cred, no --wif, no --key-env")
+    blockers = open_blockers(job)
+    if blockers:
+        why = "open blocker(s): " + "; ".join(blockers)
+        if args.dry_run:
+            emit("WARNING", why + " -- a real dispatch refuses")
+        else:
+            die(why + " -- a blocked job does not run; clear the ticket (hee ticket -close --why) first")
+    role, hostname, vmid = "host", socket.gethostname(), None
+    history = role_history(_dir_root(job["dir"]), role)
+    if history:
+        emit("WARNING" if history["median"] > job["budget_usd"] else "OK",
+             f"{role} so far: {history['runs']} run(s), ${history['min']:.2f}-${history['max']:.2f} (median ${history['median']:.2f}), "
+             f"{history['hits']} stopped at the ceiling; this ceiling ${job['budget_usd']:.2f}"
+             + (" is below the role's median spend" if history["median"] > job["budget_usd"] else ""))
+    jid = job_id(job)
+    results_dir = os.path.join(job["dir"], "results", jid)
+    run_sh = render_run_sh(job, jid, local_dir=results_dir)
+    emit("OK", f"runner host -> {hostname} as {os.environ.get('USER') or os.getuid()}; job {jid}; model {job['model']}; "
+               f"budget ${job['budget_usd']:.2f}, timeout {job['timeout_s']}s, tools {' '.join(job['tools'])}, mode {job['mode']}")
+    if args.dry_run:
+        print("--- files unpacked into results/<job id>/:")
+        for rel in sorted(set(job["inputs"]) | {"job.yaml", job["prompt"]}):
+            print(f"    {rel}")
+        print("--- run.sh (runs HERE, as this account, with its own claude login; no key is read):")
+        print("".join("    " + l + "\n" for l in run_sh.splitlines()), end="")
+        emit("OK", "DRY RUN complete -- nothing unpacked, nothing run")
+        return 0
+
+    from hee_day import day_window
+    root = repo_root_of(job["dir"]) or job["dir"]
+    try:
+        window = day_window(root)
+    except ValueError as e:
+        die(str(e))
+    spent = spent_today(root, window)
+    if spent + job["budget_usd"] > DAILY_CAP_USD:
+        die(f"dispatch spend for {window['label']} is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
+            f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
+    if os.path.exists(results_dir):
+        die(f"{results_dir} already exists -- a job id is used once")
+    extract_results(make_tar(job, run_sh), results_dir)
+    emit("OK", f"unpacked the job into {results_dir}")
+    env = dict(os.environ)
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    started = _dt.datetime.now(_dt.timezone.utc)
+    emit("OK", f"running claude here (up to {job['timeout_s']}s) ...")
+    try:
+        r = subprocess.run(["sh", os.path.join(results_dir, "run.sh")], capture_output=True,
+                           timeout=job["timeout_s"] + 120, env=env, cwd=results_dir)
+    except subprocess.TimeoutExpired:
+        die(f"run.sh did not return within {job['timeout_s'] + 120}s -- inspect {results_dir}/out", code=1)
+    ended = _dt.datetime.now(_dt.timezone.utc)
+    tail = r.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    emit("OK" if r.returncode == 0 else "WARNING", f"run.sh finished: {tail[0]}")
+    return finish_job(args, job, jid, role, hostname, vmid, None, None, run_sh, started, ended,
+                      results_dir, f"{hostname}:{results_dir}", None, jid, auth="login")
+
+
 # ---- main -------------------------------------------------------------------
 
 def main():
@@ -731,6 +925,11 @@ def main():
         os.execv(hee_cred, argv)
 
     job = plan_job(args.jobdir)
+    if args.agent == "host" or job["runner"] == "host":
+        if args.agent != "host" or job["runner"] != "host":
+            die(f"AGENT is '{args.agent}' and job.yaml says runner: {job['runner']} -- a host job is dispatched as "
+                f"`hee pve dispatch host JOBDIR`, and only a job.yaml with runner: host runs here")
+        return run_host(args, job)
     allocations = load_allocations(args.allocations)
     role, hostname, reg_vmid = resolve_agent(args.agent, allocations)
     if job.get("agent") and job["agent"] not in (role, hostname):
@@ -840,61 +1039,8 @@ def main():
     else:
         extract_results(r.stdout, results_dir)
         emit("OK", f"outputs collected into {results_dir}")
-    ensure_result_json(results_dir)
-    res = read_result(results_dir)
-    # Evidence, committed: results/ is gitignored (raw, large), but the one
-    # object that says what happened -- claude's result.json -- is copied
-    # beside the job as evidence/result.json-<epoch>. Operator, 2026-09-11:
-    # "we save those result.json in evidence with a ts, date +%s".
-    src = os.path.join(results_dir, "out", "result.json")
-    evidence = None
-    if os.path.isfile(src) and os.path.getsize(src) > 0:
-        ev_dir = os.path.join(job["dir"], "evidence")
-        os.makedirs(ev_dir, exist_ok=True)
-        evidence = os.path.join(ev_dir, f"result.json-{int(started.timestamp())}")
-        shutil.copyfile(src, evidence)
-
-    root = repo_root_of(job["dir"]) or job["dir"]
-    rec_dir = os.path.join(root, ".hee", "dispatch")
-    os.makedirs(rec_dir, exist_ok=True)
-    record = {
-        "job": jid, "name": job["name"], "agent": role, "hostname": hostname, "vmid": vmid,
-        "ticket": args.ticket or job.get("ticket"), "cred": args.cred, "auth": "wif" if wif else "key",
-        "federation_rule_id": wif["federation_rule_id"] if wif else None,
-        "jwt_jti": jwt_claims["jti"] if jwt_claims else None,
-        "started_at": started.isoformat(timespec="seconds"), "ended_at": ended.isoformat(timespec="seconds"),
-        "budget_usd": job["budget_usd"], "timeout_s": job["timeout_s"], "tools": job["tools"], "mode": job["mode"],
-        "prompt_sha256": hashlib.sha256(open(os.path.join(job["dir"], job["prompt"]), "rb").read()).hexdigest(),
-        "run_sh_sha256": hashlib.sha256(run_sh.encode()).hexdigest(),
-        "exit": res["exit"], "cost_usd": res["cost_usd"], "num_turns": res["num_turns"],
-        "models": res["models"], "session_id": res["session_id"], "is_error": res["is_error"],
-        "subtype": res["subtype"], "usage": res["usage"], "duration_ms": res["duration_ms"], "duration_api_ms": res["duration_api_ms"],
-        "permission_denials": res["permission_denials"], "denied_tools": res["denied_tools"], "model_usage": res["model_usage"],
-        "resources": read_resources(results_dir),
-        "review": {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None},
-        "results_dir": os.path.relpath(results_dir, root),
-        "evidence": os.path.relpath(evidence, root) if evidence else None,
-        "remote_dir": f"{hostname}:{remote}",
-        "budget_hit": res["subtype"] == "error_max_budget_usd",
-        "resumes": remote_jid if resume else None,
-        "resume_reason": args.why if resume else None,
-    }
-    with open(os.path.join(rec_dir, f"{jid}.yaml"), "w", encoding="utf-8") as fh:
-        yaml.safe_dump(record, fh, sort_keys=False)
-    if record["budget_hit"]:
-        emit("WARNING", f"job {jid} stopped at its ${job['budget_usd']:.2f} ceiling; its work is in {hostname}:{remote}. Continue it with: "
-                        f"hee pve dispatch {role} {os.path.relpath(job['dir'])} --wif --cred {args.cred} --resume {remote_jid} --budget USD --why TEXT")
-    status = "OK" if res["exit"] == 0 and not res["is_error"] else "WARNING"
-    if res.get("permission_denials"):
-        status = "WARNING"
-        emit("WARNING", f"job {jid}: {res['permission_denials']} permission denial(s) on {', '.join(res.get('denied_tools') or [])} "
-                        f"-- friction the job definition caused; fix allowed_tools before the next run")
-    emit(status, f"job {jid}: exit {res['exit']}, cost ${res['cost_usd']}, turns {res['num_turns']}, "
-                 f"record .hee/dispatch/{jid}.yaml")
-    if res["result"]:
-        print("--- result:")
-        print(res["result"][:4000])
-    return 0 if status == "OK" else 1
+    return finish_job(args, job, jid, role, hostname, vmid, wif, jwt_claims, run_sh, started, ended,
+                      results_dir, f"{hostname}:{remote}", resume, remote_jid, auth="wif" if wif else "key")
 
 
 if __name__ == "__main__":
