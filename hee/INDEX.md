@@ -32,7 +32,7 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 
 </details>
 <details>
-<summary>📘 BlueprintDoctrine (10)</summary>
+<summary>📘 BlueprintDoctrine (12)</summary>
 
 - 🟢 [OK] `blueprints/bastion-provisioning-v1.yaml`
 - 🟢 [OK] `blueprints/dir-layout-v1.yaml`
@@ -44,6 +44,8 @@ after adding/changing any real HEE object (apiVersion: hee/v1).
 - 🟢 [OK] `blueprints/offboarding-v1.yaml`
 - 🟢 [OK] `blueprints/org-foundation-design-v1.yaml`
 - 🟢 [OK] `blueprints/shift-init-v1.yaml`
+- 🟢 [OK] `blueprints/software-factory-routing-v1.yaml`
+- 🟢 [OK] `blueprints/software-factory-v1.yaml`
 
 </details>
 <details>

@@ -1,0 +1,98 @@
+# path: blueprints/software-factory-routing-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: software-factory-routing-v1
+  description: "Doctrine for choosing WHO does a piece of model work -- a no-model tool, a local model gate, a sandboxed host worker, a role worker in a container, or the operator -- by three questions answered at shape time and written into the job before anything runs. The generic half; a fleet's routes table (endpoints, caps, which runners are on) is its instance, kept in the fleet (https://github.com/Twin-Cities-Open-Systems/fleet-ops/blob/main/hee/registries/software-factory.registry.v1.yaml), never here."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: engine
+    topic: software-factory
+    artifact: blueprint
+  annotations:
+    inuid: "fa0548df55ae22f24fe57add15635d91f4e6af6330b17d49864627f5e06193ce"
+    inuid_seed: "hee-blueprint://engine/software-factory-routing/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-10-23T00:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+  parent: "blueprints/doctrine/blueprint-doctrine.yaml -- the blueprint that makes blueprints"
+  sibling: "blueprints/software-factory-v1.yaml -- the stations this routing serves"
+
+  problem:
+    - "Work for a model reached it by three hand-offs with three receipts (hee pve dispatch, hee llm job, a host session's subagent), the roster's model rule lived in one registry no tool read, and who did a piece of work was decided by whoever was in the session. Measured 2026-10-22 (fleet-ops job mf-diagram-commit): the first host-route job, run through a session's Agent tool, came back with no dollar figure and no Glob or Grep."
+    - "The second host job's own review (fleet-ops ticket 0179, 2026-10-23, 7 of 7 findings reproduced) found the host route gave a worker the dispatcher's whole reach. A route that is chosen by habit is a route whose boundary nobody has read."
+    - "Operator, 2026-10-22: 'let's get the routes planned before we add workers'; the pve role workers are off for budget until that is done."
+
+  non_goals:
+    - not_a_scheduler: "this decides who, never when. The queue is the factory blueprint's gap, not this one's mechanism."
+    - not_a_benchmark: "hee bench proves a gate for a local model; a route consumes that proof and never produces it."
+    - not_the_fleet_instance: "no hostname, endpoint, cap, model id or role name is normative here. They live in the fleet's registry and change without touching this file."
+
+  mechanism:
+    three_questions_in_order:
+      - q: "What downstream check catches a wrong answer?"
+        answers:
+          none_needed: "the item is deterministic -- a hee tool on a timer, not a model's work (the roster's no_model entries)"
+          deterministic_check: "the cheapest worker that passes it: a local model gate proven by the bench, or the lowest paid tier"
+          verification_pass_or_human_merge: "a mid-tier worker; the verify pass and the merge are the check (run-a-review's reviewers)"
+          nothing_downstream: "the expensive tier, because its output IS the check (the roster's pr-reviewer without a verify pass)"
+      - q: "Which identity and scope does the item need?"
+        answers:
+          only_what_is_shipped: "any runner; the job directory is the whole world"
+          a_role's_signed_scope: "the role worker in its container, under its hire contract and WIF token"
+          paths_on_the_dispatcher's_machine: "the host worker, sandboxed, with those paths named under grants"
+          destroy_merge_secrets_money: "the operator; no worker"
+      - q: "What does it cost, and is the day's cap still open?"
+        answers:
+          over_the_routine_ceiling: "budget_reason required; the cap counts a started job at its ceiling"
+          over_the_cap: "not dispatched; the route is the operator's decision, not a cheaper worker's"
+    worker_classes:
+      - class: no-model
+        identity: none
+        confinement: the tool's own
+        budget: zero
+        receipt: the tool's exit status
+      - class: local-model-gate
+        identity: none
+        confinement: its container, given work not access, patches out
+        budget: zero marginal
+        receipt: none yet (a known gap)
+      - class: host-worker
+        identity: the dispatcher's login, as a short-lived token on stdin
+        confinement: a bubblewrap sandbox, empty home, the job as the only writable path, grants per job, Bash refused
+        budget: --max-budget-usd, the daily cap
+        receipt: the dispatch record, cost at list price
+      - class: role-worker
+        identity: a signed role in the roster, a per-job WIF token, a ratified hire contract
+        confinement: its container, no repository credential, the role's scope
+        budget: --max-budget-usd, the daily cap
+        receipt: the dispatch record, cost as billed
+      - class: operator
+        identity: the human
+        confinement: none
+        budget: none
+        receipt: the merge, the signature, the hand step recorded in the manifest
+    written_into_the_job: "runner, model, grants, budget_usd and the ticket, in job.yaml, at shape time; the record repeats them. A job whose route disagrees with the three answers is a drift incident, the same class as the roster's model drift."
+    parallel_safety: "what may run at once is decided by content dependency, not by hope: the generalization of hee git merge's content_deps and order_candidates from pull requests to work items that human-execution-engine#313 asks for. Until it exists, parallel jobs share nothing (one job directory each) and the cap counts each at its ceiling."
+    escalation: "a worker that fails the same item twice stops and the item is re-shaped one tier up with both records attached; never a third try on the same tier (the roster's escalation rule, applied per route)."
+
+  verification:
+    - "every record in .hee/dispatch/ carries runner, model and the ticket, and the job directory it names carries the same in job.yaml"
+    - "no record names a model the route's answer forbids for its class (a pve record never names a model the roster did not pin; a host record never lists Bash)"
+    - "a route chosen for a local model gate points at a bench case that passes; a route chosen for the expensive tier points at the absent downstream check"
+
+  known_gaps:
+    - "the fleet instance (routes table with endpoints, caps and which runners are on) is written beside this blueprint, not before it; until it is ratified the shape-a-job skill carries the route table as prose"
+    - "hee llm job writes no record and has no dry run, so the local-model-gate class has no receipt"
+    - "the escalation rule is text; nothing counts a worker's failures per item"
+    - "the parallel-safety half is human-execution-engine#313, unbuilt"
+    - "blueprints/spec-hee-agent-concurrency-blueprint.yaml (2026-01-29) drew the queue and fanout in the pre-envelope dialect and was never ratified; this blueprint cites it and does not supersede it"
+
+  portability:
+    generic: "the three questions, the worker classes, written_into_the_job, parallel_safety, escalation, verification"
+    org_specific: "which runners are on, their endpoints, caps, model ids, role names and the gate thresholds -- the fleet registry"

@@ -1,0 +1,85 @@
+# path: blueprints/software-factory-v1.yaml
+apiVersion: hee/v1
+kind: BlueprintDoctrine
+metadata:
+  name: software-factory-v1
+  description: "Doctrine for the conveyor between the stations a fleet already has: intake, shape, route, run, review, land, merge, deploy, record. The work item is the ticket and its stages are the factory's; the factory moves a ticket from footgun to dogfood by producing a merged, checked, deployed change with a receipt, and nothing else is factory work. The skills are the stations' procedures; the routing blueprint decides who runs each job; this file is the line they sit on."
+  labels:
+    hee.object: "true"
+    domain: hee
+    scope: engine
+    topic: software-factory
+    artifact: blueprint
+  annotations:
+    inuid: "7d7c098eb08dac19b7dc5fb23ff8869c8418d68d6b4cfa5a22d5e75dcd9a3040"
+    inuid_seed: "hee-blueprint://engine/software-factory/v1"
+    inuid_derivation: "sha256(inuid_seed)"
+    updated-at: "2026-10-23T00:00:00Z"
+
+spec:
+  result: false
+  schema-version: 1
+  status: proposed
+  parent: "blueprints/doctrine/blueprint-doctrine.yaml -- the blueprint that makes blueprints"
+  sibling: "blueprints/software-factory-routing-v1.yaml -- who runs each job"
+
+  problem:
+    - "The fleet had every station of a factory and none of the conveyor: intake, shaping, running, landing, checking, merging, deploying and recording were eight tools nobody named as one line, so a piece of work moved between them only when a session remembered to move it. Operator, 2026-10-22: 'we basically have everything, we just need to codify the routing shape and utilize hee gen-skills'."
+    - "The backlog drifted from the code because no station owned 'is this still true': on 2026-10-22 two of the first three tickets picked for a job were already fixed (fleet-ops 0161 by .github#126, 0162 by tcos-app#4). The groomer role is defined in the roster and has never run."
+    - "Review had precedent without verification: pr-reviewer found six real defects on 2026-09-19 (mf-review-code), but nothing reproduced a finding before it counted. Published results put the false-finding rate under one percent only once every finding had to be reproduced."
+
+  non_goals:
+    - not_the_operator's_merge: "a worker lands work through a pull request; the merge and the ratification stay human. The factory produces the PR and the evidence; it never approves what it opened."
+    - not_agent_teams_or_managed_agents: "experimental or hosted elsewhere; the factory runs on the dispatch tool, the skills and the ledger this fleet owns (measured 2026-10-22: Agent Teams interactive-only and experimental, Managed Agents beta)."
+    - not_a_second_tracker: "the ticket is the work item and GitHub issues are intake and reporting, bridged by --ref; the factory adds no third list."
+
+  mechanism:
+    work_item: "a hee ticket. idea: a thing someone said. footgun: what could go wrong is named, and a job is shaped. dogfood: a job ran, its output was reviewed and landed, the PR is named in the stage history. Closed: merged, with the job id and the PR in the reason. Nothing returns to idea."
+    stations:
+      - station: intake
+        today: "hee ticket -new, with GitHub issues as the reporting layer (fields, roadmap, epics, outsiders) bridged by --ref; the brain dump and the handoff feed it"
+        gap: "nothing detects a ticket resolved in code; see grooming below"
+      - station: shape
+        today: "the shape-a-job skill: one ticket, one job directory, one route, job.yaml from the template, inputs the worker may see and nothing else, a dry run"
+        gap: "only the pve and host runners read job.yaml"
+      - station: route
+        today: "software-factory-routing-v1 and the fleet's routes registry"
+        gap: "no tool refuses a job whose route disagrees with the three answers"
+      - station: run
+        today: "hee pve dispatch <role> (container, WIF), hee pve dispatch host (bubblewrap, grants, login token), hee llm job (the local model, work not access)"
+        gap: "the local model writes no record; the queue does not exist, a session is the queue"
+      - station: review
+        today: "the run-a-review skill: the gate measured first, three fresh-context reviewers in parallel by dimension, a verification pass that reproduces or rejects each finding, confirmed findings back to intake as tickets and jobs"
+        gap: "the gate's thresholds are unset until ten PRs are measured; posting to the PR is a hand step"
+      - station: land
+        today: "the land-a-job skill: a worktree per repo, the repo's own gate in the mode the file demands, a commit with provenance, a self-assigned PR with Measured and Provenance, the PR state checked before any later push, the record and the ticket updated"
+        gap: "no tool does it; the Model trailer is not applied because the dispatcher authors the commit"
+      - station: merge
+        today: "the operator, with hee git merge ordering dependent PRs; the agent merges what it opened only outside auto mode and never approves it"
+        gap: none
+      - station: deploy
+        today: "hee pve deploy, lab-pull, hee release, the stable pin: a merge is not a deploy until something installs the file"
+        gap: "a host change reaches the fleet when stable advances; the record does not know when that happened"
+      - station: record
+        today: "the dispatch ledger (.hee/dispatch), the scorecard, the evidence file beside each job, the shift handoff"
+        gap: "the ledger's dollar figure is list price; under a subscription login it is an estimate, which the record should say"
+    the_loop: "review feeds intake: every CONFIRMED finding becomes a ticket, each ticket a job, each job a PR, each PR a review. The first turn of the loop ran on 2026-10-23: the host runner's own review produced tickets 0180 to 0182, which produced human-execution-engine#866, #867 and #868 within the day."
+    grooming: "a station the roster defines (backlog-groomer: fields, one comment per stale issue, one legal ticket move at a time, never a close) and that has never run. The cheapest real version under the routing blueprint is a local-model read job per open ticket -- 'is the claim still true; cite the file' over the git mirror -- with a session closing what it confirms. Closing stays human or dispatcher."
+    parallelism: "stations run in parallel wherever the items share nothing: the three dimension reviews of one subject, the jobs of unrelated tickets, the landing of one job's two repositories. The cap counts each started job at its ceiling so parallel dispatch cannot overspend the day."
+
+  verification:
+    - "for any ticket at dogfood there exist: a job directory, a record with a cost or an explicit null and the reason, a PR the record names, and after the merge a close reason naming the job id and the PR"
+    - "no record names a runner the routing blueprint does not define, and no host record predates its sandbox without saying so"
+    - "the factory is proven when ten tickets in a row show that chain with no hand step the skills do not name; count them in the scorecard, not in prose"
+
+  known_gaps:
+    - "the queue: blueprints/spec-hee-agent-concurrency-blueprint.yaml drew four spools (ready, running, done, failed), dedupe by spec hash and an eight-way fanout in January 2026; unbuilt; a session is the queue"
+    - "grooming has never run; the roster's groomer may not close a ticket, so even running it leaves closes to a person"
+    - "the deterministic gate before review is measured and recorded, not blocking; thresholds are the operator's after ten PRs"
+    - "egress from the host sandbox is the host's network; narrowing it to the API is a firewall matter"
+    - "the Model trailer check and the roster reconciliation the roster requires are unbuilt"
+    - "human-execution-engine#179: the kind registry says Blueprint where the schema says BlueprintDoctrine; this file follows the schema"
+
+  portability:
+    generic: "the stations, the work item's stages, the loop, the verification"
+    org_specific: "the tools named under 'today' are this fleet's; another fleet maps its own tool to each station in its instance registry"
