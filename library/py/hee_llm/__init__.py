@@ -26,15 +26,22 @@ Nothing fleet-specific lives here: host, vmid and endpoint come from flags or
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 import posixpath
 import re
 import shlex
 import subprocess
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("Requires pyyaml: pip install pyyaml")
 
 __all__ = [
     "OUT",
@@ -44,14 +51,18 @@ __all__ = [
     "WRITE_TOOLS",
     "LlmError",
     "allowed_tools",
+    "append_ask_record",
     "archive",
     "ask",
     "call_tool",
     "chat",
     "collect",
     "fetch_tools",
+    "find_llm_record",
+    "finish_collect_record",
     "guard",
     "job_root",
+    "ledger_dir",
     "list_jobs",
     "pct_shell",
     "remove",
@@ -59,6 +70,7 @@ __all__ = [
     "run",
     "start",
     "valid_name",
+    "write_started_record",
 ]
 
 WORK = "/var/lib/llm/work"
@@ -206,6 +218,143 @@ def list_jobs(*, host: str, vmid, runner=None) -> list[str]:
 def remove(name: str, *, host: str, vmid, runner=None) -> None:
     valid_name(name)
     run(pct_shell(host, vmid, f"rm -rf {shlex.quote(f'{WORK}/{name}')} {shlex.quote(f'{OUT}/{name}')}"), runner=runner)
+
+
+# --------------------------------------------------------------------------
+# the dispatch ledger: <ledger>/.hee/dispatch/<job id>.yaml, the record every
+# other runner writes (hee-pve-dispatch's start_record/finish_job) and
+# `hee view --jobs`, the daily cap and the factory registry read. Nothing
+# fleet-specific here either: the ledger is wherever hee-llm was run from.
+# --------------------------------------------------------------------------
+
+def _git_toplevel() -> str | None:
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def ledger_dir(ledger: str | None = None) -> str:
+    """<ledger>/.hee/dispatch -- where this job's record lives.
+
+    Default: this process's git top level, else its current directory; a
+    fleet node or container has nothing to do with where the ledger sits.
+    """
+    root = ledger or _git_toplevel() or os.getcwd()
+    return os.path.join(root, ".hee", "dispatch")
+
+
+def _empty_review() -> dict:
+    return {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None}
+
+
+def _write_record(path: str, record: dict) -> None:
+    """The record to disk in one move: a temp file beside it, then
+    os.replace, so a kill mid-write cannot leave a truncated record for the
+    next lookup to skip as unparseable (CORRECTNESS-1 of the 2026-10-23
+    review)."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(record, fh, sort_keys=False)
+    os.replace(tmp, path)
+
+
+def write_started_record(dispatch_dir: str, name: str, *, vmid, model: str, ticket: str | None,
+                          tools: tuple[str, ...], source: dict, when: _dt.datetime | None = None) -> str:
+    """The started record a job gets the moment its checkout lands, before
+    any ask spends a token: no cost, no endpoint yet, subtype started. ask()
+    and collect() find it by (name, runner: llm) and rewrite it in place.
+    Returns the path written.
+    """
+    when = when or _dt.datetime.now(_dt.timezone.utc)
+    valid_name(name)
+    jid = f"{name}-{when.strftime('%Y%m%dT%H%M%SZ')}"
+    os.makedirs(dispatch_dir, exist_ok=True)
+    record = {
+        "job": jid, "name": name, "agent": "llm", "runner": "llm", "model": model,
+        "hostname": None, "vmid": vmid, "endpoint": None, "ticket": ticket, "auth": "none",
+        "started_at": when.isoformat(timespec="seconds"), "ended_at": None,
+        "budget_usd": 0.0, "timeout_s": None, "tools": list(tools), "mode": None,
+        "exit": None, "cost_usd": None, "num_turns": 0, "is_error": None, "subtype": "started",
+        "source": source,
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "steps": 0},
+        "asks": [],
+        "review": _empty_review(),
+    }
+    # A second start of the same name in the same second would compute the
+    # same path and silently overwrite the first (CORRECTNESS-2 of the
+    # 2026-10-23 review, the design's own flaw): the record name takes a
+    # suffix until it is free, and the record carries the name it got.
+    path = os.path.join(dispatch_dir, f"{jid}.yaml")
+    n = 2
+    while os.path.exists(path):
+        record["job"] = f"{jid}-{n}"
+        path = os.path.join(dispatch_dir, f"{jid}-{n}.yaml")
+        n += 1
+    _write_record(path, record)
+    return path
+
+
+def find_llm_record(dispatch_dir: str, name: str) -> str | None:
+    """The newest file in dispatch_dir whose ``name`` matches and whose
+    ``runner`` is ``llm``, or None -- a job started before this existed, or
+    never started. Never fabricated: the caller warns and carries on.
+    """
+    try:
+        names = sorted(fn for fn in os.listdir(dispatch_dir) if fn.endswith(".yaml"))
+    except OSError:
+        return None
+    match = None
+    for fn in names:
+        path = os.path.join(dispatch_dir, fn)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                rec = yaml.safe_load(fh) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if rec.get("name") == name and rec.get("runner") == "llm":
+            match = path   # filenames sort chronologically (name-stamp.yaml); last match wins
+    return match
+
+
+def append_ask_record(path: str, *, prompt: str, steps: list, stopped: bool, tools: tuple[str, ...],
+                       usage: dict, endpoint: str, when: _dt.datetime | None = None) -> None:
+    """ask's update: one more turn, this call's token usage and step count
+    added to the running totals, this ask appended to ``asks``. Rewrites the
+    whole file.
+    """
+    when = when or _dt.datetime.now(_dt.timezone.utc)
+    with open(path, encoding="utf-8") as fh:
+        record = yaml.safe_load(fh) or {}
+    record["num_turns"] = int(record.get("num_turns") or 0) + 1
+    u = record.get("usage") or {"prompt_tokens": 0, "completion_tokens": 0, "steps": 0}
+    u["prompt_tokens"] = int(u.get("prompt_tokens") or 0) + int((usage or {}).get("prompt_tokens") or 0)
+    u["completion_tokens"] = int(u.get("completion_tokens") or 0) + int((usage or {}).get("completion_tokens") or 0)
+    u["steps"] = int(u.get("steps") or 0) + len(steps)
+    record["usage"] = u
+    record["endpoint"] = endpoint
+    asks = record.get("asks") or []
+    asks.append({"at": when.isoformat(timespec="seconds"), "prompt": prompt[:120], "steps": len(steps),
+                 "stopped": stopped, "tools": list(tools)})
+    record["asks"] = asks
+    _write_record(path, record)
+
+
+def finish_collect_record(path: str, *, results_dir: str, patch_path: str, patch_bytes: int, commits: int,
+                           when: _dt.datetime | None = None) -> None:
+    """collect's update: ended_at, exit and subtype from whether anything
+    changed against baseline, cost_usd 0.0 (a local model has no marginal
+    cost) and the patch produced. Rewrites the whole file.
+    """
+    when = when or _dt.datetime.now(_dt.timezone.utc)
+    with open(path, encoding="utf-8") as fh:
+        record = yaml.safe_load(fh) or {}
+    record["ended_at"] = when.isoformat(timespec="seconds")
+    record["exit"] = 0 if commits > 0 else 2
+    record["subtype"] = "success" if commits > 0 else "empty"
+    record["cost_usd"] = 0.0
+    record["cost_note"] = "the local model has no marginal cost"
+    record["results_dir"] = results_dir
+    record["patch"] = {"path": patch_path, "bytes": patch_bytes, "commits": commits}
+    _write_record(path, record)
 
 
 # --------------------------------------------------------------------------
@@ -392,7 +541,11 @@ def call_tool(endpoint: str, name: str, args: dict, timeout: float = 120) -> str
 
 
 def chat(endpoint: str, messages: list[dict], tools: list[dict], *, model: str = "default",
-         max_tokens: int = 512, timeout: float = 300) -> dict:
+         max_tokens: int = 512, timeout: float = 300) -> tuple[dict, dict]:
+    """One call to ``/v1/chat/completions``. Returns ``(choice, usage)``: the
+    usage object the OpenAI-compatible server sends alongside the choice
+    (prompt and completion token counts), empty when it sends none.
+    """
     body = {"model": model, "temperature": 0, "max_tokens": max_tokens, "messages": messages}
     if tools:
         body["tools"] = tools
@@ -400,9 +553,11 @@ def chat(endpoint: str, messages: list[dict], tools: list[dict], *, model: str =
     if isinstance(res, dict) and res.get("error"):
         raise LlmError(f"chat: {res['error']}")
     try:
-        return res["choices"][0]
+        choice = res["choices"][0]
     except (KeyError, IndexError, TypeError) as e:
         raise LlmError("chat: no choices[0] in the reply") from e
+    usage = res.get("usage") or {}
+    return choice, usage
 
 
 MAX_RESULT_CHARS = 3000   # a tool result longer than this is cut: the whole conversation must fit the server's context
@@ -449,7 +604,9 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
 
     Every tool result is clipped to ``max_result_chars`` before it goes back
     to the model: measured 2026-10-17, one whole README as a result pushed an
-    8192-token server past "Context size has been exceeded".
+    8192-token server past "Context size has been exceeded". The returned
+    ``usage`` is the sum of every chat call's prompt/completion tokens made
+    during this one call, for the caller to fold into a dispatch record.
     """
     tools = fetch_tools(endpoint, allow)
     extra = (f" You may also READ, not write, under {', '.join(read_roots)} (other repositories, read-only)." if read_roots else "")
@@ -462,17 +619,20 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
     if web:
         tools = tools + [LOCAL_TOOLS[n]["definition"] for n in WEB_TOOLS]
     steps: list[dict] = []
+    usage = {"prompt_tokens": 0, "completion_tokens": 0}
     budget = context - max_tokens - 256
     seen: dict[str, int] = {}
     for step in range(max_steps):
         compacted = compact(messages, budget, tools)
         if compacted and log:
             log(f"(compacted {compacted} earlier tool result(s) to fit {context} tokens)")
-        choice = chat(endpoint, messages, tools, model=model, max_tokens=max_tokens, timeout=timeout)
+        choice, u = chat(endpoint, messages, tools, model=model, max_tokens=max_tokens, timeout=timeout)
+        usage["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
+        usage["completion_tokens"] += int(u.get("completion_tokens") or 0)
         msg = choice.get("message") or {}
         calls = msg.get("tool_calls") or []
         if not calls:
-            return {"answer": msg.get("content") or "", "steps": steps, "messages": messages, "stopped": False}
+            return {"answer": msg.get("content") or "", "steps": steps, "messages": messages, "stopped": False, "usage": usage}
         # A small model will re-issue the same call, or walk past the end of a file, until the
         # step budget is gone (measured 2026-10-17: six reads of empty line ranges). The third
         # repeat of an identical call, or the last step, ends the tool phase: the tools are
@@ -486,12 +646,14 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or "",
                                  "content": "not executed: the tool phase is over. Answer now from what you have already read, "
                                             "and say plainly what you could not read or did not find."})
-            final = chat(endpoint, messages, [], model=model, max_tokens=max_tokens, timeout=timeout)
+            final, fu = chat(endpoint, messages, [], model=model, max_tokens=max_tokens, timeout=timeout)
+            usage["prompt_tokens"] += int(fu.get("prompt_tokens") or 0)
+            usage["completion_tokens"] += int(fu.get("completion_tokens") or 0)
             answer = (final.get("message") or {}).get("content") or ""
             why = "a call repeated three times" if seen[key] >= 3 else f"the {max_steps}-step budget"
             if log:
                 log(f"(tool phase ended by {why}; asked for a final answer without tools)")
-            return {"answer": answer, "steps": steps, "messages": messages, "stopped": not answer.strip(), "ended_by": why}
+            return {"answer": answer, "steps": steps, "messages": messages, "stopped": not answer.strip(), "ended_by": why, "usage": usage}
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         for c in calls:
             fn = (c.get("function") or {})
@@ -511,4 +673,4 @@ def ask(endpoint: str, root: str, prompt: str, *, allow: tuple[str, ...] = READ_
             if log:
                 log(f"{name} {json.dumps(args)[:160]} -> {result[:120]!r}")
             messages.append({"role": "tool", "tool_call_id": c.get("id") or "", "content": result})
-    return {"answer": "(no answer)", "steps": steps, "messages": messages, "stopped": True}
+    return {"answer": "(no answer)", "steps": steps, "messages": messages, "stopped": True, "usage": usage}

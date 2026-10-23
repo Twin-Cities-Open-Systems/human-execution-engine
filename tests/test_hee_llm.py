@@ -3,6 +3,7 @@
 The transport is a recorded runner; the model server is a stub on a free
 local port that scripts its replies. Nothing reaches a real container.
 """
+import datetime as dt
 import json
 import os
 import subprocess
@@ -12,6 +13,8 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tooling" / "bin" / "hee-llm"
@@ -166,6 +169,139 @@ class Guard(unittest.TestCase):
         self.assertIn("exec_shell_command", L.allowed_tools(allow_shell=True))
 
 
+class Ledger(unittest.TestCase):
+    """The dispatch record: start writes it, ask and collect rewrite it.
+    Everything here is a temp directory, never a real ledger."""
+
+    def test_two_starts_in_one_second_get_two_records(self):
+        # CORRECTNESS-2 (2026-10-23): same name, same second, no overwrite.
+        import datetime as _dt
+        with tempfile.TemporaryDirectory() as tmp:
+            when = _dt.datetime(2026, 10, 23, 12, 0, 0, tzinfo=_dt.timezone.utc)
+            a = L.write_started_record(tmp, "demo", model="m", vmid="1", ticket=None, tools=("read_file",), source={"repo": "r", "ref": "HEAD"}, when=when)
+            b = L.write_started_record(tmp, "demo", model="m", vmid="1", ticket=None, tools=("read_file",), source={"repo": "r", "ref": "HEAD"}, when=when)
+            self.assertNotEqual(a, b)
+            self.assertTrue(os.path.exists(a) and os.path.exists(b))
+            import yaml as _yaml
+            with open(b) as fh:
+                self.assertEqual(_yaml.safe_load(fh)["job"], "demo-20261023T120000Z-2")
+
+    def test_record_writes_leave_no_temp_file_behind(self):
+        # CORRECTNESS-1 (2026-10-23): written beside, then renamed into place.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = L.write_started_record(tmp, "demo", model="m", vmid="1", ticket=None, tools=("read_file",), source={"repo": "r", "ref": "HEAD"})
+            self.assertEqual(sorted(os.listdir(tmp)), [os.path.basename(path)])
+
+    def test_ledger_dir_uses_the_given_root(self):
+        self.assertEqual(L.ledger_dir("/tmp/x"), "/tmp/x/.hee/dispatch")
+
+    def test_write_started_record_has_the_pve_shaped_keys(self):
+        with tempfile.TemporaryDirectory() as d:
+            dispatch = os.path.join(d, ".hee", "dispatch")
+            when = dt.datetime(2026, 10, 23, 20, 36, 37, tzinfo=dt.timezone.utc)
+            path = L.write_started_record(dispatch, "demo", vmid="7", model="default", ticket="0183",
+                                           tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"}, when=when)
+            self.assertEqual(path, os.path.join(dispatch, "demo-20261023T203637Z.yaml"))
+            with open(path, encoding="utf-8") as fh:
+                rec = yaml.safe_load(fh)
+            self.assertEqual(list(rec.keys()), [
+                "job", "name", "agent", "runner", "model", "hostname", "vmid", "endpoint", "ticket", "auth",
+                "started_at", "ended_at", "budget_usd", "timeout_s", "tools", "mode", "exit", "cost_usd",
+                "num_turns", "is_error", "subtype", "source", "usage", "asks", "review",
+            ])
+            self.assertEqual(rec["job"], "demo-20261023T203637Z")
+            self.assertEqual(rec["name"], "demo")
+            self.assertEqual(rec["agent"], "llm")
+            self.assertEqual(rec["runner"], "llm")
+            self.assertEqual(rec["model"], "default")
+            self.assertIsNone(rec["hostname"])
+            self.assertEqual(rec["vmid"], "7")
+            self.assertIsNone(rec["endpoint"])
+            self.assertEqual(rec["ticket"], "0183")
+            self.assertEqual(rec["auth"], "none")
+            self.assertEqual(rec["started_at"], "2026-10-23T20:36:37+00:00")
+            self.assertIsNone(rec["ended_at"])
+            self.assertEqual(rec["budget_usd"], 0.0)
+            self.assertIsNone(rec["timeout_s"])
+            self.assertEqual(rec["tools"], list(L.READ_TOOLS))
+            self.assertIsNone(rec["mode"])
+            self.assertIsNone(rec["exit"])
+            self.assertIsNone(rec["cost_usd"])
+            self.assertEqual(rec["num_turns"], 0)
+            self.assertIsNone(rec["is_error"])
+            self.assertEqual(rec["subtype"], "started")
+            self.assertEqual(rec["source"], {"repo": ".", "ref": "HEAD"})
+            self.assertEqual(rec["usage"], {"prompt_tokens": 0, "completion_tokens": 0, "steps": 0})
+            self.assertEqual(rec["asks"], [])
+            self.assertEqual(rec["review"], {"accepted": None, "corrections": None, "mistakes": [],
+                                              "merged_pr": None, "reviewer": None, "method": None})
+
+    def test_find_llm_record_picks_the_newest_matching_name_and_runner(self):
+        with tempfile.TemporaryDirectory() as d:
+            dispatch = os.path.join(d, ".hee", "dispatch")
+            os.makedirs(dispatch)
+            L.write_started_record(dispatch, "demo", vmid="1", model="default", ticket=None,
+                                    tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"},
+                                    when=dt.datetime(2026, 10, 23, 10, 0, 0, tzinfo=dt.timezone.utc))
+            newest = L.write_started_record(dispatch, "demo", vmid="1", model="default", ticket=None,
+                                             tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"},
+                                             when=dt.datetime(2026, 10, 23, 11, 0, 0, tzinfo=dt.timezone.utc))
+            with open(os.path.join(dispatch, "other-20261023T120000Z.yaml"), "w", encoding="utf-8") as fh:
+                yaml.safe_dump({"name": "demo", "runner": "pve"}, fh)
+            self.assertEqual(L.find_llm_record(dispatch, "demo"), newest)
+            self.assertIsNone(L.find_llm_record(dispatch, "nope"))
+            self.assertIsNone(L.find_llm_record(os.path.join(d, "missing"), "demo"))
+
+    def test_append_ask_record_sums_usage_and_appends(self):
+        with tempfile.TemporaryDirectory() as d:
+            dispatch = os.path.join(d, ".hee", "dispatch")
+            path = L.write_started_record(dispatch, "demo", vmid="1", model="default", ticket=None,
+                                           tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"})
+            long_prompt = "x" * 200
+            L.append_ask_record(path, prompt=long_prompt, steps=[{"tool": "read_file"}], stopped=False,
+                                 tools=L.READ_TOOLS, usage={"prompt_tokens": 10, "completion_tokens": 4}, endpoint="http://e")
+            L.append_ask_record(path, prompt="second", steps=[{"tool": "a"}, {"tool": "b"}], stopped=True,
+                                 tools=L.allowed_tools(allow_write=True), usage={"prompt_tokens": 1, "completion_tokens": 1},
+                                 endpoint="http://e2")
+            with open(path, encoding="utf-8") as fh:
+                rec = yaml.safe_load(fh)
+            self.assertEqual(rec["num_turns"], 2)
+            self.assertEqual(rec["usage"], {"prompt_tokens": 11, "completion_tokens": 5, "steps": 3})
+            self.assertEqual(rec["endpoint"], "http://e2")
+            self.assertEqual(len(rec["asks"]), 2)
+            self.assertEqual(rec["asks"][0]["prompt"], long_prompt[:120])
+            self.assertEqual(rec["asks"][0]["steps"], 1)
+            self.assertFalse(rec["asks"][0]["stopped"])
+            self.assertEqual(rec["asks"][1]["tools"], list(L.allowed_tools(allow_write=True)))
+            self.assertTrue(rec["asks"][1]["stopped"])
+
+    def test_finish_collect_record_success_and_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            dispatch = os.path.join(d, ".hee", "dispatch")
+            path = L.write_started_record(dispatch, "demo", vmid="1", model="default", ticket=None,
+                                           tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"})
+            L.finish_collect_record(path, results_dir="/tmp/out", patch_path="/tmp/out/demo.patch",
+                                     patch_bytes=123, commits=2)
+            with open(path, encoding="utf-8") as fh:
+                rec = yaml.safe_load(fh)
+            self.assertIsNotNone(rec["ended_at"])
+            self.assertEqual(rec["exit"], 0)
+            self.assertEqual(rec["subtype"], "success")
+            self.assertEqual(rec["cost_usd"], 0.0)
+            self.assertIn("marginal cost", rec["cost_note"])
+            self.assertEqual(rec["results_dir"], "/tmp/out")
+            self.assertEqual(rec["patch"], {"path": "/tmp/out/demo.patch", "bytes": 123, "commits": 2})
+
+            path2 = L.write_started_record(dispatch, "demo2", vmid="1", model="default", ticket=None,
+                                            tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"})
+            L.finish_collect_record(path2, results_dir="/tmp/out2", patch_path="/tmp/out2/demo2.patch",
+                                     patch_bytes=0, commits=0)
+            with open(path2, encoding="utf-8") as fh:
+                rec2 = yaml.safe_load(fh)
+            self.assertEqual(rec2["exit"], 2)
+            self.assertEqual(rec2["subtype"], "empty")
+
+
 def _defs():
     return [{"display_name": n, "tool": n, "type": "server", "permissions": {"write": n in L.WRITE_TOOLS + L.SHELL_TOOLS},
              "definition": {"type": "function", "function": {"name": n, "description": n, "parameters": {"type": "object", "properties": {}}}}}
@@ -202,9 +338,12 @@ class Stub:
                     return self._send({"plain_text_response": f"content of {req['params'].get('path', '?')}"})
                 outer.chats.append(req)
                 reply = outer.script[min(len(outer.chats) - 1, len(outer.script) - 1)]
-                self._send({"choices": [{"finish_reason": "tool_calls" if reply.get("tool_calls") else "stop",
-                                         "message": {"role": "assistant", "content": reply.get("content", ""),
-                                                     "tool_calls": reply.get("tool_calls")}}]})
+                body = {"choices": [{"finish_reason": "tool_calls" if reply.get("tool_calls") else "stop",
+                                      "message": {"role": "assistant", "content": reply.get("content", ""),
+                                                  "tool_calls": reply.get("tool_calls")}}]}
+                if "usage" in reply:
+                    body["usage"] = reply["usage"]
+                self._send(body)
 
         self.script, self.chats, self.tool_calls = script, [], []
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
@@ -373,6 +512,34 @@ class Loop(unittest.TestCase):
         with self.assertRaises(L.LlmError):
             L.fetch_tools("http://127.0.0.1:9", L.READ_TOOLS, timeout=2)
 
+    def test_chat_returns_usage_when_the_server_sends_it(self):
+        stub = Stub([{"content": "hi", "usage": {"prompt_tokens": 7, "completion_tokens": 3}}])
+        try:
+            choice, usage = L.chat(stub.url, [{"role": "user", "content": "hi"}], [])
+        finally:
+            stub.close()
+        self.assertEqual(usage, {"prompt_tokens": 7, "completion_tokens": 3})
+        self.assertEqual(choice["message"]["content"], "hi")
+
+    def test_chat_usage_is_empty_when_the_server_sends_none(self):
+        stub = Stub([{"content": "hi"}])
+        try:
+            _, usage = L.chat(stub.url, [{"role": "user", "content": "hi"}], [])
+        finally:
+            stub.close()
+        self.assertEqual(usage, {})
+
+    def test_ask_sums_usage_across_every_chat_call(self):
+        stub = Stub([
+            {"tool_calls": [tc("read_file", {"path": "f"})], "usage": {"prompt_tokens": 10, "completion_tokens": 2}},
+            {"content": "done", "usage": {"prompt_tokens": 5, "completion_tokens": 8}},
+        ])
+        try:
+            res = L.ask(stub.url, self.ROOT, "q")
+        finally:
+            stub.close()
+        self.assertEqual(res["usage"], {"prompt_tokens": 15, "completion_tokens": 10})
+
 
 class Cli(unittest.TestCase):
     def run_tool(self, *args, env=None):
@@ -412,6 +579,61 @@ class Cli(unittest.TestCase):
         rc, _, err = self.run_tool("job", "ask", "demo", "hi", "--host", "h", "--vmid", "1")
         self.assertEqual(rc, 3)
         self.assertIn("HEE_LLM_ENDPOINT", err)
+
+
+class Records(unittest.TestCase):
+    """The ledger through the real binary: --repo-name sidesteps the ssh
+    lookup inside cmd_ask, so --endpoint can point straight at the stub and
+    `job ask` runs for real, record included."""
+
+    def run_tool(self, *args, env=None):
+        e = {k: v for k, v in os.environ.items() if not k.startswith("HEE_LLM_")}
+        e.update(env or {})
+        r = subprocess.run([str(TOOL), *args], capture_output=True, text=True, env=e, check=False)
+        return r.returncode, r.stdout, r.stderr
+
+    def test_start_dry_run_writes_no_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            rc, out, _ = self.run_tool("job", "start", "demo", "--repo", str(ROOT), "--dry-run",
+                                        "--host", "h", "--vmid", "1", "--ledger", d, "--ticket", "0183")
+            self.assertEqual(rc, 0, out)
+            self.assertFalse(os.path.exists(os.path.join(d, ".hee", "dispatch")))
+
+    def test_ask_updates_the_record_under_ledger(self):
+        stub = Stub([{"tool_calls": [tc("read_file", {"path": "f"})], "usage": {"prompt_tokens": 9, "completion_tokens": 2}},
+                     {"content": "the answer", "usage": {"prompt_tokens": 3, "completion_tokens": 4}}])
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                dispatch = os.path.join(d, ".hee", "dispatch")
+                path = L.write_started_record(dispatch, "demo", vmid="1", model="default", ticket=None,
+                                               tools=L.READ_TOOLS, source={"repo": ".", "ref": "HEAD"})
+                rc, out, err = self.run_tool("job", "ask", "demo", "what does it say?", "--repo-name", "repo",
+                                              "--endpoint", stub.url, "--ledger", d)
+                self.assertEqual(rc, 0, err)
+                self.assertIn("the answer", out)
+                with open(path, encoding="utf-8") as fh:
+                    rec = yaml.safe_load(fh)
+                self.assertEqual(rec["num_turns"], 1)
+                self.assertEqual(rec["usage"], {"prompt_tokens": 12, "completion_tokens": 6, "steps": 1})
+                self.assertEqual(rec["endpoint"], stub.url)
+                self.assertEqual(len(rec["asks"]), 1)
+                self.assertEqual(rec["asks"][0]["prompt"], "what does it say?")
+                self.assertFalse(rec["asks"][0]["stopped"])
+        finally:
+            stub.close()
+
+    def test_ask_without_a_record_warns_and_still_answers(self):
+        stub = Stub([{"content": "ok"}])
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                rc, out, err = self.run_tool("job", "ask", "nosuchjob", "hi", "--repo-name", "repo",
+                                              "--endpoint", stub.url, "--ledger", d)
+                self.assertEqual(rc, 0, err)
+                self.assertIn("ok", out)
+                self.assertIn("no dispatch record", err)
+                self.assertIn(d, err)
+        finally:
+            stub.close()
 
 
 if __name__ == "__main__":
