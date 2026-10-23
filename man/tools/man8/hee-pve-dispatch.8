@@ -74,7 +74,7 @@ job.yaml:
   budget_reason: \[dq]five doc pages to read and cite\[dq]   # required when budget_usd > 1.00
   timeout_s: 1800                     # default 1800 \-\- \[ga]timeout\[ga] around claude
   permission_mode: acceptEdits        # default; claude \-\-permission\-mode
-  allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed
+  allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed, and never on runner host
   json_schema: schema.json            # optional; claude \-\-json\-schema
   system_prompt: system.md            # optional; claude \-\-append\-system\-prompt\-file
 .EE

@@ -454,3 +454,26 @@ class TestHostRunner(unittest.TestCase):
         for extra in (["--cred", "x"], ["--wif"], ["--collect", "j"], ["--resume", "j", "--budget", "1", "--why", "w"]):
             with self.assertRaises(SystemExit):
                 self._main("host", self.job, "--dry-run", *extra)
+
+    def test_host_refuses_bash(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\nallowed_tools: [Read, Bash]\n")
+        with self.assertRaises(SystemExit):
+            d.plan_job(self.job)
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\nallowed_tools: ['Bash(rg *)']\n")
+        with self.assertRaises(SystemExit):
+            d.plan_job(self.job)
+
+    def test_reserved_input_names_are_refused(self):
+        open(os.path.join(self.job, "run.sh"), "w").write("echo hi\n")
+        self._write("name: demo\nbudget_usd: 1\ninputs: [run.sh]\n")
+        with self.assertRaises(SystemExit):
+            d.plan_job(self.job)
+
+    def test_host_cred_is_refused_before_any_reexec(self):
+        # CORRECTNESS-1 (2026-10-23): without --dry-run the --cred re-exec used
+        # to fire before the host refusal. execv must never be reached.
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\n")
+        with mock.patch.object(d.os, "execv", side_effect=AssertionError("re-exec reached")):
+            with self.assertRaises(SystemExit):
+                self._main("host", self.job, "--cred", "some-account")
+

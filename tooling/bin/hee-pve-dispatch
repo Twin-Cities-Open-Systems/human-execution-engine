@@ -55,7 +55,7 @@ job.yaml:
   budget_reason: "five doc pages to read and cite"   # required when budget_usd > 1.00
   timeout_s: 1800                     # default 1800 -- `timeout` around claude
   permission_mode: acceptEdits        # default; claude --permission-mode
-  allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed
+  allowed_tools: [Read, Write, Edit, Glob, Grep]   # default; no Bash unless listed, and never on runner host
   json_schema: schema.json            # optional; claude --json-schema
   system_prompt: system.md            # optional; claude --append-system-prompt-file
 
@@ -301,6 +301,12 @@ def plan_job(jobdir):
         p = os.path.join(jobdir, str(i))
         if os.path.isabs(str(i)) or ".." in str(i).split("/") or not os.path.exists(p):
             die(f"job.yaml: input '{i}' must be a relative path inside {jobdir}, and exist")
+        # make_tar appends the generated run.sh after the inputs, and a tar
+        # extracts in order, so an input by that name was silently overwritten
+        # (CORRECTNESS-3 of the 2026-10-23 review, fleet-ops ticket 0181).
+        # job.yaml and the prompt are inputs by design; only run.sh is ours.
+        if str(i).rstrip("/") == "run.sh":
+            die(f"job.yaml: input '{i}' is the name of the script the dispatcher writes itself -- rename it")
     outputs = spec.get("outputs") or ["out"]
     for o in outputs:
         if os.path.isabs(str(o)) or ".." in str(o).split("/"):
@@ -324,6 +330,14 @@ def plan_job(jobdir):
         die("job.yaml: model is not a pve job's to choose -- the signed agent roster pins it per role")
     if runner == "host" and not model:
         model = HOST_MODEL_DEFAULT
+    if runner == "host" and any(t == "Bash" or t.startswith("Bash(") for t in tools):
+        # A host worker runs as the dispatching account, on its machine, with
+        # its sudo, ssh agent and gpg agent in reach; a container's agent user
+        # has none of those (SECURITY-2 of the 2026-10-23 review, fleet-ops
+        # ticket 0180). Refused here, before anything runs, until the host
+        # runner confines its worker.
+        die("job.yaml: runner host refuses Bash in allowed_tools -- the worker would run shell as this account "
+            "on this machine (fleet-ops ticket 0180); ship a pve job, or drop Bash")
     return {
         "agent": spec.get("agent"), "ticket": str(spec["ticket"]) if spec.get("ticket") else None,
         "runner": runner, "model": model,
@@ -922,6 +936,18 @@ def main():
         return 0
     args = ap.parse_args()
 
+    # A host job is routed before the --cred re-exec below can fire: otherwise
+    # `hee pve dispatch host JOBDIR --cred X` round-trips hee cred and fails
+    # with its error instead of this tool's refusal (CORRECTNESS-1 of the
+    # 2026-10-23 review, fleet-ops ticket 0181). plan_job is pure validation,
+    # so the pve path running it again after the re-exec costs nothing.
+    job = plan_job(args.jobdir)
+    if args.agent == "host" or job["runner"] == "host":
+        if args.agent != "host" or job["runner"] != "host":
+            die(f"AGENT is '{args.agent}' and job.yaml says runner: {job['runner']} -- a host job is dispatched as "
+                f"`hee pve dispatch host JOBDIR`, and only a job.yaml with runner: host runs here")
+        return run_host(args, job)
+
     # Re-exec under hee cred: the key arrives in this process's environment and
     # nowhere else. Done before anything else so a bad --cred fails fast.
     if args.cred and not args.key_env and not args.dry_run:
@@ -933,12 +959,6 @@ def main():
             + ["--key-env", KEY_ENV_DEFAULT]
         os.execv(hee_cred, argv)
 
-    job = plan_job(args.jobdir)
-    if args.agent == "host" or job["runner"] == "host":
-        if args.agent != "host" or job["runner"] != "host":
-            die(f"AGENT is '{args.agent}' and job.yaml says runner: {job['runner']} -- a host job is dispatched as "
-                f"`hee pve dispatch host JOBDIR`, and only a job.yaml with runner: host runs here")
-        return run_host(args, job)
     allocations = load_allocations(args.allocations)
     role, hostname, reg_vmid = resolve_agent(args.agent, allocations)
     if job.get("agent") and job["agent"] not in (role, hostname):
