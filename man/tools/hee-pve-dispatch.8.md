@@ -48,6 +48,16 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
          the store, and it accepts input only from a real terminal.
       5. A record of every dispatch is written to <repo>/.hee/dispatch/<job id>.yaml
          (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
+      6. `runner: host` in job.yaml (2026-10-23) runs the SAME bounded claude -p
+         on the dispatcher's own host instead of a container: the job's files are
+         unpacked into JOBDIR/results/<job id>/, claude runs there as this account
+         with its own login (no key, no --cred), and the same record is written
+         with the real cost. The first host job (fleet-ops mf-diagram-commit,
+         2026-10-22) ran through the Agent tool instead and came back with no
+         dollar figure and no Glob/Grep: on Linux Claude Code leaves those two
+         tools out unless --allowedTools names them, which this run.sh always
+         does. AGENT is the literal word `host`; the pve API workers stay off
+         for budget until the operator says otherwise.
 
     job.yaml:
       name: convert-legacy-page           # short, becomes part of the job id
@@ -55,6 +65,8 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       inputs: [in/, rules.md]             # shipped; default: everything but results/
       outputs: [out/]                     # collected; default: out/
       agent: docs-keeper                  # optional: a dispatch that resolves to any other role is refused
+      runner: pve                         # pve (default) | host; llm is `hee llm job`, refused here
+      model: claude-sonnet-5              # host only (default shown); pve roles are pinned by the roster
       ticket: fleet-ops/0100              # optional: recorded when --ticket is not given
       blocked_by: [fleet-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
       budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
@@ -70,7 +82,9 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
 
       $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
       $ hee pve dispatch ci-triage tests/fixtures/dispatch/job --wif --dry-run --offline --allocations tests/fixtures/dispatch/allocations.yaml   # ci
+      $ hee pve dispatch host tests/fixtures/dispatch/job-host --dry-run   # ci
       $ hee pve dispatch ci-triage pve/agents/jobs/wif-prep-readonly --wif --cred wif-issuer-lab --ticket 0090     # the real thing; needs the lab
+      $ hee pve dispatch host pve/agents/jobs/NAME --ticket NNNN            # a host job for real: runs here, records the cost
 
       --wif: workload identity federation instead of a static key. --cred names
          the hee cred account holding the lab issuer's ES256 private key (made by
@@ -84,6 +98,7 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
          console.organization_id, workspace_id, service_account_id,
          federation_rule_id, issuer and subject.
       hee-pve-dispatch AGENT JOBDIR --dry-run
+      hee-pve-dispatch host JOBDIR [--ticket ID] [--dry-run]            # runner: host -- on this machine, this account's login
 
     positional arguments:
       agent                 a role (ci-triage) or hostname from the allocation

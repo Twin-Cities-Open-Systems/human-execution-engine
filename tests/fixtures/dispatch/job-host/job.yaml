@@ -1,0 +1,10 @@
+# A host-runner job: the same shape as tests/fixtures/dispatch/job, run on
+# the dispatcher's own machine with its own claude login. The # ci example
+# dry-runs it; nothing here is ever run for real in CI.
+name: demo-host
+runner: host
+prompt: prompt.md
+budget_usd: 0.50
+timeout_s: 120
+permission_mode: default
+allowed_tools: [Read, Glob, Grep, Write]

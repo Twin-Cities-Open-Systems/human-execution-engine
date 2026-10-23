@@ -378,3 +378,79 @@ class Resources(unittest.TestCase):
         self.assertIsNone(self.m.read_resources(d))
         open(os.path.join(d, "out", "resources.json"), "w").write('{"wall_s": 95, "cpu_s": 41.2, "mem_peak_mb": 391.5, "pids_peak": 22, "net_in_mb": 3.1, "net_out_mb": 0.4, "sampled_every_s": 2}')
         self.assertEqual(self.m.read_resources(d)["cpu_s"], 41.2)
+
+
+class TestHostRunner(unittest.TestCase):
+    """runner: host -- the same bounded claude -p on this machine. Dry runs
+    only: nothing here runs claude."""
+    FIX = os.path.join(ROOT, "tests", "fixtures", "dispatch", "job-host")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.job = os.path.join(self.tmp.name, "job")
+        os.makedirs(self.job)
+        open(os.path.join(self.job, "prompt.md"), "w").write("do the thing\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, text):
+        open(os.path.join(self.job, "job.yaml"), "w").write(text)
+
+    def _main(self, *argv):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["hee-pve-dispatch", *argv]), contextlib.redirect_stdout(out):
+            rc = d.main()
+        return rc, out.getvalue()
+
+    def test_dry_run_names_glob_grep_and_the_model_and_reads_no_key(self):
+        rc, out = self._main("host", self.FIX, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("runner host ->", out)
+        self.assertIn("--allowedTools Read Glob Grep Write Edit", out)   # Glob/Grep are off on Linux unless named
+        self.assertIn("--model claude-sonnet-5", out)
+        self.assertIn("--max-budget-usd 0.50", out)
+        self.assertIn("promptCacheTtl", out)                               # 5m cache writes, not the account's 1h
+        self.assertIn("runs HERE", out)
+        self.assertNotIn("read -r", out)                                  # no key on stdin
+        self.assertNotIn("su -p agent", out)
+        self.assertIn("unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN", out)
+        self.assertIn("DRY RUN complete -- nothing unpacked", out)
+
+    def test_host_run_sh_is_one_line_per_step(self):
+        job = d.plan_job(self.FIX)
+        sh = d.render_run_sh(job, "demo-host-x", local_dir="/tmp/x")
+        # the resources line once carried a literal newline inside its quotes
+        self.assertIn("printf '{\"wall_s\": %d, \"sampled_every_s\": 0}\\n' $((t1 - t0)) > out/resources.json", sh)
+        self.assertIn("cd /tmp/x", sh)
+
+    def test_agent_word_and_runner_field_must_agree(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\n")
+        with self.assertRaises(SystemExit):
+            self._main("ci-triage", self.job, "--dry-run")
+        self._write("name: demo\nbudget_usd: 1\n")
+        with self.assertRaises(SystemExit):
+            self._main("host", self.job, "--dry-run")
+
+    def test_llm_runner_points_at_hee_llm_job(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: llm\n")
+        with self.assertRaises(SystemExit) as cm:
+            d.plan_job(self.job)
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_pve_job_may_not_pick_a_model(self):
+        self._write("name: demo\nbudget_usd: 1\nmodel: claude-opus-5\n")
+        with self.assertRaises(SystemExit):
+            d.plan_job(self.job)
+
+    def test_host_job_defaults_the_model_and_may_override_it(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\n")
+        self.assertEqual(d.plan_job(self.job)["model"], d.HOST_MODEL_DEFAULT)
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\nmodel: claude-haiku-4-5-20251001\n")
+        self.assertEqual(d.plan_job(self.job)["model"], "claude-haiku-4-5-20251001")
+
+    def test_host_refuses_cred_collect_and_resume(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\n")
+        for extra in (["--cred", "x"], ["--wif"], ["--collect", "j"], ["--resume", "j", "--budget", "1", "--why", "w"]):
+            with self.assertRaises(SystemExit):
+                self._main("host", self.job, "--dry-run", *extra)
