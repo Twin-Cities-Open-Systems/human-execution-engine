@@ -6,6 +6,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -201,6 +202,28 @@ class Wif(unittest.TestCase):
     CON = {"organization_id": "org-1", "workspace_id": "wrkspc_1", "service_account_id": "svac_1",
            "federation_rule_id": "fdrl_1", "issuer": "https://issuer.lab.tcos.us", "subject": "pve:ci-triage"}
 
+
+    def test_started_records_count_at_their_ceiling(self):
+        # CORRECTNESS-2 (2026-10-23): two dispatches seconds apart must not
+        # both pass the cap against a ledger that knows about neither.
+        import datetime as _dt
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            job = {"dir": tmp, "name": "a", "runner": "host", "model": "m", "ticket": None,
+                   "budget_usd": 4.0, "timeout_s": 60, "tools": ["Read"], "mode": "default"}
+            now = _dt.datetime.now(_dt.timezone.utc)
+            d.start_record(job, "a-1", "host", "h", None, "login-token", now)
+            d.start_record(dict(job, name="b", budget_usd=3.0), "b-1", "host", "h", None, "login-token", now)
+            self.assertAlmostEqual(d.spent_today(tmp), 7.0)
+            # a finished record counts at its cost, not its ceiling
+            p = os.path.join(tmp, ".hee", "dispatch", "a-1.yaml")
+            import yaml as _yaml
+            with open(p) as fh:
+                rec = _yaml.safe_load(fh)
+            rec.update(cost_usd=0.5, subtype="success", exit=0)
+            with open(p, "w") as fh:
+                _yaml.safe_dump(rec, fh)
+            self.assertAlmostEqual(d.spent_today(tmp), 3.5)
     def test_mint_jwt_signs_es256_with_the_jwks_kid(self):
         import base64, hashlib, json, subprocess
         from cryptography.hazmat.primitives import hashes, serialization

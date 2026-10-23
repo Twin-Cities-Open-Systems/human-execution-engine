@@ -753,8 +753,39 @@ def spent_today(root, window=None):
         except Exception:  # noqa: BLE001 -- a bad record must not block the ledger
             continue
         if in_day(d.get("started_at"), window):
-            total += float(d.get("cost_usd") or 0)
+            if d.get("cost_usd") is None and d.get("subtype") == "started":
+                # A job that has started and not finished counts at its
+                # ceiling: the started record is written before claude runs,
+                # so two dispatches seconds apart cannot both read a ledger
+                # that knows about neither (CORRECTNESS-2 of the 2026-10-23
+                # review, fleet-ops ticket 0182). A dispatcher that died
+                # leaves its started record, and the day stays conservative
+                # by that ceiling until --collect finishes it.
+                total += float(d.get("budget_usd") or 0)
+            else:
+                total += float(d.get("cost_usd") or 0)
     return total
+
+
+def start_record(job, jid, role, hostname, vmid, auth, started):
+    """The ledger entry a job gets the moment it is allowed to spend, before
+    anything runs: its ceiling, no cost yet, subtype started. finish_job
+    replaces it with the full record at the same path. Returns the path."""
+    root = repo_root_of(job["dir"]) or job["dir"]
+    rec_dir = os.path.join(root, ".hee", "dispatch")
+    os.makedirs(rec_dir, exist_ok=True)
+    record = {
+        "job": jid, "name": job["name"], "agent": role, "runner": job["runner"], "model": job.get("model"),
+        "hostname": hostname, "vmid": vmid, "ticket": job.get("ticket"), "auth": auth,
+        "started_at": started.isoformat(timespec="seconds"), "ended_at": None,
+        "budget_usd": job["budget_usd"], "timeout_s": job["timeout_s"], "tools": job["tools"], "mode": job["mode"],
+        "exit": None, "cost_usd": None, "num_turns": None, "is_error": None, "subtype": "started",
+        "review": {"accepted": None, "corrections": None, "mistakes": [], "merged_pr": None, "reviewer": None, "method": None},
+    }
+    path = os.path.join(rec_dir, f"{jid}.yaml")
+    with open(path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(record, fh, sort_keys=False)
+    return path
 
 
 def collect_only(args, job, role, hostname, vmid, wif, allocations):
@@ -1054,9 +1085,10 @@ def run_host(args, job):
             f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
     if os.path.exists(results_dir):
         die(f"{results_dir} already exists -- a job id is used once")
-    extract_results(make_tar(job, run_sh), results_dir)
-    emit("OK", f"unpacked the job into {results_dir}")
     started = _dt.datetime.now(_dt.timezone.utc)
+    start_record(job, jid, role, hostname, vmid, "login-token", started)
+    extract_results(make_tar(job, run_sh), results_dir)
+    emit("OK", f"unpacked the job into {results_dir}; the ledger holds its ${job['budget_usd']:.2f} ceiling until it finishes")
     emit("OK", f"running claude in the sandbox (up to {job['timeout_s']}s) ...")
     try:
         r = subprocess.run(sandbox + ["sh", os.path.join(results_dir, "run.sh")], capture_output=True,
@@ -1199,6 +1231,9 @@ def main():
     if spent + job["budget_usd"] > DAILY_CAP_USD:
         die(f"dispatch spend for {window['label']} is ${spent:.2f}; this job's ${job['budget_usd']:.2f} ceiling would pass the daily cap "
             f"${DAILY_CAP_USD:.2f} (HEE_DISPATCH_DAILY_CAP_USD). Not dispatching.")
+
+    if not resume:
+        start_record(job, jid, role, hostname, vmid, "wif" if wif else "key", _dt.datetime.now(_dt.timezone.utc))
 
     jwt_claims = None
     if wif:
