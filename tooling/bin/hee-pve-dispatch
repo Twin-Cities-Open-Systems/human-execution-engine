@@ -32,9 +32,20 @@ What a dispatch is:
      (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
   6. `runner: host` in job.yaml (2026-10-23) runs the SAME bounded claude -p
      on the dispatcher's own host instead of a container: the job's files are
-     unpacked into JOBDIR/results/<job id>/, claude runs there as this account
-     with its own login (no key, no --cred), and the same record is written
-     with the real cost. The first host job (fleet-ops mf-diagram-commit,
+     unpacked into JOBDIR/results/<job id>/, claude runs there inside a
+     bubblewrap sandbox (bwrap) as this account, and the same record is
+     written with the real cost. Default deny, operator 2026-10-23 ("only
+     provide access when needed, remove access by default"): the sandbox
+     holds /usr and /etc read-only (the fleet's own /etc files masked), an
+     EMPTY home on tmpfs, the job's results directory as the only writable
+     path, no agent sockets, no sudo, a cleared environment, and nothing
+     else -- not the repository checkouts, not ~/.claude, not ~/.ssh. A job
+     that needs a path names it under `grants:` and gets it read-only. The
+     credential is this login's short-lived access token (eight hours),
+     read by the dispatcher and written to the sandboxed run.sh's stdin,
+     exactly as the pve runner hands over a key; the credentials file with
+     the refresh token never enters the sandbox. Measured from inside on
+     2026-10-23: ~/.claude/.credentials.json, ~/.ssh and ~/git do not exist. The first host job (fleet-ops mf-diagram-commit,
      2026-10-22) ran through the Agent tool instead and came back with no
      dollar figure and no Glob/Grep: on Linux Claude Code leaves those two
      tools out unless --allowedTools names them, which this run.sh always
@@ -49,6 +60,7 @@ job.yaml:
   agent: docs-keeper                  # optional: a dispatch that resolves to any other role is refused
   runner: pve                         # pve (default) | host; llm is `hee llm job`, refused here
   model: claude-sonnet-5              # host only (default shown); pve roles are pinned by the roster
+  grants: [~/git/fleet-ops:ro]        # host only; paths bound into the sandbox, ro unless :rw; default none
   ticket: fleet-ops/0100              # optional: recorded when --ticket is not given
   blocked_by: [fleet-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
   budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason
@@ -120,6 +132,32 @@ RUNNERS = ("pve", "host")
 # re-check; a host job names another model in job.yaml when it needs one.
 HOST_MODEL_DEFAULT = "claude-sonnet-5"
 HOST_SETTINGS_JSON = '{"promptCacheTtl":"5m","subagentPromptCacheTtl":"5m"}'
+# The host sandbox (bubblewrap). What is NOT here does not exist for the worker.
+# /etc is needed whole for ssl, passwd and the resolver symlink, so the fleet's
+# own files under it are masked instead of listed. /run is a tmpfs with only
+# the resolver directory bound back, because /etc/resolv.conf points into it
+# (measured 2026-10-23: without it the client retried DNS for three minutes).
+SANDBOX_MASK_DIRS = ("/etc/tmux-agent",)
+SANDBOX_MASK_FILES = ("/etc/tcos-desktop.env",)
+SANDBOX_RESOLVE = "/run/systemd/resolve"
+# A grant may not reach these, whatever the job says: the login, the keys,
+# the sealed stores, the sandbox's own mount points.
+GRANT_DENY_UNDER_HOME = (".claude", ".ssh", ".gnupg", ".config", ".local")
+GRANT_DENY_ABS = ("/etc", "/run", "/proc", "/sys", "/dev", "/root", "/boot")
+HOST_CREDENTIALS = os.environ.get("HEE_CLAUDE_CREDENTIALS", os.path.expanduser("~/.claude/.credentials.json"))
+# Shapes a credential takes when a worker echoes one into its final answer;
+# the labels are what gets reported, never the text that matched.
+# Matched against result.json before it is copied into evidence/ (committed)
+# or printed (SECURITY-3 of the 2026-10-23 review, fleet-ops ticket 0180).
+CREDENTIAL_SHAPES = {
+    "anthropic key": r"sk-ant-[A-Za-z0-9_-]{8,}",
+    "private key": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    "github token": r"\bghp_[A-Za-z0-9]{20,}",
+    "github pat": r"\bgithub_pat_[A-Za-z0-9_]{20,}",
+    "aws key": r"\bAKIA[0-9A-Z]{16}\b",
+    "slack token": r"\bxox[baprs]-[A-Za-z0-9-]{10,}",
+    "jwt": r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}",
+}
 # A job that may Write may Edit: job one (2026-09-11) allowed Write without
 # Edit and paid ~20% of its cost rewriting a 15 KB report six times after
 # six Edit denials. Operator: "we need to nip that in the bud".
@@ -330,6 +368,7 @@ def plan_job(jobdir):
         die("job.yaml: model is not a pve job's to choose -- the signed agent roster pins it per role")
     if runner == "host" and not model:
         model = HOST_MODEL_DEFAULT
+    grants = plan_grants(spec.get("grants"), runner)
     if runner == "host" and any(t == "Bash" or t.startswith("Bash(") for t in tools):
         # A host worker runs as the dispatching account, on its machine, with
         # its sudo, ssh agent and gpg agent in reach; a container's agent user
@@ -340,13 +379,136 @@ def plan_job(jobdir):
             "on this machine (fleet-ops ticket 0180); ship a pve job, or drop Bash")
     return {
         "agent": spec.get("agent"), "ticket": str(spec["ticket"]) if spec.get("ticket") else None,
-        "runner": runner, "model": model,
+        "runner": runner, "model": model, "grants": grants,
         "blocked_by": [b.strip() for b in blocked_by],
         "dir": jobdir, "name": name, "prompt": prompt, "budget_usd": budget,
         "timeout_s": timeout_s, "tools": [str(t) for t in tools], "mode": mode,
         "inputs": [str(i) for i in inputs], "outputs": [str(o).rstrip("/") for o in outputs],
         "json_schema": spec.get("json_schema"), "system_prompt": spec.get("system_prompt"),
     }
+
+
+def plan_grants(raw, runner):
+    """`grants:` -- the paths a host job is allowed to see, read-only unless
+    `:rw`. Default none: the sandbox is empty but for the job. Refused for a
+    pve job (a container sees what was shipped) and for anything under the
+    deny lists, whatever the job says."""
+    if not raw:
+        return []
+    if runner != "host":
+        die("job.yaml: grants are the host runner's; a pve job sees exactly the inputs shipped to it")
+    if not isinstance(raw, list):
+        die("job.yaml: grants must be a list of 'PATH' or 'PATH:rw'")
+    home = os.path.realpath(os.path.expanduser("~"))
+    out, seen = [], set()
+    for g in raw:
+        if not isinstance(g, str) or not g.strip():
+            die("job.yaml: each grant is a string, 'PATH' or 'PATH:rw'")
+        path, _, mode = g.strip().rpartition(":") if g.strip().endswith((":ro", ":rw")) else (g.strip(), "", "ro")
+        mode = mode or "ro"
+        path = os.path.realpath(os.path.expanduser(path))
+        if not os.path.isabs(path) or not os.path.exists(path):
+            die(f"job.yaml: grant '{g}' must name an existing absolute path (~ is expanded)")
+        if path == "/" or path == home:
+            die(f"job.yaml: grant '{g}' would hand over the whole filesystem or home -- name the directory the job needs")
+        for d in GRANT_DENY_UNDER_HOME:
+            if path == os.path.join(home, d) or path.startswith(os.path.join(home, d) + "/"):
+                die(f"job.yaml: grant '{g}' is under ~/{d}, which no job may see (fleet-ops ticket 0180)")
+        for d in GRANT_DENY_ABS:
+            if path == d or path.startswith(d + "/"):
+                die(f"job.yaml: grant '{g}' is under {d}, which the sandbox provides on its own terms")
+        if "/.hee/secrets" in path + "/":
+            die(f"job.yaml: grant '{g}' reaches a sealed store; never")
+        if path in seen:
+            continue
+        seen.add(path)
+        out.append({"path": path, "mode": mode})
+    return out
+
+
+def host_token(timeout_s):
+    """This login's short-lived access token, for the sandboxed worker's
+    stdin. Read from the credentials file by the dispatcher; the file itself,
+    with the refresh token and the plugins' OAuth tokens, never enters the
+    sandbox. Refused when the token would expire before the job's ceiling,
+    so a job never dies mid-run on an expired login."""
+    try:
+        with open(HOST_CREDENTIALS, encoding="utf-8") as fh:
+            cred = json.load(fh)
+    except (OSError, ValueError) as e:
+        die(f"cannot read the claude login at {HOST_CREDENTIALS} ({e}) -- log in once (`claude`), then dispatch again")
+    oauth = (cred or {}).get("claudeAiOauth") or {}
+    tok, exp = oauth.get("accessToken"), oauth.get("expiresAt")
+    if not tok or not isinstance(exp, (int, float)):
+        die(f"{HOST_CREDENTIALS} carries no claudeAiOauth access token -- log in once (`claude`), then dispatch again")
+    left = exp / 1000 - time.time()
+    if left < timeout_s + 120:
+        die(f"the login's access token expires in {left / 60:.0f} min, less than this job's {timeout_s}s ceiling plus slack -- "
+            f"run `claude -p 'ok' --max-turns 1` once to refresh it, then dispatch again")
+    return tok, left
+
+
+def sandbox_argv(results_dir, grants):
+    """The bubblewrap command line for one host job. Nothing secret is on
+    it: the token travels on stdin. Everything the worker can see is listed
+    here, so the dry run shows the whole boundary."""
+    home = os.path.expanduser("~")
+    argv = ["bwrap",
+            "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+            "--symlink", "usr/bin", "/bin", "--symlink", "usr/sbin", "/sbin",
+            "--ro-bind", "/etc", "/etc"]
+    for d in SANDBOX_MASK_DIRS:
+        if os.path.isdir(d):
+            argv += ["--tmpfs", d]
+    for f in SANDBOX_MASK_FILES:
+        if os.path.exists(f):
+            argv += ["--ro-bind", "/dev/null", f]
+    argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run"]
+    if os.path.isdir(SANDBOX_RESOLVE):
+        argv += ["--ro-bind", SANDBOX_RESOLVE, SANDBOX_RESOLVE]
+    argv += ["--tmpfs", home, "--bind", results_dir, results_dir]
+    for g in grants:
+        argv += ["--bind" if g["mode"] == "rw" else "--ro-bind", g["path"], g["path"]]
+    argv += ["--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup", "--die-with-parent", "--new-session",
+             "--clearenv", "--setenv", "HOME", home, "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+             "--setenv", "USER", os.environ.get("USER") or "worker", "--setenv", "LANG", "C.UTF-8", "--setenv", "TERM", "dumb",
+             "--chdir", results_dir, "--"]
+    return argv
+
+
+def credential_shapes(text):
+    """The credential shapes found in a worker's final text, by pattern name."""
+    if not text:
+        return []
+    return sorted(name for name, pat in CREDENTIAL_SHAPES.items() if re.search(pat, text))
+
+
+def copy_evidence(src, job, started, res):
+    """result.json into evidence/ (committed), unless its text carries a
+    credential shape: then a redaction note is the evidence and the result
+    is not printed. Both runners, both the live and the --collect paths."""
+    if not (os.path.isfile(src) and os.path.getsize(src) > 0):
+        return None, []
+    ev_dir = os.path.join(job["dir"], "evidence")
+    os.makedirs(ev_dir, exist_ok=True)
+    try:
+        with open(src, encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+    except OSError:
+        raw = ""
+    shapes = credential_shapes(raw)
+    stamp = int(started.timestamp())
+    if shapes:
+        # Only the shape LABELS (e.g. "github token") are written and printed,
+        # never the matched text; the file stays in the gitignored results dir.
+        note = os.path.join(ev_dir, f"REDACTED-{stamp}.txt")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write(f"result.json of this run was NOT copied: its text matched credential shape(s) {shapes}. "
+                     f"Read it in the results directory, rotate what it names, and never commit it.\n")
+        return note, shapes
+    evidence = os.path.join(ev_dir, f"result.json-{stamp}")
+    shutil.copyfile(src, evidence)
+    return evidence, []
 
 
 def open_blockers(job):
@@ -484,7 +646,11 @@ def render_run_sh(job, jid, wif=None, resume=None, local_dir=None):
             "#!/bin/sh",
             f"# generated by hee-pve-dispatch for job {jid} -- runs on the dispatcher's own host, in {local_dir}",
             "set -eu",
-            "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN   # this account's own claude login is the credential",
+            "# the login's short-lived access token arrives on stdin, as a key does on pve; never on argv, never in a file",
+            'IFS= read -r ANTHROPIC_AUTH_TOKEN || { echo "dispatch: no token on stdin" >&2; exit 2; }',
+            '[ -n "$ANTHROPIC_AUTH_TOKEN" ] || { echo "dispatch: empty token on stdin" >&2; exit 2; }',
+            "unset ANTHROPIC_API_KEY",
+            "export ANTHROPIC_AUTH_TOKEN",
             f"cd {d}",
             "mkdir -p out",
             "t0=$(date +%s)",
@@ -620,9 +786,10 @@ def collect_only(args, job, role, hostname, vmid, wif, allocations):
     src = os.path.join(results_dir, "out", "result.json")
     evidence = None
     started = _dt.datetime.strptime(jid.rsplit("-", 1)[-1], "%Y%m%dT%H%M%SZ").replace(tzinfo=_dt.timezone.utc)
-    if os.path.isfile(src) and os.path.getsize(src) > 0:
-        ev_dir = os.path.join(job["dir"], "evidence"); os.makedirs(ev_dir, exist_ok=True)
-        evidence = os.path.join(ev_dir, f"result.json-{int(started.timestamp())}"); shutil.copyfile(src, evidence)
+    evidence, redacted = copy_evidence(src, job, started, res)
+    if redacted:
+        emit("WARNING", f"result.json matched credential shape(s) {redacted}; evidence is a redaction note, result not printed")
+        res["result"] = None
     root = repo_root_of(job["dir"]) or job["dir"]
     rec_dir = os.path.join(root, ".hee", "dispatch"); os.makedirs(rec_dir, exist_ok=True)
     record = {
@@ -773,20 +940,20 @@ def finish_job(args, job, jid, role, hostname, vmid, wif, jwt_claims, run_sh, st
     # Evidence, committed: results/ is gitignored (raw, large), but the one
     # object that says what happened -- claude's result.json -- is copied
     # beside the job as evidence/result.json-<epoch>. Operator, 2026-09-11:
-    # "we save those result.json in evidence with a ts, date +%s".
+    # "we save those result.json in evidence with a ts, date +%s". Unless its
+    # text carries a credential shape (SECURITY-3, 2026-10-23).
     src = os.path.join(results_dir, "out", "result.json")
-    evidence = None
-    if os.path.isfile(src) and os.path.getsize(src) > 0:
-        ev_dir = os.path.join(job["dir"], "evidence")
-        os.makedirs(ev_dir, exist_ok=True)
-        evidence = os.path.join(ev_dir, f"result.json-{int(started.timestamp())}")
-        shutil.copyfile(src, evidence)
+    evidence, redacted = copy_evidence(src, job, started, res)
+    if redacted:
+        emit("WARNING", f"result.json matched credential shape(s) {redacted}; evidence is a redaction note, result not printed")
+        res["result"] = None
 
     root = repo_root_of(job["dir"]) or job["dir"]
     rec_dir = os.path.join(root, ".hee", "dispatch")
     os.makedirs(rec_dir, exist_ok=True)
     record = {
         "job": jid, "name": job["name"], "agent": role, "runner": job["runner"], "model": job.get("model"),
+        "sandbox": "bwrap" if job["runner"] == "host" else None, "grants": job.get("grants") or None,
         "hostname": hostname, "vmid": vmid,
         "ticket": args.ticket or job.get("ticket"), "cred": args.cred, "auth": auth,
         "federation_rule_id": wif["federation_rule_id"] if wif else None,
@@ -856,16 +1023,24 @@ def run_host(args, job):
     jid = job_id(job)
     results_dir = os.path.join(job["dir"], "results", jid)
     run_sh = render_run_sh(job, jid, local_dir=results_dir)
-    emit("OK", f"runner host -> {hostname} as {os.environ.get('USER') or os.getuid()}; job {jid}; model {job['model']}; "
+    sandbox = sandbox_argv(results_dir, job["grants"])
+    emit("OK", f"runner host -> {hostname} as {os.environ.get('USER') or os.getuid()}, in a bwrap sandbox with "
+               f"{len(job['grants'])} grant(s); job {jid}; model {job['model']}; "
                f"budget ${job['budget_usd']:.2f}, timeout {job['timeout_s']}s, tools {' '.join(job['tools'])}, mode {job['mode']}")
     if args.dry_run:
         print("--- files unpacked into results/<job id>/:")
         for rel in sorted(set(job["inputs"]) | {"job.yaml", job["prompt"]}):
             print(f"    {rel}")
-        print("--- run.sh (runs HERE, as this account, with its own claude login; no key is read):")
+        print("--- sandbox (everything the worker can see; the token is read from stdin, never shown):")
+        print("    " + " ".join(shlex.quote(a) for a in sandbox) + " sh run.sh")
+        print("--- run.sh (runs inside the sandbox, as this account):")
         print("".join("    " + l + "\n" for l in run_sh.splitlines()), end="")
         emit("OK", "DRY RUN complete -- nothing unpacked, nothing run")
         return 0
+    if not shutil.which("bwrap"):
+        die("the host runner needs bubblewrap (bwrap) and it is not installed -- apt install bubblewrap; no host job runs unsandboxed")
+    token, left = host_token(job["timeout_s"])
+    emit("OK", f"login token good for {left / 3600:.1f} h; nothing of the login but that token enters the sandbox")
 
     from hee_day import day_window
     root = repo_root_of(job["dir"]) or job["dir"]
@@ -881,21 +1056,22 @@ def run_host(args, job):
         die(f"{results_dir} already exists -- a job id is used once")
     extract_results(make_tar(job, run_sh), results_dir)
     emit("OK", f"unpacked the job into {results_dir}")
-    env = dict(os.environ)
-    env.pop("ANTHROPIC_API_KEY", None)
-    env.pop("ANTHROPIC_AUTH_TOKEN", None)
     started = _dt.datetime.now(_dt.timezone.utc)
-    emit("OK", f"running claude here (up to {job['timeout_s']}s) ...")
+    emit("OK", f"running claude in the sandbox (up to {job['timeout_s']}s) ...")
     try:
-        r = subprocess.run(["sh", os.path.join(results_dir, "run.sh")], capture_output=True,
-                           timeout=job["timeout_s"] + 120, env=env, cwd=results_dir)
+        r = subprocess.run(sandbox + ["sh", os.path.join(results_dir, "run.sh")], capture_output=True,
+                           input=(token + "\n").encode(), timeout=job["timeout_s"] + 120)
     except subprocess.TimeoutExpired:
         die(f"run.sh did not return within {job['timeout_s'] + 120}s -- inspect {results_dir}/out", code=1)
+    finally:
+        del token
     ended = _dt.datetime.now(_dt.timezone.utc)
     tail = r.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    if r.returncode != 0 and not tail[0]:
+        tail = [r.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [f"bwrap exit {r.returncode}"]][0]
     emit("OK" if r.returncode == 0 else "WARNING", f"run.sh finished: {tail[0]}")
     return finish_job(args, job, jid, role, hostname, vmid, None, None, run_sh, started, ended,
-                      results_dir, f"{hostname}:{results_dir}", None, jid, auth="login")
+                      results_dir, f"{hostname}:{results_dir}", None, jid, auth="login-token")
 
 
 # ---- main -------------------------------------------------------------------

@@ -50,9 +50,20 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
          (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
       6. `runner: host` in job.yaml (2026-10-23) runs the SAME bounded claude -p
          on the dispatcher's own host instead of a container: the job's files are
-         unpacked into JOBDIR/results/<job id>/, claude runs there as this account
-         with its own login (no key, no --cred), and the same record is written
-         with the real cost. The first host job (fleet-ops mf-diagram-commit,
+         unpacked into JOBDIR/results/<job id>/, claude runs there inside a
+         bubblewrap sandbox (bwrap) as this account, and the same record is
+         written with the real cost. Default deny, operator 2026-10-23 ("only
+         provide access when needed, remove access by default"): the sandbox
+         holds /usr and /etc read-only (the fleet's own /etc files masked), an
+         EMPTY home on tmpfs, the job's results directory as the only writable
+         path, no agent sockets, no sudo, a cleared environment, and nothing
+         else -- not the repository checkouts, not ~/.claude, not ~/.ssh. A job
+         that needs a path names it under `grants:` and gets it read-only. The
+         credential is this login's short-lived access token (eight hours),
+         read by the dispatcher and written to the sandboxed run.sh's stdin,
+         exactly as the pve runner hands over a key; the credentials file with
+         the refresh token never enters the sandbox. Measured from inside on
+         2026-10-23: ~/.claude/.credentials.json, ~/.ssh and ~/git do not exist. The first host job (fleet-ops mf-diagram-commit,
          2026-10-22) ran through the Agent tool instead and came back with no
          dollar figure and no Glob/Grep: on Linux Claude Code leaves those two
          tools out unless --allowedTools names them, which this run.sh always
@@ -67,6 +78,7 @@ hee-pve-dispatch - hand one bounded job to one agent container and collect the r
       agent: docs-keeper                  # optional: a dispatch that resolves to any other role is refused
       runner: pve                         # pve (default) | host; llm is `hee llm job`, refused here
       model: claude-sonnet-5              # host only (default shown); pve roles are pinned by the roster
+      grants: [~/git/fleet-ops:ro]        # host only; paths bound into the sandbox, ro unless :rw; default none
       ticket: fleet-ops/0100              # optional: recorded when --ticket is not given
       blocked_by: [fleet-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
       budget_usd: 2.00                    # required -- claude --max-budget-usd; above 1.00 needs budget_reason

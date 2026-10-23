@@ -411,10 +411,10 @@ class TestHostRunner(unittest.TestCase):
         self.assertIn("--model claude-sonnet-5", out)
         self.assertIn("--max-budget-usd 0.50", out)
         self.assertIn("promptCacheTtl", out)                               # 5m cache writes, not the account's 1h
-        self.assertIn("runs HERE", out)
-        self.assertNotIn("read -r", out)                                  # no key on stdin
+        self.assertIn("runs inside the sandbox", out)
+        self.assertNotIn("read -r ANTHROPIC_API_KEY", out)                # no key; the login token arrives on stdin instead
         self.assertNotIn("su -p agent", out)
-        self.assertIn("unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN", out)
+        self.assertIn("unset ANTHROPIC_API_KEY", out)                       # the login token is the credential; no key may outrank it
         self.assertIn("DRY RUN complete -- nothing unpacked", out)
 
     def test_host_run_sh_is_one_line_per_step(self):
@@ -477,3 +477,119 @@ class TestHostRunner(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self._main("host", self.job, "--cred", "some-account")
 
+
+
+class TestHostSandbox(unittest.TestCase):
+    """The default-deny boundary of a host job (operator 2026-10-23: only
+    provide access when needed). Nothing here runs bwrap or claude."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.job = os.path.join(self.tmp.name, "job")
+        os.makedirs(self.job)
+        with open(os.path.join(self.job, "prompt.md"), "w") as fh:
+            fh.write("do the thing\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, text):
+        with open(os.path.join(self.job, "job.yaml"), "w") as fh:
+            fh.write(text)
+
+    def test_sandbox_argv_is_default_deny(self):
+        argv = d.sandbox_argv("/x/results/j1", [])
+        joined = " ".join(argv)
+        home = os.path.expanduser("~")
+        self.assertIn(f"--tmpfs {home}", joined)                         # empty home
+        self.assertIn("--bind /x/results/j1 /x/results/j1", joined)      # the job, writable
+        self.assertIn("--ro-bind /usr /usr", joined)
+        self.assertIn("--tmpfs /run", joined)
+        self.assertIn("--unshare-pid", joined)
+        self.assertIn("--clearenv", joined)
+        self.assertNotIn("SSH_AUTH_SOCK", joined)
+        self.assertNotIn("ANTHROPIC", joined)                             # the token is never on argv
+        self.assertEqual(argv[-1], "--")
+        for d_ in d.SANDBOX_MASK_DIRS:
+            if os.path.isdir(d_):
+                self.assertIn(f"--tmpfs {d_}", joined)
+
+    def test_grants_are_bound_by_mode_and_default_ro(self):
+        ro = os.path.join(self.tmp.name, "ro"); rw = os.path.join(self.tmp.name, "rw")
+        os.makedirs(ro); os.makedirs(rw)
+        self._write(f"name: demo\nbudget_usd: 1\nrunner: host\ngrants: ['{ro}', '{rw}:rw']\n")
+        job = d.plan_job(self.job)
+        self.assertEqual([g["mode"] for g in job["grants"]], ["ro", "rw"])
+        joined = " ".join(d.sandbox_argv("/x", job["grants"]))
+        self.assertIn(f"--ro-bind {os.path.realpath(ro)} {os.path.realpath(ro)}", joined)
+        self.assertIn(f"--bind {os.path.realpath(rw)} {os.path.realpath(rw)}", joined)
+
+    def test_grants_refuse_the_login_keys_and_the_whole_home(self):
+        home = os.path.expanduser("~")
+        for bad in ("~", "~/.claude", "~/.ssh/id_ed25519", "/etc/passwd", "/run", "relative/path", "/no/such/path"):
+            self._write(f"name: demo\nbudget_usd: 1\nrunner: host\ngrants: ['{bad}']\n")
+            with self.assertRaises(SystemExit, msg=bad):
+                d.plan_job(self.job)
+        self.assertTrue(os.path.isdir(home))
+
+    def test_grants_refused_on_pve(self):
+        self._write(f"name: demo\nbudget_usd: 1\ngrants: ['{self.tmp.name}']\n")
+        with self.assertRaises(SystemExit):
+            d.plan_job(self.job)
+
+    def test_host_run_sh_reads_the_token_from_stdin_and_never_a_key(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\n")
+        sh = d.render_run_sh(d.plan_job(self.job), "demo-x", local_dir="/x/r")
+        self.assertIn('IFS= read -r ANTHROPIC_AUTH_TOKEN', sh)
+        self.assertIn("unset ANTHROPIC_API_KEY", sh)
+        self.assertNotIn("ANTHROPIC_API_KEY=", sh)
+
+    def test_host_token_refuses_an_expiring_login(self):
+        import json as _json
+        import time as _time
+        cred = os.path.join(self.tmp.name, "cred.json")
+
+        def write(doc):
+            with open(cred, "w") as fh:
+                _json.dump(doc, fh)
+        with mock.patch.object(d, "HOST_CREDENTIALS", cred):
+            write({"claudeAiOauth": {"accessToken": "tok", "expiresAt": int((_time.time() + 60) * 1000)}})
+            with self.assertRaises(SystemExit):
+                d.host_token(600)
+            write({"claudeAiOauth": {"accessToken": "tok", "expiresAt": int((_time.time() + 8 * 3600) * 1000)}})
+            tok, left = d.host_token(600)
+            self.assertEqual(tok, "tok"); self.assertGreater(left, 7 * 3600)
+            write({})
+            with self.assertRaises(SystemExit):
+                d.host_token(600)
+
+    def test_secret_shapes_are_caught_and_clean_text_passes(self):
+        self.assertTrue(d.credential_shapes("here is sk-ant-api03-abcdefghijklmnop"))
+        self.assertTrue(d.credential_shapes("-----BEGIN OPENSSH PRIVATE KEY-----\nabc"))
+        self.assertTrue(d.credential_shapes("token ghp_abcdefghijklmnopqrstuvwxyz0123"))
+        self.assertEqual(d.credential_shapes("All three deliverables are written under out/."), [])
+        self.assertEqual(d.credential_shapes(""), [])
+
+    def test_redacted_evidence_is_a_note_not_a_copy(self):
+        import datetime as _dt
+        results = os.path.join(self.job, "results", "j1", "out"); os.makedirs(results)
+        src = os.path.join(results, "result.json")
+        with open(src, "w") as fh:
+            fh.write('{"type":"result","result":"the key is sk-ant-api03-abcdefghijklmnop"}')
+        ev, hits = d.copy_evidence(src, {"dir": self.job}, _dt.datetime.now(_dt.timezone.utc), {})
+        self.assertTrue(hits); self.assertIn("REDACTED-", ev)
+        with open(ev) as fh:
+            self.assertNotIn("sk-ant-", fh.read())
+        self.assertFalse(any(n.startswith("result.json-") for n in os.listdir(os.path.join(self.job, "evidence"))))
+
+    def test_dry_run_shows_the_sandbox_and_needs_no_bwrap_or_login(self):
+        self._write("name: demo\nbudget_usd: 1\nrunner: host\n")
+        out = io.StringIO()
+        with mock.patch.object(d.shutil, "which", return_value=None), \
+             mock.patch.object(d, "HOST_CREDENTIALS", "/nonexistent"), \
+             mock.patch.object(sys, "argv", ["hee-pve-dispatch", "host", self.job, "--dry-run"]), \
+             contextlib.redirect_stdout(out):
+            rc = d.main()
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("bwrap --ro-bind /usr /usr", out.getvalue())
+        self.assertIn("--clearenv", out.getvalue())
