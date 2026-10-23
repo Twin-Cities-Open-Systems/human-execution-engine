@@ -564,11 +564,11 @@ class TestHostSandbox(unittest.TestCase):
                 d.host_token(600)
 
     def test_secret_shapes_are_caught_and_clean_text_passes(self):
-        self.assertTrue(d.secret_hits("here is sk-ant-api03-abcdefghijklmnop"))
-        self.assertTrue(d.secret_hits("-----BEGIN OPENSSH PRIVATE KEY-----\nabc"))
-        self.assertTrue(d.secret_hits("token ghp_abcdefghijklmnopqrstuvwxyz0123"))
-        self.assertEqual(d.secret_hits("All three deliverables are written under out/."), [])
-        self.assertEqual(d.secret_hits(""), [])
+        self.assertTrue(d.credential_shapes("here is sk-ant-api03-abcdefghijklmnop"))
+        self.assertTrue(d.credential_shapes("-----BEGIN OPENSSH PRIVATE KEY-----\nabc"))
+        self.assertTrue(d.credential_shapes("token ghp_abcdefghijklmnopqrstuvwxyz0123"))
+        self.assertEqual(d.credential_shapes("All three deliverables are written under out/."), [])
+        self.assertEqual(d.credential_shapes(""), [])
 
     def test_redacted_evidence_is_a_note_not_a_copy(self):
         import datetime as _dt

@@ -145,10 +145,11 @@ SANDBOX_RESOLVE = "/run/systemd/resolve"
 GRANT_DENY_UNDER_HOME = (".claude", ".ssh", ".gnupg", ".config", ".local")
 GRANT_DENY_ABS = ("/etc", "/run", "/proc", "/sys", "/dev", "/root", "/boot")
 HOST_CREDENTIALS = os.environ.get("HEE_CLAUDE_CREDENTIALS", os.path.expanduser("~/.claude/.credentials.json"))
-# Shapes a credential takes when a worker echoes one into its final answer.
+# Shapes a credential takes when a worker echoes one into its final answer;
+# the labels are what gets reported, never the text that matched.
 # Matched against result.json before it is copied into evidence/ (committed)
 # or printed (SECURITY-3 of the 2026-10-23 review, fleet-ops ticket 0180).
-SECRET_PATTERNS = {
+CREDENTIAL_SHAPES = {
     "anthropic key": r"sk-ant-[A-Za-z0-9_-]{8,}",
     "private key": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     "github token": r"\bghp_[A-Za-z0-9]{20,}",
@@ -475,11 +476,11 @@ def sandbox_argv(results_dir, grants):
     return argv
 
 
-def secret_hits(text):
+def credential_shapes(text):
     """The credential shapes found in a worker's final text, by pattern name."""
     if not text:
         return []
-    return sorted(name for name, pat in SECRET_PATTERNS.items() if re.search(pat, text))
+    return sorted(name for name, pat in CREDENTIAL_SHAPES.items() if re.search(pat, text))
 
 
 def copy_evidence(src, job, started, res):
@@ -495,14 +496,16 @@ def copy_evidence(src, job, started, res):
             raw = fh.read()
     except OSError:
         raw = ""
-    hits = secret_hits(raw)
+    shapes = credential_shapes(raw)
     stamp = int(started.timestamp())
-    if hits:
+    if shapes:
+        # Only the shape LABELS (e.g. "github token") are written and printed,
+        # never the matched text; the file stays in the gitignored results dir.
         note = os.path.join(ev_dir, f"REDACTED-{stamp}.txt")
         with open(note, "w", encoding="utf-8") as fh:
-            fh.write(f"result.json of this run was NOT copied: its text matched credential shape(s) {hits}. "
+            fh.write(f"result.json of this run was NOT copied: its text matched credential shape(s) {shapes}. "
                      f"Read it in the results directory, rotate what it names, and never commit it.\n")
-        return note, hits
+        return note, shapes
     evidence = os.path.join(ev_dir, f"result.json-{stamp}")
     shutil.copyfile(src, evidence)
     return evidence, []
