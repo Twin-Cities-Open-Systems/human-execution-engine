@@ -51,9 +51,20 @@ What a dispatch is:
      (the repo JOBDIR lives in): agent, vmid, ticket, cost, turns, exit.
   6. \[ga]runner: host\[ga] in job.yaml (2026\-10\-23) runs the SAME bounded claude \-p
      on the dispatcher\[aq]s own host instead of a container: the job\[aq]s files are
-     unpacked into JOBDIR/results/<job id>/, claude runs there as this account
-     with its own login (no key, no \-\-cred), and the same record is written
-     with the real cost. The first host job (fleet\-ops mf\-diagram\-commit,
+     unpacked into JOBDIR/results/<job id>/, claude runs there inside a
+     bubblewrap sandbox (bwrap) as this account, and the same record is
+     written with the real cost. Default deny, operator 2026\-10\-23 (\[dq]only
+     provide access when needed, remove access by default\[dq]): the sandbox
+     holds /usr and /etc read\-only (the fleet\[aq]s own /etc files masked), an
+     EMPTY home on tmpfs, the job\[aq]s results directory as the only writable
+     path, no agent sockets, no sudo, a cleared environment, and nothing
+     else \-\- not the repository checkouts, not \[ti]/.claude, not \[ti]/.ssh. A job
+     that needs a path names it under \[ga]grants:\[ga] and gets it read\-only. The
+     credential is this login\[aq]s short\-lived access token (eight hours),
+     read by the dispatcher and written to the sandboxed run.sh\[aq]s stdin,
+     exactly as the pve runner hands over a key; the credentials file with
+     the refresh token never enters the sandbox. Measured from inside on
+     2026\-10\-23: \[ti]/.claude/.credentials.json, \[ti]/.ssh and \[ti]/git do not exist. The first host job (fleet\-ops mf\-diagram\-commit,
      2026\-10\-22) ran through the Agent tool instead and came back with no
      dollar figure and no Glob/Grep: on Linux Claude Code leaves those two
      tools out unless \-\-allowedTools names them, which this run.sh always
@@ -68,6 +79,7 @@ job.yaml:
   agent: docs\-keeper                  # optional: a dispatch that resolves to any other role is refused
   runner: pve                         # pve (default) | host; llm is \[ga]hee llm job\[ga], refused here
   model: claude\-sonnet\-5              # host only (default shown); pve roles are pinned by the roster
+  grants: [\[ti]/git/fleet\-ops:ro]        # host only; paths bound into the sandbox, ro unless :rw; default none
   ticket: fleet\-ops/0100              # optional: recorded when \-\-ticket is not given
   blocked_by: [fleet\-ops/0080]        # optional: while any is open a real dispatch refuses, a dry run warns
   budget_usd: 2.00                    # required \-\- claude \-\-max\-budget\-usd; above 1.00 needs budget_reason
