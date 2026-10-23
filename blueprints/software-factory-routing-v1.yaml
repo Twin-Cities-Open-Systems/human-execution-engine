@@ -3,7 +3,7 @@ apiVersion: hee/v1
 kind: BlueprintDoctrine
 metadata:
   name: software-factory-routing-v1
-  description: "Doctrine for choosing WHO does a piece of model work -- a no-model tool, a local model gate, a sandboxed host worker, a role worker in a container, or the operator -- by three questions answered at shape time and written into the job before anything runs. The generic half; a fleet's routes table (endpoints, caps, which runners are on) is its instance, kept in the fleet (fleet-ops hee/registries/software-factory.registry.v1.yaml), never here."
+  description: "Doctrine for choosing WHO does a piece of model work -- a no-model tool, a local model gate, a sandboxed host worker, a role worker in a container, or the operator -- by three questions answered at shape time and written into the job before anything runs. The generic half; a fleet's routes table (endpoints, caps, which runners are on) is its instance, kept in the fleet (https://github.com/Twin-Cities-Open-Systems/fleet-ops/blob/main/hee/registries/software-factory.registry.v1.yaml), never here."
   labels:
     hee.object: "true"
     domain: hee
