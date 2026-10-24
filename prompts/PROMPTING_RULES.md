@@ -292,6 +292,22 @@ loaded, read this file directly rather than assume it did.
     v0.1.0 in January while 417 commits landed; Spencer: "keep a nice
     change log with the updates."
 
+19. **Work moves through the software factory, not around it.** A change
+    an agent makes starts as a `hee ticket`, is shaped into a job before
+    it runs, is reviewed by a reviewer that is not its author, lands
+    through a PR carrying its Measured and Provenance lines, and is
+    recorded in the dispatch ledger with its cost. Doctrine:
+    `blueprints/software-factory-routing-v1.yaml` and
+    `blueprints/software-factory-v1.yaml`, both ratified 2026-10-24; the
+    stations are Skill objects (`shape-a-job`, `run-a-review`,
+    `land-a-job`) in the consuming fleet. A worker is DRIC's agent and
+    cannot execute; the dispatcher is DRIC's oper, so the dispatcher's
+    own verify of the applied change is the completion evidence, and its
+    cost goes on the record too. The merge and the ratification stay
+    human. Real trigger, 2026-10-24: the first feature through the line
+    (twelve jobs, one release) proved the doctrine; Spencer: "make sure
+    it is always used."
+
 ## Authority Invariants
 
 - Authority is scoped to this repository and this workflow context.
