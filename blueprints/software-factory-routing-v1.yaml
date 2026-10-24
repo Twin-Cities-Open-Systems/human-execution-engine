@@ -19,7 +19,7 @@ metadata:
 spec:
   result: false
   schema-version: 1
-  status: proposed
+  status: ratified
   parent: "blueprints/doctrine/blueprint-doctrine.yaml -- the blueprint that makes blueprints"
   sibling: "blueprints/software-factory-v1.yaml -- the stations this routing serves"
 
