@@ -53,6 +53,19 @@ layers on top of this.
    was itself the strongest argument for retiring it rather than restating
    it a fourth time.)
 
+6. **Work moves through the software factory.** Two ratified blueprints
+   define it: [`blueprints/software-factory-routing-v1.yaml`](../blueprints/software-factory-routing-v1.yaml)
+   (who runs a job) and [`blueprints/software-factory-v1.yaml`](../blueprints/software-factory-v1.yaml)
+   (the stations: intake, shape, route, run, review, land, merge, deploy,
+   record). The work unit is the `hee ticket`; a job is shaped before it is
+   run, reviewed by someone other than its author, landed through a PR
+   with its evidence, and recorded in the dispatch ledger. The factory
+   never approves what it opened. The stations' procedures are Skill
+   objects the consuming fleet carries and renders with `hee gen-skills`;
+   the fleet's `prompts/INIT.md` names its runners and caps. Ratified
+   2026-10-24 after two end-to-end runs; the glossary's `Software Factory`
+   entry is the SSoT for the term.
+
 ## Operational entry (per fleet)
 
 The steps above are the generic engine ceremony. A fleet or deployment running on
