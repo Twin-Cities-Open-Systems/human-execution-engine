@@ -10,6 +10,7 @@ hee-ticket - repo-local tickets, stored as real YAML in git
     hee-ticket -list [SPEC] [--open | --closed]
     hee-ticket -advance ID [--why TEXT]
     hee-ticket -back ID --why TEXT
+    hee-ticket -station ID STATION [--job JOBID] [--why TEXT]
     hee-ticket -close SPEC [--why TEXT]
     hee-ticket -html [--workspace [DIR]] [--out FILE]
     hee-ticket -json [--workspace [DIR]]
@@ -50,10 +51,11 @@ hee-ticket - repo-local tickets, stored as real YAML in git
 
     .hee/tickets/<id>.yaml   one record per ticket, under the repo root.
                              Fields written by this tool: id, created_at,
-                             description, status, stage, stage_history, and
-                             when given source, ref, tags, closed_at,
-                             closed_reason. Anything else you add by hand is
-                             kept and, for -html, shown when it is a string.
+                             description, status, stage, stage_history,
+                             stations, and when given source, ref, tags,
+                             closed_at, closed_reason. Anything else you add
+                             by hand is kept and, for -html, shown when it
+                             is a string.
 
 
 # EXIT STATUS
@@ -95,6 +97,10 @@ hee-ticket - repo-local tickets, stored as real YAML in git
                run) in stage_history
     -back      dogfood back to footgun, the other half of footgun<->dogfood:
                real use found something. --why is required
+    -station   record that a station (shape, review, land) ran: appends one
+               entry {station, at, by, job, why} to the ticket's `stations`
+               list, separate from stage_history, and never changes stage,
+               status or stage_history. --job names the job that ran it
     -close     close tickets by id, range, or description regex; --why
                records the evidence as closed_reason -- a closed ticket with
                no reason is a claim, one with a reason is a record
@@ -109,8 +115,11 @@ hee-ticket - repo-local tickets, stored as real YAML in git
                old todo's ... cross off all those that are done. let's use
                our own hee ticket system for this. I just want one todo.html".
     -json      every ticket as one JSON document, each with its flow judged
-               (CRITICAL: unreadable, unknown stage, illegal move; WARNING:
-               a move with no why, a close with no reason). --workspace as
+               (CRITICAL: unreadable, unknown stage, illegal move, or a
+               stations entry naming an unknown station or missing at;
+               WARNING: a move with no why, a close with no reason, a
+               factory/dispatch ticket at dogfood with no shape receipt, or
+               closed with no land receipt). --workspace as
                for -list. What hee check tickets and hee view --tickets read.
 
     Exactly one action runs per invocation. If several are passed they are

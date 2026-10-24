@@ -70,6 +70,60 @@ class Repo(unittest.TestCase):
         bad = [t for t in doc["tickets"] if t["id"] == "0002"][0]
         self.assertEqual(bad["flow"][0]["severity"], "CRITICAL")
 
+    def test_station_records_receipt_without_touching_stage(self):
+        r = run(["-station", "1", "shape", "--job", "j1", "--why", "w"], self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("station shape recorded (1 station receipts)", r.stdout)
+        t = self.ticket()
+        self.assertEqual(len(t["stations"]), 1)
+        entry = t["stations"][0]
+        self.assertEqual(entry["station"], "shape")
+        self.assertTrue(entry.get("at"))
+        self.assertIsInstance(entry.get("by"), str)
+        self.assertTrue(entry["by"])
+        self.assertEqual(entry["job"], "j1")
+        self.assertEqual(entry["why"], "w")
+        self.assertEqual(t["stage"], "idea")
+        self.assertEqual(len(t["stage_history"]), 1)
+
+    def test_station_unknown_name_exits_1_and_writes_nothing(self):
+        before = (self.repo / ".hee" / "tickets" / "0001.yaml").read_text()
+        r = run(["-station", "1", "nope"], self.repo)
+        self.assertNotEqual(r.returncode, 0)
+        after = (self.repo / ".hee" / "tickets" / "0001.yaml").read_text()
+        self.assertEqual(before, after)
+
+    def test_close_refuses_factory_dispatch_ticket_with_no_land_receipt(self):
+        run(["-new", "ship it", "--tag", "dispatch,factory"], self.repo)
+        r = run(["-close", "2"], self.repo)
+        self.assertNotEqual(r.returncode, 0)
+        import yaml
+        rec = yaml.safe_load((self.repo / ".hee" / "tickets" / "0002.yaml").read_text())
+        self.assertEqual(rec["status"], "open")
+        self.assertEqual(run(["-station", "2", "land", "--job", "j1"], self.repo).returncode, 0)
+        r = run(["-close", "2"], self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rec = yaml.safe_load((self.repo / ".hee" / "tickets" / "0002.yaml").read_text())
+        self.assertEqual(rec["status"], "closed")
+
+    def test_close_untagged_ticket_still_closes_with_no_receipt(self):
+        r = run(["-close", "1"], self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        t = self.ticket()
+        self.assertEqual(t["status"], "closed")
+
+    def test_json_warns_missing_shape_receipt_then_clears_after_station(self):
+        run(["-new", "dogfood this", "--tag", "dispatch,factory"], self.repo)
+        run(["-advance", "2", "--why", "a"], self.repo)
+        run(["-advance", "2", "--why", "b"], self.repo)
+        doc = json.loads(run(["-json"], self.repo).stdout)
+        t = [t for t in doc["tickets"] if t["id"] == "0002"][0]
+        self.assertTrue(any(f["severity"] == "WARNING" and "shape" in f["what"] for f in t["flow"]), t["flow"])
+        self.assertEqual(run(["-station", "2", "shape", "--job", "j1"], self.repo).returncode, 0)
+        doc = json.loads(run(["-json"], self.repo).stdout)
+        t = [t for t in doc["tickets"] if t["id"] == "0002"][0]
+        self.assertFalse(any(f["severity"] == "WARNING" and "shape" in f["what"] for f in t["flow"]), t["flow"])
+
 
 class Json(unittest.TestCase):
     def test_fixture_workspace_flow_and_octal_id(self):
