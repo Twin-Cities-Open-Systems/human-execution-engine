@@ -19,7 +19,7 @@ metadata:
 spec:
   result: false
   schema-version: 1
-  status: proposed
+  status: ratified
   parent: "blueprints/doctrine/blueprint-doctrine.yaml -- the blueprint that makes blueprints"
   sibling: "blueprints/software-factory-routing-v1.yaml -- who runs each job"
 
@@ -52,7 +52,7 @@ spec:
         today: "the run-a-review skill: the gate measured first, three fresh-context reviewers in parallel by dimension, a verification pass that reproduces or rejects each finding, confirmed findings back to intake as tickets and jobs"
         gap: "the gate's thresholds are unset until ten PRs are measured; posting to the PR is a hand step"
       - station: land
-        today: "the land-a-job skill: a worktree per repo, the repo's own gate in the mode the file demands, a commit with provenance, a self-assigned PR with Measured and Provenance, the PR state checked before any later push, the record and the ticket updated"
+        today: "the land-a-job skill: a worktree per repo, the repo's own gate in the mode the file demands, a commit with provenance, a self-assigned PR with Measured and Provenance, the PR state checked before any later push, the record and the ticket updated; the dispatcher's own verify of the applied change (a page driven in a headless browser, a tool run once for real) is DRIC-v1's completion clause -- requires_disk_evidence, false_positive_completion_invalid -- with the dispatcher as DRIC's oper, because the worker is DRIC's agent and cannot execute; its cost is written to the job record as review.verify_cost"
         gap: "no tool does it; the Model trailer is not applied because the dispatcher authors the commit"
       - station: merge
         today: "the operator, with hee git merge ordering dependent PRs; the agent merges what it opened only outside auto mode and never approves it"
