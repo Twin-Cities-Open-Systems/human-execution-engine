@@ -37,16 +37,19 @@ Usage:
                              #   matched against each ticket's description.
 """
 import argparse
+import getpass
 import html as _html
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 STAGES = ["idea", "footgun", "dogfood"]
+STATIONS = ("shape", "review", "land")
 # idea->footgun<->dogfood (docs/guides/HEE_EXPLAINED.md; the .github
 # glossary's Thesis / Duople entry). An idea moves to footgun: name what could
 # go wrong. A footgun moves to dogfood: prove it with real use. Real use that
@@ -160,6 +163,39 @@ EXIT STATUS
          or pyyaml is not installed
 """
 
+HELP_STATION = """hee-ticket -station -- record that a station ran, in the ticket
+
+SYNOPSIS
+  hee-ticket -station ID STATION [--job JOBID] [--why TEXT]
+
+DESCRIPTION
+  STATION is exactly one of shape, review, land -- the stations a job
+  passes through in TCOS's software factory. Appends one entry to the
+  ticket's `stations` list:
+
+      {station: shape, at: <UTC Z>, by: <who>, job: <JOBID if given>,
+       why: <TEXT if given>}
+
+  `stations` is a new top-level field, separate from `stage_history`, so
+  stage durations stay derivable from stage transitions alone -- a
+  station receipt is not a stage move, and never changes `stage`,
+  `status` or `stage_history`. Entries are never deduped: a second shape
+  (a re-shape one tier up) or a second review is a second entry.
+
+  `by` is whoever ran the station: the one whitespace-free token `hee ver
+  session` prints, when that exits 0 within 2 seconds, else
+  <user>@<hostname>. The write never fails because of it.
+
+  --job records which job ran the station; --why the evidence for it. A
+  station recorded with no --why is kept, and prints the same
+  no-evidence note -advance does.
+
+EXIT STATUS
+  0 OK   recorded
+  1      STATION is not shape, review or land; no such ticket; not
+         inside a git repo; or pyyaml is not installed
+"""
+
 HELP_JSON = """hee-ticket -json -- every ticket as JSON, with its flow judged
 
 SYNOPSIS
@@ -213,13 +249,20 @@ DESCRIPTION
   A ticket that is already closed is reported as a no-op and is not
   re-stamped.
 
+  A ticket whose tags include factory or dispatch, and whose `stations`
+  list carries no `land` entry, is refused rather than closed: every
+  other selected ticket still closes, and an already-closed ticket stays
+  a no-op. Run `hee-ticket -station help` to record the land receipt
+  first.
+
   Note the trailing-`help` rule above: `hee-ticket -close help` prints
   this page rather than closing tickets whose description says "help".
 
 EXIT STATUS
   0 OK   every selected ticket is now closed
-  1      an id in the spec does not exist, a regex matched nothing, not
-         inside a git repo, or pyyaml is not installed
+  1      an id in the spec does not exist, a regex matched nothing, a
+         factory/dispatch ticket has no land receipt, not inside a git
+         repo, or pyyaml is not installed
 
 EXAMPLES
   hee-ticket -close 7
@@ -234,6 +277,7 @@ SYNOPSIS
   hee-ticket -list [SPEC] [--open | --closed]
   hee-ticket -advance ID [--why TEXT]
   hee-ticket -back ID --why TEXT
+  hee-ticket -station ID STATION [--job JOBID] [--why TEXT]
   hee-ticket -close SPEC [--why TEXT]
   hee-ticket -html [--workspace [DIR]] [--out FILE]
   hee-ticket -json [--workspace [DIR]]
@@ -280,6 +324,10 @@ ACTIONS
              run) in stage_history
   -back      dogfood back to footgun, the other half of footgun<->dogfood:
              real use found something. --why is required
+  -station   record that a station (shape, review, land) ran: appends one
+             entry {station, at, by, job, why} to the ticket's `stations`
+             list, separate from stage_history, and never changes stage,
+             status or stage_history. --job names the job that ran it
   -close     close tickets by id, range, or description regex; --why
              records the evidence as closed_reason -- a closed ticket with
              no reason is a claim, one with a reason is a record
@@ -294,8 +342,11 @@ ACTIONS
              old todo's ... cross off all those that are done. let's use
              our own hee ticket system for this. I just want one todo.html".
   -json      every ticket as one JSON document, each with its flow judged
-             (CRITICAL: unreadable, unknown stage, illegal move; WARNING:
-             a move with no why, a close with no reason). --workspace as
+             (CRITICAL: unreadable, unknown stage, illegal move, or a
+             stations entry naming an unknown station or missing at;
+             WARNING: a move with no why, a close with no reason, a
+             factory/dispatch ticket at dogfood with no shape receipt, or
+             closed with no land receipt). --workspace as
              for -list. What hee check tickets and hee view --tickets read.
 
   Exactly one action runs per invocation. If several are passed they are
@@ -321,10 +372,11 @@ ENVIRONMENT
 FILES
   .hee/tickets/<id>.yaml   one record per ticket, under the repo root.
                            Fields written by this tool: id, created_at,
-                           description, status, stage, stage_history, and
-                           when given source, ref, tags, closed_at,
-                           closed_reason. Anything else you add by hand is
-                           kept and, for -html, shown when it is a string.
+                           description, status, stage, stage_history,
+                           stations, and when given source, ref, tags,
+                           closed_at, closed_reason. Anything else you add
+                           by hand is kept and, for -html, shown when it
+                           is a string.
 
 SEE ALSO
   hee-git-merge -- shares the same id/range/regex selector
@@ -336,6 +388,7 @@ _ACTION_HELP = {
     "-list": HELP_LIST,
     "-advance": HELP_ADVANCE,
     "-back": HELP_BACK,
+    "-station": HELP_STATION,
     "-json": HELP_JSON,
     "-close": HELP_CLOSE,
 }
@@ -492,6 +545,37 @@ def cmd_back(tid: str, why=None):
     print(f"hee-ticket {tid}: dogfood -> footgun")
 
 
+def _station_by() -> str:
+    """Whoever ran the station: the one whitespace-free token `hee ver
+    session` prints, when that exits 0 within 2 seconds, else
+    <user>@<hostname>. Never raises -- the write must not fail over this."""
+    try:
+        r = subprocess.run(["hee", "ver", "session"], capture_output=True, text=True, timeout=2)
+        token = r.stdout.strip()
+        if r.returncode == 0 and token and not re.search(r"\s", token):
+            return token
+    except Exception:
+        pass
+    return f"{getpass.getuser()}@{socket.gethostname()}"
+
+
+def cmd_station(tid: str, station: str, job=None, why=None):
+    if station not in STATIONS:
+        sys.exit(f"hee-ticket -station: '{station}' is not one of {', '.join(STATIONS)}")
+    tid, path, rec, cur = _read_ticket(tid, "-station")
+    entry = {"station": station, "at": now_iso(), "by": _station_by()}
+    if job:
+        entry["job"] = job
+    if why:
+        entry["why"] = why
+    stations = rec.setdefault("stations", [])
+    stations.append(entry)
+    with open(path, "w") as f:
+        yaml.safe_dump(rec, f, sort_keys=False)
+    print(f"hee-ticket {tid}: station {station} recorded ({len(stations)} station receipts)"
+          + ("" if why else "  (no --why: recorded without evidence)"))
+
+
 def die(msg):
     sys.exit(f"hee-ticket: {msg}")
 
@@ -518,11 +602,17 @@ def cmd_close(spec: str, why=None):
         print(f"hee-ticket -close: no tickets matched '{spec}'", file=sys.stderr)
         sys.exit(1)
 
-    ok, already = [], []
+    ok, already, blocked = [], [], []
     for rec in matched:
         tid = rec["id"]
         if rec.get("status") == "closed":
             already.append(tid)
+            continue
+        tags = set(rec.get("tags") or [])
+        stations = rec.get("stations") or []
+        has_land = any(s.get("station") == "land" for s in stations)
+        if (tags & {"factory", "dispatch"}) and not has_land:
+            blocked.append(tid)
             continue
         rec["status"] = "closed"
         rec["closed_at"] = now_iso()
@@ -535,9 +625,12 @@ def cmd_close(spec: str, why=None):
         print(f"hee-ticket {tid}: closed")
     for tid in already:
         print(f"hee-ticket {tid}: already closed, no-op")
+    for tid in blocked:
+        print(f"hee-ticket {tid}: tagged factory/dispatch with no land receipt -- run "
+              f"hee ticket -station {tid} land --job JID --why 'REPO#N' first", file=sys.stderr)
     for tid in missing:
         print(f"hee-ticket {tid}: no such ticket", file=sys.stderr)
-    if missing:
+    if missing or blocked:
         sys.exit(1)
 
 
@@ -775,6 +868,21 @@ def flow_findings(rec):
             out.append({"severity": "WARNING", "what": f"move to {b.get('stage')} at {b.get('at')} records no why"})
     if rec.get("status") == "closed" and not str(rec.get("closed_reason") or "").strip():
         out.append({"severity": "WARNING", "what": "closed with no closed_reason"})
+    stations = rec.get("stations") or []
+    for s in stations:
+        if s.get("station") not in STATIONS or not s.get("at"):
+            what = f"stations entry {s!r} names an unknown station or has no at"
+            out.append({"severity": "CRITICAL", "what": what})
+    tags = set(rec.get("tags") or [])
+    has_shape = any(s.get("station") == "shape" for s in stations)
+    has_land = any(s.get("station") == "land" for s in stations)
+    if tags & {"factory", "dispatch"}:
+        if stage == "dogfood" and not has_shape:
+            what = "factory/dispatch ticket at dogfood with no shape receipt"
+            out.append({"severity": "WARNING", "what": what})
+        if rec.get("status") == "closed" and not has_land:
+            what = "factory/dispatch ticket closed with no land receipt"
+            out.append({"severity": "WARNING", "what": what})
     return out
 
 
@@ -808,6 +916,8 @@ def main():
     ap.add_argument("-list", nargs="?", const="", default=None, metavar="SPEC")
     ap.add_argument("-advance", dest="advance_id", metavar="ID")
     ap.add_argument("-back", dest="back_id", metavar="ID")
+    ap.add_argument("-station", nargs=2, metavar=("ID", "STATION"))
+    ap.add_argument("--job", metavar="JOBID")
     ap.add_argument("-close", dest="close_ids", metavar="ID[,ID...]")
     ap.add_argument("-html", action="store_true")
     ap.add_argument("-json", action="store_true")
@@ -835,6 +945,8 @@ def main():
         cmd_advance(args.advance_id, why=args.why)
     elif args.back_id:
         cmd_back(args.back_id, why=args.why)
+    elif args.station:
+        cmd_station(args.station[0], args.station[1], job=args.job, why=args.why)
     elif args.close_ids:
         cmd_close(args.close_ids, why=args.why)
     elif args.html:
